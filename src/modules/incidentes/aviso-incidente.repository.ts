@@ -85,7 +85,7 @@ export async function buscarAvisoDuplicadoCercano({
     .selectAll()
     .where("tipo_afectacion", "=", tipoAfectacion)
     .where("es_duplicado", "=", false)
-    .where("creado_en", ">=", sql`CURRENT_TIMESTAMP - (${horasVentana} || ' hours')::interval`)
+    .where("creado_en", ">=", sql<Date>`CURRENT_TIMESTAMP - (${horasVentana} || ' hours')::interval`)
     .where(
       sql<boolean>`ST_DWithin(
         ubicacion::geography,
