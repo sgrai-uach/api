@@ -49,10 +49,38 @@ export interface UsuarioTable {
   creado_en: Generated<Date>;
 }
 
+export type EstadoAvisoIncidente =
+  | "PENDIENTE_VERIFICACION"
+  | "VERIFICANDO"
+  | "EN_ATENCION"
+  | "RESUELTO"
+  | "DESCARTADO";
+
+export interface AvisoIncidenteTable {
+  id: Generated<string>;
+  codigo_seguimiento: string;
+  tipo_afectacion: string;
+  direccion_texto: string;
+  latitud: number;
+  longitud: number;
+  ubicacion: ColumnType<unknown, unknown, unknown>;
+  descripcion: string | null;
+  informante_nombre: string;
+  informante_rut: string;
+  informante_telefono: string | null;
+  estado: ColumnType<EstadoAvisoIncidente, EstadoAvisoIncidente | undefined, EstadoAvisoIncidente>;
+  es_duplicado: ColumnType<boolean, boolean | undefined, boolean>;
+  aviso_original_id: string | null;
+  incidente_id: string | null;
+  creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
+}
+
 export interface Database {
   recurso: RecursoTable;
   permiso: PermisoTable;
   rol: RolTable;
   rol_permiso: RolPermisoTable;
   usuario: UsuarioTable;
+  aviso_incidente: AvisoIncidenteTable;
 }
