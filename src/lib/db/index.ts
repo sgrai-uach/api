@@ -1,10 +1,15 @@
-/**
- * Configuración de Kysely (query builder) para PostgreSQL + PostGIS.
- *
- * Este módulo exportará la instancia del query builder configurada
- * contra la base de datos relacional del SGRAI.
- *
- * TODO: Implementar conexión con PostgreSQL y definir tipos de la DB.
- */
+import { Kysely, PostgresDialect } from "kysely";
+import { Pool } from "pg";
+import type { Database } from "./types";
 
-export {};
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || "postgresql://sgrai:sgrai_dev@localhost:5432/sgrai",
+});
+
+export const db = new Kysely<Database>({
+  dialect: new PostgresDialect({
+    pool,
+  }),
+});
+
+export type { Database } from "./types";
