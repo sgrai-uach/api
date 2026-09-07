@@ -1,0 +1,256 @@
+import {
+  emitirAvisoDescartado,
+  emitirAvisoVerificado,
+  emitirNuevoAviso,
+} from "../../lib/socket";
+import { incidentesRepository, IncidentesRepository } from "./repository";
+import type {
+  CrearAvisoInput,
+  DescartarAvisoInput,
+  ListarAvisosQuery,
+  VerificarAvisoInput,
+} from "./schema";
+import type {
+  AvisoDetalleDTO,
+  AvisoItemDTO,
+  PaginacionResultado,
+} from "./types";
+
+export class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NotFoundError";
+  }
+}
+
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
+
+export class IncidentesService {
+  constructor(private repo: IncidentesRepository = incidentesRepository) {}
+
+  /**
+   * Calcula los minutos transcurridos desde la creación hasta el momento actual.
+   */
+  calcularMinutosEnEspera(creadoEn: Date | string): number {
+    const fecha = typeof creadoEn === "string" ? new Date(creadoEn) : creadoEn;
+    const diffMs = Date.now() - fecha.getTime();
+    return Math.max(0, Math.floor(diffMs / 60000));
+  }
+
+  /**
+   * Registra un nuevo aviso emitido por un informante y notifica a los operadores.
+   */
+  async crearAviso(input: CrearAvisoInput) {
+    const row = await this.repo.insertarAviso(input);
+
+    const avisoItem: AvisoItemDTO = {
+      id: row.id,
+      tipoPreliminarId: row.tipo_preliminar_id,
+      tipoPreliminarNombre: null,
+      descripcion: row.descripcion,
+      latitud: Number(row.latitud),
+      longitud: Number(row.longitud),
+      origenReporte: row.origen_reporte,
+      estado: row.estado,
+      motivoDescarte: row.motivo_descarte,
+      operadorId: row.operador_id,
+      incidenteId: row.incidente_id,
+      minutosEnEspera: 0,
+      creadoEn: new Date(row.creado_en).toISOString(),
+      actualizadoEn: new Date(row.actualizado_en).toISOString(),
+    };
+
+    // Emitir evento en tiempo real
+    emitirNuevoAviso(avisoItem as unknown as Record<string, unknown>);
+
+    return avisoItem;
+  }
+
+  /**
+   * Consulta paginada de avisos ordenados por mayor tiempo de espera.
+   */
+  async listarAvisos(
+    query: ListarAvisosQuery
+  ): Promise<PaginacionResultado<AvisoItemDTO>> {
+    const { rows, total } = await this.repo.obtenerAvisosPaginados(
+      query.page,
+      query.limit,
+      query.estado
+    );
+
+    const data: AvisoItemDTO[] = rows.map((row) => ({
+      id: row.id,
+      tipoPreliminarId: row.tipoPreliminarId,
+      tipoPreliminarNombre: row.tipoPreliminarNombre,
+      descripcion: row.descripcion,
+      latitud: Number(row.latitud),
+      longitud: Number(row.longitud),
+      origenReporte: row.origenReporte,
+      estado: row.estado,
+      motivoDescarte: row.motivoDescarte,
+      operadorId: row.operadorId,
+      incidenteId: row.incidenteId,
+      minutosEnEspera: this.calcularMinutosEnEspera(row.creadoEn),
+      creadoEn: new Date(row.creadoEn).toISOString(),
+      actualizadoEn: new Date(row.actualizadoEn).toISOString(),
+    }));
+
+    return {
+      data,
+      pagination: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit) || 1,
+      },
+    };
+  }
+
+  /**
+   * Consulta el detalle completo de un aviso por su ID.
+   */
+  async obtenerDetalleAviso(id: string): Promise<AvisoDetalleDTO> {
+    const row = await this.repo.obtenerAvisoPorId(id);
+
+    if (!row) {
+      throw new NotFoundError(`Aviso con ID ${id} no encontrado`);
+    }
+
+    return {
+      id: row.id,
+      tipoPreliminarId: row.tipoPreliminarId,
+      tipoPreliminarNombre: row.tipoPreliminarNombre,
+      descripcion: row.descripcion,
+      latitud: Number(row.latitud),
+      longitud: Number(row.longitud),
+      datosInformante: (row.datosInformante || {}) as Record<string, unknown>,
+      origenReporte: row.origenReporte,
+      estado: row.estado,
+      motivoDescarte: row.motivoDescarte,
+      operadorId: row.operadorId,
+      incidenteId: row.incidenteId,
+      minutosEnEspera: this.calcularMinutosEnEspera(row.creadoEn),
+      creadoEn: new Date(row.creadoEn).toISOString(),
+      actualizadoEn: new Date(row.actualizadoEn).toISOString(),
+      adjuntos: (row.adjuntos || []).map((adj) => ({
+        id: adj.id,
+        nombreArchivo: adj.nombreArchivo,
+        url: adj.url,
+        tipoMime: adj.tipoMime,
+        tamanoBytes: Number(adj.tamanoBytes),
+        creadoEn: new Date(adj.creadoEn).toISOString(),
+      })),
+    };
+  }
+
+  /**
+   * Procesa la acción "Verificar y Enviar" atómicamente a Incidente.
+   */
+  async verificarAviso(
+    avisoId: string,
+    input: VerificarAvisoInput,
+    operadorId: string
+  ) {
+    try {
+      const resultado = await this.repo.verificarYCrearIncidenteTrx(
+        avisoId,
+        input,
+        operadorId
+      );
+
+      // Notificar vía Socket.io a Call Center y Encargado
+      emitirAvisoVerificado({
+        avisoId,
+        incidenteId: resultado.incidente.id,
+        folio: resultado.incidente.folio,
+      });
+
+      return {
+        mensaje: "Aviso verificado exitosamente y promovido a Incidente",
+        incidente: {
+          id: resultado.incidente.id,
+          folio: resultado.incidente.folio,
+          tipoIncidenteId: resultado.incidente.tipo_incidente_id,
+          estado: resultado.incidente.estado,
+          descripcion: resultado.incidente.descripcion,
+          latitud: Number(resultado.incidente.latitud),
+          longitud: Number(resultado.incidente.longitud),
+          requiereAsistenciaSocial: resultado.incidente.requiere_asistencia_social,
+          creadoPorId: resultado.incidente.creado_por_id,
+          creadoEn: new Date(resultado.incidente.creado_en).toISOString(),
+        },
+        aviso: {
+          id: resultado.aviso.id,
+          estado: resultado.aviso.estado,
+          incidenteId: resultado.aviso.incidente_id,
+          operadorId: resultado.aviso.operador_id,
+          actualizadoEn: new Date(resultado.aviso.actualizado_en).toISOString(),
+        },
+      };
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        if (error.message === "AVISO_NOT_FOUND") {
+          throw new NotFoundError(`Aviso con ID ${avisoId} no encontrado`);
+        }
+        if (error.message === "AVISO_ALREADY_PROCESSED") {
+          throw new ConflictError(
+            "El aviso ya fue procesado o verificado previamente por otro operador"
+          );
+        }
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Descarta un aviso con justificación obligatoria.
+   */
+  async descartarAviso(
+    avisoId: string,
+    input: DescartarAvisoInput,
+    operadorId: string
+  ) {
+    try {
+      const actualizado = await this.repo.descartarAviso(
+        avisoId,
+        input.motivoDescarte,
+        operadorId
+      );
+
+      emitirAvisoDescartado({
+        avisoId,
+        motivoDescarte: input.motivoDescarte,
+      });
+
+      return {
+        mensaje: "Aviso descartado exitosamente",
+        aviso: {
+          id: actualizado.id,
+          estado: actualizado.estado,
+          motivoDescarte: actualizado.motivo_descarte,
+          operadorId: actualizado.operador_id,
+          actualizadoEn: new Date(actualizado.actualizado_en).toISOString(),
+        },
+      };
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        if (error.message === "AVISO_NOT_FOUND") {
+          throw new NotFoundError(`Aviso con ID ${avisoId} no encontrado`);
+        }
+        if (error.message === "AVISO_ALREADY_PROCESSED") {
+          throw new ConflictError(
+            "El aviso ya fue procesado o descartado previamente"
+          );
+        }
+      }
+      throw error;
+    }
+  }
+}
+
+export const incidentesService = new IncidentesService();
