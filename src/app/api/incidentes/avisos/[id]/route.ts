@@ -3,7 +3,7 @@ import {
   ConflictError,
   incidentesService,
   NotFoundError,
-} from "../../../../../modules/incidentes/service";
+} from "@/modules/incidentes/service";
 
 interface RouteContext {
   params: Promise<{ id: string }>;

@@ -3,8 +3,8 @@ import { ZodError } from "zod";
 import {
   CrearAvisoInputSchema,
   ListarAvisosQuerySchema,
-} from "../../../../modules/incidentes/schema";
-import { incidentesService } from "../../../../modules/incidentes/service";
+} from "@/modules/incidentes/schema";
+import { incidentesService } from "@/modules/incidentes/service";
 
 /**
  * GET /api/incidentes/avisos

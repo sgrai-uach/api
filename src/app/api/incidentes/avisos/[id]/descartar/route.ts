@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { DescartarAvisoInputSchema } from "../../../../../modules/incidentes/schema";
+import { DescartarAvisoInputSchema } from "@/modules/incidentes/schema";
 import {
   ConflictError,
   incidentesService,
   NotFoundError,
-} from "../../../../../modules/incidentes/service";
+} from "@/modules/incidentes/service";
 
 interface RouteContext {
   params: Promise<{ id: string }>;

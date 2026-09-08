@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
-import { FileMigrationProvider, Migrator } from "kysely";
+import { FileMigrationProvider, Migrator, MigrationResult } from "kysely/migration";
 import { db } from "./index";
 
 export async function migrateToLatest() {
@@ -16,7 +16,7 @@ export async function migrateToLatest() {
   console.log("Iniciando ejecución de migraciones en la base de datos...");
   const { error, results } = await migrator.migrateToLatest();
 
-  results?.forEach((it) => {
+  results?.forEach((it: MigrationResult) => {
     if (it.status === "Success") {
       console.log(`[OK] Migración ejecutada con éxito: "${it.migrationName}"`);
     } else if (it.status === "Error") {
