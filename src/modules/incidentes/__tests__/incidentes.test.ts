@@ -90,7 +90,7 @@ describe("Módulo de Incidentes — Pruebas de Esquemas Zod", () => {
 
     expect(parsed.page).toBe(2);
     expect(parsed.limit).toBe(15);
-    expect(parsed.estado).toBe("NO_VERIFICADO");
+    expect(parsed.estado).toBe("PENDIENTE_VERIFICACION");
   });
 });
 

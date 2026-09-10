@@ -16,14 +16,20 @@ export interface TipoIncidenteTable {
  */
 export interface AvisoIncidenteTable {
   id: Generated<string>;
-  tipo_preliminar_id: string | null;
-  descripcion: string;
+  codigo_seguimiento: string;
+  tipo_afectacion: string;
+  direccion_texto: string;
   latitud: number;
   longitud: number;
-  ubicacion: unknown | null;
-  datos_informante: Record<string, unknown>;
-  origen_reporte: "WEB" | "CHATBOT" | "TELEFONO";
-  estado: "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO";
+  ubicacion: unknown;
+  descripcion: string | null;
+  informante_nombre: string;
+  informante_rut: string;
+  informante_telefono: string | null;
+  origen_reporte: Generated<"WEB" | "CHATBOT" | "TELEFONO">;
+  estado: Generated<"PENDIENTE_VERIFICACION" | "VERIFICADO" | "DESCARTADO">;
+  es_duplicado: Generated<boolean>;
+  aviso_original_id: string | null;
   motivo_descarte: string | null;
   operador_id: string | null;
   incidente_id: string | null;

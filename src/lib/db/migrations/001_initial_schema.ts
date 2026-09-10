@@ -16,18 +16,24 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     )
   `.execute(db);
 
-  // 3. Tabla aviso_incidente
+  // 3. Tabla aviso_incidente (Armonizada con H1 Chatbot e H52 Call Center)
   await sql`
     CREATE TABLE IF NOT EXISTS aviso_incidente (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-      tipo_preliminar_id UUID REFERENCES tipo_incidente(id),
-      descripcion TEXT NOT NULL,
+      codigo_seguimiento VARCHAR(20) NOT NULL,
+      tipo_afectacion VARCHAR(100) NOT NULL,
+      direccion_texto TEXT NOT NULL,
       latitud DECIMAL(10, 7) NOT NULL,
       longitud DECIMAL(10, 7) NOT NULL,
-      ubicacion GEOMETRY(Point, 4326),
-      datos_informante JSONB NOT NULL DEFAULT '{}'::jsonb,
-      origen_reporte VARCHAR(50) NOT NULL DEFAULT 'WEB',
-      estado VARCHAR(50) NOT NULL DEFAULT 'NO_VERIFICADO',
+      ubicacion GEOMETRY(Point, 4326) NOT NULL,
+      descripcion TEXT,
+      informante_nombre VARCHAR(150) NOT NULL,
+      informante_rut VARCHAR(12) NOT NULL,
+      informante_telefono VARCHAR(20),
+      origen_reporte VARCHAR(50) NOT NULL DEFAULT 'CHATBOT',
+      estado VARCHAR(50) NOT NULL DEFAULT 'PENDIENTE_VERIFICACION',
+      es_duplicado BOOLEAN NOT NULL DEFAULT FALSE,
+      aviso_original_id UUID REFERENCES aviso_incidente(id) ON DELETE SET NULL,
       motivo_descarte TEXT NULL,
       operador_id UUID NULL,
       incidente_id UUID NULL,
@@ -37,13 +43,23 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   `.execute(db);
 
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_aviso_incidente_estado_fecha 
-    ON aviso_incidente(estado, creado_en ASC)
+    CREATE INDEX IF NOT EXISTS idx_aviso_incidente_ubicacion 
+    ON aviso_incidente USING GIST (ubicacion)
   `.execute(db);
 
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_aviso_incidente_ubicacion 
-    ON aviso_incidente USING GIST (ubicacion)
+    CREATE INDEX IF NOT EXISTS idx_aviso_incidente_codigo 
+    ON aviso_incidente (codigo_seguimiento)
+  `.execute(db);
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_aviso_incidente_tipo_creado 
+    ON aviso_incidente (tipo_afectacion, creado_en)
+  `.execute(db);
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_aviso_incidente_estado_fecha 
+    ON aviso_incidente(estado, creado_en ASC)
   `.execute(db);
 
   // 4. Tabla incidente

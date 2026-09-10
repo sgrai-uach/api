@@ -16,28 +16,69 @@ export const ListarAvisosQuerySchema = z.object({
     example: 20,
   }),
   estado: z
-    .enum(["NO_VERIFICADO", "VERIFICADO", "DESCARTADO"])
-    .default("NO_VERIFICADO")
+    .enum(["PENDIENTE_VERIFICACION", "NO_VERIFICADO", "VERIFICADO", "DESCARTADO"])
+    .default("PENDIENTE_VERIFICACION")
     .openapi({
-      description: "Estado del aviso a consultar (por defecto NO_VERIFICADO)",
-      example: "NO_VERIFICADO",
+      description: "Estado del aviso a consultar (por defecto PENDIENTE_VERIFICACION)",
+      example: "PENDIENTE_VERIFICACION",
     }),
 });
 
 export type ListarAvisosQuery = z.infer<typeof ListarAvisosQuerySchema>;
 
 /**
- * Esquema para el registro de un nuevo aviso por un informante.
+ * Esquema para el registro de un nuevo aviso por un informante o chatbot.
  */
 export const CrearAvisoInputSchema = z
   .object({
+    tipoAfectacion: z
+      .string()
+      .trim()
+      .default("Anegamiento")
+      .openapi({
+        description: "Tipo de afectación reportada (ej: Inundación, Anegamiento, etc.)",
+        example: "Anegamiento",
+      }),
+    direccion: z
+      .string()
+      .trim()
+      .default("Valdivia, Los Ríos")
+      .openapi({
+        description: "Dirección en texto del incidente",
+        example: "Avenida Los Robles con Los Laureles, Isla Teja",
+      }),
     descripcion: z
       .string()
       .trim()
       .min(5, "La descripción debe tener al menos 5 caracteres")
+      .optional()
       .openapi({
         description: "Descripción detallada del incidente reportado",
         example: "Desborde de río e inundación de viviendas cercanas",
+      }),
+    informanteNombre: z
+      .string()
+      .trim()
+      .default("Vecino Valdivia")
+      .openapi({
+        description: "Nombre del informante",
+        example: "Juan Pérez",
+      }),
+    informanteRut: z
+      .string()
+      .trim()
+      .default("11111111-1")
+      .openapi({
+        description: "RUT del informante",
+        example: "12345678-5",
+      }),
+    informanteTelefono: z
+      .string()
+      .trim()
+      .optional()
+      .openapi({
+        description: "Teléfono de contacto del informante",
+        example: "+56912345678",
       }),
     latitud: z
       .number()
@@ -55,20 +96,19 @@ export const CrearAvisoInputSchema = z
         description: "Coordenada longitud en grados decimales",
         example: -73.2459,
       }),
-    tipoPreliminarId: z
-      .string()
-      .uuid("Debe ser un UUID válido")
-      .optional()
-      .openapi({
-        description: "ID del catálogo tipo_incidente preliminar (opcional)",
-        example: "a0000000-0000-0000-0000-000000000001",
-      }),
     origenReporte: z
       .enum(["WEB", "CHATBOT", "TELEFONO"])
       .default("WEB")
       .openapi({
         description: "Canal por el cual ingresó el aviso",
         example: "WEB",
+      }),
+    tipoPreliminarId: z
+      .string()
+      .uuid("Debe ser un UUID válido")
+      .optional()
+      .openapi({
+        description: "ID opcional del catálogo de tipo de incidente",
       }),
     datosInformante: z
       .object({
@@ -78,9 +118,8 @@ export const CrearAvisoInputSchema = z
         direccionAproximada: z.string().trim().optional(),
       })
       .optional()
-      .default({})
       .openapi({
-        description: "Datos de contacto o identificación del informante",
+        description: "Datos informante en formato JSON legacy (opcional)",
       }),
   })
   .openapi("CrearAvisoInput");
@@ -145,13 +184,20 @@ export type DescartarAvisoInput = z.infer<typeof DescartarAvisoInputSchema>;
 export const AvisoItemSchema = z
   .object({
     id: z.string().uuid(),
-    tipoPreliminarId: z.string().uuid().nullable(),
+    codigoSeguimiento: z.string(),
+    tipoAfectacion: z.string(),
     tipoPreliminarNombre: z.string().nullable(),
-    descripcion: z.string(),
+    direccionTexto: z.string(),
+    descripcion: z.string().nullable(),
     latitud: z.number(),
     longitud: z.number(),
+    informanteNombre: z.string(),
+    informanteRut: z.string(),
+    informanteTelefono: z.string().nullable(),
     origenReporte: z.enum(["WEB", "CHATBOT", "TELEFONO"]),
-    estado: z.enum(["NO_VERIFICADO", "VERIFICADO", "DESCARTADO"]),
+    estado: z.enum(["PENDIENTE_VERIFICACION", "NO_VERIFICADO", "VERIFICADO", "DESCARTADO"]),
+    esDuplicado: z.boolean(),
+    avisoOriginalId: z.string().uuid().nullable().optional(),
     motivoDescarte: z.string().nullable(),
     operadorId: z.string().uuid().nullable(),
     incidenteId: z.string().uuid().nullable(),

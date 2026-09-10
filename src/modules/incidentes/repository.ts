@@ -4,20 +4,33 @@ import type { CrearAvisoInput, VerificarAvisoInput } from "./schema";
 
 export class IncidentesRepository {
   /**
-   * Inserta un nuevo aviso generado por un informante.
+   * Inserta un nuevo aviso generado por un informante o chatbot.
    */
   async insertarAviso(input: CrearAvisoInput) {
+    const codigoSeguimiento = Math.floor(10000000 + Math.random() * 90000000).toString();
+    const tipoAfectacion = input.tipoAfectacion || "Anegamiento";
+    const direccionTexto = input.direccion || input.datosInformante?.direccionAproximada || "Valdivia";
+    const informanteNombre = input.informanteNombre || input.datosInformante?.nombre || "Vecino Valdivia";
+    const informanteRut = input.informanteRut || input.datosInformante?.rut || "11111111-1";
+    const informanteTelefono = input.informanteTelefono || input.datosInformante?.telefono || null;
+
     const res = await db
       .insertInto("aviso_incidente")
       .values({
-        descripcion: input.descripcion,
+        codigo_seguimiento: codigoSeguimiento,
+        tipo_afectacion: tipoAfectacion,
+        direccion_texto: direccionTexto,
+        descripcion: input.descripcion || null,
         latitud: input.latitud,
         longitud: input.longitud,
         ubicacion: sql`ST_SetSRID(ST_MakePoint(${input.longitud}, ${input.latitud}), 4326)`,
-        tipo_preliminar_id: input.tipoPreliminarId || null,
-        origen_reporte: input.origenReporte,
-        datos_informante: input.datosInformante || {},
-        estado: "NO_VERIFICADO",
+        informante_nombre: informanteNombre,
+        informante_rut: informanteRut,
+        informante_telefono: informanteTelefono,
+        origen_reporte: input.origenReporte || "WEB",
+        estado: "PENDIENTE_VERIFICACION",
+        es_duplicado: false,
+        aviso_original_id: null,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -31,10 +44,11 @@ export class IncidentesRepository {
    */
   async obtenerAvisosPaginados(page: number, limit: number, estado: string) {
     const offset = (page - 1) * limit;
+    const estadoNormalizado = estado === "NO_VERIFICADO" ? "PENDIENTE_VERIFICACION" : estado;
 
     const baseQuery = db
       .selectFrom("aviso_incidente")
-      .where("aviso_incidente.estado", "=", estado as "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO");
+      .where("aviso_incidente.estado", "=", estadoNormalizado as "PENDIENTE_VERIFICACION" | "VERIFICADO" | "DESCARTADO");
 
     // Conteo total de registros con el filtro dado
     const totalResult = await baseQuery
@@ -43,20 +57,26 @@ export class IncidentesRepository {
 
     const total = Number(totalResult?.count || 0);
 
-    // Consulta de datos con join al catálogo tipo_incidente
+    // Consulta de datos
     const rows = await db
       .selectFrom("aviso_incidente")
-      .leftJoin("tipo_incidente", "tipo_incidente.id", "aviso_incidente.tipo_preliminar_id")
-      .where("aviso_incidente.estado", "=", estado as "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO")
+      .where("aviso_incidente.estado", "=", estadoNormalizado as "PENDIENTE_VERIFICACION" | "VERIFICADO" | "DESCARTADO")
       .select([
         "aviso_incidente.id",
-        "aviso_incidente.tipo_preliminar_id as tipoPreliminarId",
-        "tipo_incidente.nombre as tipoPreliminarNombre",
+        "aviso_incidente.codigo_seguimiento as codigoSeguimiento",
+        "aviso_incidente.tipo_afectacion as tipoAfectacion",
+        "aviso_incidente.tipo_afectacion as tipoPreliminarNombre",
+        "aviso_incidente.direccion_texto as direccionTexto",
         "aviso_incidente.descripcion",
         "aviso_incidente.latitud",
         "aviso_incidente.longitud",
+        "aviso_incidente.informante_nombre as informanteNombre",
+        "aviso_incidente.informante_rut as informanteRut",
+        "aviso_incidente.informante_telefono as informanteTelefono",
         "aviso_incidente.origen_reporte as origenReporte",
         "aviso_incidente.estado",
+        "aviso_incidente.es_duplicado as esDuplicado",
+        "aviso_incidente.aviso_original_id as avisoOriginalId",
         "aviso_incidente.motivo_descarte as motivoDescarte",
         "aviso_incidente.operador_id as operadorId",
         "aviso_incidente.incidente_id as incidenteId",
@@ -77,18 +97,23 @@ export class IncidentesRepository {
   async obtenerAvisoPorId(id: string) {
     const aviso = await db
       .selectFrom("aviso_incidente")
-      .leftJoin("tipo_incidente", "tipo_incidente.id", "aviso_incidente.tipo_preliminar_id")
       .where("aviso_incidente.id", "=", id)
       .select([
         "aviso_incidente.id",
-        "aviso_incidente.tipo_preliminar_id as tipoPreliminarId",
-        "tipo_incidente.nombre as tipoPreliminarNombre",
+        "aviso_incidente.codigo_seguimiento as codigoSeguimiento",
+        "aviso_incidente.tipo_afectacion as tipoAfectacion",
+        "aviso_incidente.tipo_afectacion as tipoPreliminarNombre",
+        "aviso_incidente.direccion_texto as direccionTexto",
         "aviso_incidente.descripcion",
         "aviso_incidente.latitud",
         "aviso_incidente.longitud",
-        "aviso_incidente.datos_informante as datosInformante",
+        "aviso_incidente.informante_nombre as informanteNombre",
+        "aviso_incidente.informante_rut as informanteRut",
+        "aviso_incidente.informante_telefono as informanteTelefono",
         "aviso_incidente.origen_reporte as origenReporte",
         "aviso_incidente.estado",
+        "aviso_incidente.es_duplicado as esDuplicado",
+        "aviso_incidente.aviso_original_id as avisoOriginalId",
         "aviso_incidente.motivo_descarte as motivoDescarte",
         "aviso_incidente.operador_id as operadorId",
         "aviso_incidente.incidente_id as incidenteId",
@@ -114,6 +139,12 @@ export class IncidentesRepository {
 
     return {
       ...aviso,
+      datosInformante: {
+        nombre: aviso.informanteNombre,
+        rut: aviso.informanteRut,
+        telefono: aviso.informanteTelefono || "",
+        direccionAproximada: aviso.direccionTexto,
+      },
       adjuntos,
     };
   }
@@ -140,7 +171,7 @@ export class IncidentesRepository {
         throw new Error("AVISO_NOT_FOUND");
       }
 
-      if (aviso.estado !== "NO_VERIFICADO") {
+      if (aviso.estado !== "PENDIENTE_VERIFICACION") {
         throw new Error("AVISO_ALREADY_PROCESSED");
       }
 
@@ -155,7 +186,7 @@ export class IncidentesRepository {
       const folio = `INC-${year}-${String(nextNumber).padStart(4, "0")}`;
 
       // 3. Crear registro formal en la tabla incidente
-      const descripcionFinal = input.descripcion || aviso.descripcion;
+      const descripcionFinal = input.descripcion || aviso.descripcion || aviso.tipo_afectacion;
       const nuevoIncidente = await trx
         .insertInto("incidente")
         .values({
@@ -216,7 +247,7 @@ export class IncidentesRepository {
         throw new Error("AVISO_NOT_FOUND");
       }
 
-      if (aviso.estado !== "NO_VERIFICADO") {
+      if (aviso.estado !== "PENDIENTE_VERIFICACION") {
         throw new Error("AVISO_ALREADY_PROCESSED");
       }
 

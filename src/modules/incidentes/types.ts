@@ -1,4 +1,4 @@
-export type EstadoAviso = "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO";
+export type EstadoAviso = "PENDIENTE_VERIFICACION" | "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO";
 
 export type EstadoIncidente =
   | "Reportado"
@@ -18,13 +18,20 @@ export interface DatosInformante {
 
 export interface AvisoItemDTO {
   id: string;
-  tipoPreliminarId: string | null;
+  codigoSeguimiento: string;
+  tipoAfectacion: string;
   tipoPreliminarNombre: string | null;
-  descripcion: string;
+  direccionTexto: string;
+  descripcion: string | null;
   latitud: number;
   longitud: number;
+  informanteNombre: string;
+  informanteRut: string;
+  informanteTelefono: string | null;
   origenReporte: OrigenReporte;
   estado: EstadoAviso;
+  esDuplicado: boolean;
+  avisoOriginalId?: string | null;
   motivoDescarte: string | null;
   operadorId: string | null;
   incidenteId: string | null;
