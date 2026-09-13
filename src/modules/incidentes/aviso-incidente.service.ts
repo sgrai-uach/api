@@ -3,15 +3,22 @@ import {
   insertarAvisoIncidente,
   buscarAvisoDuplicadoCercano,
   buscarAvisoPorCodigo,
+  buscarIncidentesYDuplicadosCercanos,
+  insertarIncidenteManualTransaccional,
 } from "./aviso-incidente.repository";
 import {
   normalizarRutChileno,
   generarCodigoSeguimientoNumerico,
 } from "./aviso-incidente.utils";
+import { notificarIncidenteCreado } from "@/lib/socket";
 import type {
   CrearAvisoIncidenteInput,
   AvisoIncidenteResponse,
   ConsultaSeguimientoResponse,
+  CrearIncidenteManualInput,
+  CrearIncidenteManualResponse,
+  VerificarDuplicadoInput,
+  VerificarDuplicadoResponse,
 } from "./aviso-incidente.schema";
 
 export async function registrarAvisoDesdeChatbot(
@@ -119,5 +126,148 @@ export async function consultarAvisoPorSeguimiento(
     creadoEn:
       typeof aviso.creado_en === "string" ? aviso.creado_en : aviso.creado_en.toISOString(),
     esDuplicado: aviso.es_duplicado,
+  };
+}
+
+export class ConflictoDuplicadoError extends Error {
+  public coincidencias: unknown[];
+
+  constructor(mensaje: string, coincidencias: unknown[]) {
+    super(mensaje);
+    this.name = "ConflictoDuplicadoError";
+    this.coincidencias = coincidencias;
+  }
+}
+
+/**
+ * Permite al Call Center consultar si una dirección y tipo de afectación ya tiene
+ * reportes o incidentes cercanos registrados, para alertar visualmente en el formulario.
+ */
+export async function verificarDuplicadosManual(
+  input: VerificarDuplicadoInput
+): Promise<VerificarDuplicadoResponse> {
+  const coordenadas =
+    input.latitud != null && input.longitud != null
+      ? { latitud: input.latitud, longitud: input.longitud }
+      : await geocodificarDireccion(input.direccion);
+
+  const coincidencias = await buscarIncidentesYDuplicadosCercanos({
+    tipoAfectacion: input.tipoAfectacion,
+    latitud: coordenadas.latitud,
+    longitud: coordenadas.longitud,
+    radioMetros: input.radioMetros ?? 300,
+    horasVentana: input.horasVentana ?? 24,
+  });
+
+  return {
+    hayDuplicados: coincidencias.length > 0,
+    coincidencias,
+  };
+}
+
+/**
+ * Registra manualmente un incidente desde Call Center o funcionario en terreno.
+ * Valida o resuelve coordenadas, verifica duplicados a menos que se fuerce la creación,
+ * y en una sola transacción atómica inserta el aviso y promueve el incidente en estado SIN_ATENDER.
+ */
+export async function crearIncidenteManual(
+  input: CrearIncidenteManualInput,
+  operadorId: string
+): Promise<CrearIncidenteManualResponse> {
+  const rutNormalizado = normalizarRutChileno(input.informanteRut);
+
+  // 1. Resolver georreferenciación (coordenadas provistas o geocodificación automática en Valdivia)
+  const coordenadas =
+    input.latitud != null && input.longitud != null
+      ? { latitud: input.latitud, longitud: input.longitud }
+      : await geocodificarDireccion(input.direccion);
+
+  // 2. Control de duplicados si no se indicó explícitamente forzarCreacion
+  if (!input.forzarCreacion) {
+    const coincidencias = await buscarIncidentesYDuplicadosCercanos({
+      tipoAfectacion: input.tipoAfectacion,
+      latitud: coordenadas.latitud,
+      longitud: coordenadas.longitud,
+      radioMetros: 300,
+      horasVentana: 24,
+    });
+
+    if (coincidencias.length > 0) {
+      throw new ConflictoDuplicadoError(
+        "Se detectaron incidentes o reportes similares en la misma zona recientemente.",
+        coincidencias
+      );
+    }
+  }
+
+  // 3. Transacción atómica: insertar aviso y promover a incidente en estado SIN_ATENDER
+  const resultado = await insertarIncidenteManualTransaccional({
+    origenReporte: input.origenReporte,
+    tipoAfectacion: input.tipoAfectacion,
+    descripcion: input.descripcion,
+    direccion: input.direccion,
+    latitud: coordenadas.latitud,
+    longitud: coordenadas.longitud,
+    informanteNombre: input.informanteNombre,
+    informanteRut: rutNormalizado,
+    informanteTelefono: input.informanteTelefono ?? null,
+    asteriskCallId: input.asteriskCallId ?? null,
+    asteriskCallerPhone: input.asteriskCallerPhone ?? null,
+    prioridad: input.prioridad ?? "MEDIA",
+    requiereAsistenciaSocial: input.requiereAsistenciaSocial ?? false,
+    esDuplicado: input.forzarCreacion,
+    operadorId,
+  });
+
+  const fechaIncidenteStr =
+    typeof resultado.incidente.creado_en === "string"
+      ? resultado.incidente.creado_en
+      : resultado.incidente.creado_en.toISOString();
+
+  // 4. Emitir evento en tiempo real vía Socket.io a los encargados
+  notificarIncidenteCreado({
+    id: resultado.incidente.id,
+    codigo: resultado.incidente.codigo,
+    tipoAfectacion: resultado.incidente.tipo_afectacion,
+    direccion: resultado.incidente.direccion_texto,
+    latitud: Number(resultado.incidente.latitud),
+    longitud: Number(resultado.incidente.longitud),
+    estado: resultado.incidente.estado,
+    prioridad: resultado.incidente.prioridad,
+    requiereAsistenciaSocial: resultado.incidente.requiere_asistencia_social,
+    creadoEn: fechaIncidenteStr,
+  });
+
+  return {
+    mensaje: "Incidente ingresado exitosamente y disponible para el Encargado.",
+    incidente: {
+      id: resultado.incidente.id,
+      codigo: resultado.incidente.codigo,
+      tipoAfectacion: resultado.incidente.tipo_afectacion,
+      descripcion: resultado.incidente.descripcion,
+      direccion: resultado.incidente.direccion_texto,
+      latitud: Number(resultado.incidente.latitud),
+      longitud: Number(resultado.incidente.longitud),
+      estado: resultado.incidente.estado,
+      prioridad: resultado.incidente.prioridad,
+      requiereAsistenciaSocial: resultado.incidente.requiere_asistencia_social,
+      avisoOrigenId: resultado.incidente.aviso_origen_id,
+      creadoPorId: resultado.incidente.creado_por_id,
+      creadoEn: fechaIncidenteStr,
+    },
+    aviso: {
+      id: resultado.aviso.id,
+      codigoSeguimiento: resultado.aviso.codigo_seguimiento,
+      esDuplicado: resultado.aviso.es_duplicado,
+      mensaje: "Aviso verificado implícitamente por operador de Call Center / Funcionario.",
+      tipoAfectacion: resultado.aviso.tipo_afectacion,
+      direccion: resultado.aviso.direccion_texto,
+      estado: resultado.aviso.estado,
+      creadoEn:
+        typeof resultado.aviso.creado_en === "string"
+          ? resultado.aviso.creado_en
+          : resultado.aviso.creado_en.toISOString(),
+      avisoOriginalId: resultado.aviso.aviso_original_id,
+    },
   };
 }
