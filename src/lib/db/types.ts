@@ -56,6 +56,8 @@ export type EstadoAvisoIncidente =
   | "RESUELTO"
   | "DESCARTADO";
 
+export type OrigenReporte = "LLAMADA_TELEFONICA" | "FUNCIONARIO_TERRENO" | "CHATBOT";
+
 export interface AvisoIncidenteTable {
   id: Generated<string>;
   codigo_seguimiento: string;
@@ -68,10 +70,42 @@ export interface AvisoIncidenteTable {
   informante_nombre: string;
   informante_rut: string;
   informante_telefono: string | null;
+  origen_reporte: ColumnType<OrigenReporte, OrigenReporte | undefined, OrigenReporte>;
+  asterisk_call_id: string | null;
+  asterisk_caller_phone: string | null;
+  operador_id: string | null;
   estado: ColumnType<EstadoAvisoIncidente, EstadoAvisoIncidente | undefined, EstadoAvisoIncidente>;
   es_duplicado: ColumnType<boolean, boolean | undefined, boolean>;
   aviso_original_id: string | null;
   incidente_id: string | null;
+  creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
+}
+
+export type EstadoIncidente =
+  | "SIN_ATENDER"
+  | "ASIGNADO"
+  | "EN_TERRENO"
+  | "RESUELTO"
+  | "DESCARTADO";
+
+export type PrioridadIncidente = "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+
+export interface IncidenteTable {
+  id: Generated<string>;
+  codigo: string;
+  tipo_afectacion: string;
+  descripcion: string;
+  direccion_texto: string;
+  latitud: number;
+  longitud: number;
+  ubicacion: ColumnType<unknown, unknown, unknown>;
+  estado: ColumnType<EstadoIncidente, EstadoIncidente | undefined, EstadoIncidente>;
+  prioridad: ColumnType<PrioridadIncidente, PrioridadIncidente | undefined, PrioridadIncidente>;
+  requiere_asistencia_social: ColumnType<boolean, boolean | undefined, boolean>;
+  aviso_origen_id: string;
+  creado_por_id: string;
+  encargado_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }
@@ -83,4 +117,5 @@ export interface Database {
   rol_permiso: RolPermisoTable;
   usuario: UsuarioTable;
   aviso_incidente: AvisoIncidenteTable;
+  incidente: IncidenteTable;
 }
