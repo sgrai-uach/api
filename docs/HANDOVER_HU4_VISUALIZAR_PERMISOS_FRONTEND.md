@@ -26,7 +26,7 @@
 
 ## 2. Contrato de API y Endpoints Disponibles
 
-La API corre por defecto en `http://localhost:3000` y expone cabeceras CORS habilitadas para `sgrai-web`.
+La API corre por defecto en `http://localhost:3001` y expone cabeceras CORS habilitadas para `sgrai-web`.
 
 ### Autenticación Requerida
 Todos los endpoints de seguridad requieren identificar al usuario mediante la cabecera HTTP:
