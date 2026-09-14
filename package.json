@@ -3,12 +3,14 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "tsx watch src/server.ts",
+    "dev:next": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_ENV=production tsx src/server.ts",
     "lint": "eslint",
     "test": "vitest run",
-    "db:migrate": "tsx src/lib/db/migrator.ts"
+    "db:migrate": "tsx src/lib/db/migrator.ts",
+    "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
