@@ -11,6 +11,10 @@ import {
   ListarAvisosQuerySchema,
   VerificarAvisoInputSchema,
 } from "../../modules/incidentes/schema";
+import {
+  ListarRolesResponseSchema,
+  RolDetalleResponseSchema,
+} from "../../modules/seguridad/schema";
 
 export const registry = new OpenAPIRegistry();
 
@@ -182,6 +186,80 @@ registry.registerPath({
   },
 });
 
+// 6. GET /api/seguridad/roles
+registry.registerPath({
+  method: "get",
+  path: "/api/seguridad/roles",
+  summary: "Listar perfiles y permisos actuales",
+  description:
+    "Retorna el listado completo de perfiles/roles registrados con sus respectivos permisos asignados y metadatos de auditoría. Accesible exclusivamente por el rol Administrador.",
+  tags: ["Seguridad / Roles y Permisos"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Listado completo de roles y permisos",
+      content: {
+        "application/json": {
+          schema: ListarRolesResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "Cabecera de autenticación X-User-Id ausente o usuario no válido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+  },
+});
+
+// 7. GET /api/seguridad/roles/{id}
+registry.registerPath({
+  method: "get",
+  path: "/api/seguridad/roles/{id}",
+  summary: "Obtener detalle de perfil y sus permisos",
+  description:
+    "Despliega claramente los permisos, módulos y acciones a los que tiene acceso un perfil específico. Accesible exclusivamente por el rol Administrador.",
+  tags: ["Seguridad / Roles y Permisos"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().openapi({ description: "UUID del rol/perfil a consultar" }),
+    }),
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del perfil y sus permisos asignados",
+      content: {
+        "application/json": {
+          schema: RolDetalleResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "Cabecera de autenticación X-User-Id ausente o usuario no válido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    404: {
+      description: "Perfil no encontrado",
+    },
+  },
+});
+
 /**
  * Genera el documento OpenAPI 3.0 en formato JSON.
  */
@@ -192,7 +270,7 @@ export function generarOpenApiSpec() {
     openapi: "3.0.0",
     info: {
       title: "SGRAI API - Municipalidad de Valdivia",
-      version: "0.2.0",
+      version: "0.3.0",
       description:
         "Especificación OpenAPI generada automáticamente desde esquemas Zod para la plataforma SGRAI (Dirección de Gestión de Riesgos de Desastres).",
     },
