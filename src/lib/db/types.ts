@@ -71,6 +71,55 @@ export interface AdjuntoTable {
 }
 
 /**
+ * Tabla permiso: Catálogo de capacidades operativas y permisos.
+ */
+export interface PermisoTable {
+  id: Generated<string>;
+  codigo: string;
+  nombre: string;
+  descripcion: string | null;
+  modulo: string;
+  creado_en: Generated<Date>;
+}
+
+/**
+ * Tabla rol: Catálogo de perfiles con flags de sistema y actividad.
+ */
+export interface RolTable {
+  id: Generated<string>;
+  nombre: string;
+  descripcion: string | null;
+  activo: Generated<boolean>;
+  es_sistema: Generated<boolean>;
+  creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
+}
+
+/**
+ * Tabla usuario: Operadores y usuarios con rol institucional.
+ */
+export interface UsuarioTable {
+  id: Generated<string>;
+  rut: string;
+  nombre: string;
+  email: string;
+  rol_id: string;
+  activo: Generated<boolean>;
+  creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
+}
+
+/**
+ * Tabla rol_permiso: Relación N:N con auditoría y trazabilidad.
+ */
+export interface RolPermisoTable {
+  rol_id: string;
+  permiso_id: string;
+  asignado_en: Generated<Date>;
+  asignado_por_id: string | null;
+}
+
+/**
  * Interfaz unificada de la base de datos relacional para Kysely.
  */
 export interface Database {
@@ -78,4 +127,9 @@ export interface Database {
   aviso_incidente: AvisoIncidenteTable;
   incidente: IncidenteTable;
   adjunto: AdjuntoTable;
+  permiso: PermisoTable;
+  rol: RolTable;
+  usuario: UsuarioTable;
+  rol_permiso: RolPermisoTable;
 }
+
