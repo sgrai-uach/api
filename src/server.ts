@@ -54,8 +54,8 @@ async function bootstrap() {
         if (channel === REDIS_SOCKET_CHANNEL) {
           try {
             const { room, event, payload } = JSON.parse(message) as RedisSocketMessage;
-            io.to(room).emit(event as any, payload as any);
-            io.emit(event as any, payload as any);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (io.to(room) as any).emit(event, payload);
           } catch (e) {
             console.error("Error al parsear mensaje de Redis Socket:", e);
           }
