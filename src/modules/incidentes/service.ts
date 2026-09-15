@@ -272,6 +272,20 @@ export class IncidentesService {
       throw error;
     }
   }
+
+  /**
+   * Obtiene todos los tipos de incidente habilitados en el sistema.
+   */
+  async listarTiposIncidentes() {
+    const tipos = await this.repo.obtenerTiposIncidentes();
+    return tipos.map((t) => ({
+      id: t.id,
+      nombre: t.nombre,
+      descripcion: t.descripcion,
+      activo: t.activo,
+      creadoEn: t.creado_en ? new Date(t.creado_en).toISOString() : null,
+    }));
+  }
 }
 
 export const incidentesService = new IncidentesService();

@@ -58,8 +58,10 @@ const ORIGENES = ["WEB", "CHATBOT", "TELEFONO"] as const;
 // UUID por defecto para auditar operador en acciones ICS
 const OPERADOR_ID = "a0000000-0000-0000-0000-000000000001";
 
-// Catálogo de tipos de incidente en DB (consultados automáticamente si se promueve)
-const TIPO_INCIDENTE_DEFAULT = "161cdae6-360e-4add-bf79-936255c8e349"; // Caída de árbol
+interface TipoIncidenteApi {
+  id: string;
+  nombre: string;
+}
 
 function randomChoice<T>(array: readonly T[] | T[]): T {
   return array[Math.floor(Math.random() * array.length)];
@@ -83,6 +85,19 @@ async function main() {
   }
 
   console.log(`\n🚀 Iniciando inserción de ${count} registros vía API (${API_BASE_URL})...\n`);
+
+  let tiposDisponibles: TipoIncidenteApi[] = [];
+  if (promoverAIncidente) {
+    try {
+      const resTipos = await fetch(`${API_BASE_URL}/api/incidentes/tipos`);
+      if (resTipos.ok) {
+        const jsonTipos = await resTipos.json();
+        tiposDisponibles = jsonTipos.data || [];
+      }
+    } catch (e) {
+      console.warn("⚠️ No se pudo consultar /api/incidentes/tipos:", e);
+    }
+  }
 
   let creadosExito = 0;
   let promovidosExito = 0;
@@ -129,6 +144,15 @@ async function main() {
 
       // 2. Si se solicitó --promover, verificar y transformar a Incidente formal
       if (promoverAIncidente) {
+        const tipoMatch = tiposDisponibles.find((t) =>
+          t.nombre.toLowerCase().includes(aviso.tipoAfectacion.toLowerCase())
+        ) || tiposDisponibles[0];
+
+        if (!tipoMatch) {
+          console.error("   ⚠️ No hay tipos de incidente disponibles en la base de datos para promover.");
+          continue;
+        }
+
         const resVerificar = await fetch(`${API_BASE_URL}/api/incidentes/avisos/${aviso.id}/verificar`, {
           method: "POST",
           headers: {
@@ -136,7 +160,7 @@ async function main() {
             "X-User-Id": OPERADOR_ID,
           },
           body: JSON.stringify({
-            tipoIncidenteId: TIPO_INCIDENTE_DEFAULT,
+            tipoIncidenteId: tipoMatch.id,
             descripcion: `Incidente formal verificado: ${aviso.descripcion}`,
             requiereAsistenciaSocial: Math.random() > 0.7,
           }),

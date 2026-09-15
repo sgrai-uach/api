@@ -47,14 +47,13 @@ function emitirEvento<E extends keyof ServerToClientEvents>(
   event: E,
   payload: Parameters<ServerToClientEvents[E]>[0]
 ): void {
-  // 1. Emisión directa en memoria si io está inicializado en el proceso
+  // 1. Emisión directa en memoria (si io está inicializado en el mismo proceso)
   if (io) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (io.to(room) as any).emit(event, payload);
     return;
   }
 
-  // 2. Emisión vía Redis Pub/Sub para alcanzar el servidor Socket.io desde scripts o workers externos
+  // 2. Emisión vía Redis Pub/Sub (alcanza el servidor Socket.io desde Workers y Route Handlers)
   const publisher = getRedisPublisher();
   if (publisher) {
     const message: RedisSocketMessage = { room, event, payload };
