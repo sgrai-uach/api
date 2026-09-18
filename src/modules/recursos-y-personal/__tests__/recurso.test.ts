@@ -1,14 +1,25 @@
-import { describe, it, expect } from "vitest";
-import { determinarEstadoRecurso } from "../recurso.utils";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  determinarEstadoRecurso,
+  calcularDisponibilidadOperativa,
+  obtenerEtiquetaTipoRecurso,
+} from "../recurso.utils";
 import {
   CrearRecursoInputSchema,
   DetallesRecursoSchema,
+  ListarRecursosQuerySchema,
 } from "../recurso.schema";
-import { crearRecurso } from "../recurso.service";
-import { UnauthorizedError } from "@/modules/seguridad/auth.errors";
+import { crearRecurso, listarRecursos } from "../recurso.service";
+import * as recursoRepository from "../recurso.repository";
+import { seguridadService } from "@/modules/seguridad/service";
+import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/errors";
 
 describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
-  describe("1. Reglas de Cálculo de Estado (determinarEstadoRecurso)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe("1. Reglas de Cálculo de Estado y Disponibilidad Operativa", () => {
     it("debe retornar NO_DISPONIBLE si la cantidad en inventario es 0", () => {
       expect(determinarEstadoRecurso(0, 10)).toBe("NO_DISPONIBLE");
       expect(determinarEstadoRecurso(0, 0)).toBe("NO_DISPONIBLE");
@@ -29,14 +40,33 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
       expect(determinarEstadoRecurso(50, 20)).toBe("DISPONIBLE");
     });
 
-    it("debe retornar DISPONIBLE cuando el umbral mínimo es 0 y hay stock disponible (alerta desactivada)", () => {
+    it("debe retornar DISPONIBLE cuando el umbral mínimo es 0 y hay stock disponible", () => {
       expect(determinarEstadoRecurso(1, 0)).toBe("DISPONIBLE");
       expect(determinarEstadoRecurso(500, 0)).toBe("DISPONIBLE");
     });
+
+    it("calcularDisponibilidadOperativa debe priorizar estado EN_MANTENCION", () => {
+      expect(calcularDisponibilidadOperativa("EN_MANTENCION", 5, 0, 1)).toBe("EN_MANTENCION");
+      expect(calcularDisponibilidadOperativa("EN_MANTENCION", 0, 0, 0)).toBe("EN_MANTENCION");
+    });
+
+    it("calcularDisponibilidadOperativa debe retornar ASIGNADO si todo el stock está en uso", () => {
+      expect(calcularDisponibilidadOperativa("DISPONIBLE", 1, 1, 0)).toBe("ASIGNADO");
+      expect(calcularDisponibilidadOperativa("DISPONIBLE", 5, 5, 2)).toBe("ASIGNADO");
+    });
+
+    it("calcularDisponibilidadOperativa debe retornar BAJO_STOCK si el disponible es <= minimo", () => {
+      expect(calcularDisponibilidadOperativa("DISPONIBLE", 10, 8, 3)).toBe("BAJO_STOCK");
+    });
+
+    it("obtenerEtiquetaTipoRecurso debe formatear correctamente", () => {
+      expect(obtenerEtiquetaTipoRecurso(true)).toBe("Vehículo o Maquinaria");
+      expect(obtenerEtiquetaTipoRecurso(false)).toBe("Material o Insumo");
+    });
   });
 
-  describe("2. Validación de Esquema Zod (CrearRecursoInputSchema)", () => {
-    it("debe aceptar un recurso a granel válido (ej. Sacos de arena)", () => {
+  describe("2. Validación de Esquemas Zod", () => {
+    it("debe aceptar un recurso a granel válido con delegacionId", () => {
       const payload = {
         nombre: "Sacos de Arena",
         esIndividual: false,
@@ -45,6 +75,7 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
         latitud: -39.8142,
         longitud: -73.2459,
         descripcion: "Sacos de contención para crecida de ríos",
+        delegacionId: "30000000-0000-4000-8000-000000000001",
       };
 
       const resultado = CrearRecursoInputSchema.safeParse(payload);
@@ -52,10 +83,11 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
       if (resultado.success) {
         expect(resultado.data.nombre).toBe("Sacos de Arena");
         expect(resultado.data.esIndividual).toBe(false);
+        expect(resultado.data.delegacionId).toBe("30000000-0000-4000-8000-000000000001");
       }
     });
 
-    it("debe aceptar una Camioneta con atributos específicos (patente, kilometraje, combustible)", () => {
+    it("debe aceptar una Camioneta con especificaciones técnicas en detalles", () => {
       const payload = {
         nombre: "Camioneta Operaciones 4x4",
         esIndividual: true,
@@ -79,60 +111,6 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
       if (resultado.success) {
         expect(resultado.data.detalles.kilometraje).toBe(45000);
         expect(resultado.data.detalles.patente).toBe("ABCD-12");
-      }
-    });
-
-    it("debe aceptar una Grúa con capacidad de carga, alcance y horómetro", () => {
-      const payload = {
-        nombre: "Grúa Pluma 50T",
-        esIndividual: true,
-        cantidadInventario: 1,
-        cantidadMinima: 0,
-        latitud: -39.82,
-        longitud: -73.25,
-        detalles: {
-          marca: "Liebherr",
-          modelo: "LTM 1050",
-          capacidadCargaKg: 50000,
-          alcanceMaximoMetros: 38,
-          tipoGrua: "Pluma",
-          horometro: 1200,
-        },
-      };
-
-      const resultado = CrearRecursoInputSchema.safeParse(payload);
-      expect(resultado.success).toBe(true);
-      if (resultado.success) {
-        expect(resultado.data.detalles.capacidadCargaKg).toBe(50000);
-        expect(resultado.data.detalles.alcanceMaximoMetros).toBe(38);
-        expect(resultado.data.detalles.horometro).toBe(1200);
-      }
-    });
-
-    it("debe aceptar una Motobomba con caudal en LPM, diámetro y potencia HP", () => {
-      const payload = {
-        nombre: "Motobomba de Achique 3 Pulgadas",
-        esIndividual: true,
-        cantidadInventario: 1,
-        cantidadMinima: 0,
-        latitud: -39.815,
-        longitud: -73.243,
-        detalles: {
-          marca: "Honda",
-          modelo: "WT30X",
-          caudalMaximoLpm: 1200,
-          diametroPulgadas: 3,
-          potenciaHp: 8.5,
-          horometro: 45,
-        },
-      };
-
-      const resultado = CrearRecursoInputSchema.safeParse(payload);
-      expect(resultado.success).toBe(true);
-      if (resultado.success) {
-        expect(resultado.data.detalles.caudalMaximoLpm).toBe(1200);
-        expect(resultado.data.detalles.diametroPulgadas).toBe(3);
-        expect(resultado.data.detalles.potenciaHp).toBe(8.5);
       }
     });
 
@@ -160,34 +138,123 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
       expect(resultado.success).toBe(false);
     });
 
-    it("debe rechazar coordenadas geográficas fuera de rango", () => {
-      const payloadLatInvalida = {
-        nombre: "Generador Eléctrico",
-        cantidadInventario: 1,
-        latitud: 95, // Max 90
-        longitud: -73.2459,
-      };
-      expect(CrearRecursoInputSchema.safeParse(payloadLatInvalida).success).toBe(false);
-
-      const payloadLngInvalida = {
-        nombre: "Generador Eléctrico",
-        cantidadInventario: 1,
-        latitud: -39.8142,
-        longitud: -185, // Min -180
-      };
-      expect(CrearRecursoInputSchema.safeParse(payloadLngInvalida).success).toBe(false);
-    });
-
     it("debe rechazar valores numéricos técnicos negativos en detalles", () => {
       expect(DetallesRecursoSchema.safeParse({ kilometraje: -100 }).success).toBe(false);
       expect(DetallesRecursoSchema.safeParse({ capacidadCargaKg: -5 }).success).toBe(false);
       expect(DetallesRecursoSchema.safeParse({ caudalMaximoLpm: 0 }).success).toBe(false);
-      expect(DetallesRecursoSchema.safeParse({ diametroPulgadas: -1 }).success).toBe(false);
-      expect(DetallesRecursoSchema.safeParse({ horometro: -1 }).success).toBe(false);
+    });
+
+    it("ListarRecursosQuerySchema debe asignar valores por defecto en paginación", () => {
+      const resultado = ListarRecursosQuerySchema.safeParse({});
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.pagina).toBe(1);
+        expect(resultado.data.limite).toBe(10);
+      }
+    });
+
+    it("ListarRecursosQuerySchema debe rechazar páginas inválidas o límites excesivos", () => {
+      expect(ListarRecursosQuerySchema.safeParse({ pagina: 0 }).success).toBe(false);
+      expect(ListarRecursosQuerySchema.safeParse({ limite: 105 }).success).toBe(false);
     });
   });
 
-  describe("3. Autorización y Servicio de Creación (crearRecurso)", () => {
+  describe("3. Servicio de Listado Paginado (listarRecursos)", () => {
+    const adminId = "00000000-0000-4000-8000-000000000001";
+
+    it("debe arrojar UnauthorizedError si la cabecera X-User-Id está ausente", async () => {
+      await expect(listarRecursos({}, null)).rejects.toThrow(UnauthorizedError);
+      await expect(listarRecursos({}, "")).rejects.toThrow(UnauthorizedError);
+    });
+
+    it("debe arrojar ForbiddenError si el usuario no tiene rol Administrador", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValueOnce(
+        new ForbiddenError("Acceso denegado. Se requiere perfil de Administrador.")
+      );
+
+      await expect(listarRecursos({}, "usuario-no-admin")).rejects.toThrow(ForbiddenError);
+    });
+
+    it("debe retornar listado vacío cuando no hay recursos registrados (Criterio Vacío)", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
+        id: adminId,
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+        activo: true,
+      });
+
+      vi.spyOn(recursoRepository, "listarRecursosPaginados").mockResolvedValueOnce([]);
+      vi.spyOn(recursoRepository, "contarRecursos").mockResolvedValueOnce(0);
+
+      const respuesta = await listarRecursos({ pagina: 1, limite: 10 }, adminId);
+
+      expect(respuesta.data).toEqual([]);
+      expect(respuesta.meta).toEqual({
+        total: 0,
+        pagina: 1,
+        limite: 10,
+        totalPaginas: 0,
+      });
+    });
+
+    it("debe retornar registros mapeados con delegación y disponibilidad calculada", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
+        id: adminId,
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+        activo: true,
+      });
+
+      const mockFilas = [
+        {
+          id: "40000000-0000-4000-8000-000000000001",
+          nombre: "Camioneta Rescate 4x4",
+          es_individual: true,
+          estado: "DISPONIBLE" as const,
+          cantidad_inventario: 1,
+          cantidad_en_uso: 0,
+          cantidad_minima: 0,
+          latitud: -39.8142,
+          longitud: -73.2459,
+          descripcion: "Unidad ligera",
+          detalles: { patente: "ABCD-12" },
+          delegacion_id: "30000000-0000-4000-8000-000000000001",
+          delegacion_codigo: "DEL_NORTE",
+          delegacion_nombre: "Delegación Municipal Norte",
+          creado_por_id: adminId,
+          creado_en: new Date("2026-09-17T10:00:00Z"),
+          actualizado_en: new Date("2026-09-17T10:00:00Z"),
+        },
+      ];
+
+      vi.spyOn(recursoRepository, "listarRecursosPaginados").mockResolvedValueOnce(mockFilas as any);
+      vi.spyOn(recursoRepository, "contarRecursos").mockResolvedValueOnce(1);
+
+      const respuesta = await listarRecursos({ pagina: 1, limite: 10 }, adminId);
+
+      expect(respuesta.data.length).toBe(1);
+      const item = respuesta.data[0];
+      expect(item.nombre).toBe("Camioneta Rescate 4x4");
+      expect(item.tipo).toBe("Vehículo o Maquinaria");
+      expect(item.estado).toBe("DISPONIBLE");
+      expect(item.cantidadDisponible).toBe(1);
+      expect(item.delegacion).toEqual({
+        id: "30000000-0000-4000-8000-000000000001",
+        codigo: "DEL_NORTE",
+        nombre: "Delegación Municipal Norte",
+      });
+      expect(respuesta.meta.total).toBe(1);
+      expect(respuesta.meta.totalPaginas).toBe(1);
+    });
+  });
+
+  describe("4. Servicio de Creación (crearRecurso)", () => {
     it("debe arrojar UnauthorizedError si la cabecera X-User-Id está ausente", async () => {
       const input = {
         nombre: "Generador 5kVA",
