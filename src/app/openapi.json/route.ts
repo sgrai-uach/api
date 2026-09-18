@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generarOpenApiSpec } from "../../lib/openapi";
+import { generarOpenApiSpec } from "@/lib/openapi";
 
 /**
  * GET /openapi.json
@@ -13,6 +13,8 @@ export async function GET() {
   return NextResponse.json(spec, {
     status: 200,
     headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "public, max-age=60",
       "Access-Control-Allow-Origin": "*",
     },
   });

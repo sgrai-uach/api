@@ -1,6 +1,7 @@
 import {
   OpenAPIRegistry,
   OpenApiGeneratorV3,
+  extendZodWithOpenApi,
 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 import {
@@ -15,6 +16,12 @@ import {
   ListarRolesResponseSchema,
   RolDetalleResponseSchema,
 } from "../../modules/seguridad/schema";
+import {
+  CrearRecursoInputSchema,
+  RecursoResponseSchema,
+} from "../../modules/recursos-y-personal/recurso.schema";
+
+extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
 
@@ -145,9 +152,9 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos/{id}/descartar",
-  summary: "Descartar aviso con justificación",
+  summary: "Descartar aviso motivado",
   description:
-    "Marca un aviso en estado 'DESCARTADO' registrando motivo de descarte obligatorio y operador responsable.",
+    "Descarta un aviso no procedente registrando la justificación obligatoria del operador.",
   tags: ["Incidentes / Avisos"],
   request: {
     params: z.object({
@@ -169,10 +176,10 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Aviso descartado con éxito",
+      description: "Aviso descartado correctamente",
     },
     400: {
-      description: "Motivo de descarte inválido o menor a 5 caracteres",
+      description: "Justificación de descarte inválida o faltante",
     },
     401: {
       description: "Cabecera X-User-Id faltante",
@@ -256,6 +263,56 @@ registry.registerPath({
     },
     404: {
       description: "Perfil no encontrado",
+    },
+  },
+});
+
+// 8. POST /api/recursos (HU-6)
+registry.registerPath({
+  method: "post",
+  path: "/api/recursos",
+  summary: "Crear nuevo recurso en el inventario logístico",
+  description:
+    "Registra un recurso (material fungible o vehículo/maquinaria individual) en el inventario municipal.",
+  tags: ["Recursos y Personal"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario con permiso recursos:crear" }),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: CrearRecursoInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Recurso creado exitosamente",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+            data: RecursoResponseSchema,
+          }),
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "No cuenta con el permiso requerido: recursos:crear",
+    },
+    500: {
+      description: "Error interno del servidor",
     },
   },
 });
