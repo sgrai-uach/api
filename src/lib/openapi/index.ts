@@ -19,6 +19,8 @@ import {
 import {
   CrearRecursoInputSchema,
   RecursoResponseSchema,
+  ListarRecursosQuerySchema,
+  ListarRecursosPaginadosResponseSchema,
 } from "../../modules/recursos-y-personal/recurso.schema";
 
 extendZodWithOpenApi(z);
@@ -310,6 +312,47 @@ registry.registerPath({
     },
     403: {
       description: "No cuenta con el permiso requerido: recursos:crear",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 9. GET /api/recursos (HU-7)
+registry.registerPath({
+  method: "get",
+  path: "/api/recursos",
+  summary: "Listar recursos logísticos y verificar disponibilidad",
+  description:
+    "Retorna una lista paginada de los recursos registrados en el inventario, incluyendo estado de disponibilidad operativa, cantidades y delegación territorial asociada. Accesible por rol Administrador.",
+  tags: ["Recursos y Personal"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+    query: ListarRecursosQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado paginado de recursos de inventario",
+      content: {
+        "application/json": {
+          schema: ListarRecursosPaginadosResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
     },
     500: {
       description: "Error interno del servidor",
