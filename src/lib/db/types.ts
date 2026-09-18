@@ -1,7 +1,7 @@
 import type { Generated, ColumnType } from "kysely";
 
 /**
- * Estados de disponibilidad del recurso logístico (ampliado para operatividad ICS).
+ * Estados de disponibilidad del recurso logístico.
  */
 export type EstadoRecurso =
   | "DISPONIBLE"
@@ -9,41 +9,6 @@ export type EstadoRecurso =
   | "EN_MANTENCION"
   | "BAJO_STOCK"
   | "NO_DISPONIBLE";
-
-/**
- * Tabla delegacion: Dependencias territoriales de la Municipalidad de Valdivia.
- */
-export interface DelegacionTable {
-  id: Generated<string>;
-  codigo_delegacion: string;
-  nombre_delegacion: string;
-  descripcion: string | null;
-  activo: Generated<boolean>;
-  creado_en: Generated<Date>;
-  actualizado_en: Generated<Date>;
-}
-
-/**
- * Tabla recurso: Inventario de recursos logísticos, materiales y maquinaria.
- */
-export interface RecursoTable {
-  id: Generated<string>;
-  nombre: string;
-  es_individual: boolean;
-  estado: EstadoRecurso;
-  cantidad_inventario: number;
-  cantidad_en_uso: ColumnType<number, number | undefined, number>;
-  cantidad_minima: ColumnType<number, number | undefined, number>;
-  latitud: number;
-  longitud: number;
-  ubicacion: ColumnType<unknown, unknown, unknown>;
-  descripcion: string | null;
-  detalles: ColumnType<Record<string, unknown>, Record<string, unknown> | undefined, Record<string, unknown>>;
-  delegacion_id: string | null;
-  creado_por_id: string;
-  creado_en: Generated<Date>;
-  actualizado_en: Generated<Date>;
-}
 
 /**
  * Tabla tipo_incidente: Catálogo de tipologías de incidentes.
@@ -165,11 +130,44 @@ export interface RolPermisoTable {
 }
 
 /**
+ * Tabla delegacion: Dependencias territoriales operativas de Valdivia.
+ */
+export interface DelegacionTable {
+  id: Generated<string>;
+  codigo_delegacion: string;
+  nombre_delegacion: string;
+  descripcion: string | null;
+  activo: Generated<boolean>;
+  creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
+}
+
+/**
+ * Tabla recurso: Inventario de recursos logísticos y maquinaria.
+ */
+export interface RecursoTable {
+  id: Generated<string>;
+  nombre: string;
+  es_individual: boolean;
+  estado: EstadoRecurso;
+  cantidad_inventario: number;
+  cantidad_en_uso: ColumnType<number, number | undefined, number>;
+  cantidad_minima: ColumnType<number, number | undefined, number>;
+  latitud: number;
+  longitud: number;
+  ubicacion: ColumnType<unknown, unknown, unknown>;
+  descripcion: string | null;
+  detalles: ColumnType<Record<string, unknown>, Record<string, unknown> | undefined, Record<string, unknown>>;
+  delegacion_id: string | null;
+  creado_por_id: string;
+  creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
+}
+
+/**
  * Interfaz unificada de la base de datos relacional para Kysely.
  */
 export interface Database {
-  delegacion: DelegacionTable;
-  recurso: RecursoTable;
   tipo_incidente: TipoIncidenteTable;
   aviso_incidente: AvisoIncidenteTable;
   incidente: IncidenteTable;
@@ -178,4 +176,6 @@ export interface Database {
   rol: RolTable;
   usuario: UsuarioTable;
   rol_permiso: RolPermisoTable;
+  delegacion: DelegacionTable;
+  recurso: RecursoTable;
 }
