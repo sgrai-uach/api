@@ -2,6 +2,7 @@ import { createServer } from "http";
 import next from "next";
 import { Server as SocketIOServer } from "socket.io";
 import Redis from "ioredis";
+import { loadEnvConfig } from "@next/env";
 import { setSocketServer, REDIS_SOCKET_CHANNEL } from "./lib/socket";
 import type {
   ClientToServerEvents,
@@ -11,9 +12,12 @@ import type {
   RedisSocketMessage,
 } from "./lib/socket/types";
 
+// Cargar variables de entorno desde .env, .env.local, etc.
+loadEnvConfig(process.cwd());
+
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "0.0.0.0";
-const port = parseInt(process.env.PORT || "3000", 10);
+const port = parseInt(process.env.PORT || "3001", 10);
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();

@@ -9,7 +9,12 @@
  *   npx tsx scripts/seed.ts 3 --promover   # Crea 3 avisos y los promueve a la tabla incidente
  */
 
-const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:3000";
+import { loadEnvConfig } from "@next/env";
+
+loadEnvConfig(process.cwd());
+
+const defaultPort = process.env.PORT || "3001";
+const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${defaultPort}`;
 
 // Datos georreferenciados realistas en Valdivia
 const UBICACIONES_VALDIVIA = [
