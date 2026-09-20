@@ -187,7 +187,7 @@ export function generarOpenAPISpec() {
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.3.0",
+      version: "0.5.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",
@@ -195,3 +195,4 @@ export function generarOpenAPISpec() {
     servers: [{ url: "/" }],
   });
 }
+
