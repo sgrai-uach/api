@@ -13,6 +13,7 @@ import type {
   AvisoIncidenteResponse,
   ConsultaSeguimientoResponse,
 } from "./aviso-incidente.schema";
+import type { EstadoIncidente } from "@/lib/db/types";
 
 export async function registrarAvisoDesdeChatbot(
   input: CrearAvisoIncidenteInput
@@ -36,7 +37,7 @@ export async function registrarAvisoDesdeChatbot(
 
   // 3. Caso A: Se detectó duplicado (SAESA-style)
   if (duplicadoExistente) {
-    // Insertamos registro secundario con es_duplicado: true vinculado al original para analítica municipal
+    // Insertamos registro vinculado al informante con es_duplicado: true
     const registroDuplicado = await insertarAvisoIncidente({
       codigo_seguimiento: duplicadoExistente.codigo_seguimiento,
       tipo_afectacion: input.tipoAfectacion,
@@ -47,7 +48,7 @@ export async function registrarAvisoDesdeChatbot(
       informante_nombre: input.informanteNombre,
       informante_rut: rutNormalizado,
       informante_telefono: input.informanteTelefono ?? null,
-      estado: duplicadoExistente.estado,
+      estado: duplicadoExistente.estado as EstadoIncidente,
       es_duplicado: true,
       aviso_original_id: duplicadoExistente.id,
     });
@@ -81,7 +82,7 @@ export async function registrarAvisoDesdeChatbot(
     informante_nombre: input.informanteNombre,
     informante_rut: rutNormalizado,
     informante_telefono: input.informanteTelefono ?? null,
-    estado: "PENDIENTE_VERIFICACION",
+    estado: "REPORTADO",
     es_duplicado: false,
     aviso_original_id: null,
   });
@@ -118,6 +119,6 @@ export async function consultarAvisoPorSeguimiento(
     descripcion: aviso.descripcion,
     creadoEn:
       typeof aviso.creado_en === "string" ? aviso.creado_en : aviso.creado_en.toISOString(),
-    esDuplicado: aviso.es_duplicado,
+    esDuplicado: false,
   };
 }

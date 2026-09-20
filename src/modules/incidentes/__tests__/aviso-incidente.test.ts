@@ -162,7 +162,7 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
         informante_nombre: "María Soto",
         informante_rut: "11111111-1",
         informante_telefono: null,
-        estado: "PENDIENTE_VERIFICACION",
+        estado: "REPORTADO",
         es_duplicado: false,
         aviso_original_id: null,
         incidente_id: null,
@@ -182,7 +182,7 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
 
       expect(respuesta.esDuplicado).toBe(false);
       expect(respuesta.codigoSeguimiento).toBe("84920194");
-      expect(respuesta.estado).toBe("PENDIENTE_VERIFICACION");
+      expect(respuesta.estado).toBe("REPORTADO");
       expect(respuesta.avisoOriginalId).toBeNull();
       expect(respuesta.mensaje).toContain("registrado exitosamente");
     });
