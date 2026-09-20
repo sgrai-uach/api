@@ -49,29 +49,45 @@ export interface UsuarioTable {
   creado_en: Generated<Date>;
 }
 
-export type EstadoAvisoIncidente =
-  | "PENDIENTE_VERIFICACION"
+export type EstadoIncidente =
+  | "REPORTADO"
   | "VERIFICANDO"
   | "EN_ATENCION"
-  | "RESUELTO"
-  | "DESCARTADO";
+  | "NO_ABORDABLE"
+  | "RESUELTO";
 
-export interface AvisoIncidenteTable {
+// Alias de retrocompatibilidad
+export type EstadoAvisoIncidente = EstadoIncidente;
+
+export type PrioridadIncidente = "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+
+export interface InformanteTable {
   id: Generated<string>;
+  rut: string;
+  nombre: string;
+  telefono: string | null;
+  creado_en: Generated<Date>;
+}
+
+export interface IncidenteTable {
+  id: Generated<string>;
+  codigo: string;
   codigo_seguimiento: string;
+  informante_id: string | null;
   tipo_afectacion: string;
+  descripcion: string | null;
   direccion_texto: string;
   latitud: number;
   longitud: number;
   ubicacion: ColumnType<unknown, unknown, unknown>;
-  descripcion: string | null;
-  informante_nombre: string;
-  informante_rut: string;
-  informante_telefono: string | null;
-  estado: ColumnType<EstadoAvisoIncidente, EstadoAvisoIncidente | undefined, EstadoAvisoIncidente>;
-  es_duplicado: ColumnType<boolean, boolean | undefined, boolean>;
-  aviso_original_id: string | null;
-  incidente_id: string | null;
+  estado: ColumnType<EstadoIncidente, EstadoIncidente | undefined, EstadoIncidente>;
+  prioridad: ColumnType<PrioridadIncidente, PrioridadIncidente | undefined, PrioridadIncidente>;
+  requiere_asistencia_social: ColumnType<boolean, boolean | undefined, boolean>;
+  fuente_origen: ColumnType<string, string | undefined, string>;
+  asterisk_call_id: string | null;
+  asterisk_caller_phone: string | null;
+  creado_por_id: string | null;
+  encargado_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }
@@ -82,5 +98,7 @@ export interface Database {
   rol: RolTable;
   rol_permiso: RolPermisoTable;
   usuario: UsuarioTable;
-  aviso_incidente: AvisoIncidenteTable;
+  informante: InformanteTable;
+  incidente: IncidenteTable;
 }
+
