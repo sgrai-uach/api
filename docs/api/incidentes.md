@@ -9,14 +9,15 @@ Documentación técnica de los endpoints y lógica de negocio del módulo de **I
 ## 1. Reglas de Negocio Aplicadas
 
 - **Ciclo de Vida de los Incidentes (ICS):**
-  - **Avisos ciudadanos:** Todo reporte ingresado a través del chatbot nace como aviso con estado inicial `PENDIENTE_VERIFICACION`, requiriendo despacho de patrulla verificadora.
-  - **Ingreso manual (Call Center / Terreno):** Al ser ingresado manualmente por un operador autorizado o funcionario, el reporte se considera **implícitamente verificado**. En una **única transacción atómica**, el sistema inserta el registro en `aviso_incidente` y lo promueve inmediatamente a la tabla `incidente` en estado inicial **`SIN_ATENDER`**, quedando indexado y visible para el Encargado.
-  - **Ciclo de Estados del Incidente Promovido:**
-    - `SIN_ATENDER`: Estado inicial del incidente. A la espera de que el Encargado asigne recursos o cuadrillas.
-    - `ASIGNADO`: Recursos o cuadrillas designadas por el Encargado, en trayecto al lugar.
-    - `EN_TERRENO`: Cuadrilla o personal operando en el sitio de la afectación.
-    - `RESUELTO`: Misión concluida y afectación mitigada.
-    - `DESCARTADO`: Duplicado tardío, falsa alarma o no abordable.
+  - Todo reporte ingresado al sistema crea un registro en la tabla `informante` (si no existe previamente por su RUT) y se registra en la tabla `incidente` con estado inicial `REPORTADO`.
+  - **Avisos ciudadanos (Chatbot):** Nace en estado inicial `REPORTADO`, requiriendo despacho de patrulla verificadora (`VERIFICANDO`).
+  - **Ingreso manual (Call Center / Terreno):** Registrado por operador o funcionario autorizado, se inserta en `informante` e `incidente` con estado inicial **`REPORTADO`**, quedando visible e indexado inmediatamente para el Encargado.
+  - **Ciclo de Estados del Incidente según ICS (GEMINI.md Sección 6):**
+    - `REPORTADO`: Estado inicial del reporte ingresado (chatbot, llamada telefónica o funcionario).
+    - `VERIFICANDO`: Patrulla verificadora en evaluación y constatación de afectación en terreno.
+    - `EN_ATENCION`: Cuadrilla operativa o recursos asignados trabajando en el sitio.
+    - `NO_ABORDABLE`: Evaluación concluyó que no compete al ámbito municipal o no se constató afectación.
+    - `RESUELTO`: Misión concluida y afectación mitigada con éxito.
 
 - **Geocodificación y Geolocalización en Valdivia:**
   - El operador puede ingresar una dirección textual (ej. `"Av. Alemania 550"`, `"Picarte 2000"`, `"Isla Teja"`), y el backend geocodifica automáticamente la ubicación a coordenadas `(latitud, longitud)` y geometría PostGIS `geometry(Point, 4326)` con índice GiST.
@@ -27,9 +28,9 @@ Documentación técnica de los endpoints y lógica de negocio del módulo de **I
   - Se admiten campos opcionales `asteriskCallId` y `asteriskCallerPhone` para la futura integración directa con la centralita IVR de Asterisk.
 
 - **Detección Espacial de Duplicados en Doble Capa:**
-  - Para evitar duplicidad de cuadrillas y recursos, el sistema busca incidentes y avisos activos con el mismo tipo de afectación en un radio de **300 metros** y una ventana de **24 horas**.
+  - Para evitar duplicidad de cuadrillas y recursos, el sistema busca incidentes activos con el mismo tipo de afectación en un radio de **300 metros** y una ventana de **24 horas**.
   - **Capa 1 (Pre-consulta visual):** El frontend puede consultar `POST /api/incidentes/verificar-duplicado` para alertar al operador en tiempo real mientras completa el formulario.
-  - **Capa 2 (Confirmación en guardado):** Si `forzarCreacion` es `false` y el backend detecta duplicados al intentar persistir en `POST /api/incidentes/manual`, responde `409 Conflict` adjuntando la lista de coincidencias y distancias en metros. Si el operador decide continuar, el frontend envía `forzarCreacion: true`, registrando el incidente y vinculando el aviso original.
+  - **Capa 2 (Confirmación en guardado):** Si `forzarCreacion` es `false` y el backend detecta duplicados al intentar persistir en `POST /api/incidentes/manual`, responde `409 Conflict` adjuntando la lista de coincidencias y distancias en metros. Si el operador decide continuar, el frontend envía `forzarCreacion: true`, registrando el incidente.
 
 - **Validación de Identidad Ciudadana:**
   - El RUT del informante es obligatorio en el ingreso manual y es validado algorítmicamente mediante módulo 11 chileno.
@@ -46,8 +47,8 @@ Documentación técnica de los endpoints y lógica de negocio del módulo de **I
 
 | Método | Endpoint | Permiso Requerido | Propósito |
 |---|---|---|---|
-| `POST` | `/api/incidentes/manual` | `crear_incidente_manual` | Ingresar manualmente un reporte de incidente (llamada o funcionario), autoverificarlo y crearlo en `incidente` con estado `SIN_ATENDER`. |
-| `POST` | `/api/incidentes/verificar-duplicado` | `crear_incidente_manual` | Consultar coincidencias de incidentes o reportes cercanos antes de enviar el formulario. |
+| `POST` | `/api/incidentes/manual` | `crear_incidente_manual` | Ingresar manualmente un reporte de incidente (llamada o funcionario), registrándolo en `informante` e `incidente` con estado `REPORTADO`. |
+| `POST` | `/api/incidentes/verificar-duplicado` | `crear_incidente_manual` | Consultar coincidencias de incidentes cercanos antes de enviar el formulario. |
 | `POST` | `/api/incidentes/avisos` | Público | Registrar reporte guiado del chatbot de informante ciudadano con código numérico de seguimiento. |
 | `GET` | `/api/incidentes/avisos/seguimiento/{codigo}` | Público | Consultar el estado de avance de un reporte a partir de su código numérico de 8 dígitos. |
 | `GET` | `/api/incidentes/tipos` | Público | Obtener el catálogo oficial de tipos de afectación (`Anegamiento`, `Caída de árbol`, etc.). |
@@ -57,7 +58,7 @@ Documentación técnica de los endpoints y lógica de negocio del módulo de **I
 ## 3. Códigos de Estado y Errores Esperables
 
 - **`POST /api/incidentes/manual`:**
-  - **`201 Created`:** Incidente creado exitosamente y promovido a estado `SIN_ATENDER`. Retorna datos del incidente y del aviso asociado.
+  - **`201 Created`:** Incidente creado exitosamente en estado `REPORTADO`. Retorna datos del incidente y código de seguimiento.
   - **`400 Bad Request`:** Cuerpo JSON inválido, RUT con dígito verificador incorrecto, campos requeridos ausentes o descripción/dirección menor a 5 caracteres.
   - **`401 Unauthorized`:** Cabecera `X-User-Id` ausente o usuario inexistente en el sistema.
   - **`403 Forbidden`:** El usuario autenticado no posee el permiso `crear_incidente_manual` (no pertenece al rol `Call Center` ni `Administrador`).

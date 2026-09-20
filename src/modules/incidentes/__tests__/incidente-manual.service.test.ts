@@ -27,7 +27,7 @@ describe("Módulo Incidentes - Servicio de Ingreso Manual y Duplicados", () => {
           codigo: "INC-123456",
           tipoAfectacion: "Anegamiento",
           direccion: "Av. Alemania 540",
-          estado: "SIN_ATENDER",
+          estado: "REPORTADO",
           distanciaMetros: 15.5,
           creadoEn: "2026-09-13T18:00:00Z",
           origen: "incidente",
@@ -93,7 +93,7 @@ describe("Módulo Incidentes - Servicio de Ingreso Manual y Duplicados", () => {
           codigo: "84920194",
           tipoAfectacion: "Caída de árbol",
           direccion: "Picarte 1990",
-          estado: "PENDIENTE_VERIFICACION",
+          estado: "REPORTADO",
           distanciaMetros: 25,
           creadoEn: "2026-09-13T17:30:00Z",
           origen: "aviso",
@@ -105,7 +105,7 @@ describe("Módulo Incidentes - Servicio de Ingreso Manual y Duplicados", () => {
       ).rejects.toThrow(ConflictoDuplicadoError);
     });
 
-    it("debe persistir el incidente y aviso en estado SIN_ATENDER cuando no hay duplicados", async () => {
+    it("debe persistir el incidente y aviso en estado REPORTADO cuando no hay duplicados", async () => {
       vi.spyOn(geocoding, "geocodificarDireccion").mockResolvedValue({
         latitud: -39.8256,
         longitud: -73.2321,
@@ -144,7 +144,7 @@ describe("Módulo Incidentes - Servicio de Ingreso Manual y Duplicados", () => {
           direccion_texto: "Picarte 2000",
           latitud: -39.8256,
           longitud: -73.2321,
-          estado: "SIN_ATENDER" as const,
+          estado: "REPORTADO" as const,
           prioridad: "ALTA" as const,
           requiere_asistencia_social: false,
           aviso_origen_id: "aviso-uuid-1",
@@ -163,14 +163,14 @@ describe("Módulo Incidentes - Servicio de Ingreso Manual y Duplicados", () => {
 
       const respuesta = await crearIncidenteManual(inputBase, "user-op-001");
 
-      expect(respuesta.incidente.estado).toBe("SIN_ATENDER");
+      expect(respuesta.incidente.estado).toBe("REPORTADO");
       expect(respuesta.incidente.codigo).toBe("INC-20260913-0001");
       expect(respuesta.incidente.avisoOrigenId).toBe("aviso-uuid-1");
       expect(respuesta.aviso.codigoSeguimiento).toBe("84920194");
       expect(spyNotificar).toHaveBeenCalledWith(
         expect.objectContaining({
           id: "incidente-uuid-1",
-          estado: "SIN_ATENDER",
+          estado: "REPORTADO",
           prioridad: "ALTA",
         })
       );
@@ -215,7 +215,7 @@ describe("Módulo Incidentes - Servicio de Ingreso Manual y Duplicados", () => {
           direccion_texto: "Picarte 2000",
           latitud: -39.8256,
           longitud: -73.2321,
-          estado: "SIN_ATENDER",
+          estado: "REPORTADO",
           prioridad: "MEDIA",
           requiere_asistencia_social: false,
           aviso_origen_id: "aviso-uuid-2",

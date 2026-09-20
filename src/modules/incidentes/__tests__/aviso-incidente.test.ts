@@ -166,7 +166,7 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
         asterisk_call_id: null,
         asterisk_caller_phone: null,
         operador_id: null,
-        estado: "PENDIENTE_VERIFICACION",
+        estado: "REPORTADO",
         es_duplicado: false,
         aviso_original_id: null,
         incidente_id: null,
@@ -186,7 +186,7 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
 
       expect(respuesta.esDuplicado).toBe(false);
       expect(respuesta.codigoSeguimiento).toBe("84920194");
-      expect(respuesta.estado).toBe("PENDIENTE_VERIFICACION");
+      expect(respuesta.estado).toBe("REPORTADO");
       expect(respuesta.avisoOriginalId).toBeNull();
       expect(respuesta.mensaje).toContain("registrado exitosamente");
     });
@@ -195,6 +195,7 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
       // Simular reporte original existente
       const reporteOriginal = {
         id: "original-0000-0000-0000-000000000001",
+        codigo: "INC-12345678",
         codigo_seguimiento: "12345678",
         tipo_afectacion: "Caída de árbol",
         direccion_texto: "Calle Picarte 2000",
@@ -263,6 +264,7 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
     it("debe retornar los datos del aviso si el código numérico existe", async () => {
       vi.spyOn(repository, "buscarAvisoPorCodigo").mockResolvedValue({
         id: "00000000-0000-0000-0000-000000000001",
+        codigo: "INC-88776655",
         codigo_seguimiento: "88776655",
         tipo_afectacion: "Deslizamiento",
         direccion_texto: "Camino a Niebla",

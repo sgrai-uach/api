@@ -79,7 +79,7 @@ describe("Endpoint POST /api/incidentes/verificar-duplicado", () => {
           codigo: "INC-999001",
           tipoAfectacion: "Anegamiento",
           direccion: "Av. Alemania 540",
-          estado: "SIN_ATENDER",
+          estado: "REPORTADO",
           distanciaMetros: 12.3,
           creadoEn: "2026-09-13T18:00:00Z",
           origen: "incidente",

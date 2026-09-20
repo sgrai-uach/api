@@ -106,7 +106,7 @@ describe("Endpoint POST /api/incidentes/manual", () => {
         codigo: "INC-888888",
         tipoAfectacion: "Caída de árbol",
         direccion: "Picarte 2010",
-        estado: "SIN_ATENDER",
+        estado: "REPORTADO",
         distanciaMetros: 20,
         creadoEn: "2026-09-13T18:00:00Z",
         origen: "incidente" as const,
@@ -162,7 +162,7 @@ describe("Endpoint POST /api/incidentes/manual", () => {
         direccion: "Av. Alemania 550",
         latitud: -39.8175,
         longitud: -73.2412,
-        estado: "SIN_ATENDER",
+        estado: "REPORTADO",
         prioridad: "MEDIA",
         requiereAsistenciaSocial: false,
         avisoOrigenId: "aviso-uuid-1",
@@ -201,7 +201,7 @@ describe("Endpoint POST /api/incidentes/manual", () => {
     const res = await POST(req);
     expect(res.status).toBe(201);
     const data = await res.json();
-    expect(data.data.incidente.estado).toBe("SIN_ATENDER");
+    expect(data.data.incidente.estado).toBe("REPORTADO");
     expect(data.data.incidente.codigo).toBe("INC-2026-0001");
     expect(data.data.aviso.codigoSeguimiento).toBe("84920194");
   });

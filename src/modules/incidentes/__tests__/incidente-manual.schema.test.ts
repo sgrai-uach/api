@@ -156,11 +156,11 @@ describe("Módulo Incidentes - Esquemas de Ingreso Manual y Duplicados", () => {
   describe("3. Enums del ciclo de vida", () => {
     it("debe incluir todos los estados definidos para el ciclo de vida", () => {
       expect(EstadoIncidenteEnum.options).toEqual([
-        "SIN_ATENDER",
-        "ASIGNADO",
-        "EN_TERRENO",
+        "REPORTADO",
+        "VERIFICANDO",
+        "EN_ATENCION",
+        "NO_ABORDABLE",
         "RESUELTO",
-        "DESCARTADO",
       ]);
     });
 
