@@ -1,11 +1,5 @@
 import { geocodificarDireccion } from "@/modules/geolocalizacion/geocoding.service";
-import {
-  insertarAvisoIncidente,
-  buscarAvisoDuplicadoCercano,
-  buscarAvisoPorCodigo,
-  buscarIncidentesYDuplicadosCercanos,
-  insertarIncidenteManualTransaccional,
-} from "./aviso-incidente.repository";
+import * as repository from "./aviso-incidente.repository";
 import {
   normalizarRutChileno,
   generarCodigoSeguimientoNumerico,
@@ -33,7 +27,7 @@ export async function registrarAvisoDesdeChatbot(
       : await geocodificarDireccion(input.direccion);
 
   // 2. Comprobar si ya existe un reporte similar cercano (radio de 300m, ventana de 24 horas)
-  const duplicadoExistente = await buscarAvisoDuplicadoCercano({
+  const duplicadoExistente = await repository.buscarAvisoDuplicadoCercano({
     tipoAfectacion: input.tipoAfectacion,
     latitud: coordenadas.latitud,
     longitud: coordenadas.longitud,
@@ -43,8 +37,7 @@ export async function registrarAvisoDesdeChatbot(
 
   // 3. Caso A: Se detectó duplicado (SAESA-style)
   if (duplicadoExistente) {
-    // Insertamos registro secundario con es_duplicado: true vinculado al original para analítica municipal
-    const registroDuplicado = await insertarAvisoIncidente({
+    const registroDuplicado = await repository.insertarAvisoIncidente({
       codigo_seguimiento: duplicadoExistente.codigo_seguimiento,
       tipo_afectacion: input.tipoAfectacion,
       direccion_texto: input.direccion,
@@ -78,7 +71,7 @@ export async function registrarAvisoDesdeChatbot(
 
   // 4. Caso B: Reporte nuevo
   const nuevoCodigo = generarCodigoSeguimientoNumerico();
-  const nuevoRegistro = await insertarAvisoIncidente({
+  const nuevoRegistro = await repository.insertarAvisoIncidente({
     codigo_seguimiento: nuevoCodigo,
     tipo_afectacion: input.tipoAfectacion,
     direccion_texto: input.direccion,
@@ -88,7 +81,7 @@ export async function registrarAvisoDesdeChatbot(
     informante_nombre: input.informanteNombre,
     informante_rut: rutNormalizado,
     informante_telefono: input.informanteTelefono ?? null,
-    estado: "PENDIENTE_VERIFICACION",
+    estado: "REPORTADO",
     es_duplicado: false,
     aviso_original_id: null,
   });
@@ -112,7 +105,7 @@ export async function registrarAvisoDesdeChatbot(
 export async function consultarAvisoPorSeguimiento(
   codigoSeguimiento: string
 ): Promise<ConsultaSeguimientoResponse | null> {
-  const aviso = await buscarAvisoPorCodigo(codigoSeguimiento);
+  const aviso = await repository.buscarAvisoPorCodigo(codigoSeguimiento);
   if (!aviso) {
     return null;
   }
@@ -125,7 +118,7 @@ export async function consultarAvisoPorSeguimiento(
     descripcion: aviso.descripcion,
     creadoEn:
       typeof aviso.creado_en === "string" ? aviso.creado_en : aviso.creado_en.toISOString(),
-    esDuplicado: aviso.es_duplicado,
+    esDuplicado: (aviso as { es_duplicado?: boolean }).es_duplicado ?? false,
   };
 }
 
@@ -151,7 +144,7 @@ export async function verificarDuplicadosManual(
       ? { latitud: input.latitud, longitud: input.longitud }
       : await geocodificarDireccion(input.direccion);
 
-  const coincidencias = await buscarIncidentesYDuplicadosCercanos({
+  const coincidencias = await repository.buscarIncidentesYDuplicadosCercanos({
     tipoAfectacion: input.tipoAfectacion,
     latitud: coordenadas.latitud,
     longitud: coordenadas.longitud,
@@ -168,7 +161,7 @@ export async function verificarDuplicadosManual(
 /**
  * Registra manualmente un incidente desde Call Center o funcionario en terreno.
  * Valida o resuelve coordenadas, verifica duplicados a menos que se fuerce la creación,
- * y en una sola transacción atómica inserta el aviso y promueve el incidente en estado SIN_ATENDER.
+ * y en una sola transacción atómica inserta informante e incidente con estado REPORTADO.
  */
 export async function crearIncidenteManual(
   input: CrearIncidenteManualInput,
@@ -184,7 +177,7 @@ export async function crearIncidenteManual(
 
   // 2. Control de duplicados si no se indicó explícitamente forzarCreacion
   if (!input.forzarCreacion) {
-    const coincidencias = await buscarIncidentesYDuplicadosCercanos({
+    const coincidencias = await repository.buscarIncidentesYDuplicadosCercanos({
       tipoAfectacion: input.tipoAfectacion,
       latitud: coordenadas.latitud,
       longitud: coordenadas.longitud,
@@ -200,8 +193,8 @@ export async function crearIncidenteManual(
     }
   }
 
-  // 3. Transacción atómica: insertar aviso y promover a incidente en estado SIN_ATENDER
-  const resultado = await insertarIncidenteManualTransaccional({
+  // 3. Transacción atómica: insertar informante e incidente en estado REPORTADO
+  const resultado = await repository.insertarIncidenteManualTransaccional({
     origenReporte: input.origenReporte,
     tipoAfectacion: input.tipoAfectacion,
     descripcion: input.descripcion,
@@ -243,15 +236,18 @@ export async function crearIncidenteManual(
     incidente: {
       id: resultado.incidente.id,
       codigo: resultado.incidente.codigo,
+      codigoSeguimiento: resultado.incidente.codigo_seguimiento,
       tipoAfectacion: resultado.incidente.tipo_afectacion,
-      descripcion: resultado.incidente.descripcion,
+      descripcion: resultado.incidente.descripcion ?? "",
       direccion: resultado.incidente.direccion_texto,
       latitud: Number(resultado.incidente.latitud),
       longitud: Number(resultado.incidente.longitud),
       estado: resultado.incidente.estado,
       prioridad: resultado.incidente.prioridad,
       requiereAsistenciaSocial: resultado.incidente.requiere_asistencia_social,
-      avisoOrigenId: resultado.incidente.aviso_origen_id,
+      avisoOrigenId:
+        (resultado.incidente as { aviso_origen_id?: string }).aviso_origen_id ??
+        resultado.incidente.id,
       creadoPorId: resultado.incidente.creado_por_id,
       creadoEn: fechaIncidenteStr,
     },

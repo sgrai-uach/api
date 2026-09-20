@@ -85,11 +85,11 @@ export const PrioridadIncidenteEnum = z.enum(PRIORIDADES_INCIDENTE);
 export type PrioridadIncidente = z.infer<typeof PrioridadIncidenteEnum>;
 
 export const ESTADOS_INCIDENTE = [
-  "SIN_ATENDER",
-  "ASIGNADO",
-  "EN_TERRENO",
+  "REPORTADO",
+  "VERIFICANDO",
+  "EN_ATENCION",
+  "NO_ABORDABLE",
   "RESUELTO",
-  "DESCARTADO",
 ] as const;
 export const EstadoIncidenteEnum = z.enum(ESTADOS_INCIDENTE);
 export type EstadoIncidente = z.infer<typeof EstadoIncidenteEnum>;
@@ -198,6 +198,7 @@ export type VerificarDuplicadoResponse = z.infer<typeof VerificarDuplicadoRespon
 export const IncidenteResponseSchema = z.object({
   id: z.string().uuid(),
   codigo: z.string(),
+  codigoSeguimiento: z.string().optional(),
   tipoAfectacion: z.string(),
   descripcion: z.string(),
   direccion: z.string(),
@@ -206,8 +207,8 @@ export const IncidenteResponseSchema = z.object({
   estado: EstadoIncidenteEnum,
   prioridad: PrioridadIncidenteEnum,
   requiereAsistenciaSocial: z.boolean(),
-  avisoOrigenId: z.string().uuid(),
-  creadoPorId: z.string().uuid(),
+  avisoOrigenId: z.string().uuid().nullable().optional(),
+  creadoPorId: z.string().uuid().nullable().optional(),
   creadoEn: z.string(),
 });
 

@@ -89,7 +89,7 @@ registry.registerPath({
   method: "post",
   path: "/api/incidentes/manual",
   description:
-    "Permite el ingreso manual de un incidente desde Call Center (llamada telefónica) o funcionario en terreno. Autoverifica implícitamente el reporte, lo inserta en aviso_incidente y en incidente en estado SIN_ATENDER, y notifica en tiempo real al Encargado.",
+    "Permite el ingreso manual de un incidente desde Call Center (llamada telefónica) o funcionario en terreno. Registra al informante e inserta el incidente en estado REPORTADO, y notifica en tiempo real al Encargado.",
   summary: "Ingreso manual de incidente (Call Center / Terreno)",
   tags: ["Incidentes"],
   request: {
@@ -107,7 +107,7 @@ registry.registerPath({
   },
   responses: {
     201: {
-      description: "Incidente creado y promovido exitosamente en estado SIN_ATENDER",
+      description: "Incidente creado exitosamente en estado REPORTADO",
       content: {
         "application/json": {
           schema: z.object({
@@ -141,7 +141,7 @@ registry.registerPath({
   method: "post",
   path: "/api/incidentes/verificar-duplicado",
   description:
-    "Consulta si existen avisos o incidentes previos similares cercanos (por defecto radio 300m y ventana 24h) para alertar al operador en el formulario antes del envío.",
+    "Consulta si existen incidentes previos similares cercanos (por defecto radio 300m y ventana 24h) para alertar al operador en el formulario antes del envío.",
   summary: "Verificar posibles duplicados de incidente",
   tags: ["Incidentes"],
   request: {
