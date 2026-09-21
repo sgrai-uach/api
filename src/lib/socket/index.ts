@@ -49,6 +49,7 @@ function emitirEvento<E extends keyof ServerToClientEvents>(
 ): void {
   // 1. Emisión directa en memoria (si io está inicializado en el mismo proceso)
   if (io) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (io.to(room) as any).emit(event, payload);
     return;
   }
