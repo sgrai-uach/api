@@ -77,3 +77,35 @@ export function notificarActualizacionSeguimiento(datos: SeguimientoEstadoPayloa
     return false;
   }
 }
+
+export interface IncidenteActualizadoPayload {
+  id: string;
+  codigo: string;
+  nuevoEstado: string;
+  prioridad: string;
+  actualizadoEn: string;
+}
+
+/**
+ * Emite una actualización en tiempo real a la sala de encargados cuando se modifica
+ * el estado, prioridad o gestión operativa de un incidente.
+ * Sala: 'sala:encargados'
+ * Evento: 'incidente:actualizado'
+ */
+export function notificarIncidenteActualizado(datos: IncidenteActualizadoPayload): boolean {
+  if (!ioInstance) {
+    return false;
+  }
+
+  try {
+    ioInstance.to("sala:encargados").emit("incidente:actualizado", {
+      evento: "incidente:actualizado",
+      datos,
+      emitidoEn: new Date().toISOString(),
+    });
+    return true;
+  } catch (error) {
+    console.error("Error al emitir actualización de incidente vía Socket.io:", error);
+    return false;
+  }
+}

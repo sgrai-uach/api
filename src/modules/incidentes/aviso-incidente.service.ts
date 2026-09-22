@@ -9,7 +9,11 @@ import {
   normalizarRutChileno,
   generarCodigoSeguimientoNumerico,
 } from "./aviso-incidente.utils";
-import { notificarActualizacionSeguimiento, notificarIncidenteCreado } from "@/lib/socket";
+import {
+  notificarActualizacionSeguimiento,
+  notificarIncidenteCreado,
+  notificarIncidenteActualizado,
+} from "@/lib/socket";
 import {
   DETALLE_ESTADOS_SEGUIMIENTO,
   type CrearAvisoIncidenteInput,
@@ -189,6 +193,15 @@ export async function cambiarEstadoIncidente(
     estado: nuevoEstado,
     estadoEtiqueta: detalle.etiqueta,
     estadoDescripcion: detalle.descripcion,
+    actualizadoEn: actualizadoEnStr,
+  });
+
+  // Emitir a la sala de encargados para sincronización en tiempo real del Kanban
+  notificarIncidenteActualizado({
+    id: actualizado.id,
+    codigo: actualizado.codigo,
+    nuevoEstado: actualizado.estado,
+    prioridad: actualizado.prioridad,
     actualizadoEn: actualizadoEnStr,
   });
 
