@@ -13,6 +13,11 @@ import {
   AvisoIncidenteResponseSchema,
   ConsultaSeguimientoResponseSchema,
 } from "@/modules/incidentes/aviso-incidente.schema";
+import {
+  ListarIncidentesResponseSchema,
+  IncidenteDetalleResponseSchema,
+  ListarIncidentesQuerySchema,
+} from "@/modules/incidentes/incidente-kanban.schema";
 
 extendZodWithOpenApi(z);
 
@@ -26,6 +31,8 @@ registry.register("RecursoResponse", RecursoResponseSchema);
 registry.register("CrearAvisoIncidenteInput", CrearAvisoIncidenteInputSchema);
 registry.register("AvisoIncidenteResponse", AvisoIncidenteResponseSchema);
 registry.register("ConsultaSeguimientoResponse", ConsultaSeguimientoResponseSchema);
+registry.register("ListarIncidentesResponse", ListarIncidentesResponseSchema);
+registry.register("IncidenteDetalleResponse", IncidenteDetalleResponseSchema);
 
 // Registrar ruta POST /api/recursos
 registry.registerPath({
@@ -181,13 +188,94 @@ registry.registerPath({
   },
 });
 
+// Registrar ruta GET /api/incidentes (Tablero Kanban Paginado)
+registry.registerPath({
+  method: "get",
+  path: "/api/incidentes",
+  description:
+    "Retorna el listado paginado de incidentes registrados en el SGRAI con filtros opcionales para el tablero Kanban del Encargado.",
+  summary: "Listar incidentes para tablero Kanban (Encargado)",
+  tags: ["Incidentes"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("ID del usuario Encargado o Administrador autenticado"),
+    }),
+    query: ListarIncidentesQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado de incidentes y metadatos de paginación obtenidos exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarIncidentesResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta no válidos",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente o inválida",
+    },
+    403: {
+      description: "No cuenta con el permiso requerido: incidentes:kanban",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// Registrar ruta GET /api/incidentes/{id} (Detalle de Incidente)
+registry.registerPath({
+  method: "get",
+  path: "/api/incidentes/{id}",
+  description:
+    "Obtiene la información exhaustiva de un incidente específico, incluyendo informante, delegación, misiones operativas y recursos asociados.",
+  summary: "Consultar detalle completo de un incidente",
+  tags: ["Incidentes"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("ID del usuario Encargado o Administrador autenticado"),
+    }),
+    params: z.object({
+      id: z.string().uuid().describe("Identificador UUID del incidente"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle completo del incidente obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: IncidenteDetalleResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de incidente no válido (debe ser UUID)",
+    },
+    401: {
+      description: "No autenticado",
+    },
+    403: {
+      description: "No autorizado / falta permiso incidentes:kanban",
+    },
+    404: {
+      description: "Incidente no encontrado",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
 export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.5.0",
+      version: "0.6.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",
