@@ -46,6 +46,11 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
   - Ante cualquier cambio de estado gestionado por la central o en terreno, el backend emite el evento:
     `incidente:estado_actualizado`
   - El payload del evento incluye el nuevo estado, la etiqueta amigable, la descripción ciudadana actualizada y la marca de tiempo.
+  - Para los operadores y encargados en su puesto de comando, el backend emite simultáneamente a:
+    `sala:encargados`
+    el evento operativo:
+    `incidente:actualizado`
+    con el payload `{ id, codigo, nuevoEstado, prioridad, actualizadoEn }` para mover las tarjetas en el tablero Kanban en tiempo real.
 
 ---
 
@@ -56,10 +61,27 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 | `POST` | `/api/incidentes/avisos` | Registrar reporte guiado del chatbot, crear o vincular al informante, registrar incidente y entregar código de seguimiento. |
 | `GET` | `/api/incidentes/avisos/seguimiento/{codigo}` | Consultar el estado de avance de un incidente para el panel del informante por su código numérico de 8 dígitos. |
 | `GET` | `/api/incidentes/tipos` | Obtener el catálogo oficial de tipos de afectación para las opciones del chatbot. |
+| `GET` | `/api/incidentes` | Listar incidentes registrados con paginación Kysely y filtros para el tablero Kanban del Encargado. Requiere permiso `incidentes:kanban`. |
+| `GET` | `/api/incidentes/{id}` | Consultar detalle exhaustivo de un caso particular (informante, misiones, cuadrilla, patrulla y recursos asociados). Requiere permiso `incidentes:kanban`. |
 
 ---
 
 ## 3. Códigos de Estado y Errores Esperables
+
+- **`GET /api/incidentes` (Tablero Kanban Paginado):**
+  - **`200 OK`:** Retorna la lista de incidentes resumidos (`data`) y los metadatos de paginación (`paginacion: { total, pagina, limite, totalPaginas, tieneSiguiente, tieneAnterior }`).
+  - **`400 Bad Request`:** Parámetros de query fuera de rango (ej. `page < 1` o `limit > 100`).
+  - **`401 Unauthorized`:** Cabecera `X-User-Id` ausente o no registrada.
+  - **`403 Forbidden`:** El usuario no posee el permiso `incidentes:kanban` ni rol `Encargado` / `Administrador`.
+  - **`500 Internal Server Error`:** Falla de conexión o error no controlado en base de datos.
+
+- **`GET /api/incidentes/{id}` (Detalle del Incidente):**
+  - **`200 OK`:** Incidente encontrado. Retorna datos geográficos, informante, delegación, misiones operativas, cuadrillas y recursos asociados.
+  - **`400 Bad Request`:** El parámetro `id` no es un UUID válido.
+  - **`401 Unauthorized`:** Cabecera `X-User-Id` ausente.
+  - **`403 Forbidden`:** Usuario no autorizado sin permiso `incidentes:kanban`.
+  - **`404 Not Found`:** No existe ningún incidente con el UUID proporcionado.
+  - **`500 Internal Server Error`:** Error interno del servidor.
 
 - **`GET /api/incidentes/avisos/seguimiento/{codigo}`:**
   - **`200 OK`:** Incidente encontrado exitosamente. Retorna estado normalizado, etiqueta comprensible, descripción clara sin tecnicismos, tipo de afectación, dirección de referencia y fechas.
@@ -78,7 +100,9 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 ## 4. Integración con Frontends (`sgrai-web` y `sgrai-pwa`)
 
 - **Tipado Automático:** Los clientes deben generar sus tipos TypeScript consumiendo `GET /openapi.json`.
-- **Conexión en Tiempo Real (Socket.io):**
-  1. Al cargar la vista del panel de seguimiento con el código `58291045`, el cliente realiza la llamada inicial a `GET /api/incidentes/avisos/seguimiento/58291045`.
-  2. El cliente emite `socket.emit("unirse", "sala:seguimiento:58291045")`.
-  3. El cliente escucha `socket.on("incidente:estado_actualizado", (data) => ...)` para actualizar dinámicamente el badge de estado, la barra de progreso y la descripción sin recargar la página.
+- **Conexión en Tiempo Real (Socket.io) para el Tablero Kanban:**
+  1. Al cargar la vista Kanban del Encargado, el cliente realiza la llamada inicial paginada a `GET /api/incidentes?page=1&limit=20` con cabecera `X-User-Id`.
+  2. El cliente emite `socket.emit("unirse", "sala:encargados")`.
+  3. El cliente escucha:
+     - `socket.on("incidente:creado", (nuevoIncidente) => ...)`: Inserta automáticamente la nueva tarjeta en la columna "Reportado".
+     - `socket.on("incidente:actualizado", (cambioEstado) => ...)`: Mueve la tarjeta correspondiente hacia su nueva columna en tiempo real (`Reportado`, `Verificando`, `En Atención`, `Resuelto`, `No Abordable`).
