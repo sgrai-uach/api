@@ -173,6 +173,9 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         fuente_origen: "CHATBOT",
         asterisk_call_id: null,
         asterisk_caller_phone: null,
+        tipo_incidente_id: null,
+        delegacion_id: null,
+        fuente_incidente_id: null,
         creado_por_id: null,
         encargado_id: null,
         es_duplicado: false,
@@ -216,6 +219,9 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         fuente_origen: "CHATBOT",
         asterisk_call_id: null,
         asterisk_caller_phone: null,
+        tipo_incidente_id: null,
+        delegacion_id: null,
+        fuente_incidente_id: null,
         creado_por_id: null,
         encargado_id: null,
         creado_en: new Date("2026-09-07T11:00:00Z"),
@@ -244,6 +250,9 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         fuente_origen: "CHATBOT",
         asterisk_call_id: null,
         asterisk_caller_phone: null,
+        tipo_incidente_id: null,
+        delegacion_id: null,
+        fuente_incidente_id: null,
         creado_por_id: null,
         encargado_id: null,
         es_duplicado: true,
@@ -292,6 +301,9 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         fuente_origen: "CHATBOT",
         asterisk_call_id: null,
         asterisk_caller_phone: null,
+        tipo_incidente_id: null,
+        delegacion_id: null,
+        fuente_incidente_id: null,
         creado_por_id: null,
         encargado_id: null,
         creado_en: new Date("2026-09-07T10:00:00Z"),
@@ -332,6 +344,9 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         fuente_origen: "CHATBOT",
         asterisk_call_id: null,
         asterisk_caller_phone: null,
+        tipo_incidente_id: null,
+        delegacion_id: null,
+        fuente_incidente_id: null,
         creado_por_id: null,
         encargado_id: null,
         creado_en: new Date("2026-09-07T10:00:00Z"),
@@ -354,8 +369,9 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
       expect(resultado).toBeNull();
     });
 
-    it("debe emitir actualización por Socket.io a la sala del código de seguimiento al cambiar de estado", async () => {
+    it("debe emitir actualización por Socket.io a la sala del código de seguimiento y a la sala de encargados al cambiar de estado", async () => {
       const socketSpy = vi.spyOn(socket, "notificarActualizacionSeguimiento").mockReturnValue(true);
+      const socketKanbanSpy = vi.spyOn(socket, "notificarIncidenteActualizado").mockReturnValue(true);
 
       vi.spyOn(repository, "actualizarEstadoIncidente").mockResolvedValue({
         id: "00000000-0000-0000-0000-000000000003",
@@ -374,6 +390,9 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         fuente_origen: "CHATBOT",
         asterisk_call_id: null,
         asterisk_caller_phone: null,
+        tipo_incidente_id: null,
+        delegacion_id: null,
+        fuente_incidente_id: null,
         creado_por_id: null,
         encargado_id: null,
         creado_en: new Date("2026-09-07T10:00:00Z"),
@@ -390,6 +409,15 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
           estado: "RESUELTO",
           estadoEtiqueta: "Resuelto",
           estadoDescripcion: DETALLE_ESTADOS_SEGUIMIENTO.RESUELTO.descripcion,
+        })
+      );
+      expect(socketKanbanSpy).toHaveBeenCalledTimes(1);
+      expect(socketKanbanSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "00000000-0000-0000-0000-000000000003",
+          codigo: "INC-55443322",
+          nuevoEstado: "RESUELTO",
+          prioridad: "MEDIA",
         })
       );
     });
