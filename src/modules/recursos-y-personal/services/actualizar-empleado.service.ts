@@ -15,6 +15,13 @@ export class EmailDuplicadoError extends Error {
   }
 }
 
+export class RutDuplicadoError extends Error {
+  constructor(message = "El RUT ya se encuentra registrado por otro usuario") {
+    super(message);
+    this.name = "RutDuplicadoError";
+  }
+}
+
 export class DelegacionNotFoundError extends Error {
   constructor(message = "La delegación especificada no existe") {
     super(message);
@@ -110,7 +117,7 @@ export async function actualizarEmpleado(
       }
     }
 
-    // 4. Validar unicidad de email si se intenta cambiar
+    // 4. Validar unicidad de email y rut si se intentan cambiar
     if (dto.email) {
       const emailExistente = await trx
         .selectFrom("usuarios")
@@ -124,8 +131,22 @@ export async function actualizarEmpleado(
       }
     }
 
+    if (dto.rut) {
+      const rutExistente = await trx
+        .selectFrom("usuarios")
+        .select(["id"])
+        .where("rut", "=", dto.rut)
+        .where("id", "!=", usuarioId)
+        .executeTakeFirst();
+
+      if (rutExistente) {
+        throw new RutDuplicadoError();
+      }
+    }
+
     // 5. Preparar datos para actualizar tabla 'usuarios'
     const datosUsuario: Record<string, unknown> = {};
+    if (dto.rut !== undefined) datosUsuario.rut = dto.rut;
     if (dto.nombres !== undefined) datosUsuario.nombres = dto.nombres;
     if (dto.apellidos !== undefined) datosUsuario.apellidos = dto.apellidos;
     if (dto.email !== undefined) datosUsuario.email = dto.email;

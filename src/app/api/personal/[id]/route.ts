@@ -5,6 +5,7 @@ import {
   actualizarEmpleado,
   EmpleadoNotFoundError,
   EmailDuplicadoError,
+  RutDuplicadoError,
   RolNotFoundError,
   DelegacionNotFoundError,
 } from "@/modules/recursos-y-personal/services/actualizar-empleado.service";
@@ -61,7 +62,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: error.message }, { status: 404 });
     }
 
-    if (error instanceof EmailDuplicadoError) {
+    if (error instanceof EmailDuplicadoError || error instanceof RutDuplicadoError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
 

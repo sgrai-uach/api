@@ -3,6 +3,10 @@ import { z } from "zod";
 export const ModificarEmpleadoSchema = z
   .object({
     // Campos correspondientes a la tabla 'usuarios' (datos generales de empleado)
+    rut: z
+      .string()
+      .regex(/^(\d{1,2}\.\d{3}\.\d{3}-[\dkK]|\d{7,8}-[\dkK])$/, "Formato de RUT chileno inválido (ej. 12.345.678-K)")
+      .optional(),
     nombres: z.string().min(1, "El nombre no puede estar vacío").max(100).optional(),
     apellidos: z.string().min(1, "El apellido no puede estar vacío").max(100).optional(),
     email: z.string().email("Formato de correo electrónico inválido").max(150).optional(),
