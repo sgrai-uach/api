@@ -10,6 +10,8 @@ export const ModificarEmpleadoSchema = z
     rol_id: z.string().uuid("rol_id debe ser un UUID válido").optional(),
     delegacion_id: z.string().uuid("delegacion_id debe ser un UUID válido").nullable().optional(),
     activo: z.boolean().optional(),
+    fecha_ingreso: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha de ingreso debe ser YYYY-MM-DD").nullable().optional(),
+    fecha_salida: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha de salida debe ser YYYY-MM-DD").nullable().optional(),
 
     // Campos correspondientes a la tabla 'personal' (especialización operativa de terreno)
     especialidad: z.string().max(100).nullable().optional(),

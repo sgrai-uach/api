@@ -35,8 +35,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const datosValidados = ModificarEmpleadoSchema.parse(body);
+    const modificadoPorId = request.headers.get("x-user-id");
 
-    const empleado = await actualizarEmpleado(id, datosValidados);
+    const empleado = await actualizarEmpleado(id, datosValidados, modificadoPorId);
 
     return NextResponse.json({
       mensaje: "Datos del empleado actualizados exitosamente",

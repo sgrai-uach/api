@@ -38,7 +38,8 @@ export class RolNotFoundError extends Error {
  */
 export async function actualizarEmpleado(
   id: string,
-  dto: ModificarEmpleadoDTO
+  dto: ModificarEmpleadoDTO,
+  modificadoPorId?: string | null
 ) {
   return await db.transaction().execute(async (trx) => {
     // 1. Identificar si 'id' corresponde a un 'personal.id' o 'usuarios.id'
@@ -118,6 +119,8 @@ export async function actualizarEmpleado(
     if (dto.rol_id !== undefined) datosUsuario.rol_id = dto.rol_id;
     if (dto.delegacion_id !== undefined) datosUsuario.delegacion_id = dto.delegacion_id;
     if (dto.activo !== undefined) datosUsuario.activo = dto.activo;
+    if (dto.fecha_ingreso !== undefined) datosUsuario.fecha_ingreso = dto.fecha_ingreso;
+    if (dto.fecha_salida !== undefined) datosUsuario.fecha_salida = dto.fecha_salida;
 
     if (Object.keys(datosUsuario).length > 0) {
       await trx
@@ -127,7 +130,7 @@ export async function actualizarEmpleado(
         .execute();
     }
 
-    // 6. Preparar datos para actualizar tabla 'personal' (si existe ficha operativa)
+    // 6. Preparar datos para actualizar tabla 'personal' (si existe ficha operativa o se promueve a terreno)
     const datosPersonal: Record<string, unknown> = {};
     if (dto.especialidad !== undefined) datosPersonal.especialidad = dto.especialidad;
     if (dto.cargo !== undefined) datosPersonal.cargo = dto.cargo;
@@ -140,15 +143,53 @@ export async function actualizarEmpleado(
       datosPersonal.delegacion_id = dto.delegacion_id;
     }
 
-    if (personalRecord && Object.keys(datosPersonal).length > 0) {
+    if (personalRecord) {
+      if (Object.keys(datosPersonal).length > 0) {
+        await trx
+          .updateTable("personal")
+          .set(datosPersonal)
+          .where("id", "=", personalRecord.id)
+          .execute();
+      }
+    } else if (Object.keys(datosPersonal).length > 0) {
+      // Si el usuario pasa a ser personal de terreno y no tenía ficha previa, crearla
+      const userFinal = await trx
+        .selectFrom("usuarios")
+        .select(["delegacion_id"])
+        .where("id", "=", usuarioId)
+        .executeTakeFirst();
+
+      const delegacionFicha = (datosPersonal.delegacion_id as string) || userFinal?.delegacion_id;
+      if (delegacionFicha) {
+        await trx
+          .insertInto("personal")
+          .values({
+            usuario_id: usuarioId,
+            delegacion_id: delegacionFicha,
+            especialidad: (datosPersonal.especialidad as string) || null,
+            cargo: (datosPersonal.cargo as string) || null,
+            estado_operativo: (datosPersonal.estado_operativo as any) || "disponible",
+            disponible_terreno: datosPersonal.disponible_terreno !== undefined ? (datosPersonal.disponible_terreno as boolean) : true,
+            observaciones: (datosPersonal.observaciones as string) || null,
+          })
+          .execute();
+      }
+    }
+
+    // 7. Registrar trazabilidad en log de cambios de usuarios
+    const cambios = { ...datosUsuario, ...datosPersonal };
+    if (Object.keys(cambios).length > 0) {
       await trx
-        .updateTable("personal")
-        .set(datosPersonal)
-        .where("id", "=", personalRecord.id)
+        .insertInto("log_cambios_usuarios")
+        .values({
+          usuario_modificado_id: usuarioId,
+          modificado_por_id: modificadoPorId || null,
+          campos_modificados: JSON.stringify(cambios),
+        })
         .execute();
     }
 
-    // 7. Retornar el registro consolidado del empleado
+    // 8. Retornar el registro consolidado del empleado
     const empleadoActualizado = await trx
       .selectFrom("usuarios")
       .leftJoin("roles", "roles.id", "usuarios.rol_id")
@@ -162,6 +203,8 @@ export async function actualizarEmpleado(
         "usuarios.email",
         "usuarios.telefono",
         "usuarios.activo as usuario_activo",
+        "usuarios.fecha_ingreso",
+        "usuarios.fecha_salida",
         "roles.id as rol_id",
         "roles.codigo as rol_codigo",
         "roles.nombre as rol_nombre",

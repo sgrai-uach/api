@@ -54,6 +54,8 @@ export interface UsuarioTable {
   delegacion_id: string | null;
   activo: Generated<boolean>;
   ultimo_acceso: Date | null;
+  fecha_ingreso: string | null; // Formato YYYY-MM-DD
+  fecha_salida: string | null;  // Formato YYYY-MM-DD
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -77,6 +79,14 @@ export interface PersonalTable {
   updated_at: Generated<Date>;
 }
 
+export interface LogCambiosUsuariosTable {
+  id: Generated<string>;
+  usuario_modificado_id: string;
+  modificado_por_id: string | null;
+  campos_modificados: string; // JSONB
+  created_at: Generated<Date>;
+}
+
 export interface Database {
   delegaciones: DelegacionTable;
   roles: RolTable;
@@ -84,4 +94,5 @@ export interface Database {
   rol_permisos: RolPermisoTable;
   usuarios: UsuarioTable;
   personal: PersonalTable;
+  log_cambios_usuarios: LogCambiosUsuariosTable;
 }
