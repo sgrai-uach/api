@@ -6,7 +6,11 @@ export const ModificarEmpleadoSchema = z
     nombres: z.string().min(1, "El nombre no puede estar vacío").max(100).optional(),
     apellidos: z.string().min(1, "El apellido no puede estar vacío").max(100).optional(),
     email: z.string().email("Formato de correo electrónico inválido").max(150).optional(),
-    telefono: z.string().max(50).nullable().optional(),
+    telefono: z
+      .string()
+      .min(1, "El número de teléfono es obligatorio y no puede estar vacío")
+      .max(50, "El teléfono no puede superar los 50 caracteres")
+      .optional(),
     rol_id: z.string().uuid("rol_id debe ser un UUID válido").optional(),
     delegacion_id: z.string().uuid("delegacion_id debe ser un UUID válido").nullable().optional(),
     activo: z.boolean().optional(),

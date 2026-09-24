@@ -72,17 +72,31 @@ export async function actualizarEmpleado(
         .executeTakeFirst();
     }
 
-    // 2. Validar que el rol exista si se intenta actualizar
+    // 2. Validar que el rol exista si se intenta actualizar y obtener su código
+    let rolCodigoDestino: string | undefined;
     if (dto.rol_id) {
       const rol = await trx
         .selectFrom("roles")
-        .select(["id"])
+        .select(["id", "codigo"])
         .where("id", "=", dto.rol_id)
         .executeTakeFirst();
       if (!rol) {
         throw new RolNotFoundError();
       }
+      rolCodigoDestino = rol.codigo;
+    } else {
+      const userActual = await trx
+        .selectFrom("usuarios")
+        .innerJoin("roles", "roles.id", "usuarios.rol_id")
+        .select(["roles.codigo as rol_codigo"])
+        .where("usuarios.id", "=", usuarioId)
+        .executeTakeFirst();
+      rolCodigoDestino = userActual?.rol_codigo;
     }
+
+    const esRolTerrenoDestino = ["PATRULLA_VERIFICADORA", "DELEGADO_CUADRILLA", "BRIGADISTA"].includes(
+      rolCodigoDestino || ""
+    );
 
     // 3. Validar que la delegación exista si se especifica
     if (dto.delegacion_id) {
@@ -156,36 +170,48 @@ export async function actualizarEmpleado(
       datosPersonal.delegacion_id = dto.delegacion_id;
     }
 
-    if (personalRecord) {
-      if (Object.keys(datosPersonal).length > 0) {
+    if (!esRolTerrenoDestino) {
+      // Si el rol nuevo NO es de terreno (ej. Call Center, Encargado, Supervisor, Admin),
+      // se eliminan sus atributos de personal de terreno si los tenía
+      if (personalRecord) {
         await trx
-          .updateTable("personal")
-          .set(datosPersonal)
+          .deleteFrom("personal")
           .where("id", "=", personalRecord.id)
           .execute();
       }
-    } else if (Object.keys(datosPersonal).length > 0) {
-      // Si el usuario pasa a ser personal de terreno y no tenía ficha previa, crearla
-      const userFinal = await trx
-        .selectFrom("usuarios")
-        .select(["delegacion_id"])
-        .where("id", "=", usuarioId)
-        .executeTakeFirst();
+    } else {
+      // Si el rol nuevo SÍ es de terreno (Patrulla Verificadora, Delegado Cuadrilla, Brigadista)
+      if (personalRecord) {
+        if (Object.keys(datosPersonal).length > 0) {
+          await trx
+            .updateTable("personal")
+            .set(datosPersonal)
+            .where("id", "=", personalRecord.id)
+            .execute();
+        }
+      } else {
+        // No tenía ficha previa en 'personal', crearla ahora
+        const userFinal = await trx
+          .selectFrom("usuarios")
+          .select(["delegacion_id"])
+          .where("id", "=", usuarioId)
+          .executeTakeFirst();
 
-      const delegacionFicha = (datosPersonal.delegacion_id as string) || userFinal?.delegacion_id;
-      if (delegacionFicha) {
-        await trx
-          .insertInto("personal")
-          .values({
-            usuario_id: usuarioId,
-            delegacion_id: delegacionFicha,
-            especialidad: (datosPersonal.especialidad as string) || null,
-            cargo: (datosPersonal.cargo as string) || null,
-            estado_operativo: (datosPersonal.estado_operativo as any) || "disponible",
-            disponible_terreno: datosPersonal.disponible_terreno !== undefined ? (datosPersonal.disponible_terreno as boolean) : true,
-            observaciones: (datosPersonal.observaciones as string) || null,
-          })
-          .execute();
+        const delegacionFicha = (datosPersonal.delegacion_id as string) || userFinal?.delegacion_id;
+        if (delegacionFicha) {
+          await trx
+            .insertInto("personal")
+            .values({
+              usuario_id: usuarioId,
+              delegacion_id: delegacionFicha,
+              especialidad: (datosPersonal.especialidad as string) || null,
+              cargo: (datosPersonal.cargo as string) || null,
+              estado_operativo: (datosPersonal.estado_operativo as any) || "disponible",
+              disponible_terreno: datosPersonal.disponible_terreno !== undefined ? (datosPersonal.disponible_terreno as boolean) : true,
+              observaciones: (datosPersonal.observaciones as string) || null,
+            })
+            .execute();
+        }
       }
     }
 
