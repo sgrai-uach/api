@@ -118,7 +118,20 @@ export async function actualizarEmpleado(
     if (dto.telefono !== undefined) datosUsuario.telefono = dto.telefono;
     if (dto.rol_id !== undefined) datosUsuario.rol_id = dto.rol_id;
     if (dto.delegacion_id !== undefined) datosUsuario.delegacion_id = dto.delegacion_id;
-    if (dto.activo !== undefined) datosUsuario.activo = dto.activo;
+    if (dto.activo !== undefined) {
+      datosUsuario.activo = dto.activo;
+      // Si se desactiva la cuenta y no se envió explícitamente fecha_salida, registrar la fecha actual si no tenía una
+      if (dto.activo === false && dto.fecha_salida === undefined) {
+        const usuarioActual = await trx
+          .selectFrom("usuarios")
+          .select(["fecha_salida"])
+          .where("id", "=", usuarioId)
+          .executeTakeFirst();
+        if (!usuarioActual?.fecha_salida) {
+          datosUsuario.fecha_salida = new Date().toISOString().slice(0, 10);
+        }
+      }
+    }
     if (dto.fecha_ingreso !== undefined) datosUsuario.fecha_ingreso = dto.fecha_ingreso;
     if (dto.fecha_salida !== undefined) datosUsuario.fecha_salida = dto.fecha_salida;
 
