@@ -9,6 +9,7 @@ import {
   RolNotFoundError,
   DelegacionNotFoundError,
 } from "@/modules/recursos-y-personal/services/actualizar-empleado.service";
+import { eliminarEmpleadoLogico } from "@/modules/recursos-y-personal/services/eliminar-empleado.service";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -77,3 +78,41 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     );
   }
 }
+
+/**
+ * DELETE /api/personal/[id]
+ *
+ * Ejecuta la baja lógica (soft-delete) de un empleado o funcionario en SGRAI.
+ * Desactiva al usuario, registra la fecha de salida y pasa el personal operativo a inactivo.
+ */
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { id } = await params;
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "El identificador del empleado es requerido" },
+        { status: 400 }
+      );
+    }
+
+    const modificadoPorId = request.headers.get("x-user-id");
+    const resultado = await eliminarEmpleadoLogico(id, modificadoPorId);
+
+    return NextResponse.json({
+      mensaje: "Empleado dado de baja exitosamente",
+      data: resultado,
+    });
+  } catch (error) {
+    if (error instanceof EmpleadoNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+
+    console.error("Error no controlado al dar de baja empleado:", error);
+    return NextResponse.json(
+      { error: "Error interno del servidor al dar de baja al empleado" },
+      { status: 500 }
+    );
+  }
+}
+
