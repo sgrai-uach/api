@@ -100,6 +100,44 @@ Todos los campos son opcionales (actualización parcial):
   ```
 - **`400 Bad Request`**: Rol o delegación inexistente en el sistema.
 - **`404 Not Found`**: El identificador de empleado no existe en la base de datos.
-- **`409 Conflict`**: El correo electrónico especificado ya pertenece a otro usuario registrado.
+- **`409 Conflict`**: El correo electrónico o RUT especificado ya pertenece a otro usuario registrado.
 - **`422 Unprocessable Entity`**: Formato o tipo de datos inválido según el esquema Zod (ej. email inválido, UUID malformado).
+
+### 4.2 Listar y Buscar Personal / Empleados
+- **Método:** `GET`
+- **Ruta:** `/api/personal`
+- **Propósito:** Lista y busca empleados y funcionarios en el sistema para selectores, listados y paneles administrativos.
+- **Query Params:**
+  - `q`: Término de búsqueda por RUT, nombres, apellidos o correo.
+  - `solo_personal`: `true` para listar únicamente funcionarios con ficha operativa en `personal`.
+  - `incluir_inactivos`: `true` para incluir funcionarios dados de baja (`activo = false`). Por omisión (`false`), solo se devuelven funcionarios activos (`activo = true`).
+  - `delegacion_id`: UUID de delegación para filtrar territorialmente.
+  - `rol_id`: UUID de rol funcional.
+  - `ordenar_por`: Campo de ordenamiento (`apellidos`, `nombres`, `rut`).
+  - `orden`: Dirección del orden (`asc` | `desc`).
+
+### 4.3 Baja Lógica de Empleado (Eliminación / Soft-Delete)
+- **Método:** `DELETE`
+- **Ruta:** `/api/personal/:id`
+- **Propósito:** Ejecuta la baja lógica de un empleado preservando la integridad referencial histórica para reportes y auditoría (SENAPRED / SIG).
+- **Parámetro `:id`:** UUID de `personal` o UUID de `usuarios`.
+- **Efectos:**
+  1. En `usuarios`: `activo = false` y se registra la `fecha_salida` con la fecha actual. Revoca de inmediato el acceso al sistema.
+  2. En `personal` (si aplica): `estado_operativo = 'inactivo'` y `disponible_terreno = false` para impedir futuras convocatorias o asignaciones territoriales.
+  3. En `log_cambios_usuarios`: Registra la traza de auditoría con tipo de operación `BAJA_LOGICA_H13`.
+- **Respuestas:**
+  - **`200 OK`**: Empleado dado de baja exitosamente.
+    ```json
+    {
+      "mensaje": "Empleado dado de baja exitosamente",
+      "data": {
+        "usuario_id": "c9a4057f-c4ad-44ab-a1b2-a28c5b62ebd7",
+        "activo": false,
+        "fecha_salida": "2026-09-25"
+      }
+    }
+    ```
+  - **`404 Not Found`**: El identificador no corresponde a un funcionario existente.
+  - **`500 Internal Server Error`**: Error interno del servidor durante la transacción.
+
 
