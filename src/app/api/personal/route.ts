@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const q = searchParams.get("q")?.trim();
     const soloPersonal = searchParams.get("solo_personal") === "true";
+    const incluirInactivos = searchParams.get("incluir_inactivos") === "true";
     const delegacionId = searchParams.get("delegacion_id")?.trim();
     const rolId = searchParams.get("rol_id")?.trim();
     const ordenarPor = searchParams.get("ordenar_por") || "apellidos"; // apellidos | nombres | rut
@@ -48,6 +49,10 @@ export async function GET(request: NextRequest) {
         "personal.observaciones",
         "personal.updated_at as personal_updated_at",
       ]);
+
+    if (!incluirInactivos) {
+      query = query.where("usuarios.activo", "=", true);
+    }
 
     if (soloPersonal) {
       query = query.where("personal.id", "is not", null);
