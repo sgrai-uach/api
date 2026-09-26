@@ -3,6 +3,7 @@ import { db } from "./index";
 import * as m1 from "./migrations/001_initial_schema";
 import * as m2 from "./migrations/002_avisos_incidentes";
 import * as m3 from "./migrations/003_alinear_erd_informante_incidente";
+import * as m4 from "./migrations/004_alineacion_erd_misiones_kanban";
 
 export async function migrateToLatest() {
   const provider: MigrationProvider = {
@@ -11,6 +12,7 @@ export async function migrateToLatest() {
         "001_initial_schema": m1,
         "002_avisos_incidentes": m2,
         "003_alinear_erd_informante_incidente": m3,
+        "004_alineacion_erd_misiones_kanban": m4,
       };
     },
   };
