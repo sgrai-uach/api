@@ -1,16 +1,16 @@
-# Módulo de Seguridad — Documentación Técnica de API
+# Módulo de Seguridad, Roles y Permisos — Documentación Técnica de API
 
 Este documento describe la operativa técnica del módulo de **Seguridad y Control de Acceso (RBAC)** en `sgrai-api`, dirigido a los desarrolladores de `sgrai-web` (específicamente la interfaz de Administración) y `sgrai-pwa`.
 
 ---
 
-## 1. Reglas de negocio aplicadas
+## 1. Contexto y Reglas de Negocio Aplicadas
 
-El módulo de Seguridad implementa las siguientes directrices y reglas del proyecto:
+El módulo **Seguridad** centraliza la autenticación, perfiles de usuario, roles y permisos granulares en el SGRAI:
 
 1. **Control de Acceso Basado en Roles (RBAC):**
    - La visualización y gestión de la matriz de perfiles y permisos está restringida **exclusiva y estrictamente a usuarios con perfil `'Administrador'`**.
-   - Cualquier invocación sin credenciales válidas o proveniente de otro rol (`Call Center`, `Encargado`, `Patrulla Verificadora`, etc.) es rechazada inmediatamente.
+   - Cualquier invocación sin credenciales válidas o proveniente de otro rol (`Call Center`, `Encargado`, `Patrulla Verificadora`, etc.) es rechazada inmediatamente con `403 Forbidden`.
 2. **Perfiles sin permisos asignados:**
    - Si un perfil no cuenta con permisos registrados en la base de datos (ej. perfiles de prueba o de acceso restringido), la API retorna explícitamente `cantidadPermisos: 0` y `permisos: []` para que `sgrai-web` despliegue el mensaje *"Sin permisos asignados"*.
 3. **Auditoría de Asignaciones y Actividad:**
@@ -24,7 +24,22 @@ El módulo de Seguridad implementa las siguientes directrices y reglas del proye
 
 ---
 
-## 2. Lista de Endpoints
+## 2. Roles Base del Sistema
+
+| Código Rol | Nombre | Ámbito de Acción |
+|---|---|---|
+| `ADMIN` | Administrador | Gestión de configuración, usuarios, delegaciones y perfiles |
+| `ENCARGADO` | Encargado Centro de Mando | Gestión operativa de incidentes, despacho de misiones y cuadrillas |
+| `SUPERVISOR` | Supervisor Estratégico | Visualización analítica, tableros, reportes SENAPRED (Alfa 37G) |
+| `CALL_CENTER` | Operador Call Center | Recepción telefónica y verificación de avisos ciudadanos |
+| `ASISTENTE_SOCIAL` | Asistente Social | Atención de vulnerabilidad social y levantamiento de ficha FIBE |
+| `PATRULLA_VERIFICADORA`| Patrulla Verificadora | Personal de terreno asignado a verificar incidentes reportados vía PWA |
+| `DELEGADO_CUADRILLA` | Delegado de Cuadrilla | Jefe operativo en terreno que coordina la cuadrilla y misión |
+| `BRIGADISTA` | Personal Operativo Terreno | Miembro ejecutor de cuadrilla en labores en terreno |
+
+---
+
+## 3. Endpoints del Módulo
 
 | Método | Ruta | Propósito |
 |---|---|---|
@@ -35,7 +50,7 @@ El módulo de Seguridad implementa las siguientes directrices y reglas del proye
 
 ---
 
-## 3. Códigos de error esperables no obvios
+## 4. Códigos de Error Esperables no Obvios
 
 - **`401 Unauthorized` en `GET /api/seguridad/roles` o `/api/seguridad/roles/{id}`**:
   - Falta la cabecera `X-User-Id` (o `Authorization: Bearer <usuario_id>`).
@@ -48,7 +63,7 @@ El módulo de Seguridad implementa las siguientes directrices y reglas del proye
 
 ---
 
-## 4. Trazabilidad con Frontends
+## 5. Trazabilidad con Frontends
 
-- **`sgrai-web`**: Consume `GET /api/seguridad/roles` para renderizar la grilla/tabla de roles en el panel de Administración, y utiliza `GET /api/seguridad/roles/{id}` para vistas de detalle o paneles laterales expansibles (preparado para la edición/asignación de H5).
+- **`sgrai-web`**: Consume `GET /api/seguridad/roles` para renderizar la grilla/tabla de roles en el panel de Administración, y utiliza `GET /api/seguridad/roles/{id}` para vistas de detalle o paneles laterales expansibles.
 - **Contrato de tipos**: Los frontends ejecutan `openapi-typescript` o equivalente contra `GET /openapi.json` para derivar automáticamente las interfaces TypeScript sin redactarlas a mano.

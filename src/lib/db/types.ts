@@ -26,23 +26,50 @@ export interface RecursoTable {
   actualizado_en: Generated<Date>;
 }
 
-export interface PermisoTable {
+export type EstadoOperativoPersonal =
+  | "disponible"
+  | "en_mision"
+  | "en_patrulla"
+  | "descanso"
+  | "licencia"
+  | "inactivo";
+
+export interface DelegacionTable {
   id: Generated<string>;
-  codigo: string;
+  codigo?: string;
+  codigo_delegacion?: string;
   nombre: string;
-  descripcion: string | null;
-  modulo?: string;
-  creado_en: Generated<Date>;
+  nombre_delegacion?: string;
+  direccion?: string | null;
+  descripcion?: string | null;
+  activo?: ColumnType<boolean, boolean | undefined, boolean>;
+  creado_en?: Generated<Date>;
+  actualizado_en?: Generated<Date>;
+  created_at?: Generated<Date>;
+  updated_at?: Generated<Date>;
 }
 
 export interface RolTable {
   id: Generated<string>;
+  codigo?: string;
   nombre: string;
   descripcion: string | null;
   activo?: ColumnType<boolean, boolean | undefined, boolean>;
   es_sistema?: ColumnType<boolean, boolean | undefined, boolean>;
-  creado_en: Generated<Date>;
+  creado_en?: Generated<Date>;
   actualizado_en?: Generated<Date>;
+  created_at?: Generated<Date>;
+  updated_at?: Generated<Date>;
+}
+
+export interface PermisoTable {
+  id: Generated<string>;
+  codigo: string;
+  nombre?: string;
+  descripcion: string | null;
+  modulo?: string;
+  creado_en?: Generated<Date>;
+  created_at?: Generated<Date>;
 }
 
 export interface RolPermisoTable {
@@ -50,16 +77,55 @@ export interface RolPermisoTable {
   permiso_id: string;
   asignado_por_id?: string | null;
   asignado_en?: Generated<Date>;
+  created_at?: Generated<Date>;
 }
 
 export interface UsuarioTable {
   id: Generated<string>;
   rut: string;
-  nombre: string;
+  nombre?: string;
+  nombres?: string;
+  apellidos?: string;
   email: string;
+  telefono?: string | null;
+  password_hash?: string;
   rol_id: string;
+  delegacion_id?: string | null;
   activo?: ColumnType<boolean, boolean | undefined, boolean>;
-  creado_en: Generated<Date>;
+  ultimo_acceso?: Date | null;
+  fecha_ingreso?: string | null;
+  fecha_salida?: string | null;
+  creado_en?: Generated<Date>;
+  actualizado_en?: Generated<Date>;
+  created_at?: Generated<Date>;
+  updated_at?: Generated<Date>;
+}
+
+export interface PersonalTable {
+  id: Generated<string>;
+  usuario_id: string;
+  delegacion_id: string;
+  especialidad: string | null;
+  cargo: string | null;
+  estado_operativo: ColumnType<
+    EstadoOperativoPersonal,
+    EstadoOperativoPersonal | undefined,
+    EstadoOperativoPersonal
+  >;
+  disponible_terreno: ColumnType<boolean, boolean | undefined, boolean>;
+  ultima_ubicacion?: string | null;
+  ultima_actualizacion_ubicacion?: Date | null;
+  observaciones?: string | null;
+  created_at?: Generated<Date>;
+  updated_at?: Generated<Date>;
+}
+
+export interface LogCambiosUsuariosTable {
+  id: Generated<string>;
+  usuario_modificado_id: string;
+  modificado_por_id: string | null;
+  campos_modificados: string;
+  created_at: Generated<Date>;
 }
 
 export type EstadoIncidente =
@@ -87,17 +153,6 @@ export interface InformanteTable {
   nombre: string | null;
   telefono: string | null;
   creado_en: Generated<Date>;
-}
-
-export interface DelegacionTable {
-  id: Generated<string>;
-  nombre: string;
-  codigo_delegacion?: string;
-  nombre_delegacion?: string;
-  descripcion: string | null;
-  activo?: ColumnType<boolean, boolean | undefined, boolean>;
-  creado_en: Generated<Date>;
-  actualizado_en?: Generated<Date>;
 }
 
 export interface TipoIncidenteTable {
@@ -257,6 +312,7 @@ export interface AdjuntoTable {
 }
 
 export interface Database {
+  // Entidades principales (nombres singulares de Kysely)
   recurso: RecursoTable;
   permiso: PermisoTable;
   rol: RolTable;
@@ -274,4 +330,20 @@ export interface Database {
   mision: MisionTable;
   aviso_incidente: AvisoIncidenteTable;
   adjunto: AdjuntoTable;
+  personal: PersonalTable;
+  log_cambios_usuarios: LogCambiosUsuariosTable;
+
+  // Aliases plurales para compatibilidad transversal con servicios de H12 y consultas directas
+  recursos: RecursoTable;
+  permisos: PermisoTable;
+  roles: RolTable;
+  rol_permisos: RolPermisoTable;
+  usuarios: UsuarioTable;
+  informantes: InformanteTable;
+  incidentes: IncidenteTable;
+  delegaciones: DelegacionTable;
+  tipos_incidentes: TipoIncidenteTable;
+  misiones: MisionTable;
+  avisos_incidentes: AvisoIncidenteTable;
+  adjuntos: AdjuntoTable;
 }

@@ -43,6 +43,14 @@ import {
   ListarIncidentesQuerySchema,
 } from "@/modules/incidentes/incidente-kanban.schema";
 
+import {
+  ModificarEmpleadoSchema,
+  EmpleadoConsolidadoSchema,
+  ListarEmpleadosResponseSchema,
+  ActualizarEmpleadoResponseSchema,
+  CatalogosResponseSchema,
+} from "@/modules/recursos-y-personal/schemas/modificar-empleado.schema";
+
 extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
@@ -51,6 +59,12 @@ export const registry = new OpenAPIRegistry();
 registry.register("CrearRecursoInput", CrearRecursoInputSchema);
 registry.register("RecursoResponse", RecursoResponseSchema);
 registry.register("ListarRecursosPaginadosResponse", ListarRecursosPaginadosResponseSchema);
+registry.register("ModificarEmpleadoInput", ModificarEmpleadoSchema);
+registry.register("EmpleadoConsolidado", EmpleadoConsolidadoSchema);
+registry.register("ListarEmpleadosResponse", ListarEmpleadosResponseSchema);
+registry.register("ActualizarEmpleadoResponse", ActualizarEmpleadoResponseSchema);
+registry.register("CatalogosResponse", CatalogosResponseSchema);
+
 
 // Registrar esquemas de Seguridad
 registry.register("ListarRolesResponse", ListarRolesResponseSchema);
@@ -565,6 +579,99 @@ registry.registerPath({
     401: { description: "No autenticado" },
     403: { description: "No autorizado / falta permiso incidentes:kanban" },
     404: { description: "Incidente no encontrado" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 16. GET /api/personal (Listar empleados/personal)
+registry.registerPath({
+  method: "get",
+  path: "/api/personal",
+  description:
+    "Lista y busca empleados y personal operativo del SGRAI con filtros territoriales, de rol y búsqueda textual.",
+  summary: "Listar empleados y personal",
+  tags: ["Recursos y Personal"],
+  request: {
+    query: z.object({
+      q: z.string().optional().describe("Término de búsqueda (RUT, nombres, apellidos o email)"),
+      solo_personal: z.enum(["true", "false"]).optional().describe("Filtrar únicamente personal con ficha de terreno"),
+      delegacion_id: z.string().uuid().optional().describe("Filtrar por delegación municipal"),
+      rol_id: z.string().uuid().optional().describe("Filtrar por rol"),
+      ordenar_por: z.enum(["apellidos", "nombres", "rut"]).optional().describe("Campo de ordenamiento"),
+      orden: z.enum(["asc", "desc"]).optional().describe("Dirección de ordenamiento"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Lista de empleados obtenida exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarEmpleadosResponseSchema,
+        },
+      },
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 17. PATCH /api/personal/{id} (HU-12: Modificar Empleado)
+registry.registerPath({
+  method: "patch",
+  path: "/api/personal/{id}",
+  description:
+    "Modifica los datos de un empleado, actualizando concurrentemente la información general de usuario y la ficha operativa de personal.",
+  summary: "Modificar empleado y ficha operativa",
+  tags: ["Recursos y Personal"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().optional().describe("UUID del administrador que realiza la modificación"),
+    }),
+    params: z.object({
+      id: z.string().uuid().describe("UUID del usuario o de la ficha de personal"),
+    }),
+    body: {
+      description: "Datos a actualizar del empleado",
+      content: {
+        "application/json": {
+          schema: ModificarEmpleadoSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Empleado actualizado exitosamente",
+      content: {
+        "application/json": {
+          schema: ActualizarEmpleadoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Rol o delegación inexistente o datos inválidos" },
+    404: { description: "Empleado no encontrado" },
+    409: { description: "Conflicto: Correo electrónico o RUT ya registrado" },
+    422: { description: "Error de validación de campos" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 18. GET /api/catalogos (Catálogos de roles, delegaciones, cargos y especialidades)
+registry.registerPath({
+  method: "get",
+  path: "/api/catalogos",
+  description:
+    "Retorna los catálogos de referencia activos (roles, delegaciones, especialidades y cargos) para alimentar selectores en los frontends.",
+  summary: "Obtener catálogos de referencia",
+  tags: ["Recursos y Personal"],
+  responses: {
+    200: {
+      description: "Catálogos de referencia obtenidos exitosamente",
+      content: {
+        "application/json": {
+          schema: CatalogosResponseSchema,
+        },
+      },
+    },
     500: { description: "Error interno del servidor" },
   },
 });
