@@ -12,6 +12,11 @@ import {
   CrearAvisoIncidenteInputSchema,
   AvisoIncidenteResponseSchema,
   ConsultaSeguimientoResponseSchema,
+  CrearIncidenteManualInputSchema,
+  CrearIncidenteManualResponseSchema,
+  VerificarDuplicadoInputSchema,
+  VerificarDuplicadoResponseSchema,
+  IncidenteResponseSchema,
 } from "@/modules/incidentes/aviso-incidente.schema";
 import {
   ListarIncidentesResponseSchema,
@@ -30,9 +35,13 @@ registry.register("RecursoResponse", RecursoResponseSchema);
 // Registrar esquemas de Incidentes
 registry.register("CrearAvisoIncidenteInput", CrearAvisoIncidenteInputSchema);
 registry.register("AvisoIncidenteResponse", AvisoIncidenteResponseSchema);
-registry.register("ConsultaSeguimientoResponse", ConsultaSeguimientoResponseSchema);
 registry.register("ListarIncidentesResponse", ListarIncidentesResponseSchema);
 registry.register("IncidenteDetalleResponse", IncidenteDetalleResponseSchema);
+registry.register("CrearIncidenteManualInput", CrearIncidenteManualInputSchema);
+registry.register("CrearIncidenteManualResponse", CrearIncidenteManualResponseSchema);
+registry.register("VerificarDuplicadoInput", VerificarDuplicadoInputSchema);
+registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema);
+registry.register("IncidenteResponse", IncidenteResponseSchema);
 
 // Registrar ruta POST /api/recursos
 registry.registerPath({
@@ -74,6 +83,106 @@ registry.registerPath({
     },
     403: {
       description: "No cuenta con el permiso requerido: recursos:crear",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// Registrar ruta POST /api/incidentes/manual
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/manual",
+  description:
+    "Permite el ingreso manual de un incidente desde Call Center (llamada telefónica) o funcionario en terreno. Registra al informante e inserta el incidente en estado REPORTADO, y notifica en tiempo real al Encargado.",
+  summary: "Ingreso manual de incidente (Call Center / Terreno)",
+  tags: ["Incidentes"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("ID del operador o funcionario autenticado"),
+    }),
+    body: {
+      description: "Datos del reporte de incidente manual",
+      content: {
+        "application/json": {
+          schema: CrearIncidenteManualInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Incidente creado exitosamente en estado REPORTADO",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+            data: CrearIncidenteManualResponseSchema,
+          }),
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos o faltantes (ej. RUT inválido, descripción muy corta)",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente o usuario inexistente",
+    },
+    403: {
+      description: "No cuenta con el permiso requerido: crear_incidente_manual",
+    },
+    409: {
+      description:
+        "Posible incidente duplicado detectado en la zona. Requiere confirmación con forzarCreacion: true.",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// Registrar ruta POST /api/incidentes/verificar-duplicado
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/verificar-duplicado",
+  description:
+    "Consulta si existen incidentes previos similares cercanos (por defecto radio 300m y ventana 24h) para alertar al operador en el formulario antes del envío.",
+  summary: "Verificar posibles duplicados de incidente",
+  tags: ["Incidentes"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("ID del operador o funcionario autenticado"),
+    }),
+    body: {
+      description: "Dirección/coordenadas y tipo de afectación a verificar",
+      content: {
+        "application/json": {
+          schema: VerificarDuplicadoInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Resultado de la verificación espacial",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+            data: VerificarDuplicadoResponseSchema,
+          }),
+        },
+      },
+    },
+    400: {
+      description: "Parámetros inválidos",
+    },
+    401: {
+      description: "No autenticado",
+    },
+    403: {
+      description: "No autorizado",
     },
     500: {
       description: "Error interno del servidor",

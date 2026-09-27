@@ -61,10 +61,15 @@ export type EstadoAvisoIncidente = EstadoIncidente;
 
 export type PrioridadIncidente = "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
 
+export type OrigenReporte =
+  | "CHATBOT"
+  | "LLAMADA_TELEFONICA"
+  | "FUNCIONARIO_TERRENO";
+
 export interface InformanteTable {
   id: Generated<string>;
-  rut: string;
-  nombre: string;
+  rut: string | null;
+  nombre: string | null;
   telefono: string | null;
   creado_en: Generated<Date>;
 }
@@ -187,10 +192,11 @@ export interface IncidenteTable {
   estado: ColumnType<EstadoIncidente, EstadoIncidente | undefined, EstadoIncidente>;
   prioridad: ColumnType<PrioridadIncidente, PrioridadIncidente | undefined, PrioridadIncidente>;
   requiere_asistencia_social: ColumnType<boolean, boolean | undefined, boolean>;
-  fuente_origen: ColumnType<string, string | undefined, string>;
+  fuente_origen: ColumnType<OrigenReporte | string, OrigenReporte | string | undefined, OrigenReporte | string>;
   asterisk_call_id: string | null;
   asterisk_caller_phone: string | null;
   creado_por_id: string | null;
+  operador_id?: string | null;
   encargado_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
@@ -213,4 +219,3 @@ export interface Database {
   cuadrilla_recurso: CuadrillaRecursoTable;
   mision: MisionTable;
 }
-

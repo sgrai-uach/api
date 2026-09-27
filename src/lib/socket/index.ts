@@ -34,7 +34,9 @@ export function getSocketServer(): SocketIOServer | null {
 
 /**
  * Emite una notificación en tiempo real a la sala de encargados cuando se registra
- * un nuevo incidente.
+ * un nuevo incidente manual o verificado.
+ * Diseñado a prueba de fallos: si Socket.io no está inicializado (ej. en tests o Next.js standalone),
+ * no interrumpe el flujo HTTP.
  */
 export function notificarIncidenteCreado(incidente: IncidenteNotificacionPayload): boolean {
   if (!ioInstance) {
