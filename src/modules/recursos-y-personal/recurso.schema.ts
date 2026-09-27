@@ -3,6 +3,19 @@ import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 
 extendZodWithOpenApi(z);
 
+/**
+ * Catálogo de estados de disponibilidad operativa del inventario logístico.
+ */
+export const EstadoRecursoSchema = z.enum([
+  "DISPONIBLE",
+  "ASIGNADO",
+  "EN_MANTENCION",
+  "BAJO_STOCK",
+  "NO_DISPONIBLE",
+]);
+
+export type EstadoRecurso = z.infer<typeof EstadoRecursoSchema>;
+
 export const DetallesRecursoSchema = z
   .object({
     // Identificación general de activos serializados
@@ -56,6 +69,7 @@ export const CrearRecursoInputSchema = z.object({
     .max(180, "La longitud debe estar entre -180 y 180"),
   descripcion: z.string().trim().optional(),
   detalles: DetallesRecursoSchema.optional().default({}),
+  delegacionId: z.string().uuid("Formato de UUID de delegación inválido").optional().nullable(),
 });
 
 export type CrearRecursoInput = z.infer<typeof CrearRecursoInputSchema>;
@@ -65,7 +79,7 @@ export const RecursoResponseSchema = z.object({
   id: z.string().uuid(),
   nombre: z.string(),
   esIndividual: z.boolean(),
-  estado: z.enum(["DISPONIBLE", "NO_DISPONIBLE", "BAJO_STOCK"]),
+  estado: EstadoRecursoSchema,
   cantidadInventario: z.number().int(),
   cantidadEnUso: z.number().int(),
   cantidadMinima: z.number().int(),
@@ -73,9 +87,107 @@ export const RecursoResponseSchema = z.object({
   longitud: z.number(),
   descripcion: z.string().nullable(),
   detalles: z.record(z.string(), z.unknown()),
+  delegacionId: z.string().uuid().nullable().optional(),
   creadoPorId: z.string().uuid(),
   creadoEn: z.string(),
   actualizadoEn: z.string(),
 });
 
 export type RecursoResponse = z.infer<typeof RecursoResponseSchema>;
+
+/**
+ * Parámetros de consulta (Query Params) para el listado paginado de inventario.
+ */
+export const ListarRecursosQuerySchema = z.object({
+  pagina: z.coerce.number().int().min(1).default(1).openapi({
+    description: "Número de página para paginación (inicia en 1)",
+    example: 1,
+  }),
+  limite: z.coerce.number().int().min(1).max(100).default(10).openapi({
+    description: "Cantidad de elementos por página (máximo 100)",
+    example: 10,
+  }),
+  delegacionId: z.string().uuid().optional().openapi({
+    description: "Filtrar por UUID de delegación territorial",
+    example: "30000000-0000-4000-8000-000000000001",
+  }),
+  estado: EstadoRecursoSchema.optional().openapi({
+    description: "Filtrar por estado de disponibilidad operativa",
+    example: "DISPONIBLE",
+  }),
+  esIndividual: z
+    .preprocess((val) => {
+      if (val === "true" || val === true) return true;
+      if (val === "false" || val === false) return false;
+      return undefined;
+    }, z.boolean().optional())
+    .openapi({
+      description: "Filtrar por tipo (true: individual/vehículo, false: a granel/material)",
+      example: true,
+    }),
+  busqueda: z.string().trim().optional().openapi({
+    description: "Búsqueda textual por nombre o descripción del recurso",
+    example: "Camioneta",
+  }),
+});
+
+export type ListarRecursosQuery = z.infer<typeof ListarRecursosQuerySchema>;
+
+/**
+ * Esquema de respuesta para cada fila de recurso en la tabla de inventario.
+ */
+export const RecursoItemResponseSchema = z.object({
+  id: z.string().uuid(),
+  nombre: z.string(),
+  tipo: z.string().openapi({
+    description: "Tipo legible (ej. 'Vehículo o Maquinaria' o 'Material o Insumo')",
+    example: "Vehículo o Maquinaria",
+  }),
+  esIndividual: z.boolean(),
+  estado: EstadoRecursoSchema,
+  cantidadInventario: z.number().int(),
+  cantidadEnUso: z.number().int(),
+  cantidadDisponible: z.number().int().openapi({
+    description: "Cantidad libre disponible (cantidadInventario - cantidadEnUso)",
+    example: 1,
+  }),
+  cantidadMinima: z.number().int(),
+  latitud: z.number(),
+  longitud: z.number(),
+  descripcion: z.string().nullable(),
+  detalles: z.record(z.string(), z.unknown()),
+  delegacion: z
+    .object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      nombre: z.string(),
+    })
+    .nullable()
+    .openapi({
+      description: "Datos de la delegación territorial de procedencia",
+    }),
+  creadoPorId: z.string().uuid(),
+  creadoEn: z.string(),
+  actualizadoEn: z.string(),
+});
+
+export type RecursoItemResponse = z.infer<typeof RecursoItemResponseSchema>;
+
+/**
+ * Respuesta completa paginada para GET /api/recursos.
+ */
+export const ListarRecursosPaginadosResponseSchema = z.object({
+  data: z.array(RecursoItemResponseSchema).openapi({
+    description: "Listado de recursos en la página solicitada (vacío si no hay recursos)",
+  }),
+  meta: z.object({
+    total: z.number().int().openapi({ description: "Total general de registros coincidentes" }),
+    pagina: z.number().int().openapi({ description: "Página actual" }),
+    limite: z.number().int().openapi({ description: "Límite de elementos por página" }),
+    totalPaginas: z.number().int().openapi({ description: "Cantidad total de páginas disponibles" }),
+  }),
+});
+
+export type ListarRecursosPaginadosResponse = z.infer<
+  typeof ListarRecursosPaginadosResponseSchema
+>;

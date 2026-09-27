@@ -1,8 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Genera un build standalone optimizado para despliegue en Docker.
-  output: "standalone",
+  /* config options here */
   async headers() {
     return [
       {
@@ -11,6 +10,14 @@ const nextConfig: NextConfig = {
           { key: "Access-Control-Allow-Origin", value: "*" },
           { key: "Access-Control-Allow-Methods", value: "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
           { key: "Access-Control-Allow-Headers", value: "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, X-User-Id, Authorization" },
+        ],
+      },
+      {
+        source: "/openapi.json",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET, OPTIONS" },
+          { key: "Access-Control-Allow-Headers", value: "Content-Type, X-User-Id, Authorization" },
         ],
       },
     ];

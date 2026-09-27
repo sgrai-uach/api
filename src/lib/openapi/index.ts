@@ -4,10 +4,28 @@ import {
   extendZodWithOpenApi,
 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+
+import {
+  AvisoDetalleResponseSchema,
+  AvisosPaginadosResponseSchema,
+  CrearAvisoInputSchema,
+  DescartarAvisoInputSchema,
+  ListarAvisosQuerySchema,
+  VerificarAvisoInputSchema,
+} from "@/modules/incidentes/schema";
+
+import {
+  ListarRolesResponseSchema,
+  RolDetalleResponseSchema,
+} from "@/modules/seguridad/schema";
+
 import {
   CrearRecursoInputSchema,
   RecursoResponseSchema,
+  ListarRecursosQuerySchema,
+  ListarRecursosPaginadosResponseSchema,
 } from "@/modules/recursos-y-personal/recurso.schema";
+
 import {
   CrearAvisoIncidenteInputSchema,
   AvisoIncidenteResponseSchema,
@@ -18,6 +36,7 @@ import {
   VerificarDuplicadoResponseSchema,
   IncidenteResponseSchema,
 } from "@/modules/incidentes/aviso-incidente.schema";
+
 import {
   ListarIncidentesResponseSchema,
   IncidenteDetalleResponseSchema,
@@ -31,10 +50,23 @@ export const registry = new OpenAPIRegistry();
 // Registrar esquemas de Recursos y Personal
 registry.register("CrearRecursoInput", CrearRecursoInputSchema);
 registry.register("RecursoResponse", RecursoResponseSchema);
+registry.register("ListarRecursosPaginadosResponse", ListarRecursosPaginadosResponseSchema);
 
-// Registrar esquemas de Incidentes
+// Registrar esquemas de Seguridad
+registry.register("ListarRolesResponse", ListarRolesResponseSchema);
+registry.register("RolDetalleResponse", RolDetalleResponseSchema);
+
+// Registrar esquemas de Avisos Call Center
+registry.register("AvisosPaginadosResponse", AvisosPaginadosResponseSchema);
+registry.register("AvisoDetalleResponse", AvisoDetalleResponseSchema);
+registry.register("CrearAvisoInput", CrearAvisoInputSchema);
+registry.register("DescartarAvisoInput", DescartarAvisoInputSchema);
+registry.register("VerificarAvisoInput", VerificarAvisoInputSchema);
+
+// Registrar esquemas de Incidentes (Chatbot, Manual, Kanban)
 registry.register("CrearAvisoIncidenteInput", CrearAvisoIncidenteInputSchema);
 registry.register("AvisoIncidenteResponse", AvisoIncidenteResponseSchema);
+registry.register("ConsultaSeguimientoResponse", ConsultaSeguimientoResponseSchema);
 registry.register("ListarIncidentesResponse", ListarIncidentesResponseSchema);
 registry.register("IncidenteDetalleResponse", IncidenteDetalleResponseSchema);
 registry.register("CrearIncidenteManualInput", CrearIncidenteManualInputSchema);
@@ -43,7 +75,11 @@ registry.register("VerificarDuplicadoInput", VerificarDuplicadoInputSchema);
 registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema);
 registry.register("IncidenteResponse", IncidenteResponseSchema);
 
-// Registrar ruta POST /api/recursos
+// ==========================================
+// RUTAS RECURSOS Y PERSONAL
+// ==========================================
+
+// 1. POST /api/recursos (HU-6)
 registry.registerPath({
   method: "post",
   path: "/api/recursos",
@@ -75,127 +111,233 @@ registry.registerPath({
         },
       },
     },
-    400: {
-      description: "Datos de entrada inválidos",
-    },
-    401: {
-      description: "No autenticado / cabecera X-User-Id ausente",
-    },
-    403: {
-      description: "No cuenta con el permiso requerido: recursos:crear",
-    },
-    500: {
-      description: "Error interno del servidor",
-    },
+    400: { description: "Datos de entrada inválidos" },
+    401: { description: "No autenticado / cabecera X-User-Id ausente" },
+    403: { description: "No cuenta con el permiso requerido: recursos:crear" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
-// Registrar ruta POST /api/incidentes/manual
+// 2. GET /api/recursos (HU-7)
 registry.registerPath({
-  method: "post",
-  path: "/api/incidentes/manual",
+  method: "get",
+  path: "/api/recursos",
+  summary: "Listar recursos logísticos y verificar disponibilidad",
   description:
-    "Permite el ingreso manual de un incidente desde Call Center (llamada telefónica) o funcionario en terreno. Registra al informante e inserta el incidente en estado REPORTADO, y notifica en tiempo real al Encargado.",
-  summary: "Ingreso manual de incidente (Call Center / Terreno)",
-  tags: ["Incidentes"],
+    "Retorna una lista paginada de los recursos registrados en el inventario, incluyendo estado de disponibilidad operativa, cantidades y delegación territorial asociada.",
+  tags: ["Recursos y Personal"],
   request: {
     headers: z.object({
-      "x-user-id": z.string().uuid().describe("ID del operador o funcionario autenticado"),
+      "x-user-id": z.string().uuid().describe("UUID del usuario administrador autenticado"),
     }),
-    body: {
-      description: "Datos del reporte de incidente manual",
-      content: {
-        "application/json": {
-          schema: CrearIncidenteManualInputSchema,
-        },
-      },
-    },
-  },
-  responses: {
-    201: {
-      description: "Incidente creado exitosamente en estado REPORTADO",
-      content: {
-        "application/json": {
-          schema: z.object({
-            message: z.string(),
-            data: CrearIncidenteManualResponseSchema,
-          }),
-        },
-      },
-    },
-    400: {
-      description: "Datos de entrada inválidos o faltantes (ej. RUT inválido, descripción muy corta)",
-    },
-    401: {
-      description: "No autenticado / cabecera X-User-Id ausente o usuario inexistente",
-    },
-    403: {
-      description: "No cuenta con el permiso requerido: crear_incidente_manual",
-    },
-    409: {
-      description:
-        "Posible incidente duplicado detectado en la zona. Requiere confirmación con forzarCreacion: true.",
-    },
-    500: {
-      description: "Error interno del servidor",
-    },
-  },
-});
-
-// Registrar ruta POST /api/incidentes/verificar-duplicado
-registry.registerPath({
-  method: "post",
-  path: "/api/incidentes/verificar-duplicado",
-  description:
-    "Consulta si existen incidentes previos similares cercanos (por defecto radio 300m y ventana 24h) para alertar al operador en el formulario antes del envío.",
-  summary: "Verificar posibles duplicados de incidente",
-  tags: ["Incidentes"],
-  request: {
-    headers: z.object({
-      "x-user-id": z.string().uuid().describe("ID del operador o funcionario autenticado"),
-    }),
-    body: {
-      description: "Dirección/coordenadas y tipo de afectación a verificar",
-      content: {
-        "application/json": {
-          schema: VerificarDuplicadoInputSchema,
-        },
-      },
-    },
+    query: ListarRecursosQuerySchema,
   },
   responses: {
     200: {
-      description: "Resultado de la verificación espacial",
+      description: "Listado paginado de recursos de inventario",
       content: {
         "application/json": {
-          schema: z.object({
-            message: z.string(),
-            data: VerificarDuplicadoResponseSchema,
-          }),
+          schema: ListarRecursosPaginadosResponseSchema,
         },
       },
     },
-    400: {
-      description: "Parámetros inválidos",
-    },
-    401: {
-      description: "No autenticado",
-    },
-    403: {
-      description: "No autorizado",
-    },
-    500: {
-      description: "Error interno del servidor",
-    },
+    400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "No autenticado / cabecera X-User-Id ausente" },
+    403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
-// Registrar ruta POST /api/incidentes/avisos
+// ==========================================
+// RUTAS SEGURIDAD (ROLES Y PERMISOS - HU-4)
+// ==========================================
+
+// 3. GET /api/seguridad/roles
+registry.registerPath({
+  method: "get",
+  path: "/api/seguridad/roles",
+  summary: "Listar perfiles y permisos actuales",
+  description:
+    "Retorna el listado completo de perfiles/roles registrados con sus respectivos permisos asignados y metadatos de auditoría.",
+  tags: ["Seguridad / Roles y Permisos"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del usuario administrador autenticado"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Listado completo de roles y permisos",
+      content: {
+        "application/json": {
+          schema: ListarRolesResponseSchema,
+        },
+      },
+    },
+    401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
+    403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
+  },
+});
+
+// 4. GET /api/seguridad/roles/{id}
+registry.registerPath({
+  method: "get",
+  path: "/api/seguridad/roles/{id}",
+  summary: "Obtener detalle de perfil y sus permisos",
+  description:
+    "Despliega claramente los permisos, módulos y acciones a los que tiene acceso un perfil específico.",
+  tags: ["Seguridad / Roles y Permisos"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del rol/perfil a consultar"),
+    }),
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del usuario administrador autenticado"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del perfil y sus permisos asignados",
+      content: {
+        "application/json": {
+          schema: RolDetalleResponseSchema,
+        },
+      },
+    },
+    401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
+    403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
+    404: { description: "Perfil no encontrado" },
+  },
+});
+
+// ==========================================
+// RUTAS AVISOS (CALL CENTER - HU-52)
+// ==========================================
+
+// 5. GET /api/incidentes/avisos
+registry.registerPath({
+  method: "get",
+  path: "/api/incidentes/avisos",
+  summary: "Listar avisos pendientes para Call Center",
+  description:
+    "Retorna una lista paginada de avisos ordenados por mayor tiempo de espera calculando minutosEnEspera.",
+  tags: ["Incidentes / Avisos"],
+  request: {
+    query: ListarAvisosQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado paginado de avisos",
+      content: {
+        "application/json": {
+          schema: AvisosPaginadosResponseSchema,
+        },
+      },
+    },
+    400: { description: "Parámetros de consulta inválidos" },
+  },
+});
+
+// 6. GET /api/incidentes/avisos/{id}
+registry.registerPath({
+  method: "get",
+  path: "/api/incidentes/avisos/{id}",
+  summary: "Obtener detalle completo de un aviso",
+  description:
+    "Retorna información detallada de un aviso incluyendo coordenadas, informante y evidencia multimedia adjunta.",
+  tags: ["Incidentes / Avisos"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del aviso"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del aviso encontrado",
+      content: {
+        "application/json": {
+          schema: AvisoDetalleResponseSchema,
+        },
+      },
+    },
+    404: { description: "Aviso no encontrado" },
+  },
+});
+
+// 7. POST /api/incidentes/avisos/{id}/verificar
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/avisos/{id}/verificar",
+  summary: "Verificar y promover aviso a incidente",
+  description:
+    "Transforma atómicamente un aviso preliminar en un incidente formal ICS con bloqueo pesimista.",
+  tags: ["Incidentes / Avisos"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del aviso a verificar"),
+    }),
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del operador que verifica"),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: VerificarAvisoInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: "Aviso verificado y promovido a incidente exitosamente" },
+    400: { description: "Datos de entrada inválidos" },
+    401: { description: "Cabecera X-User-Id faltante" },
+    404: { description: "Aviso no encontrado" },
+    409: { description: "El aviso ya fue verificado o descartado previamente" },
+  },
+});
+
+// 8. POST /api/incidentes/avisos/{id}/descartar
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/avisos/{id}/descartar",
+  summary: "Descartar aviso motivado",
+  description:
+    "Descarta un aviso no procedente registrando la justificación obligatoria del operador.",
+  tags: ["Incidentes / Avisos"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del aviso"),
+    }),
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del operador que descarta"),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: DescartarAvisoInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: "Aviso descartado correctamente" },
+    400: { description: "Justificación de descarte inválida o faltante" },
+    401: { description: "Cabecera X-User-Id faltante" },
+    404: { description: "Aviso no encontrado" },
+    409: { description: "El aviso ya fue procesado previamente" },
+  },
+});
+
+// ==========================================
+// RUTAS INCIDENTES (CHATBOT, MANUAL, KANBAN)
+// ==========================================
+
+// 9. POST /api/incidentes/avisos (Chatbot informante)
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos",
   description:
-    "Recepcionar reporte de incidente guiado desde el chatbot de informante. Valida RUT, geocodifica la dirección y detecta duplicados cercanos con PostGIS.",
+    "Permite al chatbot registrar un nuevo reporte de emergencia ciudadana con generación de código numérico de 8 dígitos y detección de duplicados.",
   summary: "Registrar aviso de incidente (Chatbot Informante)",
   tags: ["Incidentes"],
   request: {
@@ -231,16 +373,87 @@ registry.registerPath({
         },
       },
     },
-    400: {
-      description: "Datos de entrada inválidos (RUT erróneo, campos requeridos faltantes o dirección muy corta)",
-    },
-    500: {
-      description: "Error interno del servidor",
-    },
+    400: { description: "Datos de entrada inválidos" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
-// Registrar ruta GET /api/incidentes/avisos/seguimiento/{codigo}
+// 10. POST /api/incidentes/manual (HU-53)
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/manual",
+  description:
+    "Permite a operadores de Call Center y funcionarios ingresar un incidente directamente en estado REPORTADO con autoverificación implícita.",
+  summary: "Ingreso manual de incidente (Call Center / Terreno)",
+  tags: ["Incidentes"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del operador autenticado"),
+    }),
+    body: {
+      description: "Datos del incidente ingresado manualmente",
+      content: {
+        "application/json": {
+          schema: CrearIncidenteManualInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Incidente manual registrado exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearIncidenteManualResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada inválidos" },
+    401: { description: "No autenticado / cabecera X-User-Id ausente" },
+    403: { description: "No cuenta con el permiso requerido: crear_incidente_manual" },
+    409: { description: "Conflicto por duplicados cercanos" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 11. POST /api/incidentes/verificar-duplicado (HU-53)
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/verificar-duplicado",
+  description:
+    "Permite al Call Center consultar incidentes cercanos activos en un radio espacial para alertar visualmente antes de enviar el formulario.",
+  summary: "Consultar duplicados para ingreso manual",
+  tags: ["Incidentes"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del operador autenticado"),
+    }),
+    body: {
+      description: "Parámetros de búsqueda espacial de incidentes cercanos",
+      content: {
+        "application/json": {
+          schema: VerificarDuplicadoInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Consulta de duplicados completada exitosamente",
+      content: {
+        "application/json": {
+          schema: VerificarDuplicadoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada inválidos" },
+    401: { description: "No autenticado / cabecera X-User-Id ausente" },
+    403: { description: "No cuenta con el permiso requerido: crear_incidente_manual" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 12. GET /api/incidentes/avisos/seguimiento/{codigo}
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos/seguimiento/{codigo}",
@@ -250,7 +463,7 @@ registry.registerPath({
   tags: ["Incidentes"],
   request: {
     params: z.object({
-      codigo: z.string().describe("Código de seguimiento numérico de 8 dígitos entregado al informante"),
+      codigo: z.string().describe("Código de seguimiento numérico de 8 dígitos"),
     }),
   },
   responses: {
@@ -265,21 +478,17 @@ registry.registerPath({
         },
       },
     },
-    404: {
-      description: "No se encontró ningún reporte con el código de seguimiento indicado",
-    },
-    500: {
-      description: "Error interno del servidor",
-    },
+    404: { description: "No se encontró ningún reporte con el código de seguimiento indicado" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
-// Registrar ruta GET /api/incidentes/tipos
+// 13. GET /api/incidentes/tipos
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/tipos",
   description:
-    "Retorna el listado de opciones de afectación válidas para poblar los botones de respuesta rápida en el chatbot de sgrai-web y sgrai-pwa.",
+    "Retorna el listado de opciones de afectación válidas para poblar los botones de respuesta rápida en el chatbot.",
   summary: "Obtener catálogo de tipos de afectación",
   tags: ["Incidentes"],
   responses: {
@@ -297,7 +506,7 @@ registry.registerPath({
   },
 });
 
-// Registrar ruta GET /api/incidentes (Tablero Kanban Paginado)
+// 14. GET /api/incidentes (Tablero Kanban Paginado - HU-15)
 registry.registerPath({
   method: "get",
   path: "/api/incidentes",
@@ -320,22 +529,14 @@ registry.registerPath({
         },
       },
     },
-    400: {
-      description: "Parámetros de consulta no válidos",
-    },
-    401: {
-      description: "No autenticado / cabecera X-User-Id ausente o inválida",
-    },
-    403: {
-      description: "No cuenta con el permiso requerido: incidentes:kanban",
-    },
-    500: {
-      description: "Error interno del servidor",
-    },
+    400: { description: "Parámetros de consulta no válidos" },
+    401: { description: "No autenticado / cabecera X-User-Id ausente o inválida" },
+    403: { description: "No cuenta con el permiso requerido: incidentes:kanban" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
-// Registrar ruta GET /api/incidentes/{id} (Detalle de Incidente)
+// 15. GET /api/incidentes/{id} (Detalle de Incidente - HU-15)
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/{id}",
@@ -360,21 +561,11 @@ registry.registerPath({
         },
       },
     },
-    400: {
-      description: "Identificador de incidente no válido (debe ser UUID)",
-    },
-    401: {
-      description: "No autenticado",
-    },
-    403: {
-      description: "No autorizado / falta permiso incidentes:kanban",
-    },
-    404: {
-      description: "Incidente no encontrado",
-    },
-    500: {
-      description: "Error interno del servidor",
-    },
+    400: { description: "Identificador de incidente no válido (debe ser UUID)" },
+    401: { description: "No autenticado" },
+    403: { description: "No autorizado / falta permiso incidentes:kanban" },
+    404: { description: "Incidente no encontrado" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
@@ -389,7 +580,9 @@ export function generarOpenAPISpec() {
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",
     },
-    servers: [{ url: "/" }],
+    servers: [{ url: "/" }, { url: "http://localhost:3000", description: "Servidor de desarrollo local" }],
   });
 }
 
+// Alias para compatibilidad de nomenclatura
+export const generarOpenApiSpec = generarOpenAPISpec;
