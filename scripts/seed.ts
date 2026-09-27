@@ -10,6 +10,7 @@
  */
 
 import { loadEnvConfig } from "@next/env";
+import { db } from "../src/lib/db";
 
 loadEnvConfig(process.cwd());
 
@@ -111,13 +112,13 @@ async function main() {
   let tiposDisponibles: TipoIncidenteApi[] = [];
   if (promoverAIncidente) {
     try {
-      const resTipos = await fetch(`${API_BASE_URL}/api/incidentes/tipos`);
-      if (resTipos.ok) {
-        const jsonTipos = await resTipos.json();
-        tiposDisponibles = jsonTipos.data || [];
-      }
+      tiposDisponibles = await db
+        .selectFrom("tipo_incidente")
+        .select(["id", "nombre"])
+        .where("activo", "=", true)
+        .execute();
     } catch (e) {
-      console.warn("⚠️ No se pudo consultar /api/incidentes/tipos:", e);
+      console.warn("⚠️ No se pudo consultar la tabla tipo_incidente:", e);
     }
   }
 
@@ -213,6 +214,7 @@ async function main() {
     console.log(`- Estado de los avisos: PENDIENTE_VERIFICACION (visibles en /callcenter)`);
   }
   console.log(`-----------------------------------------------------\n`);
+  await db.destroy();
 }
 
 main().catch(console.error);

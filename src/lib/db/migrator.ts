@@ -104,6 +104,5 @@ export async function migrateToLatest() {
 if (process.argv[1]?.includes("migrator")) {
   migrateToLatest().then(async () => {
     await db.destroy();
-    await pool.end();
   });
 }

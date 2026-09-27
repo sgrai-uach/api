@@ -14,6 +14,14 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("actualizado_en", "timestamptz", (col) => col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`))
     .execute();
 
+  await sql`
+    ALTER TABLE delegacion ADD COLUMN IF NOT EXISTS codigo_delegacion VARCHAR(50);
+    ALTER TABLE delegacion ADD COLUMN IF NOT EXISTS nombre_delegacion VARCHAR(150);
+    ALTER TABLE delegacion ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT true;
+    ALTER TABLE delegacion ADD COLUMN IF NOT EXISTS actualizado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_delegacion_codigo_unique ON delegacion (codigo_delegacion);
+  `.execute(db);
+
   await db.schema
     .createIndex("idx_delegacion_codigo")
     .ifNotExists()
@@ -23,13 +31,16 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
   // 2. Semillas iniciales para Delegaciones Territoriales de Valdivia
   await sql`
-    INSERT INTO delegacion (id, codigo_delegacion, nombre_delegacion, descripcion, activo)
+    INSERT INTO delegacion (id, codigo_delegacion, nombre, nombre_delegacion, descripcion, activo)
     VALUES
-      ('30000000-0000-4000-8000-000000000001', 'DEL_NORTE', 'Delegación Municipal Norte', 'Jurisdicción y cobertura territorial norte de Valdivia (Las Ánimas, Cabo Blanco)', true),
-      ('30000000-0000-4000-8000-000000000002', 'DEL_SUR', 'Delegación Municipal Sur', 'Jurisdicción y cobertura territorial sur de Valdivia (Angachilla, Guacamayo)', true),
-      ('30000000-0000-4000-8000-000000000003', 'DEL_COSTA', 'Delegación Municipal Costa', 'Jurisdicción y cobertura territorial zona costera (Niebla, Los Molinos, Corral)', true),
-      ('30000000-0000-4000-8000-000000000004', 'DEL_CALLE_CALLE', 'Delegación Municipal Calle Calle', 'Jurisdicción y cobertura territorial eje fluvial e interior (Collico, Corvi)', true)
-    ON CONFLICT (codigo_delegacion) DO NOTHING;
+      ('30000000-0000-4000-8000-000000000001', 'DEL_NORTE', 'Norte', 'Delegación Municipal Norte', 'Jurisdicción y cobertura territorial norte de Valdivia (Las Ánimas, Cabo Blanco)', true),
+      ('30000000-0000-4000-8000-000000000002', 'DEL_SUR', 'Sur', 'Delegación Municipal Sur', 'Jurisdicción y cobertura territorial sur de Valdivia (Angachilla, Guacamayo)', true),
+      ('30000000-0000-4000-8000-000000000003', 'DEL_COSTA', 'Costa', 'Delegación Municipal Costa', 'Jurisdicción y cobertura territorial zona costera (Niebla, Los Molinos, Corral)', true),
+      ('30000000-0000-4000-8000-000000000004', 'DEL_CALLE_CALLE', 'Calle Calle', 'Delegación Municipal Calle Calle', 'Jurisdicción y cobertura territorial eje fluvial e interior (Collico, Corvi)', true)
+    ON CONFLICT (codigo_delegacion) DO UPDATE SET
+      nombre = EXCLUDED.nombre,
+      nombre_delegacion = EXCLUDED.nombre_delegacion,
+      activo = EXCLUDED.activo;
   `.execute(db);
 
   // 3. Tabla recurso (Inventario de materiales, maquinaria y vehículos)
@@ -101,11 +112,11 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   // Asignar permiso 'recursos:leer' al Administrador
   await sql`
     INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
-    VALUES (
-      '20000000-0000-4000-8000-000000000001',
-      '10000000-0000-4000-8000-000000000010',
-      '00000000-0000-4000-8000-000000000001'
-    )
+    SELECT r.id, p.id, u.id
+    FROM rol r
+    JOIN permiso p ON p.codigo = 'recursos:leer'
+    LEFT JOIN usuario u ON u.email = 'admin@valdivia.cl'
+    WHERE r.nombre = 'Administrador'
     ON CONFLICT DO NOTHING;
   `.execute(db);
 }

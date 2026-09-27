@@ -54,6 +54,18 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addPrimaryKeyConstraint("pk_rol_permiso", ["rol_id", "permiso_id"])
     .execute();
 
+  // Asegurar columnas requeridas si las tablas ya existían previamente
+  await sql`
+    ALTER TABLE permiso ADD COLUMN IF NOT EXISTS modulo VARCHAR(100) NOT NULL DEFAULT 'General';
+    ALTER TABLE rol ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT true;
+    ALTER TABLE rol ADD COLUMN IF NOT EXISTS es_sistema BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE rol ADD COLUMN IF NOT EXISTS actualizado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+    ALTER TABLE usuario ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT true;
+    ALTER TABLE usuario ADD COLUMN IF NOT EXISTS actualizado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+    ALTER TABLE rol_permiso ADD COLUMN IF NOT EXISTS asignado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+    ALTER TABLE rol_permiso ADD COLUMN IF NOT EXISTS asignado_por_id UUID REFERENCES usuario(id) ON DELETE SET NULL;
+  `.execute(db);
+
   // 6. Índices para consultas optimizadas (< 1.5 segundos)
   await sql`CREATE INDEX IF NOT EXISTS idx_permiso_codigo ON permiso (codigo)`.execute(db);
   await sql`CREATE INDEX IF NOT EXISTS idx_permiso_modulo ON permiso (modulo)`.execute(db);
@@ -107,28 +119,29 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   // Administrador: Todos los permisos
   await sql`
     INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
-    VALUES
-      ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001'),
-      ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001'),
-      ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001'),
-      ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000001'),
-      ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000001'),
-      ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000006', '00000000-0000-4000-8000-000000000001'),
-      ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000007', '00000000-0000-4000-8000-000000000001'),
-      ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000008', '00000000-0000-4000-8000-000000000001'),
-      ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000009', '00000000-0000-4000-8000-000000000001')
-    ON CONFLICT DO NOTHING
+    SELECT r.id, p.id, u.id
+    FROM rol r
+    CROSS JOIN permiso p
+    LEFT JOIN usuario u ON u.email = 'admin@valdivia.cl'
+    WHERE r.nombre = 'Administrador'
+    ON CONFLICT DO NOTHING;
   `.execute(db);
 
   // Call Center: Avisos e incidentes manuales
   await sql`
     INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
-    VALUES
-      ('20000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001'),
-      ('20000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000001'),
-      ('20000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000006', '00000000-0000-4000-8000-000000000001'),
-      ('20000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000007', '00000000-0000-4000-8000-000000000001')
-    ON CONFLICT DO NOTHING
+    SELECT r.id, p.id, u.id
+    FROM rol r
+    CROSS JOIN permiso p
+    LEFT JOIN usuario u ON u.email = 'admin@valdivia.cl'
+    WHERE r.nombre = 'Call Center'
+      AND p.codigo IN (
+        'crear_incidente_manual',
+        'incidentes:avisos:leer',
+        'incidentes:avisos:verificar',
+        'incidentes:avisos:descartar'
+      )
+    ON CONFLICT DO NOTHING;
   `.execute(db);
 }
 

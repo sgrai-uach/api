@@ -8,9 +8,15 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("id", "uuid", (col) =>
       col.primaryKey().defaultTo(sql`gen_random_uuid()`)
     )
+    .addColumn("codigo_delegacion", "varchar(50)", (col) => col.unique())
     .addColumn("nombre", "varchar(100)", (col) => col.notNull().unique())
+    .addColumn("nombre_delegacion", "varchar(150)")
     .addColumn("descripcion", "text")
+    .addColumn("activo", "boolean", (col) => col.notNull().defaultTo(true))
     .addColumn("creado_en", "timestamptz", (col) =>
+      col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`)
+    )
+    .addColumn("actualizado_en", "timestamptz", (col) =>
       col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`)
     )
     .execute();
@@ -220,13 +226,16 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
   // 10. Semillas de Delegaciones
   await sql`
-    INSERT INTO delegacion (id, nombre, descripcion)
+    INSERT INTO delegacion (id, codigo_delegacion, nombre, nombre_delegacion, descripcion, activo)
     VALUES
-      ('30000000-0000-4000-8000-000000000001', 'Norte', 'Delegación Municipal Zona Norte de Valdivia'),
-      ('30000000-0000-4000-8000-000000000002', 'Sur', 'Delegación Municipal Zona Sur de Valdivia'),
-      ('30000000-0000-4000-8000-000000000003', 'Costa', 'Delegación Municipal Zona Costera (Niebla, Corral y aledaños)'),
-      ('30000000-0000-4000-8000-000000000004', 'Calle Calle', 'Delegación Municipal Cuenca Calle Calle')
-    ON CONFLICT (nombre) DO NOTHING
+      ('30000000-0000-4000-8000-000000000001', 'DEL_NORTE', 'Norte', 'Delegación Municipal Norte', 'Jurisdicción y cobertura territorial norte de Valdivia (Las Ánimas, Cabo Blanco)', true),
+      ('30000000-0000-4000-8000-000000000002', 'DEL_SUR', 'Sur', 'Delegación Municipal Sur', 'Jurisdicción y cobertura territorial sur de Valdivia (Angachilla, Guacamayo)', true),
+      ('30000000-0000-4000-8000-000000000003', 'DEL_COSTA', 'Costa', 'Delegación Municipal Costa', 'Jurisdicción y cobertura territorial zona costera (Niebla, Los Molinos, Corral)', true),
+      ('30000000-0000-4000-8000-000000000004', 'DEL_CALLE_CALLE', 'Calle Calle', 'Delegación Municipal Calle Calle', 'Jurisdicción y cobertura territorial eje fluvial e interior (Collico, Corvi)', true)
+    ON CONFLICT (nombre) DO UPDATE SET
+      codigo_delegacion = EXCLUDED.codigo_delegacion,
+      nombre_delegacion = EXCLUDED.nombre_delegacion,
+      activo = EXCLUDED.activo
   `.execute(db);
 
   // 11. Semillas de Tipos de Incidente

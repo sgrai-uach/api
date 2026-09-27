@@ -191,8 +191,14 @@ export class IncidentesRepository {
         .insertInto("incidente")
         .values({
           folio,
+          codigo: folio,
+          codigo_seguimiento: aviso.codigo_seguimiento,
           tipo_incidente_id: input.tipoIncidenteId,
+          tipo_afectacion: aviso.tipo_afectacion,
+          direccion_texto: aviso.direccion_texto,
           estado: "Reportado", // Estado inicial ICS
+          prioridad: "MEDIA",
+          fuente_origen: aviso.origen_reporte || "CALL_CENTER",
           descripcion: descripcionFinal,
           latitud: Number(aviso.latitud),
           longitud: Number(aviso.longitud),
@@ -200,6 +206,7 @@ export class IncidentesRepository {
           requiere_asistencia_social: input.requiereAsistenciaSocial,
           aviso_id: avisoId,
           creado_por_id: operadorId,
+          operador_id: operadorId,
         })
         .returningAll()
         .executeTakeFirstOrThrow();
