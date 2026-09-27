@@ -65,9 +65,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("aviso_id", "uuid", (col) =>
       col.references("aviso_incidente.id").onDelete("set null")
     )
-    .addColumn("tipo_afectacion", "varchar(100)", (col) => col.notNull())
+    .addColumn("tipo_afectacion", "varchar(100)")
     .addColumn("descripcion", "text")
-    .addColumn("direccion_texto", "text", (col) => col.notNull())
+    .addColumn("direccion_texto", "text")
     .addColumn("latitud", "decimal(10, 7)", (col) => col.notNull())
     .addColumn("longitud", "decimal(10, 7)", (col) => col.notNull())
     .addColumn("ubicacion", sql`geometry(Point, 4326)`, (col) => col.notNull())
@@ -113,6 +113,47 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`CREATE INDEX IF NOT EXISTS idx_incidente_aviso_id ON incidente (aviso_id)`.execute(db);
   await sql`CREATE INDEX IF NOT EXISTS idx_incidente_creado_en ON incidente (creado_en)`.execute(db);
   await sql`CREATE INDEX IF NOT EXISTS idx_incidente_tipo_creado ON incidente (tipo_afectacion, creado_en)`.execute(db);
+
+  // Trigger para autocompletar atributos de incidente desde aviso_incidente si provienen de promoción
+  await sql`
+    CREATE OR REPLACE FUNCTION trg_incidente_autofill_from_aviso()
+    RETURNS TRIGGER AS $$
+    BEGIN
+      IF NEW.aviso_id IS NOT NULL THEN
+        IF NEW.tipo_afectacion IS NULL THEN
+          SELECT tipo_afectacion INTO NEW.tipo_afectacion FROM aviso_incidente WHERE id = NEW.aviso_id;
+        END IF;
+        IF NEW.direccion_texto IS NULL THEN
+          SELECT direccion_texto INTO NEW.direccion_texto FROM aviso_incidente WHERE id = NEW.aviso_id;
+        END IF;
+        IF NEW.codigo IS NULL THEN
+          NEW.codigo := COALESCE(NEW.folio, 'INC-' || SUBSTRING(NEW.id::text FROM 1 FOR 8));
+        END IF;
+        IF NEW.codigo_seguimiento IS NULL THEN
+          SELECT codigo_seguimiento INTO NEW.codigo_seguimiento FROM aviso_incidente WHERE id = NEW.aviso_id;
+        END IF;
+      END IF;
+      
+      IF NEW.tipo_afectacion IS NULL THEN
+        NEW.tipo_afectacion := 'Emergencia';
+      END IF;
+      IF NEW.direccion_texto IS NULL THEN
+        NEW.direccion_texto := 'Valdivia';
+      END IF;
+      IF NEW.codigo IS NULL THEN
+        NEW.codigo := COALESCE(NEW.folio, 'INC-' || SUBSTRING(NEW.id::text FROM 1 FOR 8));
+      END IF;
+      
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_incidente_autofill ON incidente;
+    CREATE TRIGGER trg_incidente_autofill
+      BEFORE INSERT ON incidente
+      FOR EACH ROW
+      EXECUTE FUNCTION trg_incidente_autofill_from_aviso();
+  `.execute(db);
 
   // 4. Crear tabla Adjunto para evidencias multimedia de avisos e incidentes
   await db.schema
