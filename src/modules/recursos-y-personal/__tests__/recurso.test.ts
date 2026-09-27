@@ -233,7 +233,9 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
         },
       ];
 
-      vi.spyOn(recursoRepository, "listarRecursosPaginados").mockResolvedValueOnce(mockFilas as any);
+      vi.spyOn(recursoRepository, "listarRecursosPaginados").mockResolvedValueOnce(
+        mockFilas as unknown as Awaited<ReturnType<typeof recursoRepository.listarRecursosPaginados>>
+      );
       vi.spyOn(recursoRepository, "contarRecursos").mockResolvedValueOnce(1);
 
       const respuesta = await listarRecursos({ pagina: 1, limite: 10 }, adminId);

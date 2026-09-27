@@ -184,7 +184,7 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         aviso_original_id: null,
         creado_en: new Date("2026-09-07T12:00:00Z"),
         actualizado_en: new Date("2026-09-07T12:00:00Z"),
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof repository.insertarIncidenteDesdeChatbot>>);
 
       const input = {
         tipoAfectacion: "Caída de árbol" as const,
@@ -268,7 +268,7 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         aviso_original_id: "original-0000-0000-0000-000000000001",
         creado_en: new Date("2026-09-07T11:30:00Z"),
         actualizado_en: new Date("2026-09-07T11:30:00Z"),
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof repository.insertarIncidenteDesdeChatbot>>);
 
       const input = {
         tipoAfectacion: "Caída de árbol" as const,
@@ -322,7 +322,7 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         encargado_id: null,
         creado_en: new Date("2026-09-07T10:00:00Z"),
         actualizado_en: new Date("2026-09-07T11:00:00Z"),
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof repository.buscarIncidentePorCodigoSeguimiento>>);
 
       const resultado = await consultarAvisoPorSeguimiento("88776655");
       expect(resultado).not.toBeNull();
@@ -365,7 +365,7 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         encargado_id: null,
         creado_en: new Date("2026-09-07T10:00:00Z"),
         actualizado_en: new Date("2026-09-07T11:00:00Z"),
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof repository.buscarIncidentePorCodigoSeguimiento>>);
 
       const resultado = await consultarAvisoPorSeguimiento("11223344");
       expect(resultado).not.toBeNull();
@@ -411,7 +411,7 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         encargado_id: null,
         creado_en: new Date("2026-09-07T10:00:00Z"),
         actualizado_en: new Date("2026-09-07T14:30:00Z"),
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof repository.actualizarEstadoIncidente>>);
 
       const incidenteActualizado = await cambiarEstadoIncidente("55443322", "RESUELTO");
 

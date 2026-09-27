@@ -91,7 +91,9 @@ describe("PATCH /api/personal/[id] (HU-12)", () => {
       personal_updated_at: null,
     };
 
-    vi.spyOn(actualizarEmpleadoService, "actualizarEmpleado").mockResolvedValueOnce(mockEmpleado as any);
+    vi.spyOn(actualizarEmpleadoService, "actualizarEmpleado").mockResolvedValueOnce(
+      mockEmpleado as unknown as Awaited<ReturnType<typeof actualizarEmpleadoService.actualizarEmpleado>>
+    );
 
     const req = new NextRequest("http://localhost:3000/api/personal/00000000-0000-4000-8000-000000000001", {
       method: "PATCH",

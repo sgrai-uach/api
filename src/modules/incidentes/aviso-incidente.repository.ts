@@ -70,14 +70,13 @@ export interface ParametrosInsertarIncidenteManual {
 /**
  * Inserta o recupera un informante por su RUT.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function buscarOCrearInformante(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   trx: any,
   rutOrDatos: string | null | { rut: string; nombre: string; telefono?: string | null },
   nombreParam?: string,
   telefonoParam?: string | null
-): Promise<any> {
+): Promise<{ id: string } | null | unknown> {
   let rut: string | null = null;
   let nombre = "";
   let telefono: string | null = null;
