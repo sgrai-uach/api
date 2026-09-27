@@ -67,16 +67,33 @@ export interface ParametrosInsertarIncidenteManual {
   operadorId: string;
 }
 
-/**
- * Inserta o recupera un informante por su RUT.
- */
+export interface InformanteRow {
+  id: string;
+  rut: string | null;
+  nombre: string | null;
+  telefono: string | null;
+  creado_en?: Date;
+}
+
+export async function buscarOCrearInformante(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  trx: any,
+  rutOrDatos: { rut: string; nombre: string; telefono?: string | null }
+): Promise<InformanteRow>;
+export async function buscarOCrearInformante(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  trx: any,
+  rutOrDatos: string | null,
+  nombreParam?: string,
+  telefonoParam?: string | null
+): Promise<string>;
 export async function buscarOCrearInformante(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   trx: any,
   rutOrDatos: string | null | { rut: string; nombre: string; telefono?: string | null },
   nombreParam?: string,
   telefonoParam?: string | null
-): Promise<{ id: string } | null | unknown> {
+): Promise<InformanteRow | string> {
   let rut: string | null = null;
   let nombre = "";
   let telefono: string | null = null;
