@@ -54,10 +54,10 @@ export interface RolTable {
   codigo?: string;
   nombre: string;
   descripcion: string | null;
-  activo?: ColumnType<boolean, boolean | undefined, boolean>;
-  es_sistema?: ColumnType<boolean, boolean | undefined, boolean>;
-  creado_en?: Generated<Date>;
-  actualizado_en?: Generated<Date>;
+  activo: ColumnType<boolean, boolean | undefined, boolean>;
+  es_sistema: ColumnType<boolean, boolean | undefined, boolean>;
+  creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
   created_at?: Generated<Date>;
   updated_at?: Generated<Date>;
 }
@@ -65,25 +65,25 @@ export interface RolTable {
 export interface PermisoTable {
   id: Generated<string>;
   codigo: string;
-  nombre?: string;
+  nombre: string;
   descripcion: string | null;
-  modulo?: string;
-  creado_en?: Generated<Date>;
+  modulo: string;
+  creado_en: Generated<Date>;
   created_at?: Generated<Date>;
 }
 
 export interface RolPermisoTable {
   rol_id: string;
   permiso_id: string;
-  asignado_por_id?: string | null;
-  asignado_en?: Generated<Date>;
+  asignado_por_id: string | null;
+  asignado_en: Generated<Date>;
   created_at?: Generated<Date>;
 }
 
 export interface UsuarioTable {
   id: Generated<string>;
   rut: string;
-  nombre?: string;
+  nombre: string;
   nombres?: string;
   apellidos?: string;
   email: string;
@@ -91,11 +91,11 @@ export interface UsuarioTable {
   password_hash?: string;
   rol_id: string;
   delegacion_id?: string | null;
-  activo?: ColumnType<boolean, boolean | undefined, boolean>;
+  activo: ColumnType<boolean, boolean | undefined, boolean>;
   ultimo_acceso?: Date | null;
   fecha_ingreso?: string | null;
   fecha_salida?: string | null;
-  creado_en?: Generated<Date>;
+  creado_en: Generated<Date>;
   actualizado_en?: Generated<Date>;
   created_at?: Generated<Date>;
   updated_at?: Generated<Date>;
@@ -133,7 +133,12 @@ export type EstadoIncidente =
   | "VERIFICANDO"
   | "EN_ATENCION"
   | "NO_ABORDABLE"
-  | "RESUELTO";
+  | "RESUELTO"
+  | "Reportado"
+  | "Verificando"
+  | "En Atención"
+  | "No Abordable"
+  | "Resuelto";
 
 // Alias de retrocompatibilidad
 export type EstadoAvisoIncidente = EstadoIncidente;
@@ -251,16 +256,16 @@ export interface MisionTable {
 
 export interface IncidenteTable {
   id: Generated<string>;
-  codigo: string;
-  codigo_seguimiento: string;
-  folio?: string;
+  codigo: ColumnType<string, string | undefined, string>;
+  codigo_seguimiento: ColumnType<string, string | undefined, string>;
+  folio: ColumnType<string, string | undefined, string>;
   informante_id: string | null;
   tipo_incidente_id?: string | null;
   delegacion_id?: string | null;
   fuente_incidente_id?: string | null;
-  tipo_afectacion: string;
+  tipo_afectacion: ColumnType<string, string | undefined, string>;
   descripcion: string | null;
-  direccion_texto: string;
+  direccion_texto: ColumnType<string, string | undefined, string>;
   latitud: number;
   longitud: number;
   ubicacion: ColumnType<unknown, unknown, unknown>;
@@ -273,6 +278,7 @@ export interface IncidenteTable {
   creado_por_id: string | null;
   operador_id?: string | null;
   encargado_id: string | null;
+  aviso_id?: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }
@@ -293,9 +299,9 @@ export interface AvisoIncidenteTable {
   estado: ColumnType<string, string | undefined, string>;
   es_duplicado: ColumnType<boolean, boolean | undefined, boolean>;
   aviso_original_id: string | null;
-  motivo_descarte?: string | null;
-  operador_id?: string | null;
-  incidente_id?: string | null;
+  motivo_descarte: string | null;
+  operador_id: string | null;
+  incidente_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }

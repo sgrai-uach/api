@@ -284,7 +284,7 @@ export async function crearIncidenteManual(
       direccion: resultado.incidente.direccion_texto,
       latitud: Number(resultado.incidente.latitud),
       longitud: Number(resultado.incidente.longitud),
-      estado: resultado.incidente.estado,
+      estado: resultado.incidente.estado as "REPORTADO" | "VERIFICANDO" | "EN_ATENCION" | "NO_ABORDABLE" | "RESUELTO",
       prioridad: resultado.incidente.prioridad,
       requiereAsistenciaSocial: resultado.incidente.requiere_asistencia_social,
       avisoOrigenId:
