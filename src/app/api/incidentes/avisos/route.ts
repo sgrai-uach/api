@@ -53,7 +53,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Probar validación de Chatbot / Informante ciudadano (ERD alignment)
+    // 1. Si incluye origenReporte o campos de aviso general para bandeja de verificación Call Center (HU-52)
+    if (typeof body === "object" && body !== null && "origenReporte" in body) {
+      const validacionGeneral = CrearAvisoInputSchema.safeParse(body);
+      if (validacionGeneral.success) {
+        const avisoCreado = await incidentesService.crearAviso(validacionGeneral.data);
+        return NextResponse.json(
+          {
+            mensaje: "Aviso preliminar registrado exitosamente",
+            data: avisoCreado,
+          },
+          { status: 201 }
+        );
+      }
+    }
+
+    // 2. Probar validación de Chatbot / Informante ciudadano (ERD alignment)
     const validacionChatbot = CrearAvisoIncidenteInputSchema.safeParse(body);
     if (validacionChatbot.success) {
       const aviso = await registrarAvisoDesdeChatbot(validacionChatbot.data);
@@ -67,7 +82,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Probar validación alternativa (HU-52 aviso general)
+    // 3. Probar validación alternativa (HU-52 aviso general)
     const validacionGeneral = CrearAvisoInputSchema.safeParse(body);
     if (validacionGeneral.success) {
       const avisoCreado = await incidentesService.crearAviso(validacionGeneral.data);

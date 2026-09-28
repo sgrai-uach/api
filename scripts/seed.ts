@@ -52,20 +52,28 @@ const TIPOS_Y_DESCRIPCIONES = [
     descripcion: "Árbol de gran tamaño desplomado sobre el tendido eléctrico obstaculizando ambas pistas.",
   },
   {
-    tipo: "Anegamiento de calzada",
+    tipo: "Anegamiento",
     descripcion: "Colapso de sumideros y acumulación importante de aguas lluvias impidiendo el paso peatonal.",
   },
   {
-    tipo: "Inundación",
-    descripcion: "Desborde de estero cercano provocando ingreso de agua a antejardines de viviendas.",
-  },
-  {
-    tipo: "Deslizamiento de tierra",
+    tipo: "Deslizamiento",
     descripcion: "Desprendimiento de material rocoso y barro en ladera cerca de la calzada principal.",
   },
   {
-    tipo: "Incendio estructural / forestal",
-    descripcion: "Foco de fuego en pastizales secos con riesgo de propagación a viviendas aledañas.",
+    tipo: "Corte de energía",
+    descripcion: "Interrupción de suministro eléctrico por caída de postes y cables cortados.",
+  },
+  {
+    tipo: "Daño estructural",
+    descripcion: "Voladura de techumbres y daño severo en estructura de vivienda por temporal.",
+  },
+  {
+    tipo: "Corte de agua potable",
+    descripcion: "Rotura de matriz en calzada afectando abastecimiento a vecinos del sector.",
+  },
+  {
+    tipo: "Otro",
+    descripcion: "Emergencia comunal en vía pública que requiere evaluación técnica municipal.",
   },
 ];
 
@@ -76,8 +84,8 @@ const NOMBRES = [
 
 const ORIGENES = ["WEB", "CHATBOT", "TELEFONO"] as const;
 
-// UUID por defecto para auditar operador en acciones ICS
-const OPERADOR_ID = "a0000000-0000-0000-0000-000000000001";
+// UUID por defecto para auditar operador en acciones ICS (Call Center)
+const OPERADOR_ID = "00000000-0000-4000-8000-000000000002";
 
 interface TipoIncidenteApi {
   id: string;
@@ -90,8 +98,16 @@ function randomChoice<T>(array: readonly T[] | T[]): T {
 
 function generarRutAleatorio(): string {
   const num = Math.floor(10000000 + Math.random() * 12000000);
-  const dv = Math.floor(Math.random() * 10);
-  return `${num}-${dv === 10 ? "K" : dv}`;
+  let suma = 0;
+  let mul = 2;
+  const numStr = num.toString();
+  for (let i = numStr.length - 1; i >= 0; i--) {
+    suma += parseInt(numStr[i], 10) * mul;
+    mul = mul === 7 ? 2 : mul + 1;
+  }
+  const res = 11 - (suma % 11);
+  const dv = res === 11 ? "0" : res === 10 ? "K" : res.toString();
+  return `${num}-${dv}`;
 }
 
 async function main() {
