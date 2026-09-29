@@ -6,7 +6,6 @@ import type { Database } from "./types";
  * Configuración de Kysely (query builder) para PostgreSQL + PostGIS.
  * Gestiona el pool de conexiones contra la base de datos relacional del SGRAI.
  */
-
 const connectionString =
   process.env.DATABASE_URL ||
   "postgresql://sgrai:sgrai_dev@localhost:5432/sgrai";

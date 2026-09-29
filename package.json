@@ -1,13 +1,17 @@
 {
   "name": "api",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "tsx watch src/server.ts",
+    "dev:next": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_ENV=production tsx src/server.ts",
     "lint": "eslint",
-    "db:migrate": "tsx src/lib/db/migrator.ts"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate": "tsx src/lib/db/migrator.ts",
+    "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
@@ -28,6 +32,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
     "tsx": "^4.23.15",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^2.1.8"
   }
 }
