@@ -18,9 +18,9 @@ export async function migrateToLatest() {
 
   results?.forEach((it: MigrationResult) => {
     if (it.status === "Success") {
-      console.log(`Migración "${it.migrationName}" ejecutada exitosamente.`);
+      console.log(`[OK] Migración ejecutada con éxito: "${it.migrationName}"`);
     } else if (it.status === "Error") {
-      console.error(`Fallo al ejecutar migración "${it.migrationName}".`);
+      console.error(`[ERROR] Falló la ejecución de la migración: "${it.migrationName}"`);
     }
   });
 
