@@ -168,7 +168,7 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
         incidente_id: null,
         creado_en: new Date("2026-09-07T12:00:00Z"),
         actualizado_en: new Date("2026-09-07T12:00:00Z"),
-      });
+      } as unknown as Awaited<ReturnType<typeof repository.insertarIncidenteDesdeChatbot>>);
 
       const input = {
         tipoAfectacion: "Caída de árbol" as const,
@@ -209,7 +209,7 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
         actualizado_en: new Date("2026-09-07T11:00:00Z"),
       };
 
-      vi.spyOn(repository, "buscarAvisoDuplicadoCercano").mockResolvedValue(reporteOriginal);
+      vi.spyOn(repository, "buscarAvisoDuplicadoCercano").mockResolvedValue(reporteOriginal as unknown as Awaited<ReturnType<typeof repository.buscarAvisoDuplicadoCercano>>);
 
       vi.spyOn(repository, "insertarAvisoIncidente").mockResolvedValue({
         id: "duplicado-0000-0000-0000-000000000002",
@@ -228,7 +228,7 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
         incidente_id: null,
         creado_en: new Date("2026-09-07T11:30:00Z"),
         actualizado_en: new Date("2026-09-07T11:30:00Z"),
-      });
+      } as unknown as Awaited<ReturnType<typeof repository.insertarIncidenteDesdeChatbot>>);
 
       const input = {
         tipoAfectacion: "Caída de árbol" as const,
@@ -267,7 +267,7 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
         incidente_id: null,
         creado_en: new Date("2026-09-07T10:00:00Z"),
         actualizado_en: new Date("2026-09-07T10:00:00Z"),
-      });
+      } as unknown as Awaited<ReturnType<typeof repository.buscarAvisoPorCodigo>>);
 
       const resultado = await consultarAvisoPorSeguimiento("88776655");
       expect(resultado).not.toBeNull();
