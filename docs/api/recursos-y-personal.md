@@ -112,7 +112,6 @@ Ejecuta la baja lógica de un empleado preservando la integridad referencial his
 
 ### 3.6. `GET /api/catalogos`
 Retorna listas de roles activos, delegaciones activas, cargos y especialidades registradas para alimentar selects de UI.
-
 ---
 
 ## 4. Códigos de Estado y Errores Esperables

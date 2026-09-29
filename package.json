@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx src/lib/db/migrator.ts",
+    "db:seed": "tsx src/lib/db/seed-kanban.ts",
     "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
@@ -25,14 +26,15 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3",
     "@types/node": "^20",
-    "@types/pg": "^8.23.1",
+    "@types/pg": "^8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
-    "tsx": "^4.23.15",
+    "tsx": "^4.23.13",
     "typescript": "^5",
-    "vitest": "^2.1.8"
+    "vitest": "^3.2.7"
   }
 }

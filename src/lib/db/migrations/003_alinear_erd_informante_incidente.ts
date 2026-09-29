@@ -102,22 +102,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     )
     .execute();
 
-  // Asegurar columnas requeridas si la tabla ya existía previamente
-  await sql`
-    ALTER TABLE incidente ADD COLUMN IF NOT EXISTS codigo VARCHAR(50);
-    ALTER TABLE incidente ADD COLUMN IF NOT EXISTS codigo_seguimiento VARCHAR(50);
-    ALTER TABLE incidente ADD COLUMN IF NOT EXISTS informante_id UUID REFERENCES informante(id) ON DELETE SET NULL;
-    ALTER TABLE incidente ADD COLUMN IF NOT EXISTS tipo_afectacion VARCHAR(100);
-    ALTER TABLE incidente ADD COLUMN IF NOT EXISTS direccion_texto TEXT;
-    ALTER TABLE incidente ADD COLUMN IF NOT EXISTS prioridad VARCHAR(20) DEFAULT 'MEDIA';
-    ALTER TABLE incidente ADD COLUMN IF NOT EXISTS fuente_origen VARCHAR(50) DEFAULT 'CHATBOT';
-    ALTER TABLE incidente ADD COLUMN IF NOT EXISTS asterisk_call_id VARCHAR(100);
-    ALTER TABLE incidente ADD COLUMN IF NOT EXISTS asterisk_caller_phone VARCHAR(30);
-    ALTER TABLE incidente ADD COLUMN IF NOT EXISTS operador_id UUID REFERENCES usuario(id) ON DELETE SET NULL;
-    ALTER TABLE incidente ADD COLUMN IF NOT EXISTS encargado_id UUID REFERENCES usuario(id) ON DELETE SET NULL;
-    UPDATE incidente SET codigo = folio WHERE codigo IS NULL;
-  `.execute(db);
-
   // Índices para búsquedas espaciales, código de seguimiento, tipo, estado e informante
   await sql`CREATE INDEX IF NOT EXISTS idx_incidente_ubicacion ON incidente USING GIST (ubicacion)`.execute(db);
   await sql`CREATE INDEX IF NOT EXISTS idx_incidente_codigo ON incidente (codigo)`.execute(db);

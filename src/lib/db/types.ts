@@ -84,29 +84,21 @@ export interface UsuarioTable {
   id: Generated<string>;
   rut: string;
   nombre: string;
-  email: string;
-  rol_id: string;
-  activo: ColumnType<boolean, boolean | undefined, boolean>;
-  creado_en: Generated<Date>;
-  actualizado_en?: Generated<Date>;
-}
-
-export interface UsuariosTable {
-  id: Generated<string>;
-  rut: string;
-  nombres: string;
-  apellidos: string;
+  nombres?: string;
+  apellidos?: string;
   email: string;
   telefono?: string | null;
-  password_hash: string;
+  password_hash?: string;
   rol_id: string;
   delegacion_id?: string | null;
   activo: ColumnType<boolean, boolean | undefined, boolean>;
   ultimo_acceso?: Date | null;
   fecha_ingreso?: string | null;
   fecha_salida?: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
+  creado_en: Generated<Date>;
+  actualizado_en?: Generated<Date>;
+  created_at?: Generated<Date>;
+  updated_at?: Generated<Date>;
 }
 
 export interface PersonalTable {
@@ -303,8 +295,16 @@ export interface AvisoIncidenteTable {
   informante_nombre: string;
   informante_rut: string;
   informante_telefono: string | null;
-  origen_reporte: ColumnType<string, string | undefined, string>;
-  estado: ColumnType<string, string | undefined, string>;
+  origen_reporte: ColumnType<
+    "WEB" | "CHATBOT" | "TELEFONO",
+    "WEB" | "CHATBOT" | "TELEFONO" | string | undefined,
+    "WEB" | "CHATBOT" | "TELEFONO"
+  >;
+  estado: ColumnType<
+    "PENDIENTE_VERIFICACION" | "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO",
+    "PENDIENTE_VERIFICACION" | "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO" | string | undefined,
+    "PENDIENTE_VERIFICACION" | "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO"
+  >;
   es_duplicado: ColumnType<boolean, boolean | undefined, boolean>;
   aviso_original_id: string | null;
   motivo_descarte: string | null;
@@ -352,7 +352,7 @@ export interface Database {
   permisos: PermisoTable;
   roles: RolTable;
   rol_permisos: RolPermisoTable;
-  usuarios: UsuariosTable;
+  usuarios: UsuarioTable;
   informantes: InformanteTable;
   incidentes: IncidenteTable;
   delegaciones: DelegacionTable;

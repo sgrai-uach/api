@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generarOpenApiSpec } from "@/lib/openapi";
+import { generarOpenAPISpec } from "@/lib/openapi";
 
 /**
  * GET /openapi.json
@@ -9,13 +9,14 @@ import { generarOpenApiSpec } from "@/lib/openapi";
  * Consumido por sgrai-web y sgrai-pwa para generar tipos automáticamente.
  */
 export async function GET() {
-  const spec = generarOpenApiSpec();
+  const spec = generarOpenAPISpec();
   return NextResponse.json(spec, {
     status: 200,
     headers: {
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
       "Cache-Control": "public, max-age=60",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
     },
   });
 }

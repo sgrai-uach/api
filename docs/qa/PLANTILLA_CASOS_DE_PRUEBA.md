@@ -10,10 +10,10 @@ Esta plantilla define el formato estándar para el diseño, ejecución y registr
 |---|---|
 | **Proyecto** | Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI) |
 | **Módulo** | [Nombre del Módulo, ej. Recursos y Personal / Seguridad / Incidentes] |
-| **Historia de Usuario (HU)** | [Código y Título, ej. HU-6 / HU-7] |
+| **Historia de Usuario (HU)** | [Código y Título, ej. HU-7: Listar Recursos de Inventario Logístico] |
 | **QA Responsable** | [Nombre del Estudiante / Ingeniero QA] |
-| **Desarrollador / Rama** | [Rama Git, ej. `feature/...`] |
-| **Commit Bajo Prueba (Hash)** | [Hash corto de Git] |
+| **Desarrollador / Rama** | [Rama Git, ej. `feature/H7-listar-recursos`] |
+| **Commit Bajo Prueba (Hash)** | [Hash corto de Git, ej. `4b288a9`] |
 | **Entorno de Pruebas** | Local (Docker PostgreSQL 16 + PostGIS + Redis / Node.js v20+) |
 | **Fecha de Ejecución** | [DD/MM/AAAA] |
 | **Estado Global** | [🟢 CERTIFICADO / 🟡 BLOQUEADO / 🔴 RECHAZADO] |

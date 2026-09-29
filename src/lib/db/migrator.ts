@@ -1,36 +1,21 @@
-import fs from "fs/promises";
-import path from "path";
-import { Migrator, type MigrationResult, type MigrationProvider, type Migration } from "kysely/migration";
+import * as path from "path";
+import { promises as fs } from "fs";
+import { Migrator, FileMigrationProvider, type MigrationResult } from "kysely/migration";
 import { db, pool } from "./index";
-import * as m1 from "./migrations/001_initial_schema";
-import * as m2 from "./migrations/002_avisos_incidentes";
-import * as m3 from "./migrations/003_alinear_erd_informante_incidente";
-import * as m4 from "./migrations/004_alineacion_erd_misiones_kanban";
-import * as mSeg from "./migrations/004_seguridad_roles_permisos";
-import * as mDelRec from "./migrations/005_delegacion_y_recurso";
 
 /**
  * Runner integral de migraciones para sgrai-api.
  * Ejecuta tanto las migraciones Kysely TypeScript como las migraciones SQL complementarias.
  */
 export async function migrateToLatest() {
-  console.log("Iniciando ejecución de migraciones Kysely en la base de datos...");
-  const provider: MigrationProvider = {
-    async getMigrations(): Promise<Record<string, Migration>> {
-      return {
-        "001_initial_schema": m1,
-        "002_avisos_incidentes": m2,
-        "003_alinear_erd_informante_incidente": m3,
-        "004_alineacion_erd_misiones_kanban": m4,
-        "004_seguridad_roles_permisos": mSeg,
-        "005_delegacion_y_recurso": mDelRec,
-      };
-    },
-  };
-
+  console.log("Ejecutando migraciones Kysely de base de datos...");
   const migrator = new Migrator({
     db,
-    provider,
+    provider: new FileMigrationProvider({
+      fs,
+      path,
+      migrationFolder: path.join(__dirname, "migrations"),
+    }),
   });
 
   const { error, results } = await migrator.migrateToLatest();
@@ -48,7 +33,7 @@ export async function migrateToLatest() {
     process.exit(1);
   }
 
-  // 2. Ejecutar migraciones SQL complementarias si existen (H12 / Auditoría / Personal)
+  // Ejecutar migraciones SQL complementarias si existen (.sql)
   try {
     const client = await pool.connect();
     try {
@@ -97,12 +82,10 @@ export async function migrateToLatest() {
     console.warn("Aviso al ejecutar migraciones SQL:", sqlErr);
   }
 
-  console.log("Migraciones completadas correctamente.");
+  console.log("Todas las migraciones se completaron correctamente.");
+  await db.destroy();
 }
 
-// Ejecución directa si se invoca como script
 if (process.argv[1]?.includes("migrator")) {
-  migrateToLatest().then(async () => {
-    await db.destroy();
-  });
+  migrateToLatest();
 }
