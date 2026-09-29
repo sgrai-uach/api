@@ -1,62 +1,81 @@
-# Módulo: Incidentes (Avisos de Incidente - Chatbot Informante)
+# Módulo: Incidentes (Avisos, Ingreso Manual, Verificación Call Center y Tablero Kanban)
 
-Documentación técnica de los endpoints y lógica de negocio del módulo de **Incidentes** para la recepción de reportes ciudadanos mediante interfaz conversacional guiada (chatbot) y consulta de estado de seguimiento.
+Documentación técnica de los endpoints, eventos en tiempo real y lógica de negocio del módulo de **Incidentes**, dirigida a desarrolladores de `sgrai-web` (Call Center, Encargado) y `sgrai-pwa` (Patrullas y Cuadrillas).
 
 ---
 
-## 1. Reglas de Negocio Aplicadas
+## 1. Reglas de Negocio y Modelo de Datos (ICS y ERD Alignment)
 
-- **Ciclo de Vida de los Incidentes (ICS):**
-  - Todo reporte ingresado por la ciudadanía a través del chatbot nace con el estado inicial `PENDIENTE_VERIFICACION`.
-  - La posterior asignación y despacho de una patrulla verificadora transiciona el reporte hacia `VERIFICANDO`, y al confirmarse y escalarse en terreno hacia `EN_ATENCION` con asignación de cuadrillas y recursos logísticos.
-- **Geocodificación y Geolocalización en Valdivia:**
-  - El informante no está obligado a capturar coordenadas GPS en terreno. Ingresa la dirección textual (ej. calle, sector o número), y el backend geocodifica la ubicación resolviendo coordenadas geográficas `(latitud, longitud)` centradas en la comuna de Valdivia.
-  - La entidad persiste una columna espacial `ubicacion` de tipo `geometry(Point, 4326)` con índice GiST para búsquedas espaciales y representación cartográfica.
-- **Detección Espacial de Duplicados (Inspirado en SAESA):**
-  - Para evitar la duplicidad de recursos ante un mismo evento (ej. caída de árbol o anegamiento), el sistema busca reportes previos con el **mismo tipo de afectación** dentro de un radio de **300 metros** (`ST_DWithin` sobre tipo `geography`) y una ventana de tiempo de **24 horas**.
-  - Si se detecta un incidente previo:
-    - Se registra el nuevo reporte con `es_duplicado = true` y `aviso_original_id` referenciando al original para métricas de analítica municipal.
-    - Se responde con código HTTP `200 OK` informando la duplicidad y entregando el **código de seguimiento existente** para que el informante pueda consultar el estado de atención del reporte original.
-  - Si no existe duplicado:
-    - Se genera un nuevo código numérico de 8 dígitos único y se responde con código HTTP `201 Created`.
-- **Validación de Identidad Ciudadana:**
-  - El RUT del informante es validado algorítmicamente bajo la fórmula oficial chilena de módulo 11 antes de permitir la persistencia.
-- **Acceso Público:**
-  - Los endpoints de avisos y consulta de seguimiento son de acceso público para la ciudadanía y no requieren de la cabecera administrativa `X-User-Id`.
+- **Alineación con Diagrama Entidad-Relación:**
+  - Las entidades principales de persistencia son **`Informante`** (ciudadano o testigo) e **`Incidente`** (entidad operativa central del SGRAI).
+  - En la recepción preliminar de avisos del Call Center (HU-52), los avisos pueden listarse, verificarse y promoverse a incidente formal o descartarse motivadamente.
+
+- **Ciclo de Vida de los Incidentes (ICS) - Sección 6 de GEMINI.md:**
+  - Todo reporte ingresado al sistema se registra con estado inicial **`REPORTADO`**.
+  - Al asignarse una patrulla verificadora en terreno, el estado avanza a **`VERIFICANDO`**.
+  - Al confirmarse la emergencia y despacharse cuadrillas o recursos logísticos, avanza a **`EN_ATENCION`**.
+  - Si la situación fue mitigada satisfactoriamente, culmina en **`RESUELTO`**.
+  - Si tras la verificación se constata que no corresponde al ámbito municipal o fue una falsa alarma, se clasifica como **`NO_ABORDABLE`**.
+
+- **Priorización y Tiempos de Espera:**
+  - La consulta de avisos pendientes para el Call Center calcula dinámicamente los minutos en espera para que el frontend resalte los reportes con mayor tiempo sin atención.
+
+- **Descarte Justificado:**
+  - Todo descarte de un aviso exige obligatoriamente un motivo justificado de al menos 5 caracteres.
+
+- **Detección Espacial de Duplicados en Valdivia:**
+  - Detección espacial de reportes similares en un radio de 300 metros y ventana de 24 horas vía PostGIS.
+  - La API permite verificar duplicados previos (`POST /api/incidentes/verificar-duplicado`) o forzar la creación (`forzarCreacion: true`).
+
+- **Catálogo de Estados y Descripciones Ciudadanas (Sin Jerga Técnica):**
+  Para el panel de seguimiento de informantes (`GET /api/incidentes/avisos/seguimiento/{codigo}`), los estados se traducen a explicaciones comprensibles sin tecnicismos ni exposición de datos privados (RUT o teléfono).
 
 ---
 
 ## 2. Endpoints del Módulo
 
-| Método | Endpoint | Propósito |
-|---|---|---|
-| `POST` | `/api/incidentes/avisos` | Registrar reporte guiado del chatbot, ejecutar geocodificación, detección espacial de duplicados y retornar código numérico de seguimiento. |
-| `GET` | `/api/incidentes/avisos/seguimiento/{codigo}` | Consultar el estado de avance de un reporte a partir de su código numérico de 8 dígitos. |
-| `GET` | `/api/incidentes/tipos` | Obtener el catálogo oficial de tipos de afectación para poblar los botones/chips del chat en frontend (`sgrai-web` y `sgrai-pwa`). |
+| Método | Endpoint | Permiso Requerido | Propósito |
+|---|---|---|---|
+| `GET` | `/api/incidentes/avisos` | Call Center / Admin | Listar avisos paginados pendientes de revisión para el Call Center. |
+| `POST` | `/api/incidentes/avisos` | Público | Registrar reporte ciudadano (Chatbot o Web) con código de seguimiento numérico. |
+| `GET` | `/api/incidentes/avisos/{id}` | Call Center / Admin | Obtener el detalle completo de un aviso para su evaluación. |
+| `POST` | `/api/incidentes/avisos/{id}/verificar` | `incidentes:avisos:verificar` | Verificar y promover un aviso preliminar a incidente formal ICS (`REPORTADO`). |
+| `POST` | `/api/incidentes/avisos/{id}/descartar` | `incidentes:avisos:descartar` | Descartar un aviso con justificación obligatoria. |
+| `GET` | `/api/incidentes/avisos/seguimiento/{codigo}` | Público | Consultar estado amigable de seguimiento ciudadano por código de 8 dígitos. |
+| `GET` | `/api/incidentes/tipos` | Público | Catálogo oficial de tipos de afectación. |
+| `POST` | `/api/incidentes/manual` | `crear_incidente_manual` | Ingreso manual de incidente desde Call Center o terreno. |
+| `POST` | `/api/incidentes/verificar-duplicado` | `crear_incidente_manual` | Consultar coincidencias de incidentes cercanos en Valdivia. |
+| `GET` | `/api/incidentes` | `incidentes:kanban` | Listado paginado de incidentes con filtros para el tablero Kanban del Encargado. |
+| `GET` | `/api/incidentes/{id}` | `incidentes:kanban` | Detalle exhaustivo de incidente para puesto de mando (informante, misiones, cuadrillas). |
 
 ---
 
 ## 3. Códigos de Estado y Errores Esperables
 
-- **`POST /api/incidentes/avisos`:**
-  - **`201 Created`:** El reporte fue registrado exitosamente como un nuevo aviso con código de seguimiento generado.
-  - **`200 OK`:** El reporte fue detectado como duplicado de un incidente ya informado en la misma zona. Se entrega el número de seguimiento existente.
-  - **`400 Bad Request`:** Cuerpo JSON inválido, campos requeridos ausentes, dirección menor a 5 caracteres, tipo de afectación no reconocido o RUT con dígito verificador erróneo.
-  - **`500 Internal Server Error`:** Falla de conexión a base de datos o error interno no controlado.
-
-- **`GET /api/incidentes/avisos/seguimiento/{codigo}`:**
-  - **`200 OK`:** Reporte encontrado; retorna estado actual (`PENDIENTE_VERIFICACION`, `VERIFICANDO`, `EN_ATENCION`, etc.), dirección y tipo de afectación.
-  - **`400 Bad Request`:** Código de seguimiento vacío o no especificado.
-  - **`404 Not Found`:** No existe ningún aviso asociado al código numérico ingresado.
-  - **`500 Internal Server Error`:** Error interno del servidor.
-
-- **`GET /api/incidentes/tipos`:**
-  - **`200 OK`:** Retorna arreglo con las opciones de afectación válidas (`Anegamiento`, `Caída de árbol`, `Corte de energía`, `Deslizamiento`, `Daño estructural`, `Corte de agua potable`, `Otro`).
+- **`409 Conflict`:**
+  - En `POST /api/incidentes/manual`: Se detectaron reportes similares en la zona (requiere confirmación `forzarCreacion: true`).
+  - En `POST /api/incidentes/avisos/{id}/verificar` o `descartar`: El aviso ya fue gestionado concurrentemente por otro operador.
+- **`400 Bad Request`:**
+  - Cuerpo JSON inválido, datos requeridos ausentes, o motivo de descarte menor a 5 caracteres.
+- **`401 Unauthorized`:**
+  - Cabecera `X-User-Id` ausente o no registrada en el sistema.
+- **`403 Forbidden`:**
+  - El usuario no posee el rol ni permiso necesario para la operación solicitada.
+- **`404 Not Found`:**
+  - No existe el recurso o código de seguimiento consultado.
+- **`500 Internal Server Error`:**
+  - Error no controlado o fallo de conexión a la base de datos.
 
 ---
 
-## 4. Integración con Frontends (`sgrai-web` y `sgrai-pwa`)
+## 4. Integración y Eventos en Tiempo Real (Socket.io)
 
-Los clientes web y PWA no deben implementar lógica de cálculo de duplicados ni validación de RUT manual divergente:
-- Deben consumir la especificación generada en `GET /openapi.json` para generar automáticamente los tipos TypeScript de las peticiones y respuestas.
-- El chatbot en frontend debe enviar el consolidado al endpoint `POST /api/incidentes/avisos` al finalizar las preguntas guiadas.
+- **`sala:call-center`:**
+  - `aviso:nuevo`: Notifica nuevo aviso preliminar para refrescar la grilla de pendientes.
+  - `aviso:verificado`: Notifica promoción a incidente formal `{ avisoId, incidenteId, folio }`.
+  - `aviso:descartado`: Notifica descarte del aviso `{ avisoId, motivoDescarte }`.
+- **`sala:encargados`:**
+  - `incidente:creado`: Nueva tarjeta para la columna "Reportado" en el tablero Kanban.
+  - `incidente:actualizado`: Mueve la tarjeta entre columnas en tiempo real (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, etc.).
+- **`sala:seguimiento:{codigoSeguimiento}`:**
+  - `incidente:estado_actualizado`: Actualiza el panel ciudadano con la nueva descripción y etiqueta comprensible.

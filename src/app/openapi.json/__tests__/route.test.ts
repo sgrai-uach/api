@@ -11,6 +11,8 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.info.title).toBe("SGRAI API");
     expect(spec.info.version).toBe("0.3.0");
     expect(spec.paths["/api/recursos"]).toBeDefined();
+    expect(spec.paths["/api/recursos"].post).toBeDefined();
+    expect(spec.paths["/api/recursos"].get).toBeDefined();
     expect(spec.paths["/api/incidentes/avisos"]).toBeDefined();
     expect(spec.paths["/api/incidentes/avisos"].post).toBeDefined();
     expect(spec.paths["/api/incidentes/avisos"].post.summary).toBe(

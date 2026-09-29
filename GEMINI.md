@@ -58,10 +58,11 @@ Componentes de infraestructura interna que soportan estos módulos: **Cache y Co
 
 La fuente de verdad del modelo de datos es el diagrama Entidad-Relación (`Diagrama Entidad-Relación - SGRAI.png`, fuera de este repositorio, referenciar desde documentación del proyecto). Entidades principales que este backend debe modelar con Kysely:
 
-- **Incidentes y Eventos:** `Avisos Incidentes`, `Tipo Incidente`, `Incidente`, `EventoATP`, `Punto Crítico`.
-- **Organización:** `Delegación` (Norte, Sur, Costa, Calle Calle), `Usuario`, `Rol`.
-- **Operaciones:** `Cuadrilla`, `Personal`, `Recurso`, `Misión`, `Reporte Terreno`, `Adjunto`.
-- **Especializados:** `Asistente`, `Asistencia Social`, `Beneficio`.
+- **Incidentes y Ciudadanía:** `Incidente`, `Informante`, `Fuente del incidente`, `Tipo Incidente`, `Factores de Riesgo (Niveles)`.
+- **Eventos y Prevención:** `EventoATP`, `Prevención`.
+- **Organización:** `Delegación` (Norte, Sur, Costa, Calle Calle), `Usuario`, `Personal`, `Rol`, `Permisos`, `RolPermiso`.
+- **Operaciones:** `Misión`, `Log de Misión`, `Cuadrilla`, `Patrulla Verificadora`, `Recurso`, `Reporte Terreno`, `Adjunto`.
+- **Recuperación y Asistencia Social:** `Recuperación`, `Beneficio`.
 
 ## 6. Reglas de negocio críticas a respetar en la lógica de dominio
 
