@@ -7,15 +7,18 @@ import {
 import {
   CrearAvisoIncidenteInputSchema,
   TIPOS_AFECTACION,
+  DETALLE_ESTADOS_SEGUIMIENTO,
 } from "../aviso-incidente.schema";
 import { geocodificarDireccion } from "@/modules/geolocalizacion/geocoding.service";
 import * as repository from "../aviso-incidente.repository";
+import * as socket from "@/lib/socket";
 import {
   registrarAvisoDesdeChatbot,
   consultarAvisoPorSeguimiento,
+  cambiarEstadoIncidente,
 } from "../aviso-incidente.service";
 
-describe("Módulo Incidentes - Avisos de Incidente", () => {
+describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
   describe("1. Validación de RUT Chileno (Módulo 11)", () => {
     it("debe validar correctamente RUTs chilenos reales con formato estándar o puntos", () => {
       expect(validarRutChileno("11111111-1")).toBe(true);
@@ -26,7 +29,6 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
     });
 
     it("debe validar correctamente RUTs que terminan en dígito verificador 'K' (mayúscula o minúscula)", () => {
-      // 11.111.112-K es un RUT válido con DV K
       expect(validarRutChileno("11111112-K")).toBe(true);
       expect(validarRutChileno("11.111.112-k")).toBe(true);
     });
@@ -86,7 +88,7 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
         tipoAfectacion: "Anegamiento",
         direccion: "Av. Alemania 550",
         informanteNombre: "Juan Pérez",
-        informanteRut: "11111111-9", // DV erróneo
+        informanteRut: "11111111-9",
       };
 
       const resultado = CrearAvisoIncidenteInputSchema.safeParse(payload);
@@ -143,36 +145,46 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
     });
   });
 
-  describe("5. Servicio de Registro de Avisos (Detección de Duplicados e Inserción)", () => {
+  describe("5. Servicio de Registro de Incidentes desde Chatbot", () => {
     beforeEach(() => {
       vi.restoreAllMocks();
     });
 
     it("debe registrar un nuevo reporte cuando NO existe duplicado previo", async () => {
-      vi.spyOn(repository, "buscarAvisoDuplicadoCercano").mockResolvedValue(undefined);
+      vi.spyOn(repository, "buscarIncidenteDuplicadoCercano").mockResolvedValue(undefined);
 
-      vi.spyOn(repository, "insertarAvisoIncidente").mockResolvedValue({
+      vi.spyOn(repository, "insertarIncidenteDesdeChatbot").mockResolvedValue({
         id: "a0000000-0000-0000-0000-000000000001",
+        codigo: "INC-84920194",
         codigo_seguimiento: "84920194",
         tipo_afectacion: "Caída de árbol",
         direccion_texto: "Calle Picarte 2000",
         latitud: -39.8256,
         longitud: -73.2321,
+        ubicacion: null,
         descripcion: "Árbol bloqueando pista derecha",
         informante_nombre: "María Soto",
         informante_rut: "11111111-1",
         informante_telefono: null,
+        informante_id: "inf-1",
         origen_reporte: "CHATBOT" as const,
+        fuente_origen: "CHATBOT",
         asterisk_call_id: null,
         asterisk_caller_phone: null,
         operador_id: null,
+        tipo_incidente_id: null,
+        delegacion_id: null,
+        fuente_incidente_id: null,
+        creado_por_id: null,
+        encargado_id: null,
         estado: "REPORTADO",
+        prioridad: "MEDIA",
+        requiere_asistencia_social: false,
         es_duplicado: false,
         aviso_original_id: null,
-        incidente_id: null,
         creado_en: new Date("2026-09-07T12:00:00Z"),
         actualizado_en: new Date("2026-09-07T12:00:00Z"),
-      });
+      } as unknown as Awaited<ReturnType<typeof repository.insertarIncidenteDesdeChatbot>>);
 
       const input = {
         tipoAfectacion: "Caída de árbol" as const,
@@ -192,7 +204,6 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
     });
 
     it("debe detectar un duplicado cercano, vincularlo al original y devolver el código existente", async () => {
-      // Simular reporte original existente
       const reporteOriginal = {
         id: "original-0000-0000-0000-000000000001",
         codigo: "INC-12345678",
@@ -203,45 +214,61 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
         longitud: -73.2321,
         ubicacion: null,
         descripcion: "Primer reporte del árbol",
+        informante_id: "inf-original",
         informante_nombre: "Pedro González",
         informante_rut: "11111112-K",
         informante_telefono: null,
         origen_reporte: "CHATBOT" as const,
-        asterisk_call_id: null,
-        asterisk_caller_phone: null,
         operador_id: null,
         estado: "VERIFICANDO" as const,
-        es_duplicado: false,
-        aviso_original_id: null,
-        incidente_id: null,
+        prioridad: "MEDIA" as const,
+        requiere_asistencia_social: false,
+        fuente_origen: "CHATBOT",
+        asterisk_call_id: null,
+        asterisk_caller_phone: null,
+        tipo_incidente_id: null,
+        delegacion_id: null,
+        fuente_incidente_id: null,
+        creado_por_id: null,
+        encargado_id: null,
         creado_en: new Date("2026-09-07T11:00:00Z"),
         actualizado_en: new Date("2026-09-07T11:00:00Z"),
       };
 
-      vi.spyOn(repository, "buscarAvisoDuplicadoCercano").mockResolvedValue(reporteOriginal);
+      vi.spyOn(repository, "buscarIncidenteDuplicadoCercano").mockResolvedValue(reporteOriginal);
 
-      vi.spyOn(repository, "insertarAvisoIncidente").mockResolvedValue({
+      vi.spyOn(repository, "insertarIncidenteDesdeChatbot").mockResolvedValue({
         id: "duplicado-0000-0000-0000-000000000002",
+        codigo: "INC-12345678",
         codigo_seguimiento: "12345678",
         tipo_afectacion: "Caída de árbol",
         direccion_texto: "Picarte 2010",
         latitud: -39.8256,
         longitud: -73.2321,
+        ubicacion: null,
         descripcion: "Mismo árbol caído",
         informante_nombre: "Ana Gómez",
         informante_rut: "11111111-1",
         informante_telefono: null,
+        informante_id: "inf-2",
         origen_reporte: "CHATBOT" as const,
-        asterisk_call_id: null,
-        asterisk_caller_phone: null,
         operador_id: null,
         estado: "VERIFICANDO",
+        prioridad: "MEDIA",
+        requiere_asistencia_social: false,
+        fuente_origen: "CHATBOT",
+        asterisk_call_id: null,
+        asterisk_caller_phone: null,
+        tipo_incidente_id: null,
+        delegacion_id: null,
+        fuente_incidente_id: null,
+        creado_por_id: null,
+        encargado_id: null,
         es_duplicado: true,
         aviso_original_id: "original-0000-0000-0000-000000000001",
-        incidente_id: null,
         creado_en: new Date("2026-09-07T11:30:00Z"),
         actualizado_en: new Date("2026-09-07T11:30:00Z"),
-      });
+      } as unknown as Awaited<ReturnType<typeof repository.insertarIncidenteDesdeChatbot>>);
 
       const input = {
         tipoAfectacion: "Caída de árbol" as const,
@@ -254,18 +281,23 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
       const respuesta = await registrarAvisoDesdeChatbot(input);
 
       expect(respuesta.esDuplicado).toBe(true);
-      expect(respuesta.codigoSeguimiento).toBe("12345678"); // Conserva el código del reporte original
+      expect(respuesta.codigoSeguimiento).toBe("12345678");
       expect(respuesta.avisoOriginalId).toBe("original-0000-0000-0000-000000000001");
       expect(respuesta.mensaje).toContain("ya ha sido reportado previamente");
     });
   });
 
-  describe("6. Consulta de Estado de Seguimiento (consultarAvisoPorSeguimiento)", () => {
-    it("debe retornar los datos del aviso si el código numérico existe", async () => {
-      vi.spyOn(repository, "buscarAvisoPorCodigo").mockResolvedValue({
+  describe("6. Consulta de Estado de Seguimiento Ciudadano con Descripciones Claras", () => {
+    beforeEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("debe retornar los datos del incidente y descripciones comprensibles si el código existe", async () => {
+      vi.spyOn(repository, "buscarIncidentePorCodigoSeguimiento").mockResolvedValue({
         id: "00000000-0000-0000-0000-000000000001",
         codigo: "INC-88776655",
         codigo_seguimiento: "88776655",
+        informante_id: "inf-1",
         tipo_afectacion: "Deslizamiento",
         direccion_texto: "Camino a Niebla",
         latitud: -39.8667,
@@ -276,29 +308,132 @@ describe("Módulo Incidentes - Avisos de Incidente", () => {
         informante_rut: "11111111-1",
         informante_telefono: null,
         origen_reporte: "CHATBOT" as const,
-        asterisk_call_id: null,
-        asterisk_caller_phone: null,
         operador_id: null,
         estado: "EN_ATENCION",
-        es_duplicado: false,
-        aviso_original_id: null,
-        incidente_id: null,
+        prioridad: "MEDIA",
+        requiere_asistencia_social: false,
+        fuente_origen: "CHATBOT",
+        asterisk_call_id: null,
+        asterisk_caller_phone: null,
+        tipo_incidente_id: null,
+        delegacion_id: null,
+        fuente_incidente_id: null,
+        creado_por_id: null,
+        encargado_id: null,
         creado_en: new Date("2026-09-07T10:00:00Z"),
-        actualizado_en: new Date("2026-09-07T10:00:00Z"),
-      });
+        actualizado_en: new Date("2026-09-07T11:00:00Z"),
+      } as unknown as Awaited<ReturnType<typeof repository.buscarIncidentePorCodigoSeguimiento>>);
 
       const resultado = await consultarAvisoPorSeguimiento("88776655");
       expect(resultado).not.toBeNull();
       expect(resultado?.codigoSeguimiento).toBe("88776655");
       expect(resultado?.estado).toBe("EN_ATENCION");
+      expect(resultado?.estadoEtiqueta).toBe("En Atención");
+      expect(resultado?.estadoDescripcion).toContain("cuadrilla operativa municipal");
       expect(resultado?.tipoAfectacion).toBe("Deslizamiento");
+      expect(resultado?.direccionAproximada).toBe("Camino a Niebla");
+
+      // Verificación de sanitización estricta: datos personales no deben estar en el resultado público
+      // @ts-expect-error verificación de campo confidencial ausente
+      expect(resultado?.informanteRut).toBeUndefined();
+      // @ts-expect-error verificación de campo confidencial ausente
+      expect(resultado?.informanteTelefono).toBeUndefined();
+    });
+
+    it("debe retornar la descripción ciudadana correcta para el estado NO_ABORDABLE", async () => {
+      vi.spyOn(repository, "buscarIncidentePorCodigoSeguimiento").mockResolvedValue({
+        id: "00000000-0000-0000-0000-000000000002",
+        codigo: "INC-11223344",
+        codigo_seguimiento: "11223344",
+        informante_id: "inf-2",
+        tipo_afectacion: "Corte de energía",
+        direccion_texto: "Isla Teja, Los Robles",
+        latitud: -39.8089,
+        longitud: -73.2534,
+        ubicacion: null,
+        descripcion: "Falla eléctrica domiciliaria",
+        estado: "NO_ABORDABLE",
+        prioridad: "BAJA",
+        requiere_asistencia_social: false,
+        fuente_origen: "CHATBOT",
+        asterisk_call_id: null,
+        asterisk_caller_phone: null,
+        tipo_incidente_id: null,
+        delegacion_id: null,
+        fuente_incidente_id: null,
+        creado_por_id: null,
+        encargado_id: null,
+        creado_en: new Date("2026-09-07T10:00:00Z"),
+        actualizado_en: new Date("2026-09-07T11:00:00Z"),
+      } as unknown as Awaited<ReturnType<typeof repository.buscarIncidentePorCodigoSeguimiento>>);
+
+      const resultado = await consultarAvisoPorSeguimiento("11223344");
+      expect(resultado).not.toBeNull();
+      expect(resultado?.estado).toBe("NO_ABORDABLE");
+      expect(resultado?.estadoEtiqueta).toBe("No Abordable");
+      expect(resultado?.estadoDescripcion).toBe(
+        DETALLE_ESTADOS_SEGUIMIENTO.NO_ABORDABLE.descripcion
+      );
     });
 
     it("debe retornar null si el código numérico no existe", async () => {
-      vi.spyOn(repository, "buscarAvisoPorCodigo").mockResolvedValue(undefined);
+      vi.spyOn(repository, "buscarIncidentePorCodigoSeguimiento").mockResolvedValue(undefined);
 
       const resultado = await consultarAvisoPorSeguimiento("99999999");
       expect(resultado).toBeNull();
+    });
+
+    it("debe emitir actualización por Socket.io a la sala del código de seguimiento y a la sala de encargados al cambiar de estado", async () => {
+      const socketSpy = vi.spyOn(socket, "notificarActualizacionSeguimiento").mockReturnValue(true);
+      const socketKanbanSpy = vi.spyOn(socket, "notificarIncidenteActualizado").mockReturnValue(true);
+
+      vi.spyOn(repository, "actualizarEstadoIncidente").mockResolvedValue({
+        id: "00000000-0000-0000-0000-000000000003",
+        codigo: "INC-55443322",
+        codigo_seguimiento: "55443322",
+        informante_id: "inf-3",
+        tipo_afectacion: "Anegamiento",
+        direccion_texto: "Av. Ramón Picarte 1500",
+        latitud: -39.8256,
+        longitud: -73.2321,
+        ubicacion: null,
+        descripcion: null,
+        estado: "RESUELTO",
+        prioridad: "MEDIA",
+        requiere_asistencia_social: false,
+        fuente_origen: "CHATBOT",
+        asterisk_call_id: null,
+        asterisk_caller_phone: null,
+        tipo_incidente_id: null,
+        delegacion_id: null,
+        fuente_incidente_id: null,
+        creado_por_id: null,
+        encargado_id: null,
+        creado_en: new Date("2026-09-07T10:00:00Z"),
+        actualizado_en: new Date("2026-09-07T14:30:00Z"),
+      } as unknown as Awaited<ReturnType<typeof repository.actualizarEstadoIncidente>>);
+
+      const incidenteActualizado = await cambiarEstadoIncidente("55443322", "RESUELTO");
+
+      expect(incidenteActualizado).not.toBeNull();
+      expect(socketSpy).toHaveBeenCalledTimes(1);
+      expect(socketSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          codigoSeguimiento: "55443322",
+          estado: "RESUELTO",
+          estadoEtiqueta: "Resuelto",
+          estadoDescripcion: DETALLE_ESTADOS_SEGUIMIENTO.RESUELTO.descripcion,
+        })
+      );
+      expect(socketKanbanSpy).toHaveBeenCalledTimes(1);
+      expect(socketKanbanSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "00000000-0000-0000-0000-000000000003",
+          codigo: "INC-55443322",
+          nuevoEstado: "RESUELTO",
+          prioridad: "MEDIA",
+        })
+      );
     });
   });
 });

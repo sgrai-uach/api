@@ -7,7 +7,7 @@ import type {
 } from "@/lib/db/types";
 import { generarCodigoSeguimientoNumerico } from "./aviso-incidente.utils";
 
-export interface DatosInsertarAvisoIncidente {
+export interface DatosInsertarIncidente {
   codigo_seguimiento: string;
   tipo_afectacion: string;
   direccion_texto: string;
@@ -26,6 +26,8 @@ export interface DatosInsertarAvisoIncidente {
   es_duplicado?: boolean;
   aviso_original_id?: string | null;
 }
+
+export type DatosInsertarAvisoIncidente = DatosInsertarIncidente;
 
 export interface ParametrosBusquedaDuplicado {
   tipoAfectacion: string;
@@ -65,25 +67,67 @@ export interface ParametrosInsertarIncidenteManual {
   operadorId: string;
 }
 
-/**
- * Inserta o recupera un informante por su RUT.
- */
-async function buscarOCrearInformante(
-  trx: typeof db,
-  rut: string | null,
-  nombre: string,
-  telefono: string | null
-): Promise<string> {
+export interface InformanteRow {
+  id: string;
+  rut: string | null;
+  nombre: string | null;
+  telefono: string | null;
+  creado_en?: Date;
+}
+
+export async function buscarOCrearInformante(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  trx: any,
+  rutOrDatos: { rut: string; nombre: string; telefono?: string | null }
+): Promise<InformanteRow>;
+export async function buscarOCrearInformante(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  trx: any,
+  rutOrDatos: string | null,
+  nombreParam?: string,
+  telefonoParam?: string | null
+): Promise<string>;
+export async function buscarOCrearInformante(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  trx: any,
+  rutOrDatos: string | null | { rut: string; nombre: string; telefono?: string | null },
+  nombreParam?: string,
+  telefonoParam?: string | null
+): Promise<InformanteRow | string> {
+  let rut: string | null = null;
+  let nombre = "";
+  let telefono: string | null = null;
+
+  if (typeof rutOrDatos === "object" && rutOrDatos !== null) {
+    rut = rutOrDatos.rut;
+    nombre = rutOrDatos.nombre;
+    telefono = rutOrDatos.telefono ?? null;
+  } else {
+    rut = rutOrDatos;
+    nombre = nombreParam ?? "";
+    telefono = telefonoParam ?? null;
+  }
+
   if (rut) {
     const existente = await trx
       .selectFrom("informante")
-      .select("id")
+      .selectAll()
       .where("rut", "=", rut)
       .limit(1)
       .executeTakeFirst();
 
     if (existente) {
-      return existente.id;
+      if (existente.nombre !== nombre || existente.telefono !== (telefono ?? null)) {
+        await trx
+          .updateTable("informante")
+          .set({
+            nombre: nombre || existente.nombre,
+            telefono: telefono ?? existente.telefono,
+          })
+          .where("id", "=", existente.id)
+          .execute();
+      }
+      return typeof rutOrDatos === "string" || rutOrDatos === null ? existente.id : existente;
     }
   }
 
@@ -94,32 +138,31 @@ async function buscarOCrearInformante(
       nombre,
       telefono,
     })
-    .returning("id")
+    .returningAll()
     .executeTakeFirstOrThrow();
 
-  return nuevo.id;
+  return typeof rutOrDatos === "string" || rutOrDatos === null ? nuevo.id : nuevo;
 }
 
 /**
  * Inserta un nuevo reporte en la tabla incidente asociada al informante según el Diagrama ER.
  */
-export async function insertarAvisoIncidente(datos: DatosInsertarAvisoIncidente) {
+export async function insertarIncidenteDesdeChatbot(datos: DatosInsertarIncidente) {
   return await db.transaction().execute(async (trx) => {
-    const informanteId = await buscarOCrearInformante(
-      trx,
-      datos.informante_rut,
-      datos.informante_nombre,
-      datos.informante_telefono
-    );
+    const informante = await buscarOCrearInformante(trx, {
+      rut: datos.informante_rut,
+      nombre: datos.informante_nombre,
+      telefono: datos.informante_telefono,
+    });
 
-    const codigoIncidente = `INC-${datos.codigo_seguimiento}`;
+    const codigo = `INC-${datos.codigo_seguimiento}`;
 
-    const nuevoIncidente = await trx
+    const incidente = await trx
       .insertInto("incidente")
       .values({
-        codigo: codigoIncidente,
+        codigo,
         codigo_seguimiento: datos.codigo_seguimiento,
-        informante_id: informanteId,
+        informante_id: informante.id,
         tipo_afectacion: datos.tipo_afectacion,
         direccion_texto: datos.direccion_texto,
         latitud: datos.latitud,
@@ -136,52 +179,28 @@ export async function insertarAvisoIncidente(datos: DatosInsertarAvisoIncidente)
         operador_id: datos.operador_id ?? null,
         encargado_id: null,
       })
-      .returning([
-        "id",
-        "codigo",
-        "codigo_seguimiento",
-        "tipo_afectacion",
-        "direccion_texto",
-        "latitud",
-        "longitud",
-        "descripcion",
-        "estado",
-        "fuente_origen",
-        "creado_en",
-        "actualizado_en",
-      ])
+      .returningAll()
       .executeTakeFirstOrThrow();
 
     return {
-      id: nuevoIncidente.id,
-      codigo_seguimiento: nuevoIncidente.codigo_seguimiento,
-      tipo_afectacion: nuevoIncidente.tipo_afectacion,
-      direccion_texto: nuevoIncidente.direccion_texto,
-      latitud: Number(nuevoIncidente.latitud),
-      longitud: Number(nuevoIncidente.longitud),
-      descripcion: nuevoIncidente.descripcion,
-      informante_nombre: datos.informante_nombre,
-      informante_rut: datos.informante_rut,
-      informante_telefono: datos.informante_telefono,
-      origen_reporte: (nuevoIncidente.fuente_origen ?? "CHATBOT") as OrigenReporte,
-      asterisk_call_id: datos.asterisk_call_id ?? null,
-      asterisk_caller_phone: datos.asterisk_caller_phone ?? null,
-      operador_id: datos.operador_id ?? null,
-      estado: nuevoIncidente.estado,
+      ...incidente,
+      informante_nombre: informante.nombre,
+      informante_rut: informante.rut,
+      informante_telefono: informante.telefono,
       es_duplicado: datos.es_duplicado ?? false,
       aviso_original_id: datos.aviso_original_id ?? null,
-      incidente_id: nuevoIncidente.id as string | null,
-      creado_en: nuevoIncidente.creado_en,
-      actualizado_en: nuevoIncidente.actualizado_en,
     };
   });
 }
 
+// Alias de retrocompatibilidad
+export const insertarAvisoIncidente = insertarIncidenteDesdeChatbot;
+
 /**
- * Busca si existe un incidente previo cercano con el mismo tipo de afectación en una ventana de tiempo reciente.
- * Utiliza PostGIS ST_DWithin sobre tipos geográficos (en metros).
+ * Busca si existe un incidente activo previo cercano con el mismo tipo de afectación
+ * en una ventana de tiempo reciente utilizando PostGIS ST_DWithin (en metros).
  */
-export async function buscarAvisoDuplicadoCercano({
+export async function buscarIncidenteDuplicadoCercano({
   tipoAfectacion,
   latitud,
   longitud,
@@ -231,6 +250,9 @@ export async function buscarAvisoDuplicadoCercano({
 
   return duplicado;
 }
+
+// Alias de retrocompatibilidad
+export const buscarAvisoDuplicadoCercano = buscarIncidenteDuplicadoCercano;
 
 /**
  * Busca incidentes cercanos con el mismo tipo de afectación para alertar al Call Center.
@@ -284,9 +306,9 @@ export async function buscarIncidentesYDuplicadosCercanos({
 }
 
 /**
- * Consulta un incidente a partir de su código de seguimiento numérico.
+ * Consulta un incidente a partir de su código de seguimiento numérico de 8 dígitos.
  */
-export async function buscarAvisoPorCodigo(codigoSeguimiento: string) {
+export async function buscarIncidentePorCodigoSeguimiento(codigoSeguimiento: string) {
   const aviso = await db
     .selectFrom("incidente")
     .leftJoin("informante", "informante.id", "incidente.informante_id")
@@ -326,6 +348,34 @@ export async function buscarAvisoPorCodigo(codigoSeguimiento: string) {
     aviso_original_id: null as string | null,
     incidente_id: aviso.id as string | null,
   };
+}
+
+// Alias de retrocompatibilidad
+export const buscarAvisoPorCodigo = buscarIncidentePorCodigoSeguimiento;
+
+/**
+ * Actualiza el estado de un incidente por su ID o código de seguimiento.
+ */
+export async function actualizarEstadoIncidente(
+  idOIdCodigo: string,
+  nuevoEstado: EstadoIncidente
+) {
+  const fila = await db
+    .updateTable("incidente")
+    .set({
+      estado: nuevoEstado,
+      actualizado_en: sql`CURRENT_TIMESTAMP`,
+    })
+    .where((eb) =>
+      eb.or([
+        eb("id", "=", idOIdCodigo),
+        eb("codigo_seguimiento", "=", idOIdCodigo),
+      ])
+    )
+    .returningAll()
+    .executeTakeFirst();
+
+  return fila;
 }
 
 /**

@@ -4,15 +4,21 @@ import {
   normalizarRutChileno,
   generarCodigoSeguimientoNumerico,
 } from "./aviso-incidente.utils";
-import { notificarIncidenteCreado } from "@/lib/socket";
-import type {
-  CrearAvisoIncidenteInput,
-  AvisoIncidenteResponse,
-  ConsultaSeguimientoResponse,
-  CrearIncidenteManualInput,
-  CrearIncidenteManualResponse,
-  VerificarDuplicadoInput,
-  VerificarDuplicadoResponse,
+import {
+  notificarActualizacionSeguimiento,
+  notificarIncidenteCreado,
+  notificarIncidenteActualizado,
+} from "@/lib/socket";
+import {
+  DETALLE_ESTADOS_SEGUIMIENTO,
+  type CrearAvisoIncidenteInput,
+  type AvisoIncidenteResponse,
+  type ConsultaSeguimientoResponse,
+  type EstadoIncidente,
+  type CrearIncidenteManualInput,
+  type CrearIncidenteManualResponse,
+  type VerificarDuplicadoInput,
+  type VerificarDuplicadoResponse,
 } from "./aviso-incidente.schema";
 
 export async function registrarAvisoDesdeChatbot(
@@ -27,7 +33,7 @@ export async function registrarAvisoDesdeChatbot(
       : await geocodificarDireccion(input.direccion);
 
   // 2. Comprobar si ya existe un reporte similar cercano (radio de 300m, ventana de 24 horas)
-  const duplicadoExistente = await repository.buscarAvisoDuplicadoCercano({
+  const duplicadoExistente = await repository.buscarIncidenteDuplicadoCercano({
     tipoAfectacion: input.tipoAfectacion,
     latitud: coordenadas.latitud,
     longitud: coordenadas.longitud,
@@ -37,7 +43,7 @@ export async function registrarAvisoDesdeChatbot(
 
   // 3. Caso A: Se detectó duplicado (SAESA-style)
   if (duplicadoExistente) {
-    const registroDuplicado = await repository.insertarAvisoIncidente({
+    const registroDuplicado = await repository.insertarIncidenteDesdeChatbot({
       codigo_seguimiento: duplicadoExistente.codigo_seguimiento,
       tipo_afectacion: input.tipoAfectacion,
       direccion_texto: input.direccion,
@@ -47,7 +53,7 @@ export async function registrarAvisoDesdeChatbot(
       informante_nombre: input.informanteNombre,
       informante_rut: rutNormalizado,
       informante_telefono: input.informanteTelefono ?? null,
-      estado: duplicadoExistente.estado,
+      estado: duplicadoExistente.estado as EstadoIncidente,
       es_duplicado: true,
       aviso_original_id: duplicadoExistente.id,
     });
@@ -71,7 +77,7 @@ export async function registrarAvisoDesdeChatbot(
 
   // 4. Caso B: Reporte nuevo
   const nuevoCodigo = generarCodigoSeguimientoNumerico();
-  const nuevoRegistro = await repository.insertarAvisoIncidente({
+  const nuevoRegistro = await repository.insertarIncidenteDesdeChatbot({
     codigo_seguimiento: nuevoCodigo,
     tipo_afectacion: input.tipoAfectacion,
     direccion_texto: input.direccion,
@@ -86,6 +92,24 @@ export async function registrarAvisoDesdeChatbot(
     aviso_original_id: null,
   });
 
+  const fechaCreadoStr =
+    typeof nuevoRegistro.creado_en === "string"
+      ? nuevoRegistro.creado_en
+      : nuevoRegistro.creado_en.toISOString();
+
+  // Emisión en tiempo real a la sala de encargados
+  notificarIncidenteCreado({
+    id: nuevoRegistro.id,
+    codigo: nuevoRegistro.codigo,
+    tipoAfectacion: nuevoRegistro.tipo_afectacion,
+    direccion: nuevoRegistro.direccion_texto,
+    latitud: Number(nuevoRegistro.latitud),
+    longitud: Number(nuevoRegistro.longitud),
+    estado: nuevoRegistro.estado,
+    prioridad: nuevoRegistro.prioridad,
+    creadoEn: fechaCreadoStr,
+  });
+
   return {
     id: nuevoRegistro.id,
     codigoSeguimiento: nuevoRegistro.codigo_seguimiento,
@@ -94,31 +118,49 @@ export async function registrarAvisoDesdeChatbot(
     tipoAfectacion: nuevoRegistro.tipo_afectacion,
     direccion: nuevoRegistro.direccion_texto,
     estado: nuevoRegistro.estado,
-    creadoEn:
-      typeof nuevoRegistro.creado_en === "string"
-        ? nuevoRegistro.creado_en
-        : nuevoRegistro.creado_en.toISOString(),
+    creadoEn: fechaCreadoStr,
     avisoOriginalId: null,
   };
 }
 
-export async function consultarAvisoPorSeguimiento(
+/**
+ * Permite a cualquier ciudadano informante consultar el estado de avance de su incidente
+ * a partir de su código de seguimiento numérico de 8 dígitos.
+ * Retorna datos completamente sanitizados (sin PII) y descripciones comprensibles sin tecnicismos.
+ */
+export async function consultarSeguimientoPorCodigo(
   codigoSeguimiento: string
 ): Promise<ConsultaSeguimientoResponse | null> {
-  const aviso = await repository.buscarAvisoPorCodigo(codigoSeguimiento);
-  if (!aviso) {
+  const incidente = await repository.buscarIncidentePorCodigoSeguimiento(codigoSeguimiento);
+  if (!incidente) {
     return null;
   }
 
+  // Mapear estado a catálogo amigable para el ciudadano
+  const estadoClave: EstadoIncidente =
+    incidente.estado in DETALLE_ESTADOS_SEGUIMIENTO
+      ? (incidente.estado as EstadoIncidente)
+      : "REPORTADO";
+
+  const detalleEstado = DETALLE_ESTADOS_SEGUIMIENTO[estadoClave];
+
   return {
-    codigoSeguimiento: aviso.codigo_seguimiento,
-    estado: aviso.estado,
-    tipoAfectacion: aviso.tipo_afectacion,
-    direccion: aviso.direccion_texto,
-    descripcion: aviso.descripcion,
+    codigoSeguimiento: incidente.codigo_seguimiento,
+    estado: estadoClave,
+    estadoEtiqueta: detalleEstado.etiqueta,
+    estadoDescripcion: detalleEstado.descripcion,
+    tipoAfectacion: incidente.tipo_afectacion,
+    direccionAproximada: incidente.direccion_texto,
+    descripcion: incidente.descripcion,
     creadoEn:
-      typeof aviso.creado_en === "string" ? aviso.creado_en : aviso.creado_en.toISOString(),
-    esDuplicado: (aviso as { es_duplicado?: boolean }).es_duplicado ?? false,
+      typeof incidente.creado_en === "string"
+        ? incidente.creado_en
+        : incidente.creado_en.toISOString(),
+    actualizadoEn:
+      typeof incidente.actualizado_en === "string"
+        ? incidente.actualizado_en
+        : incidente.actualizado_en.toISOString(),
+    esDuplicado: false,
   };
 }
 
@@ -242,7 +284,7 @@ export async function crearIncidenteManual(
       direccion: resultado.incidente.direccion_texto,
       latitud: Number(resultado.incidente.latitud),
       longitud: Number(resultado.incidente.longitud),
-      estado: resultado.incidente.estado,
+      estado: resultado.incidente.estado as "REPORTADO" | "VERIFICANDO" | "EN_ATENCION" | "NO_ABORDABLE" | "RESUELTO",
       prioridad: resultado.incidente.prioridad,
       requiereAsistenciaSocial: resultado.incidente.requiere_asistencia_social,
       avisoOrigenId:
@@ -266,4 +308,47 @@ export async function crearIncidenteManual(
       avisoOriginalId: resultado.aviso.aviso_original_id,
     },
   };
+}
+
+// Alias de compatibilidad
+export const consultarAvisoPorSeguimiento = consultarSeguimientoPorCodigo;
+
+/**
+ * Cambia el estado de un incidente (por ID o código de seguimiento)
+ * y notifica automáticamente en tiempo real vía Socket.io a la sala del informante.
+ */
+export async function cambiarEstadoIncidente(
+  idOIdCodigo: string,
+  nuevoEstado: EstadoIncidente
+) {
+  const actualizado = await repository.actualizarEstadoIncidente(idOIdCodigo, nuevoEstado);
+  if (!actualizado) {
+    return null;
+  }
+
+  const detalle = DETALLE_ESTADOS_SEGUIMIENTO[nuevoEstado];
+  const actualizadoEnStr =
+    typeof actualizado.actualizado_en === "string"
+      ? actualizado.actualizado_en
+      : actualizado.actualizado_en.toISOString();
+
+  // Emitir a la sala de seguimiento del ciudadano
+  notificarActualizacionSeguimiento({
+    codigoSeguimiento: actualizado.codigo_seguimiento,
+    estado: nuevoEstado,
+    estadoEtiqueta: detalle.etiqueta,
+    estadoDescripcion: detalle.descripcion,
+    actualizadoEn: actualizadoEnStr,
+  });
+
+  // Emitir a la sala de encargados para sincronización en tiempo real del Kanban
+  notificarIncidenteActualizado({
+    id: actualizado.id,
+    codigo: actualizado.codigo,
+    nuevoEstado: actualizado.estado,
+    prioridad: actualizado.prioridad,
+    actualizadoEn: actualizadoEnStr,
+  });
+
+  return actualizado;
 }

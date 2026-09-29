@@ -1,7 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ZodError } from "zod";
 import { CrearAvisoIncidenteInputSchema } from "@/modules/incidentes/aviso-incidente.schema";
 import { registrarAvisoDesdeChatbot } from "@/modules/incidentes/aviso-incidente.service";
+import {
+  CrearAvisoInputSchema,
+  ListarAvisosQuerySchema,
+} from "@/modules/incidentes/schema";
+import { incidentesService } from "@/modules/incidentes/service";
 
+/**
+ * GET /api/incidentes/avisos
+ * Consulta paginada de avisos para el Call Center.
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const searchParams = Object.fromEntries(request.nextUrl.searchParams);
+    const parsedQuery = ListarAvisosQuerySchema.parse(searchParams);
+
+    const resultado = await incidentesService.listarAvisos(parsedQuery);
+    return NextResponse.json(resultado, { status: 200 });
+  } catch (error: unknown) {
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        {
+          error: "Parámetros de consulta inválidos",
+          detalles: error.issues,
+        },
+        { status: 400 }
+      );
+    }
+    console.error("Error en GET /api/incidentes/avisos:", error);
+    return NextResponse.json(
+      { error: "Error interno del servidor al consultar avisos" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/incidentes/avisos
+ * Registro de reporte guiado del chatbot o aviso preliminar.
+ */
 export async function POST(req: NextRequest) {
   try {
     let body: unknown;
@@ -14,31 +53,58 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const resultadoValidacion = CrearAvisoIncidenteInputSchema.safeParse(body);
-    if (!resultadoValidacion.success) {
+    // 1. Si incluye origenReporte o campos de aviso general para bandeja de verificación Call Center (HU-52)
+    if (typeof body === "object" && body !== null && "origenReporte" in body) {
+      const validacionGeneral = CrearAvisoInputSchema.safeParse(body);
+      if (validacionGeneral.success) {
+        const avisoCreado = await incidentesService.crearAviso(validacionGeneral.data);
+        return NextResponse.json(
+          {
+            mensaje: "Aviso preliminar registrado exitosamente",
+            data: avisoCreado,
+          },
+          { status: 201 }
+        );
+      }
+    }
+
+    // 2. Probar validación de Chatbot / Informante ciudadano (ERD alignment)
+    const validacionChatbot = CrearAvisoIncidenteInputSchema.safeParse(body);
+    if (validacionChatbot.success) {
+      const aviso = await registrarAvisoDesdeChatbot(validacionChatbot.data);
+      const statusCode = aviso.esDuplicado ? 200 : 201;
       return NextResponse.json(
         {
-          message: "Datos de entrada inválidos.",
-          errors: resultadoValidacion.error.issues.map((issue) => ({
-            campo: issue.path.join("."),
-            mensaje: issue.message,
-          })),
+          message: aviso.mensaje,
+          data: aviso,
         },
-        { status: 400 }
+        { status: statusCode }
       );
     }
 
-    const aviso = await registrarAvisoDesdeChatbot(resultadoValidacion.data);
+    // 3. Probar validación alternativa (HU-52 aviso general)
+    const validacionGeneral = CrearAvisoInputSchema.safeParse(body);
+    if (validacionGeneral.success) {
+      const avisoCreado = await incidentesService.crearAviso(validacionGeneral.data);
+      return NextResponse.json(
+        {
+          mensaje: "Aviso preliminar registrado exitosamente",
+          data: avisoCreado,
+        },
+        { status: 201 }
+      );
+    }
 
-    // Si es duplicado se responde 200 OK con el código existente; si es nuevo se responde 201 Created
-    const statusCode = aviso.esDuplicado ? 200 : 201;
-
+    // Si ninguna validación pasó, retornar errores detallados del esquema principal
     return NextResponse.json(
       {
-        message: aviso.mensaje,
-        data: aviso,
+        message: "Datos de entrada inválidos.",
+        errors: validacionChatbot.error.issues.map((issue) => ({
+          campo: issue.path.join("."),
+          mensaje: issue.message,
+        })),
       },
-      { status: statusCode }
+      { status: 400 }
     );
   } catch (error) {
     console.error("Error al registrar aviso de incidente:", error);

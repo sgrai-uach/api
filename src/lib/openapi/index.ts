@@ -4,10 +4,23 @@ import {
   extendZodWithOpenApi,
 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+
 import {
   CrearRecursoInputSchema,
   RecursoResponseSchema,
+  ListarRecursosQuerySchema,
+  ListarRecursosPaginadosResponseSchema,
 } from "@/modules/recursos-y-personal/recurso.schema";
+
+import {
+  AvisoDetalleResponseSchema,
+  AvisosPaginadosResponseSchema,
+  CrearAvisoInputSchema,
+  DescartarAvisoInputSchema,
+  ListarAvisosQuerySchema,
+  VerificarAvisoInputSchema,
+} from "@/modules/incidentes/schema";
+
 import {
   CrearAvisoIncidenteInputSchema,
   AvisoIncidenteResponseSchema,
@@ -16,8 +29,12 @@ import {
   CrearIncidenteManualResponseSchema,
   VerificarDuplicadoInputSchema,
   VerificarDuplicadoResponseSchema,
-  IncidenteResponseSchema,
 } from "@/modules/incidentes/aviso-incidente.schema";
+
+import {
+  ListarRolesResponseSchema,
+  RolDetalleResponseSchema,
+} from "@/modules/seguridad/schema";
 
 extendZodWithOpenApi(z);
 
@@ -31,13 +48,21 @@ registry.register("RecursoResponse", RecursoResponseSchema);
 registry.register("CrearAvisoIncidenteInput", CrearAvisoIncidenteInputSchema);
 registry.register("AvisoIncidenteResponse", AvisoIncidenteResponseSchema);
 registry.register("ConsultaSeguimientoResponse", ConsultaSeguimientoResponseSchema);
+registry.register("CrearAvisoInput", CrearAvisoInputSchema);
+registry.register("AvisoDetalleResponse", AvisoDetalleResponseSchema);
+registry.register("AvisosPaginadosResponse", AvisosPaginadosResponseSchema);
+registry.register("DescartarAvisoInput", DescartarAvisoInputSchema);
+registry.register("VerificarAvisoInput", VerificarAvisoInputSchema);
 registry.register("CrearIncidenteManualInput", CrearIncidenteManualInputSchema);
 registry.register("CrearIncidenteManualResponse", CrearIncidenteManualResponseSchema);
 registry.register("VerificarDuplicadoInput", VerificarDuplicadoInputSchema);
 registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema);
-registry.register("IncidenteResponse", IncidenteResponseSchema);
 
-// Registrar ruta POST /api/recursos
+// Registrar esquemas de Seguridad
+registry.register("ListarRolesResponse", ListarRolesResponseSchema);
+registry.register("RolDetalleResponse", RolDetalleResponseSchema);
+
+// 1. POST /api/recursos (HU-6)
 registry.registerPath({
   method: "post",
   path: "/api/recursos",
@@ -84,7 +109,48 @@ registry.registerPath({
   },
 });
 
-// Registrar ruta POST /api/incidentes/manual
+// 2. GET /api/recursos (HU-7)
+registry.registerPath({
+  method: "get",
+  path: "/api/recursos",
+  summary: "Listar recursos logísticos y verificar disponibilidad",
+  description:
+    "Retorna una lista paginada de los recursos registrados en el inventario, incluyendo estado de disponibilidad operativa, cantidades y delegación territorial asociada. Accesible por rol Administrador.",
+  tags: ["Recursos y Personal"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+    query: ListarRecursosQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado paginado de recursos de inventario",
+      content: {
+        "application/json": {
+          schema: ListarRecursosPaginadosResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 3. POST /api/incidentes/manual (HU-53)
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/manual",
@@ -136,7 +202,7 @@ registry.registerPath({
   },
 });
 
-// Registrar ruta POST /api/incidentes/verificar-duplicado
+// 4. POST /api/incidentes/verificar-duplicado (HU-53)
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/verificar-duplicado",
@@ -184,12 +250,38 @@ registry.registerPath({
   },
 });
 
-// Registrar ruta POST /api/incidentes/avisos
+// 5. GET /api/incidentes/avisos
+registry.registerPath({
+  method: "get",
+  path: "/api/incidentes/avisos",
+  summary: "Listar avisos pendientes para Call Center",
+  description:
+    "Retorna una lista paginada de avisos ordenados por mayor tiempo de espera (creado_en ASC) calculando minutosEnEspera.",
+  tags: ["Incidentes / Avisos"],
+  request: {
+    query: ListarAvisosQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado paginado de avisos",
+      content: {
+        "application/json": {
+          schema: AvisosPaginadosResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+  },
+});
+
+// 6. POST /api/incidentes/avisos
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos",
   description:
-    "Recepcionar reporte de incidente guiado desde el chatbot de informante. Valida RUT, geocodifica la dirección y detecta duplicados cercanos con PostGIS.",
+    "Recepcionar reporte de incidente guiado desde el chatbot de informante o aviso preliminar de informante.",
   summary: "Registrar aviso de incidente (Chatbot Informante)",
   tags: ["Incidentes"],
   request: {
@@ -234,7 +326,122 @@ registry.registerPath({
   },
 });
 
-// Registrar ruta GET /api/incidentes/avisos/seguimiento/{codigo}
+// 7. GET /api/incidentes/avisos/{id}
+registry.registerPath({
+  method: "get",
+  path: "/api/incidentes/avisos/{id}",
+  summary: "Obtener detalle completo de un aviso",
+  description:
+    "Retorna información detallada de un aviso incluyendo coordenadas, informante y evidencia multimedia adjunta.",
+  tags: ["Incidentes / Avisos"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().openapi({ description: "UUID del aviso" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del aviso encontrado",
+      content: {
+        "application/json": {
+          schema: AvisoDetalleResponseSchema,
+        },
+      },
+    },
+    404: {
+      description: "Aviso no encontrado",
+    },
+  },
+});
+
+// 8. POST /api/incidentes/avisos/{id}/verificar
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/avisos/{id}/verificar",
+  summary: "Verificar aviso y promover a Incidente formal",
+  description:
+    "Transacción atómica PostgreSQL que crea el Incidente formal en estado 'Reportado' y marca el aviso como 'VERIFICADO'.",
+  tags: ["Incidentes / Avisos"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().openapi({ description: "UUID del aviso" }),
+    }),
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del operador que verifica" }),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: VerificarAvisoInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Aviso verificado y registro en Incidente creado exitosamente",
+    },
+    401: {
+      description: "Cabecera X-User-Id faltante",
+    },
+    404: {
+      description: "Aviso no encontrado",
+    },
+    409: {
+      description: "El aviso ya fue verificado o procesado previamente",
+    },
+  },
+});
+
+// 9. POST /api/incidentes/avisos/{id}/descartar
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/avisos/{id}/descartar",
+  summary: "Descartar aviso motivado",
+  description:
+    "Descarta un aviso no procedente registrando la justificación obligatoria del operador.",
+  tags: ["Incidentes / Avisos"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().openapi({ description: "UUID del aviso" }),
+    }),
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del operador que descarta" }),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: DescartarAvisoInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Aviso descartado correctamente",
+    },
+    400: {
+      description: "Justificación de descarte inválida o faltante",
+    },
+    401: {
+      description: "Cabecera X-User-Id faltante",
+    },
+    404: {
+      description: "Aviso no encontrado",
+    },
+    409: {
+      description: "El aviso ya fue procesado previamente",
+    },
+  },
+});
+
+// 10. GET /api/incidentes/avisos/seguimiento/{codigo}
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos/seguimiento/{codigo}",
@@ -268,7 +475,7 @@ registry.registerPath({
   },
 });
 
-// Registrar ruta GET /api/incidentes/tipos
+// 11. GET /api/incidentes/tipos
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/tipos",
@@ -291,17 +498,101 @@ registry.registerPath({
   },
 });
 
+// 12. GET /api/seguridad/roles
+registry.registerPath({
+  method: "get",
+  path: "/api/seguridad/roles",
+  summary: "Listar perfiles y permisos actuales",
+  description:
+    "Retorna el listado completo de perfiles/roles registrados con sus respectivos permisos asignados y metadatos de auditoría. Accesible exclusivamente por el rol Administrador.",
+  tags: ["Seguridad / Roles y Permisos"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Listado completo de roles y permisos",
+      content: {
+        "application/json": {
+          schema: ListarRolesResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "Cabecera de autenticación X-User-Id ausente o usuario no válido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+  },
+});
+
+// 13. GET /api/seguridad/roles/{id}
+registry.registerPath({
+  method: "get",
+  path: "/api/seguridad/roles/{id}",
+  summary: "Obtener detalle de perfil y sus permisos",
+  description:
+    "Despliega claramente los permisos, módulos y acciones a los que tiene acceso un perfil específico. Accesible exclusivamente por el rol Administrador.",
+  tags: ["Seguridad / Roles y Permisos"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().openapi({ description: "UUID del rol/perfil a consultar" }),
+    }),
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del perfil y sus permisos asignados",
+      content: {
+        "application/json": {
+          schema: RolDetalleResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "Cabecera de autenticación X-User-Id ausente o usuario no válido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    404: {
+      description: "Perfil no encontrado",
+    },
+  },
+});
+
+/**
+ * Genera el documento OpenAPI 3.0 en formato JSON.
+ */
 export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.4.0",
       title: "SGRAI API",
+      version: "0.4.0",
       description:
-        "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",
+        "Especificación OpenAPI generada automáticamente desde esquemas Zod para la plataforma SGRAI (Dirección de Gestión de Riesgos de Desastres).",
     },
-    servers: [{ url: "/" }],
+    servers: [
+      {
+        url: "http://localhost:3000",
+        description: "Servidor de desarrollo local",
+      },
+    ],
   });
 }
+
+export const generarOpenApiSpec = generarOpenAPISpec;
