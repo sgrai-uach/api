@@ -295,8 +295,16 @@ export interface AvisoIncidenteTable {
   informante_nombre: string;
   informante_rut: string;
   informante_telefono: string | null;
-  origen_reporte: ColumnType<string, string | undefined, string>;
-  estado: ColumnType<string, string | undefined, string>;
+  origen_reporte: ColumnType<
+    "WEB" | "CHATBOT" | "TELEFONO",
+    "WEB" | "CHATBOT" | "TELEFONO" | string | undefined,
+    "WEB" | "CHATBOT" | "TELEFONO"
+  >;
+  estado: ColumnType<
+    "PENDIENTE_VERIFICACION" | "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO",
+    "PENDIENTE_VERIFICACION" | "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO" | string | undefined,
+    "PENDIENTE_VERIFICACION" | "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO"
+  >;
   es_duplicado: ColumnType<boolean, boolean | undefined, boolean>;
   aviso_original_id: string | null;
   motivo_descarte: string | null;

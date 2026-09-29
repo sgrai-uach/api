@@ -13,5 +13,14 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/recursos"]).toBeDefined();
     expect(spec.paths["/api/recursos"].post).toBeDefined();
     expect(spec.paths["/api/recursos"].get).toBeDefined();
+    expect(spec.paths["/api/incidentes/avisos"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/avisos"].post).toBeDefined();
+    expect(spec.paths["/api/incidentes/avisos"].post.summary).toBe(
+      "Registrar aviso de incidente (Chatbot Informante)"
+    );
+    expect(
+      spec.paths["/api/incidentes/avisos/seguimiento/{codigo}"]
+    ).toBeDefined();
+    expect(spec.paths["/api/incidentes/tipos"]).toBeDefined();
   });
 });
