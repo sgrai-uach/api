@@ -38,5 +38,9 @@ describe("Endpoint GET /openapi.json", () => {
     // Rutas de Seguridad
     expect(spec.paths["/api/seguridad/roles"]).toBeDefined();
     expect(spec.paths["/api/seguridad/roles/{id}"]).toBeDefined();
+    expect(spec.paths["/api/seguridad/permisos"]).toBeDefined();
+    expect(spec.paths["/api/seguridad/permisos"].get).toBeDefined();
+    expect(spec.paths["/api/seguridad/roles/{id}/permisos"]).toBeDefined();
+    expect(spec.paths["/api/seguridad/roles/{id}/permisos"].put).toBeDefined();
   });
 });

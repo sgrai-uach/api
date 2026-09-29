@@ -1,6 +1,10 @@
 import type {
+  ActualizarPermisosRolInput,
+  ActualizarPermisosRolResponse,
+  ListarPermisosResponse,
   ListarRolesResponse,
   PermisoAsignado,
+  PermisoCatalogoItem,
   RolDetalleResponse,
   RolItem,
 } from "./schema";
@@ -9,6 +13,10 @@ export type PermisoAsignadoDTO = PermisoAsignado;
 export type RolItemDTO = RolItem;
 export type ListarRolesResponseDTO = ListarRolesResponse;
 export type RolDetalleResponseDTO = RolDetalleResponse;
+export type PermisoCatalogoItemDTO = PermisoCatalogoItem;
+export type ListarPermisosResponseDTO = ListarPermisosResponse;
+export type ActualizarPermisosRolInputDTO = ActualizarPermisosRolInput;
+export type ActualizarPermisosRolResponseDTO = ActualizarPermisosRolResponse;
 
 export interface UsuarioAutenticado {
   id: string;
