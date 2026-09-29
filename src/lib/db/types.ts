@@ -84,21 +84,29 @@ export interface UsuarioTable {
   id: Generated<string>;
   rut: string;
   nombre: string;
-  nombres?: string;
-  apellidos?: string;
+  email: string;
+  rol_id: string;
+  activo: ColumnType<boolean, boolean | undefined, boolean>;
+  creado_en: Generated<Date>;
+  actualizado_en?: Generated<Date>;
+}
+
+export interface UsuariosTable {
+  id: Generated<string>;
+  rut: string;
+  nombres: string;
+  apellidos: string;
   email: string;
   telefono?: string | null;
-  password_hash?: string;
+  password_hash: string;
   rol_id: string;
   delegacion_id?: string | null;
   activo: ColumnType<boolean, boolean | undefined, boolean>;
   ultimo_acceso?: Date | null;
   fecha_ingreso?: string | null;
   fecha_salida?: string | null;
-  creado_en: Generated<Date>;
-  actualizado_en?: Generated<Date>;
-  created_at?: Generated<Date>;
-  updated_at?: Generated<Date>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
 }
 
 export interface PersonalTable {
@@ -344,7 +352,7 @@ export interface Database {
   permisos: PermisoTable;
   roles: RolTable;
   rol_permisos: RolPermisoTable;
-  usuarios: UsuarioTable;
+  usuarios: UsuariosTable;
   informantes: InformanteTable;
   incidentes: IncidenteTable;
   delegaciones: DelegacionTable;

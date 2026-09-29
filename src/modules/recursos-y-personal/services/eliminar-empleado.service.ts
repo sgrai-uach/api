@@ -77,11 +77,23 @@ export async function eliminarEmpleadoLogico(
     }
 
     // 4. Registrar en log de auditoría
+    let adminValido: string | null = null;
+    if (modificadoPorId) {
+      const adminExists = await trx
+        .selectFrom("usuarios")
+        .select("id")
+        .where("id", "=", modificadoPorId)
+        .executeTakeFirst();
+      if (adminExists) {
+        adminValido = modificadoPorId;
+      }
+    }
+
     await trx
       .insertInto("log_cambios_usuarios")
       .values({
         usuario_modificado_id: usuarioId,
-        modificado_por_id: modificadoPorId || null,
+        modificado_por_id: adminValido,
         campos_modificados: JSON.stringify({
           activo: false,
           fecha_salida: fechaSalidaFinal,
