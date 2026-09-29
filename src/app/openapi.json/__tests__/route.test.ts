@@ -8,7 +8,7 @@ describe("Endpoint GET /openapi.json", () => {
 
     const spec = await res.json();
     expect(spec.openapi).toBe("3.0.0");
-    expect(spec.info.title).toBe("SGRAI API - Municipalidad de Valdivia");
+    expect(spec.info.title).toBe("SGRAI API");
     expect(spec.info.version).toBe("0.3.0");
     expect(spec.paths["/api/recursos"]).toBeDefined();
     expect(spec.paths["/api/recursos"].post).toBeDefined();

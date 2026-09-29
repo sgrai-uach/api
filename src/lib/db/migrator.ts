@@ -1,6 +1,6 @@
+import * as path from "path";
 import { promises as fs } from "fs";
-import path from "path";
-import { FileMigrationProvider, Migrator, MigrationResult } from "kysely/migration";
+import { Migrator, FileMigrationProvider, type MigrationResult } from "kysely/migration";
 import { db } from "./index";
 
 export async function migrateToLatest() {
@@ -13,7 +13,7 @@ export async function migrateToLatest() {
     }),
   });
 
-  console.log("Iniciando ejecución de migraciones en la base de datos...");
+  console.log("Ejecutando migraciones de base de datos...");
   const { error, results } = await migrator.migrateToLatest();
 
   results?.forEach((it: MigrationResult) => {
@@ -29,11 +29,10 @@ export async function migrateToLatest() {
     process.exit(1);
   }
 
+  console.log("Todas las migraciones se completaron correctamente.");
   await db.destroy();
-  console.log("Migraciones completadas correctamente.");
 }
 
-// Ejecución directa si se invoca como script
 if (process.argv[1]?.includes("migrator")) {
   migrateToLatest();
 }

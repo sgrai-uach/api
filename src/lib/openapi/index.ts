@@ -5,6 +5,12 @@ import {
 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 import {
+  CrearRecursoInputSchema,
+  RecursoResponseSchema,
+  ListarRecursosQuerySchema,
+  ListarRecursosPaginadosResponseSchema,
+} from "../../modules/recursos-y-personal/recurso.schema";
+import {
   AvisoDetalleResponseSchema,
   AvisosPaginadosResponseSchema,
   CrearAvisoInputSchema,
@@ -16,16 +22,14 @@ import {
   ListarRolesResponseSchema,
   RolDetalleResponseSchema,
 } from "../../modules/seguridad/schema";
-import {
-  CrearRecursoInputSchema,
-  RecursoResponseSchema,
-  ListarRecursosQuerySchema,
-  ListarRecursosPaginadosResponseSchema,
-} from "../../modules/recursos-y-personal/recurso.schema";
 
 extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
+
+// Registrar esquemas de Recursos y Personal
+registry.register("CrearRecursoInput", CrearRecursoInputSchema);
+registry.register("RecursoResponse", RecursoResponseSchema);
 
 // 1. GET /api/incidentes/avisos
 registry.registerPath({
@@ -363,13 +367,13 @@ registry.registerPath({
 /**
  * Genera el documento OpenAPI 3.0 en formato JSON.
  */
-export function generarOpenApiSpec() {
+export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      title: "SGRAI API - Municipalidad de Valdivia",
+      title: "SGRAI API",
       version: "0.3.0",
       description:
         "Especificación OpenAPI generada automáticamente desde esquemas Zod para la plataforma SGRAI (Dirección de Gestión de Riesgos de Desastres).",
@@ -382,3 +386,5 @@ export function generarOpenApiSpec() {
     ],
   });
 }
+
+export const generarOpenApiSpec = generarOpenAPISpec;

@@ -168,6 +168,7 @@ export interface RecursoTable {
  * Interfaz unificada de la base de datos relacional para Kysely.
  */
 export interface Database {
+  recurso: RecursoTable;
   tipo_incidente: TipoIncidenteTable;
   aviso_incidente: AvisoIncidenteTable;
   incidente: IncidenteTable;
@@ -177,5 +178,4 @@ export interface Database {
   usuario: UsuarioTable;
   rol_permiso: RolPermisoTable;
   delegacion: DelegacionTable;
-  recurso: RecursoTable;
 }
