@@ -52,3 +52,15 @@ export function emitirAvisoDescartado(payload: {
   io.to("call-center").emit("aviso:descartado", payload);
   io.emit("aviso:descartado", payload);
 }
+
+/**
+ * Emite la notificación de recurso actualizado a las vistas de Encargado y Supervisor.
+ */
+export function emitirRecursoActualizado(recurso: Record<string, unknown>): void {
+  if (!io) return;
+  io.to("encargado").emit("recurso:actualizado", recurso);
+  io.to("supervisor").emit("recurso:actualizado", recurso);
+  io.emit("recurso:actualizado", recurso);
+}
+
+
