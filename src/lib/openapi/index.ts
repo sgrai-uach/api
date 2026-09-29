@@ -7,7 +7,9 @@ import { z } from "zod";
 import {
   CrearRecursoInputSchema,
   RecursoResponseSchema,
-} from "@/modules/recursos-y-personal/recurso.schema";
+  ListarRecursosQuerySchema,
+  ListarRecursosPaginadosResponseSchema,
+} from "../../modules/recursos-y-personal/recurso.schema";
 import {
   AvisoDetalleResponseSchema,
   AvisosPaginadosResponseSchema,
@@ -29,54 +31,7 @@ export const registry = new OpenAPIRegistry();
 registry.register("CrearRecursoInput", CrearRecursoInputSchema);
 registry.register("RecursoResponse", RecursoResponseSchema);
 
-// 1. POST /api/recursos
-registry.registerPath({
-  method: "post",
-  path: "/api/recursos",
-  description: "Crear un nuevo recurso en el inventario logístico del SGRAI.",
-  summary: "Crear recurso",
-  tags: ["Recursos y Personal"],
-  request: {
-    headers: z.object({
-      "x-user-id": z.string().uuid().describe("ID del usuario administrador autenticado"),
-    }),
-    body: {
-      description: "Datos del nuevo recurso a registrar",
-      content: {
-        "application/json": {
-          schema: CrearRecursoInputSchema,
-        },
-      },
-    },
-  },
-  responses: {
-    201: {
-      description: "Recurso creado exitosamente",
-      content: {
-        "application/json": {
-          schema: z.object({
-            message: z.string(),
-            data: RecursoResponseSchema,
-          }),
-        },
-      },
-    },
-    400: {
-      description: "Datos de entrada inválidos",
-    },
-    401: {
-      description: "No autenticado / cabecera X-User-Id ausente",
-    },
-    403: {
-      description: "No cuenta con el permiso requerido: recursos:crear",
-    },
-    500: {
-      description: "Error interno del servidor",
-    },
-  },
-});
-
-// 2. GET /api/incidentes/avisos
+// 1. GET /api/incidentes/avisos
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos",
@@ -102,7 +57,7 @@ registry.registerPath({
   },
 });
 
-// 3. POST /api/incidentes/avisos
+// 2. POST /api/incidentes/avisos
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos",
@@ -129,7 +84,7 @@ registry.registerPath({
   },
 });
 
-// 4. GET /api/incidentes/avisos/{id}
+// 3. GET /api/incidentes/avisos/{id}
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos/{id}",
@@ -157,7 +112,7 @@ registry.registerPath({
   },
 });
 
-// 5. POST /api/incidentes/avisos/{id}/verificar
+// 4. POST /api/incidentes/avisos/{id}/verificar
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos/{id}/verificar",
@@ -199,13 +154,13 @@ registry.registerPath({
   },
 });
 
-// 6. POST /api/incidentes/avisos/{id}/descartar
+// 5. POST /api/incidentes/avisos/{id}/descartar
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos/{id}/descartar",
-  summary: "Descartar aviso con justificación",
+  summary: "Descartar aviso motivado",
   description:
-    "Marca un aviso en estado 'DESCARTADO' registrando motivo de descarte obligatorio y operador responsable.",
+    "Descarta un aviso no procedente registrando la justificación obligatoria del operador.",
   tags: ["Incidentes / Avisos"],
   request: {
     params: z.object({
@@ -227,10 +182,10 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Aviso descartado con éxito",
+      description: "Aviso descartado correctamente",
     },
     400: {
-      description: "Motivo de descarte inválido o menor a 5 caracteres",
+      description: "Justificación de descarte inválida o faltante",
     },
     401: {
       description: "Cabecera X-User-Id faltante",
@@ -244,7 +199,7 @@ registry.registerPath({
   },
 });
 
-// 7. GET /api/seguridad/roles
+// 6. GET /api/seguridad/roles
 registry.registerPath({
   method: "get",
   path: "/api/seguridad/roles",
@@ -278,7 +233,7 @@ registry.registerPath({
   },
 });
 
-// 8. GET /api/seguridad/roles/{id}
+// 7. GET /api/seguridad/roles/{id}
 registry.registerPath({
   method: "get",
   path: "/api/seguridad/roles/{id}",
@@ -314,6 +269,97 @@ registry.registerPath({
     },
     404: {
       description: "Perfil no encontrado",
+    },
+  },
+});
+
+// 8. POST /api/recursos (HU-6)
+registry.registerPath({
+  method: "post",
+  path: "/api/recursos",
+  summary: "Crear nuevo recurso en el inventario logístico",
+  description:
+    "Registra un recurso (material fungible o vehículo/maquinaria individual) en el inventario municipal.",
+  tags: ["Recursos y Personal"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario con permiso recursos:crear" }),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: CrearRecursoInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Recurso creado exitosamente",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+            data: RecursoResponseSchema,
+          }),
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "No cuenta con el permiso requerido: recursos:crear",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 9. GET /api/recursos (HU-7)
+registry.registerPath({
+  method: "get",
+  path: "/api/recursos",
+  summary: "Listar recursos logísticos y verificar disponibilidad",
+  description:
+    "Retorna una lista paginada de los recursos registrados en el inventario, incluyendo estado de disponibilidad operativa, cantidades y delegación territorial asociada. Accesible por rol Administrador.",
+  tags: ["Recursos y Personal"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+    query: ListarRecursosQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado paginado de recursos de inventario",
+      content: {
+        "application/json": {
+          schema: ListarRecursosPaginadosResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    500: {
+      description: "Error interno del servidor",
     },
   },
 });

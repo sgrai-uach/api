@@ -12,6 +12,6 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.info.version).toBe("0.3.0");
     expect(spec.paths["/api/recursos"]).toBeDefined();
     expect(spec.paths["/api/recursos"].post).toBeDefined();
-    expect(spec.paths["/api/recursos"].post.summary).toBe("Crear recurso");
+    expect(spec.paths["/api/recursos"].get).toBeDefined();
   });
 });
