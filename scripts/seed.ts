@@ -13,8 +13,23 @@ import { loadEnvConfig } from "@next/env";
 
 loadEnvConfig(process.cwd());
 
-const defaultPort = process.env.PORT || "3001";
-const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${defaultPort}`;
+async function resolveApiBaseUrl(): Promise<string> {
+  if (process.env.API_BASE_URL) {
+    return process.env.API_BASE_URL;
+  }
+  const candidatePorts = [process.env.PORT, "3000", "3001"].filter(Boolean) as string[];
+  for (const port of Array.from(new Set(candidatePorts))) {
+    try {
+      const res = await fetch(`http://localhost:${port}/api/health`, { signal: AbortSignal.timeout(800) });
+      if (res.ok) {
+        return `http://localhost:${port}`;
+      }
+    } catch {
+      // continuar
+    }
+  }
+  return `http://localhost:${process.env.PORT || "3000"}`;
+}
 
 // Datos georreferenciados realistas en Valdivia
 const UBICACIONES_VALDIVIA = [
@@ -88,6 +103,8 @@ async function main() {
     console.error("❌ Por favor indica una cantidad válida mayor a 0.");
     process.exit(1);
   }
+
+  const API_BASE_URL = await resolveApiBaseUrl();
 
   console.log(`\n🚀 Iniciando inserción de ${count} registros vía API (${API_BASE_URL})...\n`);
 
