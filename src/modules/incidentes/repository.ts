@@ -266,6 +266,18 @@ export class IncidentesRepository {
       return actualizado;
     });
   }
+
+  /**
+   * Obtiene la lista de tipos de incidentes activos ordenados alfabéticamente.
+   */
+  async obtenerTiposIncidentes() {
+    return await db
+      .selectFrom("tipo_incidente")
+      .selectAll()
+      .where("activo", "=", true)
+      .orderBy("nombre", "asc")
+      .execute();
+  }
 }
 
 export const incidentesRepository = new IncidentesRepository();

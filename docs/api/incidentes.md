@@ -1,61 +1,81 @@
-# Módulo de Incidentes — Documentación Técnica de API
+# Módulo: Incidentes (Avisos, Ingreso Manual, Verificación Call Center y Tablero Kanban)
 
-Este documento describe la operativa técnica del módulo de **Incidentes y Avisos** en `sgrai-api`, dirigido a los desarrolladores de `sgrai-web` (específicamente la interfaz del Call Center y Encargado) y `sgrai-pwa`.
-
----
-
-## 1. Reglas de negocio aplicadas
-
-El módulo implementa las siguientes reglas del **Sistema de Comando de Incidentes (ICS)** y del proyecto:
-
-1. **Ciclo de vida del reporte:**
-   - Todo reporte preliminar ingresa a la entidad `aviso_incidente` con estado `'NO_VERIFICADO'`.
-   - La evaluación y filtrado primario la realiza un **Operador de Call Center**.
-   - Al ejecutarse la acción *"Verificar y Enviar"*, el registro se transforma atómicamente a la entidad formal `incidente`, iniciando en estado **`'Reportado'`** y quedando visible para el rol **Encargado**.
-   - Ciclo formal posterior del incidente: `Reportado → Verificando → En Atención → No Abordable / Resuelto`.
-2. **Priorización por tiempo de espera:**
-   - La consulta de avisos pendientes ordena por defecto de forma ascendente por fecha de creación (`creado_en ASC`).
-   - La API computa dinámicamente el campo `minutosEnEspera` para que `sgrai-web` resalte visualmente los reportes más antiguos.
-3. **Descarte justificado:**
-   - Todo descarte de aviso requiere obligatoriamente un `motivoDescarte` con un mínimo de 5 caracteres.
-4. **Vulnerabilidad y Asistencia Social (FIBE):**
-   - La verificación permite marcar `requiereAsistenciaSocial` (boolean). No existen módulos de albergues; esta bandera permite derivar el incidente a Asistencia Social para levantar la Ficha Básica de Emergencia (FIBE).
-5. **Transaccionalidad ACID con PostGIS:**
-   - La transición a `incidente` se ejecuta bajo una transacción Kysely con bloqueo pesimista `FOR UPDATE` y generación de coordenadas espaciales `Point(4326)`.
+Documentación técnica de los endpoints, eventos en tiempo real y lógica de negocio del módulo de **Incidentes**, dirigida a desarrolladores de `sgrai-web` (Call Center, Encargado) y `sgrai-pwa` (Patrullas y Cuadrillas).
 
 ---
 
-## 2. Lista de Endpoints
+## 1. Reglas de Negocio y Modelo de Datos (ICS y ERD Alignment)
 
-| Método | Ruta | Propósito |
-|---|---|---|
-| `GET` | `/api/incidentes/avisos` | Listar avisos paginados pendientes de revisión para el Call Center (ordenados por antigüedad). |
-| `POST` | `/api/incidentes/avisos` | Registrar un aviso preliminar de informante (dispara evento `aviso:nuevo` vía Socket.io). |
-| `GET` | `/api/incidentes/avisos/{id}` | Obtener el detalle completo de un aviso (coordenadas, datos del informante y adjuntos). |
-| `POST` | `/api/incidentes/avisos/{id}/verificar` | Verificar y promover atómicamente un aviso a la tabla `incidente` (estado `'Reportado'`). |
-| `POST` | `/api/incidentes/avisos/{id}/descartar` | Descartar un aviso por información falsa o duplicada con justificación obligatoria. |
+- **Alineación con Diagrama Entidad-Relación:**
+  - Las entidades principales de persistencia son **`Informante`** (ciudadano o testigo) e **`Incidente`** (entidad operativa central del SGRAI).
+  - En la recepción preliminar de avisos del Call Center (HU-52), los avisos pueden listarse, verificarse y promoverse a incidente formal o descartarse motivadamente.
 
-> Nota: La especificación completa y los tipos de request/response se derivan automáticamente desde los esquemas Zod en `GET /openapi.json`.
+- **Ciclo de Vida de los Incidentes (ICS) - Sección 6 de GEMINI.md:**
+  - Todo reporte ingresado al sistema se registra con estado inicial **`REPORTADO`**.
+  - Al asignarse una patrulla verificadora en terreno, el estado avanza a **`VERIFICANDO`**.
+  - Al confirmarse la emergencia y despacharse cuadrillas o recursos logísticos, avanza a **`EN_ATENCION`**.
+  - Si la situación fue mitigada satisfactoriamente, culmina en **`RESUELTO`**.
+  - Si tras la verificación se constata que no corresponde al ámbito municipal o fue una falsa alarma, se clasifica como **`NO_ABORDABLE`**.
+
+- **Priorización y Tiempos de Espera:**
+  - La consulta de avisos pendientes para el Call Center calcula dinámicamente los minutos en espera para que el frontend resalte los reportes con mayor tiempo sin atención.
+
+- **Descarte Justificado:**
+  - Todo descarte de un aviso exige obligatoriamente un motivo justificado de al menos 5 caracteres.
+
+- **Detección Espacial de Duplicados en Valdivia:**
+  - Detección espacial de reportes similares en un radio de 300 metros y ventana de 24 horas vía PostGIS.
+  - La API permite verificar duplicados previos (`POST /api/incidentes/verificar-duplicado`) o forzar la creación (`forzarCreacion: true`).
+
+- **Catálogo de Estados y Descripciones Ciudadanas (Sin Jerga Técnica):**
+  Para el panel de seguimiento de informantes (`GET /api/incidentes/avisos/seguimiento/{codigo}`), los estados se traducen a explicaciones comprensibles sin tecnicismos ni exposición de datos privados (RUT o teléfono).
 
 ---
 
-## 3. Códigos de error esperables no obvios
+## 2. Endpoints del Módulo
 
-- **`409 Conflict` en `POST /api/incidentes/avisos/{id}/verificar`**:
-  Ocurre cuando dos operadores intentan verificar o descartar el mismo aviso en simultáneo. La transacción aplica bloqueo pesimista `FOR UPDATE`; el segundo operador recibirá un `409` indicando que el aviso ya no se encuentra en estado `'NO_VERIFICADO'`.
-- **`409 Conflict` en `POST /api/incidentes/avisos/{id}/descartar`**:
-  Indica que el aviso ya fue verificado o descartado previamente por otro operador.
-- **`401 Unauthorized` en endpoints de verificación o descarte**:
-  Falta la cabecera `X-User-Id` requerida para identificar y auditar al operador responsable de la acción.
-- **`400 Bad Request` en `POST /api/incidentes/avisos/{id}/descartar`**:
-  Indica que el campo `motivoDescarte` no fue provisto o no cumple con el mínimo de 5 caracteres.
+| Método | Endpoint | Permiso Requerido | Propósito |
+|---|---|---|---|
+| `GET` | `/api/incidentes/avisos` | Call Center / Admin | Listar avisos paginados pendientes de revisión para el Call Center. |
+| `POST` | `/api/incidentes/avisos` | Público | Registrar reporte ciudadano (Chatbot o Web) con código de seguimiento numérico. |
+| `GET` | `/api/incidentes/avisos/{id}` | Call Center / Admin | Obtener el detalle completo de un aviso para su evaluación. |
+| `POST` | `/api/incidentes/avisos/{id}/verificar` | `incidentes:avisos:verificar` | Verificar y promover un aviso preliminar a incidente formal ICS (`REPORTADO`). |
+| `POST` | `/api/incidentes/avisos/{id}/descartar` | `incidentes:avisos:descartar` | Descartar un aviso con justificación obligatoria. |
+| `GET` | `/api/incidentes/avisos/seguimiento/{codigo}` | Público | Consultar estado amigable de seguimiento ciudadano por código de 8 dígitos. |
+| `GET` | `/api/incidentes/tipos` | Público | Catálogo oficial de tipos de afectación. |
+| `POST` | `/api/incidentes/manual` | `crear_incidente_manual` | Ingreso manual de incidente desde Call Center o terreno. |
+| `POST` | `/api/incidentes/verificar-duplicado` | `crear_incidente_manual` | Consultar coincidencias de incidentes cercanos en Valdivia. |
+| `GET` | `/api/incidentes` | `incidentes:kanban` | Listado paginado de incidentes con filtros para el tablero Kanban del Encargado. |
+| `GET` | `/api/incidentes/{id}` | `incidentes:kanban` | Detalle exhaustivo de incidente para puesto de mando (informante, misiones, cuadrillas). |
 
 ---
 
-## 4. Eventos en Tiempo Real (Socket.io)
+## 3. Códigos de Estado y Errores Esperables
 
-El backend emite los siguientes eventos:
+- **`409 Conflict`:**
+  - En `POST /api/incidentes/manual`: Se detectaron reportes similares en la zona (requiere confirmación `forzarCreacion: true`).
+  - En `POST /api/incidentes/avisos/{id}/verificar` o `descartar`: El aviso ya fue gestionado concurrentemente por otro operador.
+- **`400 Bad Request`:**
+  - Cuerpo JSON inválido, datos requeridos ausentes, o motivo de descarte menor a 5 caracteres.
+- **`401 Unauthorized`:**
+  - Cabecera `X-User-Id` ausente o no registrada en el sistema.
+- **`403 Forbidden`:**
+  - El usuario no posee el rol ni permiso necesario para la operación solicitada.
+- **`404 Not Found`:**
+  - No existe el recurso o código de seguimiento consultado.
+- **`500 Internal Server Error`:**
+  - Error no controlado o fallo de conexión a la base de datos.
 
-- **`aviso:nuevo`**: Emitido a la sala `call-center` al registrarse un nuevo reporte de informante. Permite actualizar la tabla o grilla sin recargar la página.
-- **`aviso:verificado`**: Notifica a `call-center` y `encargado` con `{ avisoId, incidenteId, folio }`.
-- **`aviso:descartado`**: Notifica a `call-center` con `{ avisoId, motivoDescarte }` para retirar el aviso de la grilla de pendientes en los clientes conectados.
+---
+
+## 4. Integración y Eventos en Tiempo Real (Socket.io)
+
+- **`sala:call-center`:**
+  - `aviso:nuevo`: Notifica nuevo aviso preliminar para refrescar la grilla de pendientes.
+  - `aviso:verificado`: Notifica promoción a incidente formal `{ avisoId, incidenteId, folio }`.
+  - `aviso:descartado`: Notifica descarte del aviso `{ avisoId, motivoDescarte }`.
+- **`sala:encargados`:**
+  - `incidente:creado`: Nueva tarjeta para la columna "Reportado" en el tablero Kanban.
+  - `incidente:actualizado`: Mueve la tarjeta entre columnas en tiempo real (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, etc.).
+- **`sala:seguimiento:{codigoSeguimiento}`:**
+  - `incidente:estado_actualizado`: Actualiza el panel ciudadano con la nueva descripción y etiqueta comprensible.
