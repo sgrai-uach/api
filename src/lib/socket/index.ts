@@ -8,6 +8,35 @@ import type {
   RedisSocketMessage,
 } from "./types";
 
+export interface IncidenteNotificacionPayload {
+  id: string;
+  codigo: string;
+  tipoAfectacion: string;
+  direccion: string;
+  latitud: number;
+  longitud: number;
+  estado: string;
+  prioridad: string;
+  requiereAsistenciaSocial?: boolean;
+  creadoEn: string;
+}
+
+export interface SeguimientoEstadoPayload {
+  codigoSeguimiento: string;
+  estado: string;
+  estadoEtiqueta: string;
+  estadoDescripcion: string;
+  actualizadoEn: string;
+}
+
+export interface IncidenteActualizadoPayload {
+  id: string;
+  codigo: string;
+  nuevoEstado: string;
+  prioridad: string;
+  actualizadoEn: string;
+}
+
 export type TypedSocketServer = SocketIOServer<
   ClientToServerEvents,
   ServerToClientEvents,
@@ -15,17 +44,17 @@ export type TypedSocketServer = SocketIOServer<
   SocketData
 >;
 
-let io: TypedSocketServer | null = null;
+let ioInstance: TypedSocketServer | SocketIOServer | null = null;
 let redisPublisher: Redis | null = null;
 
 export const REDIS_SOCKET_CHANNEL = "sgrai:socket-events";
 
-export function setSocketServer(server: TypedSocketServer): void {
-  io = server;
+export function setSocketServer(server: TypedSocketServer | SocketIOServer): void {
+  ioInstance = server;
 }
 
-export function getSocketServer(): TypedSocketServer | null {
-  return io;
+export function getSocketServer(): TypedSocketServer | SocketIOServer | null {
+  return ioInstance;
 }
 
 function getRedisPublisher(): Redis | null {
@@ -40,21 +69,18 @@ function getRedisPublisher(): Redis | null {
 
 /**
  * Emite a las salas de Socket.IO tanto localmente como por Redis Pub/Sub
- * para garantizar que eventos desde Workers o Route Handlers aislados se entreguen.
  */
 function emitirEvento<E extends keyof ServerToClientEvents>(
   room: string,
   event: E,
   payload: Parameters<ServerToClientEvents[E]>[0]
 ): void {
-  // 1. Emisión directa en memoria (si io está inicializado en el mismo proceso)
-  if (io) {
+  if (ioInstance) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io.to(room) as any).emit(event, payload);
+    (ioInstance.to(room) as any).emit(event, payload);
     return;
   }
 
-  // 2. Emisión vía Redis Pub/Sub (alcanza el servidor Socket.io desde Workers y Route Handlers)
   const publisher = getRedisPublisher();
   if (publisher) {
     const message: RedisSocketMessage = { room, event, payload };
@@ -64,19 +90,135 @@ function emitirEvento<E extends keyof ServerToClientEvents>(
   }
 }
 
-export function emitirNuevoAviso(aviso: Record<string, unknown>): void {
-  emitirEvento("call-center", "aviso:nuevo", aviso);
+/**
+ * Emite una notificación en tiempo real a la sala de encargados cuando se registra
+ * un nuevo incidente manual o verificado.
+ */
+export function notificarIncidenteCreado(incidente: IncidenteNotificacionPayload): boolean {
+  if (ioInstance) {
+    try {
+      ioInstance.to("sala:encargados").emit("incidente:creado", {
+        evento: "incidente:creado",
+        datos: incidente,
+        emitidoEn: new Date().toISOString(),
+      });
+      return true;
+    } catch (error) {
+      console.error("Error al emitir notificación de incidente vía Socket.io:", error);
+      return false;
+    }
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher.publish(
+      REDIS_SOCKET_CHANNEL,
+      JSON.stringify({
+        room: "sala:encargados",
+        event: "incidente:creado",
+        payload: { evento: "incidente:creado", datos: incidente, emitidoEn: new Date().toISOString() },
+      })
+    ).catch(() => {});
+    return true;
+  }
+
+  return false;
 }
 
+/**
+ * Emite una actualización en tiempo real a la sala específica del informante
+ * identificada por su código de seguimiento numérico.
+ */
+export function notificarActualizacionSeguimiento(datos: SeguimientoEstadoPayload): boolean {
+  if (ioInstance) {
+    try {
+      ioInstance.to(`sala:seguimiento:${datos.codigoSeguimiento}`).emit("incidente:estado_actualizado", {
+        evento: "incidente:estado_actualizado",
+        datos,
+        emitidoEn: new Date().toISOString(),
+      });
+      return true;
+    } catch (error) {
+      console.error("Error al emitir actualización de seguimiento vía Socket.io:", error);
+      return false;
+    }
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher.publish(
+      REDIS_SOCKET_CHANNEL,
+      JSON.stringify({
+        room: `sala:seguimiento:${datos.codigoSeguimiento}`,
+        event: "incidente:estado_actualizado",
+        payload: { evento: "incidente:estado_actualizado", datos, emitidoEn: new Date().toISOString() },
+      })
+    ).catch(() => {});
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Emite una actualización en tiempo real a la sala de encargados cuando se modifica
+ * el estado, prioridad o gestión operativa de un incidente.
+ */
+export function notificarIncidenteActualizado(datos: IncidenteActualizadoPayload): boolean {
+  if (ioInstance) {
+    try {
+      ioInstance.to("sala:encargados").emit("incidente:actualizado", {
+        evento: "incidente:actualizado",
+        datos,
+        emitidoEn: new Date().toISOString(),
+      });
+      return true;
+    } catch (error) {
+      console.error("Error al emitir actualización de incidente vía Socket.io:", error);
+      return false;
+    }
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher.publish(
+      REDIS_SOCKET_CHANNEL,
+      JSON.stringify({
+        room: "sala:encargados",
+        event: "incidente:actualizado",
+        payload: { evento: "incidente:actualizado", datos, emitidoEn: new Date().toISOString() },
+      })
+    ).catch(() => {});
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Emite el evento de nuevo aviso a los operadores del Call Center.
+ */
+export function emitirNuevoAviso(aviso: Record<string, unknown>): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  emitirEvento("call-center", "aviso:nuevo", aviso as any);
+}
+
+/**
+ * Emite la notificación de aviso verificado y convertido a incidente.
+ */
 export function emitirAvisoVerificado(payload: {
   avisoId: string;
   incidenteId: string;
   folio: string;
 }): void {
   emitirEvento("call-center", "aviso:verificado", payload);
-  emitirEvento("encargado", "incidente:creado", payload);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  emitirEvento("encargado", "incidente:creado" as any, payload as any);
 }
 
+/**
+ * Emite la notificación de aviso descartado por el Call Center.
+ */
 export function emitirAvisoDescartado(payload: {
   avisoId: string;
   motivoDescarte: string;

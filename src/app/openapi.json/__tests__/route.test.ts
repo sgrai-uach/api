@@ -9,10 +9,17 @@ describe("Endpoint GET /openapi.json", () => {
     const spec = await res.json();
     expect(spec.openapi).toBe("3.0.0");
     expect(spec.info.title).toBe("SGRAI API");
-    expect(spec.info.version).toBe("0.3.0");
+    expect(spec.info.version).toBe("0.4.0");
     expect(spec.paths["/api/recursos"]).toBeDefined();
     expect(spec.paths["/api/recursos"].post).toBeDefined();
     expect(spec.paths["/api/recursos"].get).toBeDefined();
+    expect(spec.paths["/api/incidentes/manual"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/manual"].post).toBeDefined();
+    expect(spec.paths["/api/incidentes/manual"].post.summary).toBe(
+      "Ingreso manual de incidente (Call Center / Terreno)"
+    );
+    expect(spec.paths["/api/incidentes/verificar-duplicado"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/verificar-duplicado"].post).toBeDefined();
     expect(spec.paths["/api/incidentes/avisos"]).toBeDefined();
     expect(spec.paths["/api/incidentes/avisos"].post).toBeDefined();
     expect(spec.paths["/api/incidentes/avisos"].post.summary).toBe(

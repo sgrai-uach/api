@@ -4,12 +4,14 @@ import {
   extendZodWithOpenApi,
 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+
 import {
   CrearRecursoInputSchema,
   RecursoResponseSchema,
   ListarRecursosQuerySchema,
   ListarRecursosPaginadosResponseSchema,
 } from "@/modules/recursos-y-personal/recurso.schema";
+
 import {
   AvisoDetalleResponseSchema,
   AvisosPaginadosResponseSchema,
@@ -18,11 +20,17 @@ import {
   ListarAvisosQuerySchema,
   VerificarAvisoInputSchema,
 } from "@/modules/incidentes/schema";
+
 import {
   CrearAvisoIncidenteInputSchema,
   AvisoIncidenteResponseSchema,
   ConsultaSeguimientoResponseSchema,
+  CrearIncidenteManualInputSchema,
+  CrearIncidenteManualResponseSchema,
+  VerificarDuplicadoInputSchema,
+  VerificarDuplicadoResponseSchema,
 } from "@/modules/incidentes/aviso-incidente.schema";
+
 import {
   ListarRolesResponseSchema,
   RolDetalleResponseSchema,
@@ -45,6 +53,10 @@ registry.register("AvisoDetalleResponse", AvisoDetalleResponseSchema);
 registry.register("AvisosPaginadosResponse", AvisosPaginadosResponseSchema);
 registry.register("DescartarAvisoInput", DescartarAvisoInputSchema);
 registry.register("VerificarAvisoInput", VerificarAvisoInputSchema);
+registry.register("CrearIncidenteManualInput", CrearIncidenteManualInputSchema);
+registry.register("CrearIncidenteManualResponse", CrearIncidenteManualResponseSchema);
+registry.register("VerificarDuplicadoInput", VerificarDuplicadoInputSchema);
+registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema);
 
 // Registrar esquemas de Seguridad
 registry.register("ListarRolesResponse", ListarRolesResponseSchema);
@@ -138,7 +150,107 @@ registry.registerPath({
   },
 });
 
-// 3. GET /api/incidentes/avisos
+// 3. POST /api/incidentes/manual (HU-53)
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/manual",
+  description:
+    "Permite el ingreso manual de un incidente desde Call Center (llamada telefónica) o funcionario en terreno. Registra al informante e inserta el incidente en estado REPORTADO, y notifica en tiempo real al Encargado.",
+  summary: "Ingreso manual de incidente (Call Center / Terreno)",
+  tags: ["Incidentes"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("ID del operador o funcionario autenticado"),
+    }),
+    body: {
+      description: "Datos del reporte de incidente manual",
+      content: {
+        "application/json": {
+          schema: CrearIncidenteManualInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Incidente creado exitosamente en estado REPORTADO",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+            data: CrearIncidenteManualResponseSchema,
+          }),
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos o faltantes (ej. RUT inválido, descripción muy corta)",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente o usuario inexistente",
+    },
+    403: {
+      description: "No cuenta con el permiso requerido: crear_incidente_manual",
+    },
+    409: {
+      description:
+        "Posible incidente duplicado detectado en la zona. Requiere confirmación con forzarCreacion: true.",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 4. POST /api/incidentes/verificar-duplicado (HU-53)
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/verificar-duplicado",
+  description:
+    "Consulta si existen incidentes previos similares cercanos (por defecto radio 300m y ventana 24h) para alertar al operador en el formulario antes del envío.",
+  summary: "Verificar posibles duplicados de incidente",
+  tags: ["Incidentes"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("ID del operador o funcionario autenticado"),
+    }),
+    body: {
+      description: "Dirección/coordenadas y tipo de afectación a verificar",
+      content: {
+        "application/json": {
+          schema: VerificarDuplicadoInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Resultado de la verificación espacial",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+            data: VerificarDuplicadoResponseSchema,
+          }),
+        },
+      },
+    },
+    400: {
+      description: "Parámetros inválidos",
+    },
+    401: {
+      description: "No autenticado",
+    },
+    403: {
+      description: "No autorizado",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 5. GET /api/incidentes/avisos
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos",
@@ -164,7 +276,7 @@ registry.registerPath({
   },
 });
 
-// 4. POST /api/incidentes/avisos
+// 6. POST /api/incidentes/avisos
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos",
@@ -214,7 +326,7 @@ registry.registerPath({
   },
 });
 
-// 5. GET /api/incidentes/avisos/{id}
+// 7. GET /api/incidentes/avisos/{id}
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos/{id}",
@@ -242,7 +354,7 @@ registry.registerPath({
   },
 });
 
-// 6. POST /api/incidentes/avisos/{id}/verificar
+// 8. POST /api/incidentes/avisos/{id}/verificar
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos/{id}/verificar",
@@ -284,7 +396,7 @@ registry.registerPath({
   },
 });
 
-// 7. POST /api/incidentes/avisos/{id}/descartar
+// 9. POST /api/incidentes/avisos/{id}/descartar
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos/{id}/descartar",
@@ -329,7 +441,7 @@ registry.registerPath({
   },
 });
 
-// 8. GET /api/incidentes/avisos/seguimiento/{codigo}
+// 10. GET /api/incidentes/avisos/seguimiento/{codigo}
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos/seguimiento/{codigo}",
@@ -363,7 +475,7 @@ registry.registerPath({
   },
 });
 
-// 9. GET /api/incidentes/tipos
+// 11. GET /api/incidentes/tipos
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/tipos",
@@ -386,7 +498,7 @@ registry.registerPath({
   },
 });
 
-// 10. GET /api/seguridad/roles
+// 12. GET /api/seguridad/roles
 registry.registerPath({
   method: "get",
   path: "/api/seguridad/roles",
@@ -420,7 +532,7 @@ registry.registerPath({
   },
 });
 
-// 11. GET /api/seguridad/roles/{id}
+// 13. GET /api/seguridad/roles/{id}
 registry.registerPath({
   method: "get",
   path: "/api/seguridad/roles/{id}",
@@ -470,7 +582,7 @@ export function generarOpenAPISpec() {
     openapi: "3.0.0",
     info: {
       title: "SGRAI API",
-      version: "0.3.0",
+      version: "0.4.0",
       description:
         "Especificación OpenAPI generada automáticamente desde esquemas Zod para la plataforma SGRAI (Dirección de Gestión de Riesgos de Desastres).",
     },
