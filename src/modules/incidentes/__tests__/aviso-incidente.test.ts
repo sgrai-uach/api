@@ -167,22 +167,24 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         informante_rut: "11111111-1",
         informante_telefono: null,
         informante_id: "inf-1",
-        estado: "REPORTADO",
-        prioridad: "MEDIA",
-        requiere_asistencia_social: false,
+        origen_reporte: "CHATBOT" as const,
         fuente_origen: "CHATBOT",
         asterisk_call_id: null,
         asterisk_caller_phone: null,
+        operador_id: null,
         tipo_incidente_id: null,
         delegacion_id: null,
         fuente_incidente_id: null,
         creado_por_id: null,
         encargado_id: null,
+        estado: "REPORTADO",
+        prioridad: "MEDIA",
+        requiere_asistencia_social: false,
         es_duplicado: false,
         aviso_original_id: null,
         creado_en: new Date("2026-09-07T12:00:00Z"),
         actualizado_en: new Date("2026-09-07T12:00:00Z"),
-      });
+      } as unknown as Awaited<ReturnType<typeof repository.insertarIncidenteDesdeChatbot>>);
 
       const input = {
         tipoAfectacion: "Caída de árbol" as const,
@@ -213,6 +215,11 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         ubicacion: null,
         descripcion: "Primer reporte del árbol",
         informante_id: "inf-original",
+        informante_nombre: "Pedro González",
+        informante_rut: "11111112-K",
+        informante_telefono: null,
+        origen_reporte: "CHATBOT" as const,
+        operador_id: null,
         estado: "VERIFICANDO" as const,
         prioridad: "MEDIA" as const,
         requiere_asistencia_social: false,
@@ -244,6 +251,8 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         informante_rut: "11111111-1",
         informante_telefono: null,
         informante_id: "inf-2",
+        origen_reporte: "CHATBOT" as const,
+        operador_id: null,
         estado: "VERIFICANDO",
         prioridad: "MEDIA",
         requiere_asistencia_social: false,
@@ -259,7 +268,7 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         aviso_original_id: "original-0000-0000-0000-000000000001",
         creado_en: new Date("2026-09-07T11:30:00Z"),
         actualizado_en: new Date("2026-09-07T11:30:00Z"),
-      });
+      } as unknown as Awaited<ReturnType<typeof repository.insertarIncidenteDesdeChatbot>>);
 
       const input = {
         tipoAfectacion: "Caída de árbol" as const,
@@ -295,6 +304,11 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         longitud: -73.3986,
         ubicacion: null,
         descripcion: "Deslizamiento menor de tierra",
+        informante_nombre: "Carlos Vega",
+        informante_rut: "11111111-1",
+        informante_telefono: null,
+        origen_reporte: "CHATBOT" as const,
+        operador_id: null,
         estado: "EN_ATENCION",
         prioridad: "MEDIA",
         requiere_asistencia_social: false,
@@ -308,7 +322,7 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         encargado_id: null,
         creado_en: new Date("2026-09-07T10:00:00Z"),
         actualizado_en: new Date("2026-09-07T11:00:00Z"),
-      });
+      } as unknown as Awaited<ReturnType<typeof repository.buscarIncidentePorCodigoSeguimiento>>);
 
       const resultado = await consultarAvisoPorSeguimiento("88776655");
       expect(resultado).not.toBeNull();
@@ -351,7 +365,7 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         encargado_id: null,
         creado_en: new Date("2026-09-07T10:00:00Z"),
         actualizado_en: new Date("2026-09-07T11:00:00Z"),
-      });
+      } as unknown as Awaited<ReturnType<typeof repository.buscarIncidentePorCodigoSeguimiento>>);
 
       const resultado = await consultarAvisoPorSeguimiento("11223344");
       expect(resultado).not.toBeNull();
@@ -397,7 +411,7 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
         encargado_id: null,
         creado_en: new Date("2026-09-07T10:00:00Z"),
         actualizado_en: new Date("2026-09-07T14:30:00Z"),
-      });
+      } as unknown as Awaited<ReturnType<typeof repository.actualizarEstadoIncidente>>);
 
       const incidenteActualizado = await cambiarEstadoIncidente("55443322", "RESUELTO");
 
