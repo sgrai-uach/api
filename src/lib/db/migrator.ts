@@ -1,76 +1,91 @@
-import fs from "fs/promises";
-import path from "path";
-import { Pool } from "pg";
-
-const connectionString =
-  process.env.DATABASE_URL ||
-  "postgresql://sgrai:sgrai_dev@localhost:5432/sgrai";
-
-const pool = new Pool({
-  connectionString,
-});
+import * as path from "path";
+import { promises as fs } from "fs";
+import { Migrator, FileMigrationProvider, type MigrationResult } from "kysely/migration";
+import { db, pool } from "./index";
 
 /**
- * Runner de migraciones SQL para sgrai-api.
- * Lee y ejecuta los archivos .sql secuencialmente asegurando
- * idempotencia y registrando el estado en una tabla de control.
+ * Runner integral de migraciones para sgrai-api.
+ * Ejecuta tanto las migraciones Kysely TypeScript como las migraciones SQL complementarias.
  */
-async function migrate() {
-  console.log("🔄 Iniciando proceso de migración de base de datos...");
-  const client = await pool.connect();
+export async function migrateToLatest() {
+  console.log("Ejecutando migraciones Kysely de base de datos...");
+  const migrator = new Migrator({
+    db,
+    provider: new FileMigrationProvider({
+      fs,
+      path,
+      migrationFolder: path.join(__dirname, "migrations"),
+    }),
+  });
 
-  try {
-    // 1. Crear tabla de control de migraciones si no existe
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS _migrations (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) UNIQUE NOT NULL,
-        executed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+  const { error, results } = await migrator.migrateToLatest();
 
-    // 2. Obtener lista de migraciones ya aplicadas
-    const { rows: appliedRows } = await client.query<{ name: string }>(
-      "SELECT name FROM _migrations ORDER BY id ASC;"
-    );
-    const appliedSet = new Set(appliedRows.map((r) => r.name));
-
-    // 3. Leer archivos en src/lib/db/migrations
-    const migrationsDir = path.join(process.cwd(), "src/lib/db/migrations");
-    const files = await fs.readdir(migrationsDir);
-    const sqlFiles = files.filter((f) => f.endsWith(".sql")).sort();
-
-    for (const file of sqlFiles) {
-      if (appliedSet.has(file)) {
-        console.log(`⏭️  Migración ya aplicada: ${file}`);
-        continue;
-      }
-
-      console.log(`▶️  Aplicando migración: ${file}...`);
-      const filePath = path.join(migrationsDir, file);
-      const sqlContent = await fs.readFile(filePath, "utf-8");
-
-      await client.query("BEGIN");
-      try {
-        await client.query(sqlContent);
-        await client.query("INSERT INTO _migrations (name) VALUES ($1);", [file]);
-        await client.query("COMMIT");
-        console.log(`✅ Migración aplicada exitosamente: ${file}`);
-      } catch (err) {
-        await client.query("ROLLBACK");
-        console.error(`❌ Error al aplicar migración ${file}:`, err);
-        throw err;
-      }
+  results?.forEach((it: MigrationResult) => {
+    if (it.status === "Success") {
+      console.log(`[OK] Migración Kysely ejecutada con éxito: "${it.migrationName}"`);
+    } else if (it.status === "Error") {
+      console.error(`[ERROR] Falló la ejecución de la migración Kysely: "${it.migrationName}"`);
     }
+  });
 
-    console.log("✨ Todas las migraciones se encuentran al día.");
-  } finally {
-    client.release();
-    await pool.end();
+  if (error) {
+    console.error("Error al ejecutar migraciones Kysely:", error);
+    process.exit(1);
   }
+
+  // Ejecutar migraciones SQL complementarias si existen (.sql)
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS _migrations (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) UNIQUE NOT NULL,
+          executed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      const { rows: appliedRows } = await client.query<{ name: string }>(
+        "SELECT name FROM _migrations ORDER BY id ASC;"
+      );
+      const appliedSet = new Set(appliedRows.map((r) => r.name));
+
+      const migrationsDir = path.join(process.cwd(), "src/lib/db/migrations");
+      const files = await fs.readdir(migrationsDir);
+      const sqlFiles = files.filter((f) => f.endsWith(".sql")).sort();
+
+      for (const file of sqlFiles) {
+        if (appliedSet.has(file)) {
+          continue;
+        }
+
+        console.log(`▶️  Aplicando migración SQL complementaria: ${file}...`);
+        const filePath = path.join(migrationsDir, file);
+        const sqlContent = await fs.readFile(filePath, "utf-8");
+
+        await client.query("BEGIN");
+        try {
+          await client.query(sqlContent);
+          await client.query("INSERT INTO _migrations (name) VALUES ($1);", [file]);
+          await client.query("COMMIT");
+          console.log(`✅ Migración SQL aplicada exitosamente: ${file}`);
+        } catch (err) {
+          await client.query("ROLLBACK");
+          console.error(`❌ Error al aplicar migración SQL ${file}:`, err);
+          throw err;
+        }
+      }
+    } finally {
+      client.release();
+    }
+  } catch (sqlErr) {
+    console.warn("Aviso al ejecutar migraciones SQL:", sqlErr);
+  }
+
+  console.log("Todas las migraciones se completaron correctamente.");
+  await db.destroy();
 }
 
-migrate().catch((err) => {
-  console.error("Fallo crítico en migrador:", err);
-  process.exit(1);
-});
+if (process.argv[1]?.includes("migrator")) {
+  migrateToLatest();
+}

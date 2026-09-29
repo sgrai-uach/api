@@ -1,52 +1,30 @@
-# Módulo de Seguridad, Roles y Permisos — Documentación Técnica
+# Módulo de Seguridad, Roles y Permisos — Documentación Técnica de API
 
-## 1. Contexto y Responsabilidad
-El módulo **Seguridad** centraliza la autenticación, perfiles de usuario, roles y permisos granulares en el SGRAI.
-
-- **Usuarios como Empleados Generales:** La tabla `usuarios` representa las cuentas de todos los trabajadores y operadores del sistema (Administrador, Encargado del Centro de Mando, Supervisor Estratégico, Operador de Call Center, Asistente Social y Personal Operativo).
-- **Roles:** Cada usuario posee un rol institucional asignado en `roles` que determina sus atribuciones en la plataforma.
-- **Permisos Granulares:** Las tablas `permisos` y `rol_permisos` permiten definir qué acciones puede realizar cada perfil (ej: `incidentes:crear`, `misiones:asignar`, `usuarios:administrar`).
+Este documento describe la operativa técnica del módulo de **Seguridad y Control de Acceso (RBAC)** en `sgrai-api`, dirigido a los desarrolladores de `sgrai-web` (específicamente la interfaz de Administración) y `sgrai-pwa`.
 
 ---
 
-## 2. Modelo de Datos Relacional
+## 1. Contexto y Reglas de Negocio Aplicadas
 
-### 2.1 Tabla `roles`
-| Columna | Tipo | Restricciones | Descripción |
-|---|---|---|---|
-| `id` | `UUID` | `PRIMARY KEY`, default `uuid_generate_v4()` | Identificador único del rol |
-| `codigo` | `VARCHAR(50)` | `UNIQUE NOT NULL` | Código identificador (ej: `ADMIN`, `ENCARGADO`, `CALL_CENTER`) |
-| `nombre` | `VARCHAR(100)` | `NOT NULL` | Nombre descriptivo del rol |
-| `descripcion` | `TEXT` | `NULL` | Detalle del alcance del rol |
-| `activo` | `BOOLEAN` | `DEFAULT TRUE NOT NULL` | Indicador de rol activo |
-| `created_at` | `TIMESTAMPTZ` | `DEFAULT CURRENT_TIMESTAMP` | Fecha de creación |
-| `updated_at` | `TIMESTAMPTZ` | `DEFAULT CURRENT_TIMESTAMP` | Fecha de última modificación |
+El módulo **Seguridad** centraliza la autenticación, perfiles de usuario, roles y permisos granulares en el SGRAI:
 
-### 2.2 Tabla `usuarios`
-| Columna | Tipo | Restricciones | Descripción |
-|---|---|---|---|
-| `id` | `UUID` | `PRIMARY KEY`, default `uuid_generate_v4()` | Identificador de usuario |
-| `rut` | `VARCHAR(20)` | `UNIQUE NOT NULL` | RUT del funcionario |
-| `nombres` | `VARCHAR(100)` | `NOT NULL` | Nombres del empleado |
-| `apellidos` | `VARCHAR(100)` | `NOT NULL` | Apellidos del empleado |
-| `email` | `VARCHAR(150)` | `UNIQUE NOT NULL` | Correo electrónico corporativo |
-| `telefono` | `VARCHAR(50)` | `NULL` | Teléfono de contacto |
-| `password_hash` | `VARCHAR(255)` | `NOT NULL` | Hash de la contraseña |
-| `rol_id` | `UUID` | `NOT NULL`, FK -> `roles(id)` | Rol asignado al usuario |
-| `delegacion_id` | `UUID` | `NULL`, FK -> `delegaciones(id)` | Delegación asignada |
-| `activo` | `BOOLEAN` | `DEFAULT TRUE NOT NULL` | Si el usuario puede ingresar al sistema |
-| `ultimo_acceso` | `TIMESTAMPTZ` | `NULL` | Fecha/hora del último login |
-| `created_at` | `TIMESTAMPTZ` | `DEFAULT CURRENT_TIMESTAMP` | Fecha de creación |
-| `updated_at` | `TIMESTAMPTZ` | `DEFAULT CURRENT_TIMESTAMP` | Fecha de última modificación |
-
-### 2.3 Tablas `permisos` y `rol_permisos`
-Permite relacionar roles con permisos específicos en una matriz N:M:
-- `permisos`: `(id, codigo, modulo, descripcion, created_at)`
-- `rol_permisos`: `(rol_id, permiso_id, created_at)` con clave primaria compuesta `(rol_id, permiso_id)`.
+1. **Control de Acceso Basado en Roles (RBAC):**
+   - La visualización y gestión de la matriz de perfiles y permisos está restringida **exclusiva y estrictamente a usuarios con perfil `'Administrador'`**.
+   - Cualquier invocación sin credenciales válidas o proveniente de otro rol (`Call Center`, `Encargado`, `Patrulla Verificadora`, etc.) es rechazada inmediatamente con `403 Forbidden`.
+2. **Perfiles sin permisos asignados:**
+   - Si un perfil no cuenta con permisos registrados en la base de datos (ej. perfiles de prueba o de acceso restringido), la API retorna explícitamente `cantidadPermisos: 0` y `permisos: []` para que `sgrai-web` despliegue el mensaje *"Sin permisos asignados"*.
+3. **Auditoría de Asignaciones y Actividad:**
+   - Cada relación entre rol y permiso registra la marca temporal `asignado_en` y el identificador `asignado_por_id` del administrador responsable.
+   - Los usuarios y roles poseen banderas de estado `activo` para evitar el acceso de funcionarios inactivos o perfiles deshabilitados.
+   - El flag `es_sistema` protege perfiles base institucionales contra eliminaciones accidentales.
+4. **Clasificación Funcional por Módulo:**
+   - Cada permiso pertenece a un `modulo` operativo (`'Seguridad'`, `'Incidentes'`, `'Recursos y Personal'`, `'Misiones'`, `'Eventos ATP'`), permitiendo a `sgrai-web` presentar tablas o tarjetas agrupadas de manera intuitiva para las historias H4 y H5.
+5. **Rendimiento y Latencia:**
+   - La consulta de perfiles se realiza en una única operación agrupada mediante `LEFT JOIN` e índices dedicados, asegurando tiempos de respuesta inferiores a **1.5 segundos**.
 
 ---
 
-## 3. Roles Base del Sistema
+## 2. Roles Base del Sistema
 
 | Código Rol | Nombre | Ámbito de Acción |
 |---|---|---|
@@ -58,3 +36,34 @@ Permite relacionar roles con permisos específicos en una matriz N:M:
 | `PATRULLA_VERIFICADORA`| Patrulla Verificadora | Personal de terreno asignado a verificar incidentes reportados vía PWA |
 | `DELEGADO_CUADRILLA` | Delegado de Cuadrilla | Jefe operativo en terreno que coordina la cuadrilla y misión |
 | `BRIGADISTA` | Personal Operativo Terreno | Miembro ejecutor de cuadrilla en labores en terreno |
+
+---
+
+## 3. Endpoints del Módulo
+
+| Método | Ruta | Propósito |
+|---|---|---|
+| `GET` | `/api/seguridad/roles` | Listar todos los perfiles registrados con sus permisos asignados y metadatos de auditoría. |
+| `GET` | `/api/seguridad/roles/{id}` | Obtener el detalle interactivo de un rol específico con la lista completa de sus acciones autorizadas. |
+
+> Nota: La especificación completa de contratos OpenAPI y los tipos de request/response se generan automáticamente desde los esquemas Zod en `GET /openapi.json`.
+
+---
+
+## 4. Códigos de Error Esperables no Obvios
+
+- **`401 Unauthorized` en `GET /api/seguridad/roles` o `/api/seguridad/roles/{id}`**:
+  - Falta la cabecera `X-User-Id` (o `Authorization: Bearer <usuario_id>`).
+  - El usuario indicado en la cabecera no existe en la tabla `usuario`.
+  - El usuario existe pero tiene `activo = false` (funcionario inactivo o dado de baja).
+- **`403 Forbidden` en `GET /api/seguridad/roles` o `/api/seguridad/roles/{id}`**:
+  - El usuario está autenticado y activo, pero su perfil asignado **no es `'Administrador'`** (ej. operador de Call Center intentando inspeccionar la configuración de seguridad).
+- **`404 Not Found` en `GET /api/seguridad/roles/{id}`**:
+  - El `UUID` provisto en la ruta no corresponde a ningún perfil registrado en la tabla `rol`.
+
+---
+
+## 5. Trazabilidad con Frontends
+
+- **`sgrai-web`**: Consume `GET /api/seguridad/roles` para renderizar la grilla/tabla de roles en el panel de Administración, y utiliza `GET /api/seguridad/roles/{id}` para vistas de detalle o paneles laterales expansibles.
+- **Contrato de tipos**: Los frontends ejecutan `openapi-typescript` o equivalente contra `GET /openapi.json` para derivar automáticamente las interfaces TypeScript sin redactarlas a mano.
