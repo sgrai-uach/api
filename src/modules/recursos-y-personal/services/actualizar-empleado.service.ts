@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, type EstadoOperativoPersonal } from "@/lib/db";
 import type { ModificarEmpleadoDTO } from "../schemas/modificar-empleado.schema";
 
 export class EmpleadoNotFoundError extends Error {
@@ -227,7 +227,7 @@ export async function actualizarEmpleado(
               delegacion_id: delegacionFicha,
               especialidad: (datosPersonal.especialidad as string) || null,
               cargo: (datosPersonal.cargo as string) || null,
-              estado_operativo: (datosPersonal.estado_operativo as any) || "disponible",
+              estado_operativo: (datosPersonal.estado_operativo as EstadoOperativoPersonal) || "disponible",
               disponible_terreno: datosPersonal.disponible_terreno !== undefined ? (datosPersonal.disponible_terreno as boolean) : true,
               observaciones: (datosPersonal.observaciones as string) || null,
             })
