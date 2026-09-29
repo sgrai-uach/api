@@ -1,6 +1,6 @@
 {
   "name": "api",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -10,7 +10,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "db:migrate": "tsx src/lib/db/migrator.ts",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
@@ -30,8 +31,8 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
-    "tsx": "^4.19.2",
+    "tsx": "^4.23.13",
     "typescript": "^5",
-    "vitest": "^2.1.8"
+    "vitest": "^3.2.7"
   }
 }

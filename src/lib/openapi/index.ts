@@ -1,8 +1,13 @@
 import {
   OpenAPIRegistry,
   OpenApiGeneratorV3,
+  extendZodWithOpenApi,
 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+import {
+  CrearRecursoInputSchema,
+  RecursoResponseSchema,
+} from "@/modules/recursos-y-personal/recurso.schema";
 import {
   AvisoDetalleResponseSchema,
   AvisosPaginadosResponseSchema,
@@ -11,10 +16,67 @@ import {
   ListarAvisosQuerySchema,
   VerificarAvisoInputSchema,
 } from "../../modules/incidentes/schema";
+import {
+  ListarRolesResponseSchema,
+  RolDetalleResponseSchema,
+} from "../../modules/seguridad/schema";
+
+extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
 
-// 1. GET /api/incidentes/avisos
+// Registrar esquemas de Recursos y Personal
+registry.register("CrearRecursoInput", CrearRecursoInputSchema);
+registry.register("RecursoResponse", RecursoResponseSchema);
+
+// 1. POST /api/recursos
+registry.registerPath({
+  method: "post",
+  path: "/api/recursos",
+  description: "Crear un nuevo recurso en el inventario logístico del SGRAI.",
+  summary: "Crear recurso",
+  tags: ["Recursos y Personal"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("ID del usuario administrador autenticado"),
+    }),
+    body: {
+      description: "Datos del nuevo recurso a registrar",
+      content: {
+        "application/json": {
+          schema: CrearRecursoInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Recurso creado exitosamente",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+            data: RecursoResponseSchema,
+          }),
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "No cuenta con el permiso requerido: recursos:crear",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 2. GET /api/incidentes/avisos
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos",
@@ -40,7 +102,7 @@ registry.registerPath({
   },
 });
 
-// 2. POST /api/incidentes/avisos
+// 3. POST /api/incidentes/avisos
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos",
@@ -67,7 +129,7 @@ registry.registerPath({
   },
 });
 
-// 3. GET /api/incidentes/avisos/{id}
+// 4. GET /api/incidentes/avisos/{id}
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos/{id}",
@@ -95,7 +157,7 @@ registry.registerPath({
   },
 });
 
-// 4. POST /api/incidentes/avisos/{id}/verificar
+// 5. POST /api/incidentes/avisos/{id}/verificar
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos/{id}/verificar",
@@ -137,7 +199,7 @@ registry.registerPath({
   },
 });
 
-// 5. POST /api/incidentes/avisos/{id}/descartar
+// 6. POST /api/incidentes/avisos/{id}/descartar
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos/{id}/descartar",
@@ -182,17 +244,91 @@ registry.registerPath({
   },
 });
 
+// 7. GET /api/seguridad/roles
+registry.registerPath({
+  method: "get",
+  path: "/api/seguridad/roles",
+  summary: "Listar perfiles y permisos actuales",
+  description:
+    "Retorna el listado completo de perfiles/roles registrados con sus respectivos permisos asignados y metadatos de auditoría. Accesible exclusivamente por el rol Administrador.",
+  tags: ["Seguridad / Roles y Permisos"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Listado completo de roles y permisos",
+      content: {
+        "application/json": {
+          schema: ListarRolesResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "Cabecera de autenticación X-User-Id ausente o usuario no válido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+  },
+});
+
+// 8. GET /api/seguridad/roles/{id}
+registry.registerPath({
+  method: "get",
+  path: "/api/seguridad/roles/{id}",
+  summary: "Obtener detalle de perfil y sus permisos",
+  description:
+    "Despliega claramente los permisos, módulos y acciones a los que tiene acceso un perfil específico. Accesible exclusivamente por el rol Administrador.",
+  tags: ["Seguridad / Roles y Permisos"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().openapi({ description: "UUID del rol/perfil a consultar" }),
+    }),
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del perfil y sus permisos asignados",
+      content: {
+        "application/json": {
+          schema: RolDetalleResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "Cabecera de autenticación X-User-Id ausente o usuario no válido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    404: {
+      description: "Perfil no encontrado",
+    },
+  },
+});
+
 /**
  * Genera el documento OpenAPI 3.0 en formato JSON.
  */
-export function generarOpenApiSpec() {
+export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      title: "SGRAI API - Municipalidad de Valdivia",
-      version: "0.2.0",
+      title: "SGRAI API",
+      version: "0.3.0",
       description:
         "Especificación OpenAPI generada automáticamente desde esquemas Zod para la plataforma SGRAI (Dirección de Gestión de Riesgos de Desastres).",
     },
@@ -204,3 +340,5 @@ export function generarOpenApiSpec() {
     ],
   });
 }
+
+export const generarOpenApiSpec = generarOpenAPISpec;
