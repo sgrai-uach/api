@@ -36,3 +36,61 @@ export const ModificarEmpleadoSchema = z
   .strict();
 
 export type ModificarEmpleadoDTO = z.infer<typeof ModificarEmpleadoSchema>;
+
+export const EmpleadoConsolidadoSchema = z.object({
+  usuario_id: z.string().uuid(),
+  rut: z.string(),
+  nombres: z.string(),
+  apellidos: z.string(),
+  email: z.string().email(),
+  telefono: z.string().nullable().optional(),
+  usuario_activo: z.boolean(),
+  fecha_ingreso: z.string().nullable().optional(),
+  fecha_salida: z.string().nullable().optional(),
+  rol_id: z.string().uuid(),
+  rol_codigo: z.string(),
+  rol_nombre: z.string(),
+  delegacion_id: z.string().uuid().nullable().optional(),
+  delegacion_codigo: z.string().nullable().optional(),
+  delegacion_nombre: z.string().nullable().optional(),
+  personal_id: z.string().uuid().nullable().optional(),
+  especialidad: z.string().nullable().optional(),
+  cargo: z.string().nullable().optional(),
+  estado_operativo: z.string().nullable().optional(),
+  disponible_terreno: z.boolean().nullable().optional(),
+  observaciones: z.string().nullable().optional(),
+  es_personal: z.boolean().optional(),
+  usuario_updated_at: z.date().or(z.string()).optional(),
+  personal_updated_at: z.date().or(z.string()).nullable().optional(),
+});
+
+export const ListarEmpleadosResponseSchema = z.object({
+  data: z.array(EmpleadoConsolidadoSchema),
+});
+
+export const ActualizarEmpleadoResponseSchema = z.object({
+  mensaje: z.string(),
+  data: EmpleadoConsolidadoSchema,
+});
+
+export const CatalogosResponseSchema = z.object({
+  data: z.object({
+    roles: z.array(
+      z.object({
+        id: z.string().uuid(),
+        codigo: z.string(),
+        nombre: z.string(),
+      })
+    ),
+    delegaciones: z.array(
+      z.object({
+        id: z.string().uuid(),
+        codigo: z.string(),
+        nombre: z.string(),
+      })
+    ),
+    especialidades: z.array(z.string()),
+    cargos: z.array(z.string()),
+  }),
+});
+

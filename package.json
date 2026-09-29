@@ -1,6 +1,6 @@
 {
   "name": "api",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "private": true,
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -9,9 +9,10 @@
     "start": "NODE_ENV=production tsx src/server.ts",
     "lint": "eslint",
     "test": "vitest run",
+    "test:watch": "vitest",
     "db:migrate": "tsx src/lib/db/migrator.ts",
-    "seed": "tsx scripts/seed.ts",
-    "test:watch": "vitest"
+    "db:seed": "tsx src/lib/db/seed-kanban.ts",
+    "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",

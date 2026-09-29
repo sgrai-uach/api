@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Configuración de Route Handlers y monolito backend
+  // Genera un build standalone optimizado para despliegue en Docker.
+  output: "standalone",
   async headers() {
     return [
       {

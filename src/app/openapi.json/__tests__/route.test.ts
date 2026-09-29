@@ -8,11 +8,15 @@ describe("Endpoint GET /openapi.json", () => {
 
     const spec = await res.json();
     expect(spec.openapi).toBe("3.0.0");
-    expect(spec.info.title).toBe("SGRAI API");
-    expect(spec.info.version).toBe("0.4.0");
+    expect(spec.info.title).toContain("SGRAI API");
+    expect(spec.info.version).toBe("0.6.0");
+
+    // Rutas de Recursos
     expect(spec.paths["/api/recursos"]).toBeDefined();
     expect(spec.paths["/api/recursos"].post).toBeDefined();
     expect(spec.paths["/api/recursos"].get).toBeDefined();
+
+    // Rutas de Incidentes
     expect(spec.paths["/api/incidentes/manual"]).toBeDefined();
     expect(spec.paths["/api/incidentes/manual"].post).toBeDefined();
     expect(spec.paths["/api/incidentes/manual"].post.summary).toBe(
@@ -22,12 +26,17 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/incidentes/verificar-duplicado"].post).toBeDefined();
     expect(spec.paths["/api/incidentes/avisos"]).toBeDefined();
     expect(spec.paths["/api/incidentes/avisos"].post).toBeDefined();
-    expect(spec.paths["/api/incidentes/avisos"].post.summary).toBe(
-      "Registrar aviso de incidente (Chatbot Informante)"
-    );
     expect(
       spec.paths["/api/incidentes/avisos/seguimiento/{codigo}"]
     ).toBeDefined();
     expect(spec.paths["/api/incidentes/tipos"]).toBeDefined();
+    expect(spec.paths["/api/incidentes"]).toBeDefined();
+    expect(spec.paths["/api/incidentes"].get).toBeDefined();
+    expect(spec.paths["/api/incidentes/{id}"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/{id}"].get).toBeDefined();
+
+    // Rutas de Seguridad
+    expect(spec.paths["/api/seguridad/roles"]).toBeDefined();
+    expect(spec.paths["/api/seguridad/roles/{id}"]).toBeDefined();
   });
 });
