@@ -90,7 +90,19 @@ describe("Módulo de Incidentes — Pruebas de Esquemas Zod", () => {
 
     expect(parsed.page).toBe(2);
     expect(parsed.limit).toBe(15);
-    expect(parsed.estado).toBe("PENDIENTE_VERIFICACION");
+    expect(parsed.estado).toBe("NO_VERIFICADO");
+  });
+
+  it("debe aceptar y normalizar delegación Calle-Calle a Calle Calle", () => {
+    const parsed = ListarAvisosQuerySchema.parse({
+      delegacion: "Calle-Calle",
+      busqueda: "inundación",
+      origen: "WEB",
+    });
+
+    expect(parsed.delegacion).toBe("Calle Calle");
+    expect(parsed.busqueda).toBe("inundación");
+    expect(parsed.origen).toBe("WEB");
   });
 });
 
