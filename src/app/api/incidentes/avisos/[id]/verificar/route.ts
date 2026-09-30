@@ -6,6 +6,7 @@ import {
   incidentesService,
   NotFoundError,
 } from "@/modules/incidentes/service";
+import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -22,10 +23,10 @@ export async function POST(
   try {
     const { id } = await context.params;
 
-    const operadorId = request.headers.get("x-user-id");
+    const operadorId = await extraerUsuarioId(request);
     if (!operadorId) {
       return NextResponse.json(
-        { error: "Cabecera X-User-Id obligatoria para auditar al operador responsable" },
+        { error: "Se requiere cabecera de autenticación Authorization: Bearer <token>" },
         { status: 401 }
       );
     }
