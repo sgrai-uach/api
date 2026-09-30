@@ -234,5 +234,16 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
     const body2 = await res2.json();
     expect(Array.isArray(body2.data)).toBe(true);
   });
+
+  it("debe escapar comodines SQL en la búsqueda evitando retorno masivo con '%'", async () => {
+    const req = new NextRequest(
+      "http://localhost:3000/api/incidentes/avisos?busqueda=%25"
+    );
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toEqual([]);
+    expect(body.pagination.total).toBe(0);
+  });
 });
 

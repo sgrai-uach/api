@@ -124,7 +124,8 @@ export class IncidentesRepository {
 
     // 4. Filtro condicional por Búsqueda Textual (q / busqueda)
     if (terminoBusqueda && terminoBusqueda.trim() !== "") {
-      const pattern = `%${terminoBusqueda.trim().toLowerCase()}%`;
+      const sanitized = terminoBusqueda.trim().toLowerCase().replace(/([%_\\])/g, "\\$1");
+      const pattern = `%${sanitized}%`;
       baseQuery = baseQuery.where((eb) =>
         eb.or([
           eb(sql`LOWER(a.descripcion)`, "like", pattern),
