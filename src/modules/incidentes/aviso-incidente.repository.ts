@@ -26,6 +26,7 @@ export interface DatosInsertarIncidente {
   estado?: EstadoIncidente | string;
   es_duplicado?: boolean;
   aviso_original_id?: string | null;
+  delegacion_id?: string | null;
 }
 
 export type DatosInsertarAvisoIncidente = DatosInsertarIncidente;
@@ -170,7 +171,7 @@ export async function insertarIncidenteDesdeChatbot(datos: DatosInsertarIncident
       }
     }
 
-    let delegacionId: string | null = (datos as any).delegacion_id ?? null;
+    let delegacionId: string | null = datos.delegacion_id ?? null;
     if (!delegacionId && datos.direccion_texto) {
       const dir = datos.direccion_texto.toLowerCase();
       if (dir.includes("niebla") || dir.includes("molinos") || dir.includes("torobayo")) {

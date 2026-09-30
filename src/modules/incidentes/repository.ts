@@ -18,8 +18,8 @@ export class IncidentesRepository {
     const informanteRut = input.informanteRut || input.datosInformante?.rut || "11111111-1";
     const informanteTelefono = input.informanteTelefono || input.datosInformante?.telefono || null;
 
-    let delegacionId = (input as any).delegacionId ?? null;
-    const delegacionManual = (input as any).delegacion ?? null;
+    let delegacionId = input.delegacionId ?? null;
+    const delegacionManual = input.delegacion ?? null;
     if (!delegacionId && direccionTexto) {
       const dir = direccionTexto.toLowerCase();
       if (dir.includes("niebla") || dir.includes("molinos") || dir.includes("torobayo")) {
@@ -73,7 +73,7 @@ export class IncidentesRepository {
         ? {
             page: filtrosOrPage,
             limit: limitParam || 20,
-            estado: (estadoParam as any) || "NO_VERIFICADO",
+            estado: (estadoParam as ListarAvisosQuery["estado"]) || "NO_VERIFICADO",
             delegacion: undefined,
           }
         : filtrosOrPage;

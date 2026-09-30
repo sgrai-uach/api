@@ -108,7 +108,7 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
     const body = await res.json();
     expect(body.message).toBe("Avisos obtenidos exitosamente");
     expect(Array.isArray(body.data)).toBe(true);
-    body.data.forEach((aviso: any) => {
+    body.data.forEach((aviso: { delegacionNombre: string | null; estado: string }) => {
       expect(aviso.delegacionNombre).toBe("Norte");
     });
   });
@@ -121,7 +121,7 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(Array.isArray(body.data)).toBe(true);
-    body.data.forEach((aviso: any) => {
+    body.data.forEach((aviso: { delegacionNombre: string | null; estado: string }) => {
       expect(["NO_VERIFICADO", "PENDIENTE_VERIFICACION"]).toContain(aviso.estado);
     });
   });
@@ -134,7 +134,7 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(Array.isArray(body.data)).toBe(true);
-    body.data.forEach((aviso: any) => {
+    body.data.forEach((aviso: { delegacionNombre: string | null; estado: string }) => {
       expect(aviso.delegacionNombre).toBe("Norte");
       expect(["NO_VERIFICADO", "PENDIENTE_VERIFICACION"]).toContain(aviso.estado);
     });

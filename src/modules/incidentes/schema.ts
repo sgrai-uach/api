@@ -136,6 +136,20 @@ export const CrearAvisoInputSchema = z
       .openapi({
         description: "ID opcional del catálogo de tipo de incidente",
       }),
+    delegacionId: z
+      .string()
+      .uuid("Debe ser un UUID válido")
+      .optional()
+      .openapi({
+        description: "ID opcional de la delegación territorial",
+      }),
+    delegacion: z
+      .string()
+      .trim()
+      .optional()
+      .openapi({
+        description: "Nombre opcional de delegación territorial",
+      }),
     datosInformante: z
       .object({
         nombre: z.string().trim().optional(),
