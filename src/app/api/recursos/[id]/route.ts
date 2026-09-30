@@ -6,6 +6,7 @@ import {
 import {
   obtenerRecursoDetalle,
   editarRecurso,
+  eliminarRecurso,
 } from "@/modules/recursos-y-personal/recurso.service";
 import {
   UnauthorizedError,
@@ -162,3 +163,56 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     );
   }
 }
+
+/**
+ * DELETE /api/recursos/[id]
+ * Da de baja lógica a un recurso del sistema (HU-9).
+ * Bloquea la eliminación con 409 Conflict si el recurso está en uso en terreno o asignado a misiones activas.
+ */
+export async function DELETE(req: NextRequest, context: RouteContext) {
+  try {
+    const usuarioId = extraerUsuarioId(req);
+    const { id } = await context.params;
+
+    const validacionId = RecursoIdParamSchema.safeParse({ id });
+    if (!validacionId.success) {
+      return NextResponse.json(
+        {
+          message: "Identificador de recurso inválido.",
+          errors: validacionId.error.issues.map((issue) => ({
+            campo: issue.path.join("."),
+            mensaje: issue.message,
+          })),
+        },
+        { status: 400 }
+      );
+    }
+
+    const resultado = await eliminarRecurso(id, usuarioId);
+
+    return NextResponse.json(resultado, { status: 200 });
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ message: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ message: error.message }, { status: 403 });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ message: error.message }, { status: 404 });
+    }
+    if (error instanceof BadRequestError) {
+      return NextResponse.json({ message: error.message }, { status: 400 });
+    }
+    if (error instanceof ConflictError) {
+      return NextResponse.json({ message: error.message }, { status: 409 });
+    }
+
+    console.error("Error al eliminar recurso:", error);
+    return NextResponse.json(
+      { message: "Error interno del servidor al procesar la solicitud." },
+      { status: 500 }
+    );
+  }
+}
+

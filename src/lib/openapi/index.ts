@@ -27,6 +27,7 @@ import {
   RecursoIdParamSchema,
   ListarRecursosQuerySchema,
   ListarRecursosPaginadosResponseSchema,
+  EliminarRecursoResponseSchema,
 } from "@/modules/recursos-y-personal/recurso.schema";
 
 import {
@@ -779,13 +780,60 @@ registry.registerPath({
   },
 });
 
+// 21. DELETE /api/recursos/{id} (HU-9)
+registry.registerPath({
+  method: "delete",
+  path: "/api/recursos/{id}",
+  summary: "Eliminar recurso del inventario (borrado lógico)",
+  description:
+    "Aplica un borrado lógico (soft delete) a un recurso existente registrando fecha, hora y usuario responsable. Impide la eliminación con código 409 Conflict si el recurso está actualmente en uso en terreno o asignado a una misión activa / cuadrilla. Emite evento WebSocket 'recurso:eliminado' a los clientes conectados.",
+  tags: ["Recursos y Personal"],
+  request: {
+    params: RecursoIdParamSchema,
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Recurso eliminado exitosamente (baja lógica aplicada)",
+      content: {
+        "application/json": {
+          schema: EliminarRecursoResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de recurso inválido",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    404: {
+      description: "Recurso no encontrado o ya dado de baja",
+    },
+    409: {
+      description: "Conflicto operativo: el recurso está asignado a una misión activa o cuadrilla en terreno",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
 export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.6.0",
+      version: "0.7.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",
