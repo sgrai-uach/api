@@ -21,7 +21,12 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       ('40000000-0000-4000-8000-000000000003', 'Caída de árbol', 'Obstrucción de vías o afectación a viviendas y tendido eléctrico por caída de árboles', true),
       ('40000000-0000-4000-8000-000000000004', 'Anegamiento de calzada', 'Saturación de sumideros y acumulación de aguas lluvias en vías públicas', true),
       ('40000000-0000-4000-8000-000000000005', 'Incendio estructural / forestal', 'Focos de fuego en estructuras o vegetación urbana/rural', true),
-      ('40000000-0000-4000-8000-000000000006', 'Otro', 'Cualquier otro incidente que requiera atención de emergencia municipal', true)
+      ('40000000-0000-4000-8000-000000000006', 'Otro', 'Cualquier otro incidente que requiera atención de emergencia municipal', true),
+      ('a0000000-0000-4000-8000-000000000001', 'Anegamiento', 'Acumulación de aguas lluvias en vías o propiedades', true),
+      ('a0000000-0000-4000-8000-000000000003', 'Corte de energía', 'Interrupción del suministro eléctrico o peligro por cables caídos', true),
+      ('a0000000-0000-4000-8000-000000000004', 'Deslizamiento', 'Movimiento de laderas, socavón o remoción de terreno', true),
+      ('a0000000-0000-4000-8000-000000000005', 'Daño estructural', 'Colapso parcial o daño grave en techumbre, muros o edificaciones', true),
+      ('a0000000-0000-4000-8000-000000000006', 'Corte de agua potable', 'Corte o rotura matriz en la red de agua potable', true)
     ON CONFLICT (nombre) DO UPDATE SET
       descripcion = EXCLUDED.descripcion,
       activo = EXCLUDED.activo;

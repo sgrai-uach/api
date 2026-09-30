@@ -193,6 +193,10 @@ export class IncidentesService {
 
       return {
         mensaje: "Aviso verificado exitosamente y promovido a Incidente",
+        avisoId,
+        incidenteId: resultado.incidente.id,
+        folio: resultado.incidente.folio,
+        estado: resultado.incidente.estado,
         incidente: {
           id: resultado.incidente.id,
           folio: resultado.incidente.folio,
@@ -250,6 +254,7 @@ export class IncidentesService {
 
       return {
         mensaje: "Aviso descartado exitosamente",
+        avisoId,
         aviso: {
           id: actualizado.id,
           estado: actualizado.estado,
