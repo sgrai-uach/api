@@ -57,3 +57,71 @@ export function generarCodigoSeguimientoNumerico(): string {
   const numero = Math.floor(10000000 + Math.random() * 90000000);
   return numero.toString();
 }
+
+/**
+ * Normaliza y mapea el tipo de afectación reportado (desde chatbot o llamadas)
+ * hacia los valores canónicos del catálogo de emergencias de Valdivia.
+ */
+export function normalizarTipoAfectacion(valor: unknown): string {
+  if (typeof valor !== "string") return "";
+  const normalizado = valor.trim();
+
+  // 1. Normalización de minúsculas y sin acentos
+  const clean = normalizado
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (clean.includes("inunda")) return "Inundación";
+  if (clean.includes("anega")) {
+    return clean.includes("calzada") ? "Anegamiento de calzada" : "Anegamiento";
+  }
+  if (clean.includes("arbol") || clean.includes("rama")) return "Caída de árbol";
+  if (clean.includes("desliza") || clean.includes("derrumbe")) {
+    return clean.includes("tierra") ? "Deslizamiento de tierra" : "Deslizamiento";
+  }
+  if (clean.includes("incendio") || clean.includes("fuego")) {
+    return clean.includes("estructural") || clean.includes("forestal")
+      ? "Incendio estructural / forestal"
+      : "Incendio";
+  }
+  if (clean.includes("luz") || clean.includes("energia") || clean.includes("electr")) {
+    return "Corte de energía";
+  }
+  if (clean.includes("agua")) return "Corte de agua potable";
+  if (clean.includes("dan") || clean.includes("colapso") || clean.includes("estructur")) {
+    return "Daño estructural";
+  }
+  if (
+    clean.includes("derrame") ||
+    clean.includes("ambiental") ||
+    clean.includes("quimic") ||
+    clean.includes("gas") ||
+    clean.includes("sustancia")
+  ) {
+    return "Otro";
+  }
+  if (clean === "otro" || clean === "otra" || clean === "otros") return "Otro";
+
+  // Si coincide con alguna opción canónica conocida
+  const TIPOS_VALIDOS = [
+    "Anegamiento",
+    "Inundación",
+    "Caída de árbol",
+    "Corte de energía",
+    "Deslizamiento",
+    "Deslizamiento de tierra",
+    "Daño estructural",
+    "Corte de agua potable",
+    "Anegamiento de calzada",
+    "Incendio estructural / forestal",
+    "Incendio",
+    "Otro",
+  ];
+
+  const encontrada = TIPOS_VALIDOS.find((t) => t.toLowerCase() === normalizado.toLowerCase());
+  if (encontrada) return encontrada;
+
+  return normalizado;
+}
+
