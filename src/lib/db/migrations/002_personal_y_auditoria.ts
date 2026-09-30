@@ -31,7 +31,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       ultima_actualizacion_ubicacion TIMESTAMPTZ,
       observaciones TEXT,
       creado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      actualizado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      actualizado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `.execute(db);
 
