@@ -121,6 +121,32 @@ describe("Módulo Incidentes - Avisos e Incidentes (ERD Alignment)", () => {
       const resultado = CrearAvisoIncidenteInputSchema.safeParse(payload);
       expect(resultado.success).toBe(false);
     });
+
+    it("debe normalizar variantes y sinónimos de tipos de afectación (ej: Inundación, inundacion, corte de luz)", () => {
+      const casos = [
+        { entrada: "Inundación", esperado: "Inundación" },
+        { entrada: "inundacion", esperado: "Inundación" },
+        { entrada: "anegamiento", esperado: "Anegamiento" },
+        { entrada: "corte de luz", esperado: "Corte de energía" },
+        { entrada: "Deslizamiento de tierra", esperado: "Deslizamiento de tierra" },
+        { entrada: "caida de arbol", esperado: "Caída de árbol" },
+      ];
+
+      for (const { entrada, esperado } of casos) {
+        const payload = {
+          tipoAfectacion: entrada,
+          direccion: "Calle Picarte 1200",
+          informanteNombre: "Juan Pérez",
+          informanteRut: "11111111-1",
+        };
+
+        const resultado = CrearAvisoIncidenteInputSchema.safeParse(payload);
+        expect(resultado.success).toBe(true);
+        if (resultado.success) {
+          expect(resultado.data.tipoAfectacion).toBe(esperado);
+        }
+      }
+    });
   });
 
   describe("4. Servicio de Geocodificación (geocodificarDireccion)", () => {

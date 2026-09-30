@@ -31,9 +31,13 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
     .leftJoin("informante", "informante.id", "incidente.informante_id")
     .leftJoin("delegacion", "delegacion.id", "incidente.delegacion_id");
 
-  // Filtro por Estado
+  // Filtro por Estado (case-insensitive para tolerar variantes históricas)
   if (filtros.estado) {
-    consultaBase = consultaBase.where("incidente.estado", "=", filtros.estado);
+    consultaBase = consultaBase.where(
+      sql`upper(incidente.estado)`,
+      "=",
+      filtros.estado.toUpperCase()
+    );
   }
 
   // Filtro por Prioridad

@@ -17,12 +17,13 @@ export interface DatosInsertarIncidente {
   informante_nombre: string;
   informante_rut: string;
   informante_telefono: string | null;
-  origen_reporte?: OrigenReporte;
+  informanteTelefono?: string | null;
+  origen_reporte?: OrigenReporte | string;
   asterisk_call_id?: string | null;
   asterisk_caller_phone?: string | null;
   operador_id?: string | null;
   creado_por_id?: string | null;
-  estado?: EstadoIncidente;
+  estado?: EstadoIncidente | string;
   es_duplicado?: boolean;
   aviso_original_id?: string | null;
 }
@@ -145,45 +146,56 @@ export async function buscarOCrearInformante(
 }
 
 /**
- * Inserta un nuevo reporte en la tabla incidente asociada al informante según el Diagrama ER.
+ * Inserta un nuevo reporte ciudadano en la tabla aviso_incidente asociada al informante
+ * para su recepción y visualización inmediata en la Bandeja de Avisos del Call Center.
  */
 export async function insertarIncidenteDesdeChatbot(datos: DatosInsertarIncidente) {
   return await db.transaction().execute(async (trx) => {
+    const telefono = datos.informante_telefono ?? datos.informanteTelefono ?? null;
     const informante = await buscarOCrearInformante(trx, {
       rut: datos.informante_rut,
       nombre: datos.informante_nombre,
-      telefono: datos.informante_telefono,
+      telefono,
     });
 
-    const codigo = `INC-${datos.codigo_seguimiento}`;
+    let avisoOriginalIdValido: string | null = null;
+    if (datos.aviso_original_id) {
+      const existeAviso = await trx
+        .selectFrom("aviso_incidente")
+        .select("id")
+        .where("id", "=", datos.aviso_original_id)
+        .executeTakeFirst();
+      if (existeAviso) {
+        avisoOriginalIdValido = existeAviso.id;
+      }
+    }
 
-    const incidente = await trx
-      .insertInto("incidente")
+    const aviso = await trx
+      .insertInto("aviso_incidente")
       .values({
-        codigo,
         codigo_seguimiento: datos.codigo_seguimiento,
-        informante_id: informante.id,
         tipo_afectacion: datos.tipo_afectacion,
         direccion_texto: datos.direccion_texto,
         latitud: datos.latitud,
         longitud: datos.longitud,
         ubicacion: sql`ST_SetSRID(ST_MakePoint(${datos.longitud}, ${datos.latitud}), 4326)`,
         descripcion: datos.descripcion,
-        estado: datos.estado ?? "REPORTADO",
-        prioridad: "MEDIA",
-        requiere_asistencia_social: false,
-        fuente_origen: datos.origen_reporte ?? "CHATBOT",
-        asterisk_call_id: datos.asterisk_call_id ?? null,
-        asterisk_caller_phone: datos.asterisk_caller_phone ?? null,
-        creado_por_id: datos.creado_por_id ?? null,
-        operador_id: datos.operador_id ?? null,
-        encargado_id: null,
+        informante_nombre: datos.informante_nombre,
+        informante_rut: datos.informante_rut,
+        informante_telefono: telefono,
+        origen_reporte: (datos.origen_reporte as string) ?? "CHATBOT",
+        estado: "PENDIENTE_VERIFICACION",
+        es_duplicado: datos.es_duplicado ?? false,
+        aviso_original_id: avisoOriginalIdValido,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
 
     return {
-      ...incidente,
+      ...aviso,
+      codigo: `AVISO-${aviso.codigo_seguimiento}`,
+      prioridad: "MEDIA",
+      informante_id: informante.id,
       informante_nombre: informante.nombre,
       informante_rut: informante.rut,
       informante_telefono: informante.telefono,
@@ -197,7 +209,7 @@ export async function insertarIncidenteDesdeChatbot(datos: DatosInsertarIncident
 export const insertarAvisoIncidente = insertarIncidenteDesdeChatbot;
 
 /**
- * Busca si existe un incidente activo previo cercano con el mismo tipo de afectación
+ * Busca si existe un aviso o incidente activo previo cercano con el mismo tipo de afectación
  * en una ventana de tiempo reciente utilizando PostGIS ST_DWithin (en metros).
  */
 export async function buscarIncidenteDuplicadoCercano({
@@ -209,6 +221,66 @@ export async function buscarIncidenteDuplicadoCercano({
 }: ParametrosBusquedaDuplicado) {
   const puntoGeom = sql`ST_SetSRID(ST_MakePoint(${longitud}, ${latitud}), 4326)::geography`;
 
+  // 1. Buscar en aviso_incidente activos (no descartados, recientes)
+  const avisoDuplicado = await db
+    .selectFrom("aviso_incidente")
+    .select([
+      "id",
+      "codigo_seguimiento",
+      "tipo_afectacion",
+      "direccion_texto",
+      "latitud",
+      "longitud",
+      "ubicacion",
+      "descripcion",
+      "informante_nombre",
+      "informante_rut",
+      "informante_telefono",
+      "origen_reporte",
+      "estado",
+      "creado_en",
+      "actualizado_en",
+    ])
+    .where("tipo_afectacion", "=", tipoAfectacion)
+    .where("estado", "!=", "DESCARTADO")
+    .where(
+      "creado_en",
+      ">=",
+      sql<Date>`CURRENT_TIMESTAMP - (${horasVentana} || ' hours')::interval`
+    )
+    .where(
+      sql<boolean>`ST_DWithin(
+        ubicacion::geography,
+        ${puntoGeom},
+        ${radioMetros}
+      )`
+    )
+    .orderBy("creado_en", "desc")
+    .limit(1)
+    .executeTakeFirst();
+
+  if (avisoDuplicado) {
+    return {
+      id: avisoDuplicado.id,
+      codigo: `AVISO-${avisoDuplicado.codigo_seguimiento}`,
+      codigo_seguimiento: avisoDuplicado.codigo_seguimiento,
+      tipo_afectacion: avisoDuplicado.tipo_afectacion,
+      direccion_texto: avisoDuplicado.direccion_texto,
+      latitud: avisoDuplicado.latitud,
+      longitud: avisoDuplicado.longitud,
+      ubicacion: avisoDuplicado.ubicacion,
+      descripcion: avisoDuplicado.descripcion,
+      informante_nombre: avisoDuplicado.informante_nombre,
+      informante_rut: avisoDuplicado.informante_rut,
+      informante_telefono: avisoDuplicado.informante_telefono,
+      origen_reporte: avisoDuplicado.origen_reporte,
+      estado: avisoDuplicado.estado,
+      creado_en: avisoDuplicado.creado_en,
+      actualizado_en: avisoDuplicado.actualizado_en,
+    };
+  }
+
+  // 2. Buscar en incidentes activos
   const duplicado = await db
     .selectFrom("incidente")
     .leftJoin("informante", "informante.id", "incidente.informante_id")
@@ -248,7 +320,14 @@ export async function buscarIncidenteDuplicadoCercano({
     .limit(1)
     .executeTakeFirst();
 
-  return duplicado;
+  if (duplicado) {
+    return {
+      ...duplicado,
+      codigo_seguimiento: duplicado.codigo_seguimiento || duplicado.codigo || `INC-${duplicado.id.slice(0, 8)}`,
+    };
+  }
+
+  return undefined;
 }
 
 // Alias de retrocompatibilidad
@@ -334,19 +413,74 @@ export async function buscarIncidentePorCodigoSeguimiento(codigoSeguimiento: str
       "incidente.actualizado_en",
     ])
     .where("incidente.codigo_seguimiento", "=", codigoSeguimiento)
-    .orderBy("incidente.creado_en", "asc")
+    .orderBy("incidente.creado_en", "desc")
     .limit(1)
     .executeTakeFirst();
 
-  if (!aviso) {
+  if (aviso) {
+    return {
+      ...aviso,
+      es_duplicado: false,
+      aviso_original_id: null as string | null,
+      incidente_id: aviso.id as string | null,
+    };
+  }
+
+  // 2. Si aún no ha sido promovido a incidente formal, consultar en aviso_incidente
+  const avisoPendiente = await db
+    .selectFrom("aviso_incidente")
+    .select([
+      "id",
+      "codigo_seguimiento",
+      "tipo_afectacion",
+      "direccion_texto",
+      "latitud",
+      "longitud",
+      "ubicacion",
+      "descripcion",
+      "informante_nombre",
+      "informante_rut",
+      "informante_telefono",
+      "origen_reporte",
+      "estado",
+      "es_duplicado",
+      "aviso_original_id",
+      "incidente_id",
+      "creado_en",
+      "actualizado_en",
+    ])
+    .where("codigo_seguimiento", "=", codigoSeguimiento)
+    .orderBy("creado_en", "desc")
+    .limit(1)
+    .executeTakeFirst();
+
+  if (!avisoPendiente) {
     return undefined;
   }
 
   return {
-    ...aviso,
-    es_duplicado: false,
-    aviso_original_id: null as string | null,
-    incidente_id: aviso.id as string | null,
+    id: avisoPendiente.id,
+    codigo: `AVISO-${avisoPendiente.codigo_seguimiento}`,
+    codigo_seguimiento: avisoPendiente.codigo_seguimiento,
+    tipo_afectacion: avisoPendiente.tipo_afectacion,
+    direccion_texto: avisoPendiente.direccion_texto,
+    latitud: avisoPendiente.latitud,
+    longitud: avisoPendiente.longitud,
+    ubicacion: avisoPendiente.ubicacion,
+    descripcion: avisoPendiente.descripcion,
+    informante_nombre: avisoPendiente.informante_nombre,
+    informante_rut: avisoPendiente.informante_rut,
+    informante_telefono: avisoPendiente.informante_telefono,
+    origen_reporte: avisoPendiente.origen_reporte,
+    asterisk_call_id: null,
+    asterisk_caller_phone: null,
+    operador_id: null,
+    estado: avisoPendiente.estado === "DESCARTADO" ? "NO_ABORDABLE" : "REPORTADO",
+    creado_en: avisoPendiente.creado_en,
+    actualizado_en: avisoPendiente.actualizado_en,
+    es_duplicado: avisoPendiente.es_duplicado,
+    aviso_original_id: avisoPendiente.aviso_original_id,
+    incidente_id: avisoPendiente.incidente_id,
   };
 }
 
