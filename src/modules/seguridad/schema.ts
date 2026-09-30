@@ -294,3 +294,108 @@ export const UsuarioActivoResponseSchema = z
 
 export type UsuarioActivoResponse = z.infer<typeof UsuarioActivoResponseSchema>;
 
+/**
+ * Esquema de entrada para autenticación de usuario (login).
+ */
+export const LoginRequestSchema = z
+  .object({
+    identificador: z
+      .string()
+      .trim()
+      .min(1, "El identificador (correo o RUT) es obligatorio")
+      .openapi({
+        description: "Correo electrónico corporativo (@valdivia.cl) o RUT chileno del funcionario",
+        example: "admin@valdivia.cl",
+      }),
+    password: z
+      .string()
+      .min(1, "La contraseña es obligatoria")
+      .openapi({
+        description: "Contraseña en texto plano para autenticación",
+        example: "Valdivia2026!",
+      }),
+  })
+  .openapi("LoginRequest");
+
+export type LoginRequest = z.infer<typeof LoginRequestSchema>;
+
+/**
+ * Esquema del perfil de usuario autenticado retornado en la sesión.
+ */
+export const UsuarioPerfilSesionSchema = z
+  .object({
+    id: z.string().uuid().openapi({
+      description: "UUID del usuario autenticado",
+      example: "00000000-0000-4000-8000-000000000001",
+    }),
+    rut: z.string().openapi({
+      description: "RUT chileno del usuario",
+      example: "11111111-1",
+    }),
+    nombre: z.string().openapi({
+      description: "Nombre completo consolidado",
+      example: "Administrador General",
+    }),
+    email: z.string().email().openapi({
+      description: "Correo corporativo",
+      example: "admin@valdivia.cl",
+    }),
+    rolId: z.string().uuid().openapi({
+      description: "UUID del rol asignado",
+      example: "20000000-0000-4000-8000-000000000001",
+    }),
+    rolNombre: z.string().openapi({
+      description: "Nombre del rol",
+      example: "Administrador",
+    }),
+    rolCodigo: z.string().openapi({
+      description: "Código canónico del rol",
+      example: "ADMIN",
+    }),
+    delegacionId: z.string().uuid().nullable().openapi({
+      description: "UUID de la delegación territorial asignada (si aplica)",
+      example: "30000000-0000-4000-8000-000000000001",
+    }),
+    permisos: z.array(z.string()).openapi({
+      description: "Lista de códigos de permisos activos del usuario",
+      example: ["seguridad:roles:leer", "seguridad:roles:gestionar"],
+    }),
+  })
+  .openapi("UsuarioPerfilSesion");
+
+export type UsuarioPerfilSesion = z.infer<typeof UsuarioPerfilSesionSchema>;
+
+/**
+ * Datos internos de la respuesta de inicio de sesión exitoso.
+ */
+export const LoginDataSchema = z
+  .object({
+    token: z.string().openapi({
+      description: "Token JWT de sesión para cabecera Authorization: Bearer <token>",
+      example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    }),
+    tipoToken: z.literal("Bearer").openapi({
+      description: "Tipo de token para uso en cabecera HTTP",
+      example: "Bearer",
+    }),
+    expiraEn: z.string().openapi({
+      description: "Fecha y hora ISO de expiración del token",
+      example: "2026-10-01T04:00:00.000Z",
+    }),
+    usuario: UsuarioPerfilSesionSchema,
+  })
+  .openapi("LoginData");
+
+export type LoginData = z.infer<typeof LoginDataSchema>;
+
+/**
+ * Esquema de respuesta para POST /api/seguridad/login.
+ */
+export const LoginResponseSchema = z
+  .object({
+    data: LoginDataSchema,
+  })
+  .openapi("LoginResponse");
+
+export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+

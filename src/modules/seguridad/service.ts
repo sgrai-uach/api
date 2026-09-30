@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import { z } from "zod";
 import {
   BadRequestError,
@@ -5,12 +6,15 @@ import {
   NotFoundError,
   UnauthorizedError,
 } from "./errors";
+import { generarTokenJwt, type TokenPayload } from "./jwt";
 import { PERMISO_GESTIONAR_ROLES, PERMISO_LEER_ROLES } from "./permisos.constants";
 import { seguridadRepository, SeguridadRepository } from "./repository";
 import type {
   ActualizarPermisosRolResponseDTO,
   ListarPermisosResponseDTO,
   ListarRolesResponseDTO,
+  LoginRequestDTO,
+  LoginResponseDTO,
   RolDetalleResponseDTO,
   UsuarioAutenticado,
   UsuarioActivoDTO,
@@ -32,7 +36,7 @@ export class SeguridadService {
   ): Promise<UsuarioAutenticado> {
     if (!usuarioId || usuarioId.trim() === "") {
       throw new UnauthorizedError(
-        "Cabecera X-User-Id requerida para autenticación."
+        "Se requiere cabecera de autenticación Authorization: Bearer <token>."
       );
     }
 
@@ -91,7 +95,7 @@ export class SeguridadService {
   async obtenerUsuarioActivo(usuarioId?: string | null): Promise<UsuarioActivoDTO> {
     if (!usuarioId || usuarioId.trim() === "") {
       throw new UnauthorizedError(
-        "Cabecera X-User-Id requerida para autenticación."
+        "Se requiere cabecera de autenticación Authorization: Bearer <token>."
       );
     }
 
@@ -233,6 +237,133 @@ export class SeguridadService {
       data: rolActualizado,
     };
   }
+
+  /**
+   * Autentica a un usuario mediante sus credenciales institucionales (correo o RUT y contraseña).
+   * Valida hash bcrypt, vigencia de cuenta, bloqueo por fuerza bruta y emite el JWT correspondiente.
+   */
+  async login(input: LoginRequestDTO): Promise<LoginResponseDTO> {
+    const identificador = normalizarIdentificador(input.identificador);
+    const usuario = await this.repo.obtenerUsuarioParaLogin(identificador);
+
+    const maxIntentos = Number(process.env.AUTH_MAX_FAILED_ATTEMPTS || 5);
+    const bloqueoMinutos = Number(process.env.AUTH_LOCKOUT_MINUTES || 15);
+
+    // 1. Validar bloqueo previo si el usuario existe
+    if (usuario && usuario.bloqueado_hasta) {
+      const ahora = Date.now();
+      const tiempoBloqueo = usuario.bloqueado_hasta.getTime();
+
+      if (tiempoBloqueo > ahora) {
+        const minutosRestantes = Math.max(
+          1,
+          Math.ceil((tiempoBloqueo - ahora) / (1000 * 60))
+        );
+        throw new ForbiddenError(
+          `Cuenta temporalmente bloqueada por múltiples intentos fallidos. Intente nuevamente en ${minutosRestantes} minuto(s) o contacte al Administrador.`
+        );
+      } else {
+        // El periodo de bloqueo finalizó, restablecer contador
+        await this.repo.registrarIntentoFallido(usuario.id, 0, null);
+        usuario.intentos_fallidos = 0;
+        usuario.bloqueado_hasta = null;
+      }
+    }
+
+    // 2. Verificar contraseña con bcrypt
+    const passwordValida =
+      usuario && usuario.password_hash
+        ? await bcrypt.compare(input.password, usuario.password_hash)
+        : false;
+
+    if (!passwordValida) {
+      if (usuario) {
+        const nuevosIntentos = usuario.intentos_fallidos + 1;
+        if (nuevosIntentos >= maxIntentos) {
+          const bloquearHasta = new Date(
+            Date.now() + bloqueoMinutos * 60 * 1000
+          );
+          await this.repo.registrarIntentoFallido(
+            usuario.id,
+            nuevosIntentos,
+            bloquearHasta
+          );
+          throw new ForbiddenError(
+            `Su cuenta ha sido bloqueada temporalmente tras ${maxIntentos} intentos fallidos. Intente nuevamente en ${bloqueoMinutos} minutos.`
+          );
+        } else {
+          await this.repo.registrarIntentoFallido(
+            usuario.id,
+            nuevosIntentos,
+            null
+          );
+        }
+      }
+
+      throw new UnauthorizedError(
+        "Credenciales inválidas. Verifique su identificador o contraseña."
+      );
+    }
+
+    // 3. Verificar estado activo de la cuenta
+    if (!usuario.activo) {
+      throw new ForbiddenError(
+        "Su cuenta se encuentra deshabilitada. Contacte al Administrador."
+      );
+    }
+
+    // 4. Registrar login exitoso (reinicia intentos fallidos y actualiza ultimo_acceso)
+    await this.repo.registrarLoginExitoso(usuario.id);
+
+    // 5. Cargar lista de permisos asignados
+    let permisos: string[] = [];
+    if (usuario.rol_nombre === "Administrador") {
+      const todos = await this.repo.obtenerTodosLosPermisos();
+      permisos = todos.map((p) => p.codigo);
+    } else {
+      permisos = await this.repo.obtenerPermisosDeRol(usuario.rol_id);
+    }
+
+    // 6. Generar JWT firmado
+    const tokenPayload: TokenPayload = {
+      sub: usuario.id,
+      rut: usuario.rut,
+      email: usuario.email,
+      rolId: usuario.rol_id,
+      rolCodigo: usuario.rol_codigo,
+      rolNombre: usuario.rol_nombre,
+      delegacionId: usuario.delegacion_id,
+    };
+
+    const { token, expiraEn } = await generarTokenJwt(tokenPayload);
+
+    return {
+      data: {
+        token,
+        tipoToken: "Bearer",
+        expiraEn,
+        usuario: {
+          id: usuario.id,
+          rut: usuario.rut,
+          nombre: usuario.nombre,
+          email: usuario.email,
+          rolId: usuario.rol_id,
+          rolNombre: usuario.rol_nombre,
+          rolCodigo: usuario.rol_codigo,
+          delegacionId: usuario.delegacion_id,
+          permisos,
+        },
+      },
+    };
+  }
+}
+
+function normalizarIdentificador(identificador: string): string {
+  const limpio = identificador.trim();
+  if (limpio.includes("@")) {
+    return limpio.toLowerCase();
+  }
+  return limpio.replace(/\./g, "").replace(/\s+/g, "").toUpperCase();
 }
 
 export const seguridadService = new SeguridadService();

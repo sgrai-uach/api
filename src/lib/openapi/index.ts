@@ -19,6 +19,8 @@ import {
   ActualizarPermisosRolResponseSchema,
   ListarPermisosResponseSchema,
   ListarRolesResponseSchema,
+  LoginRequestSchema,
+  LoginResponseSchema,
   PermisoCatalogoItemSchema,
   RolDetalleResponseSchema,
   UsuarioActivoResponseSchema,
@@ -79,6 +81,8 @@ registry.register("ListarPermisosResponse", ListarPermisosResponseSchema);
 registry.register("ActualizarPermisosRolInput", ActualizarPermisosRolInputSchema);
 registry.register("ActualizarPermisosRolResponse", ActualizarPermisosRolResponseSchema);
 registry.register("UsuarioActivoResponse", UsuarioActivoResponseSchema);
+registry.register("LoginRequest", LoginRequestSchema);
+registry.register("LoginResponse", LoginResponseSchema);
 
 // Registrar esquemas de Avisos Call Center
 registry.register("AvisosPaginadosResponse", AvisosPaginadosResponseSchema);
@@ -173,8 +177,41 @@ registry.registerPath({
 });
 
 // ==========================================
-// RUTAS SEGURIDAD (ROLES Y PERMISOS - HU-4)
+// RUTAS SEGURIDAD (AUTENTICACIÓN, ROLES Y PERMISOS)
 // ==========================================
+
+// POST /api/seguridad/login
+registry.registerPath({
+  method: "post",
+  path: "/api/seguridad/login",
+  summary: "Iniciar sesión institucional",
+  description:
+    "Autentica a un funcionario u operador mediante correo institucional (@valdivia.cl) o RUT y contraseña. Valida hash bcrypt, vigencia de cuenta y política de bloqueo por reintentos antes de emitir el token JWT de sesión.",
+  tags: ["Seguridad / Autenticación"],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: LoginRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Inicio de sesión exitoso con token JWT y perfil de usuario retornado",
+      content: {
+        "application/json": {
+          schema: LoginResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de solicitud inválidos o campos obligatorios faltantes" },
+    401: { description: "Credenciales inválidas. Identificador o contraseña errónea" },
+    403: { description: "Cuenta deshabilitada o temporalmente bloqueada por múltiples intentos fallidos" },
+    500: { description: "Error interno del servidor al procesar el inicio de sesión" },
+  },
+});
 
 // 3. GET /api/seguridad/roles
 registry.registerPath({
@@ -791,7 +828,7 @@ export function generarOpenAPISpec() {
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.6.0",
+      version: "0.7.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",
