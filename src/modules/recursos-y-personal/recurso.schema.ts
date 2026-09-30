@@ -132,7 +132,8 @@ export const ActualizarRecursoInputSchema = z.object({
     .optional()
     .default(false)
     .openapi({
-      description: "Indica manualmente si el activo se encuentra fuera de servicio en mantenimiento",
+      description:
+        "Indica si el activo individual se encuentra fuera de servicio por mantenimiento técnico (solo aplica a recursos con esIndividual: true)",
       example: false,
     }),
   latitud: z

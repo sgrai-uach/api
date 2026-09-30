@@ -183,6 +183,33 @@ describe("Route Handlers /api/recursos/[id] (HU-8)", () => {
       expect(body.message).toContain("unidades en uso");
     });
 
+    it("debe responder 400 si se intenta asignar mantención a un recurso a granel", async () => {
+      vi.spyOn(recursoService, "editarRecurso").mockRejectedValueOnce(
+        new BadRequestError("Los materiales o recursos a granel no admiten estado de mantenimiento técnico.")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/recursos/${recursoIdValido}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": "00000000-0000-4000-8000-000000000001",
+        },
+        body: JSON.stringify({
+          nombre: "Sacos de Arena",
+          cantidadInventario: 10,
+          cantidadMinima: 5,
+          enMantencion: true,
+          latitud: -39.8142,
+          longitud: -73.2459,
+        }),
+      });
+
+      const res = await PUT(req, contextValido);
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.message).toContain("recursos a granel no admiten estado de mantenimiento");
+    });
+
     it("debe responder 401 si el usuario no envía cabecera de autenticación", async () => {
       vi.spyOn(recursoService, "editarRecurso").mockRejectedValueOnce(
         new UnauthorizedError("Cabecera X-User-Id requerida para autenticación.")

@@ -566,6 +566,50 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
       expect(resultado.actualizadoPorId).toBe(adminId);
     });
 
+    it("debe rechazar con BadRequestError si se intenta marcar en mantención un recurso a granel (es_individual: false)", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
+        id: adminId,
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+        activo: true,
+      });
+
+      vi.spyOn(recursoRepository, "obtenerRecursoPorId").mockResolvedValueOnce({
+        id: recursoId,
+        nombre: "Sacos de Arena",
+        es_individual: false,
+        estado: "DISPONIBLE" as const,
+        cantidad_inventario: 100,
+        cantidad_en_uso: 10,
+        cantidad_minima: 20,
+        latitud: -39.8142,
+        longitud: -73.2459,
+        descripcion: null,
+        detalles: {},
+        delegacion_id: null,
+        creado_por_id: adminId,
+        actualizado_por_id: null,
+        creado_en: new Date(),
+        actualizado_en: new Date(),
+      } as unknown as Awaited<ReturnType<typeof recursoRepository.obtenerRecursoPorId>>);
+
+      const input = {
+        nombre: "Sacos de Arena",
+        cantidadInventario: 100,
+        cantidadMinima: 20,
+        enMantencion: true,
+        latitud: -39.8142,
+        longitud: -73.2459,
+      };
+
+      await expect(editarRecurso(recursoId, input, adminId)).rejects.toThrow(
+        "Los materiales o recursos a granel no admiten estado de mantenimiento técnico."
+      );
+    });
+
     it("debe pasar a NO_DISPONIBLE cuando la cantidad en inventario es 0", async () => {
       vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
         id: adminId,

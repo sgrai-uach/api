@@ -274,7 +274,14 @@ export async function editarRecurso(
     );
   }
 
-  // 4. Determinar estado operativo
+  // 4. Validar que recursos a granel / materiales no admitan estado de mantenimiento técnico
+  if (!recursoExistente.es_individual && input.enMantencion) {
+    throw new BadRequestError(
+      "Los materiales o recursos a granel no admiten estado de mantenimiento técnico."
+    );
+  }
+
+  // 5. Determinar estado operativo
   let nuevoEstado: EstadoRecurso;
   if (input.enMantencion) {
     nuevoEstado = "EN_MANTENCION";
