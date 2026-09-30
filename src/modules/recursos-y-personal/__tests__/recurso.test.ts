@@ -603,6 +603,7 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
         enMantencion: true,
         latitud: -39.8142,
         longitud: -73.2459,
+        detalles: {},
       };
 
       await expect(editarRecurso(recursoId, input, adminId)).rejects.toThrow(
