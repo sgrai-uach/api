@@ -45,7 +45,7 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 
 | Método | Endpoint | Permiso Requerido | Propósito |
 |---|---|---|---|
-| `GET` | `/api/incidentes/avisos` | Call Center / Admin | Listar avisos paginados con soporte multicriterio (delegación, estado, canal, búsqueda) y cálculo de tiempos de espera para el Call Center. |
+| `GET` | `/api/incidentes/avisos` | `incidentes:avisos:leer` | Listar avisos paginados con soporte multicriterio (delegación, estado, canal, búsqueda) y cálculo de tiempos de espera para el Call Center. |
 | `POST` | `/api/incidentes/avisos` | Público | Registrar reporte ciudadano (Chatbot o Web) con código de seguimiento numérico. |
 | `GET` | `/api/incidentes/avisos/{id}` | Call Center / Admin | Obtener el detalle completo de un aviso para su evaluación. |
 | `POST` | `/api/incidentes/avisos/{id}/verificar` | `incidentes:avisos:verificar` | Verificar y promover un aviso preliminar a incidente formal ICS (`REPORTADO`). |

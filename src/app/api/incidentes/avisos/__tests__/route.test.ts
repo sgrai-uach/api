@@ -98,10 +98,32 @@ describe("Endpoint POST /api/incidentes/avisos", () => {
   });
 });
 
+const OPERADOR_CALL_CENTER_ID = "c1111111-1111-4111-8111-111111111111";
+const AUTH_HEADER = { "x-user-id": OPERADOR_CALL_CENTER_ID };
+
 describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)", () => {
+  it("debe retornar 401 Unauthorized si falta la cabecera x-user-id", async () => {
+    const req = new NextRequest("http://localhost:3000/api/incidentes/avisos");
+    const res = await GET(req);
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.message).toContain("X-User-Id");
+  });
+
+  it("debe retornar 403 Forbidden si el usuario no tiene el permiso incidentes:avisos:leer", async () => {
+    const req = new NextRequest("http://localhost:3000/api/incidentes/avisos", {
+      headers: { "x-user-id": "00000000-0000-4000-8000-000000000003" },
+    });
+    const res = await GET(req);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.message).toContain("incidentes:avisos:leer");
+  });
+
   it("CA-1: debe filtrar los avisos por la delegación territorial solicitada (Norte)", async () => {
     const req = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?delegacion=Norte"
+      "http://localhost:3000/api/incidentes/avisos?delegacion=Norte",
+      { headers: AUTH_HEADER }
     );
     const res = await GET(req);
     expect(res.status).toBe(200);
@@ -115,7 +137,8 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
 
   it("CA-2: debe filtrar por estado NO_VERIFICADO (retornando pendientes y no verificados)", async () => {
     const req = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?estado=NO_VERIFICADO"
+      "http://localhost:3000/api/incidentes/avisos?estado=NO_VERIFICADO",
+      { headers: AUTH_HEADER }
     );
     const res = await GET(req);
     expect(res.status).toBe(200);
@@ -128,7 +151,8 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
 
   it("CA-3: debe combinar filtros de delegación y estado simultáneamente (AND)", async () => {
     const req = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?delegacion=Norte&estado=NO_VERIFICADO"
+      "http://localhost:3000/api/incidentes/avisos?delegacion=Norte&estado=NO_VERIFICADO",
+      { headers: AUTH_HEADER }
     );
     const res = await GET(req);
     expect(res.status).toBe(200);
@@ -142,7 +166,8 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
 
   it("CA-4: el objeto de paginación debe reflejar el total real de registros filtrados", async () => {
     const req = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?page=1&limit=5&estado=TODOS"
+      "http://localhost:3000/api/incidentes/avisos?page=1&limit=5&estado=TODOS",
+      { headers: AUTH_HEADER }
     );
     const res = await GET(req);
     expect(res.status).toBe(200);
@@ -158,7 +183,8 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
 
   it("CA-5: debe responder con 200 OK, data: [] y total: 0 si la delegación no existe o no tiene coincidencias", async () => {
     const req = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?delegacion=Inexistente"
+      "http://localhost:3000/api/incidentes/avisos?delegacion=Inexistente",
+      { headers: AUTH_HEADER }
     );
     const res = await GET(req);
     expect(res.status).toBe(200);
@@ -172,21 +198,24 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
   it("CA-6: debe responder 400 Bad Request cuando los parámetros son inválidos", async () => {
     // page inválido
     const reqPageInvalido = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?page=0"
+      "http://localhost:3000/api/incidentes/avisos?page=0",
+      { headers: AUTH_HEADER }
     );
     const res1 = await GET(reqPageInvalido);
     expect(res1.status).toBe(400);
 
     // limit superior al máximo permitido (100)
     const reqLimitInvalido = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?limit=150"
+      "http://localhost:3000/api/incidentes/avisos?limit=150",
+      { headers: AUTH_HEADER }
     );
     const res2 = await GET(reqLimitInvalido);
     expect(res2.status).toBe(400);
 
     // estado desconocido
     const reqEstadoInvalido = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?estado=INVALIDO"
+      "http://localhost:3000/api/incidentes/avisos?estado=INVALIDO",
+      { headers: AUTH_HEADER }
     );
     const res3 = await GET(reqEstadoInvalido);
     expect(res3.status).toBe(400);
@@ -194,7 +223,8 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
 
   it("CA-7: debe retornar los items con minutosEnEspera calculado y delegacionNombre mapeado", async () => {
     const req = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?estado=TODOS&limit=10"
+      "http://localhost:3000/api/incidentes/avisos?estado=TODOS&limit=10",
+      { headers: AUTH_HEADER }
     );
     const res = await GET(req);
     expect(res.status).toBe(200);
@@ -208,7 +238,8 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
 
   it("debe normalizar el parámetro delegación 'Calle-Calle' a 'Calle Calle'", async () => {
     const req = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?delegacion=Calle-Calle"
+      "http://localhost:3000/api/incidentes/avisos?delegacion=Calle-Calle",
+      { headers: AUTH_HEADER }
     );
     const res = await GET(req);
     expect(res.status).toBe(200);
@@ -219,7 +250,8 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
 
   it("debe admitir búsqueda textual libre con 'busqueda' o 'q'", async () => {
     const req1 = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?busqueda=España&estado=TODOS"
+      "http://localhost:3000/api/incidentes/avisos?busqueda=España&estado=TODOS",
+      { headers: AUTH_HEADER }
     );
     const res1 = await GET(req1);
     expect(res1.status).toBe(200);
@@ -227,7 +259,8 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
     expect(Array.isArray(body1.data)).toBe(true);
 
     const req2 = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?q=España&estado=TODOS"
+      "http://localhost:3000/api/incidentes/avisos?q=España&estado=TODOS",
+      { headers: AUTH_HEADER }
     );
     const res2 = await GET(req2);
     expect(res2.status).toBe(200);
@@ -237,7 +270,8 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
 
   it("debe escapar comodines SQL en la búsqueda evitando retorno masivo con '%'", async () => {
     const req = new NextRequest(
-      "http://localhost:3000/api/incidentes/avisos?busqueda=%25"
+      "http://localhost:3000/api/incidentes/avisos?busqueda=%25",
+      { headers: AUTH_HEADER }
     );
     const res = await GET(req);
     expect(res.status).toBe(200);
