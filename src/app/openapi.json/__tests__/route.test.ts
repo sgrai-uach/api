@@ -42,5 +42,7 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/seguridad/permisos"].get).toBeDefined();
     expect(spec.paths["/api/seguridad/roles/{id}/permisos"]).toBeDefined();
     expect(spec.paths["/api/seguridad/roles/{id}/permisos"].put).toBeDefined();
+    expect(spec.paths["/api/seguridad/usuario-activo"]).toBeDefined();
+    expect(spec.paths["/api/seguridad/usuario-activo"].get).toBeDefined();
   });
 });

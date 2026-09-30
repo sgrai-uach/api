@@ -54,6 +54,7 @@ El módulo **Seguridad** centraliza la autenticación, perfiles de usuario, role
 | `GET` | `/api/seguridad/roles/{id}` | Obtener el detalle interactivo de un rol específico con la lista completa de sus acciones autorizadas. |
 | `GET` | `/api/seguridad/permisos` | Listar el catálogo completo de permisos disponibles clasificados por módulo funcional. |
 | `PUT` | `/api/seguridad/roles/{id}/permisos` | Actualizar atómica y masivamente los permisos asociados a un rol específico (`{ "permisoIds": string[] }`). |
+| `GET` | `/api/seguridad/usuario-activo` | Obtener datos del usuario autenticado, su rol y la lista de todos sus permisos dinámicos en tiempo real (HU-5). |
 
 > Nota: La especificación completa de contratos OpenAPI y los tipos de request/response se generan automáticamente desde los esquemas Zod en `GET /openapi.json`.
 
@@ -69,8 +70,10 @@ El módulo **Seguridad** centraliza la autenticación, perfiles de usuario, role
   - Falta la cabecera `X-User-Id` (o `Authorization: Bearer <usuario_id>`).
   - El usuario indicado en la cabecera no existe en la tabla `usuario`.
   - El usuario existe pero tiene `activo = false` (funcionario inactivo o dado de baja).
-- **`403 Forbidden` en cualquier endpoint del módulo**:
+- **`403 Forbidden` en endpoints de administración de roles**:
   - El usuario está autenticado y activo, pero su perfil asignado **no es `'Administrador'`** (ej. operador de Call Center o Patrulla Verificadora).
+- **`403 Forbidden` en `GET /api/seguridad/usuario-activo`**:
+  - El usuario autenticado se encuentra inactivo en la institución (`activo = false`).
 - **`404 Not Found` en `/api/seguridad/roles/{id}` y `/api/seguridad/roles/{id}/permisos`**:
   - El `UUID` provisto en la ruta no corresponde a ningún perfil registrado en la tabla `rol`.
 
@@ -82,4 +85,7 @@ El módulo **Seguridad** centraliza la autenticación, perfiles de usuario, role
   - Consume `GET /api/seguridad/roles` para la tabla principal de perfiles.
   - Consume `GET /api/seguridad/permisos` para popular el catálogo interactivo de permisos por módulo.
   - Consume `PUT /api/seguridad/roles/{id}/permisos` para guardar los cambios de asignación y revocación desde la vista de edición de permisos.
+  - Consume `GET /api/seguridad/usuario-activo` para inicializar y sincronizar el estado global de permisos en sesión del usuario en tiempo real.
+- **`sgrai-pwa`**:
+  - Consume `GET /api/seguridad/usuario-activo` para resolver los accesos operativos del usuario autenticado en terreno (Patrulla Verificadora, Delegado de Cuadrilla).
 - **Contrato de tipos**: Los frontends ejecutan `openapi-typescript` contra `GET /openapi.json` para derivar automáticamente las interfaces TypeScript sin redactarlas a mano.

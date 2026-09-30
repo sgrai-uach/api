@@ -4,6 +4,7 @@ import { GET as getRolesHandler } from "../../../app/api/seguridad/roles/route";
 import { GET as getRolDetalleHandler } from "../../../app/api/seguridad/roles/[id]/route";
 import { GET as getPermisosHandler } from "../../../app/api/seguridad/permisos/route";
 import { PUT as putRolPermisosHandler } from "../../../app/api/seguridad/roles/[id]/permisos/route";
+import { GET as getUsuarioActivoHandler } from "../../../app/api/seguridad/usuario-activo/route";
 import { db } from "../../../lib/db";
 import { generarOpenApiSpec } from "../../../lib/openapi";
 import {
@@ -27,6 +28,9 @@ import {
   PermisoCatalogoItemSchema,
   RolDetalleResponseSchema,
   RolItemSchema,
+  UsuarioActivoItemSchema,
+  UsuarioActivoResponseSchema,
+  UsuarioActivoRolSchema,
 } from "../schema";
 import { SeguridadService } from "../service";
 import type {
@@ -238,6 +242,72 @@ describe("Módulo de Seguridad — Esquemas Zod", () => {
 
     const resultado = ActualizarPermisosRolResponseSchema.safeParse(respuesta);
     expect(resultado.success).toBe(true);
+  });
+
+  it("debe validar la estructura completa de UsuarioActivoResponseSchema", () => {
+    const payloadValido = {
+      data: {
+        id: "00000000-0000-4000-8000-000000000001",
+        rut: "11111111-1",
+        nombre: "Administrador Municipal",
+        email: "admin@valdivia.cl",
+        activo: true,
+        delegacionId: "30000000-0000-4000-8000-000000000001",
+        rol: {
+          id: "20000000-0000-4000-8000-000000000001",
+          nombre: "Administrador",
+          codigo: "ADMIN",
+          esAdmin: true,
+        },
+        permisos: ["seguridad:roles:leer", "seguridad:roles:gestionar"],
+      },
+    };
+
+    const resultado = UsuarioActivoResponseSchema.safeParse(payloadValido);
+    expect(resultado.success).toBe(true);
+  });
+
+  it("debe aceptar UsuarioActivoResponseSchema con delegacionId nulo u omitido", () => {
+    const payloadSinDelegacion = {
+      data: {
+        id: "00000000-0000-4000-8000-000000000001",
+        rut: "11111111-1",
+        nombre: "Administrador Central",
+        email: "admin@valdivia.cl",
+        activo: true,
+        delegacionId: null,
+        rol: {
+          id: "20000000-0000-4000-8000-000000000001",
+          nombre: "Administrador",
+          codigo: "ADMIN",
+          esAdmin: true,
+        },
+        permisos: [],
+      },
+    };
+
+    expect(UsuarioActivoResponseSchema.safeParse(payloadSinDelegacion).success).toBe(true);
+  });
+
+  it("debe rechazar UsuarioActivoResponseSchema con email inválido o UUID incorrecto", () => {
+    const payloadInvalido = {
+      data: {
+        id: "no-es-uuid",
+        rut: "11111111-1",
+        nombre: "Usuario Test",
+        email: "correo-invalido",
+        activo: true,
+        rol: {
+          id: "20000000-0000-4000-8000-000000000001",
+          nombre: "Call Center",
+          codigo: "CALL_CENTER",
+          esAdmin: false,
+        },
+        permisos: [],
+      },
+    };
+
+    expect(UsuarioActivoResponseSchema.safeParse(payloadInvalido).success).toBe(false);
   });
 });
 
@@ -1151,6 +1221,94 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
       expect(body.data.cantidadPermisos).toBe(1);
     });
   });
+
+  describe("HU-5: Endpoint GET /api/seguridad/usuario-activo (Resolución de permisos en tiempo real - CP-HU5-18)", () => {
+    it("GET /api/seguridad/usuario-activo debe retornar 200 con datos del usuario y permisos dinámicos", async () => {
+      vi.spyOn(seguridadRepository, "obtenerUsuarioCompletoConPermisos").mockResolvedValueOnce({
+        id: "00000000-0000-4000-8000-000000000001",
+        rut: "11111111-1",
+        nombre: "Administrador General",
+        email: "admin@valdivia.cl",
+        activo: true,
+        delegacionId: null,
+        rol: {
+          id: "20000000-0000-4000-8000-000000000001",
+          nombre: "Administrador",
+          codigo: "ADMIN",
+          esAdmin: true,
+        },
+        permisos: ["seguridad:roles:leer", "seguridad:roles:gestionar"],
+      });
+
+      const request = new NextRequest("http://localhost:3000/api/seguridad/usuario-activo", {
+        headers: {
+          "x-user-id": "00000000-0000-4000-8000-000000000001",
+        },
+      });
+
+      const response = await getUsuarioActivoHandler(request);
+      expect(response.status).toBe(200);
+
+      const body = await response.json();
+      expect(body.data.id).toBe("00000000-0000-4000-8000-000000000001");
+      expect(body.data.rol.nombre).toBe("Administrador");
+      expect(body.data.rol.esAdmin).toBe(true);
+      expect(body.data.permisos).toContain("seguridad:roles:gestionar");
+    });
+
+    it("GET /api/seguridad/usuario-activo debe retornar 401 si falta cabecera de autenticación", async () => {
+      const request = new NextRequest("http://localhost:3000/api/seguridad/usuario-activo");
+      const response = await getUsuarioActivoHandler(request);
+
+      expect(response.status).toBe(401);
+      const body = await response.json();
+      expect(body.error).toContain("Cabecera X-User-Id requerida");
+    });
+
+    it("GET /api/seguridad/usuario-activo debe retornar 401 si el usuario no existe", async () => {
+      vi.spyOn(seguridadRepository, "obtenerUsuarioCompletoConPermisos").mockResolvedValueOnce(null);
+
+      const request = new NextRequest("http://localhost:3000/api/seguridad/usuario-activo", {
+        headers: {
+          "x-user-id": "00000000-0000-4000-8000-000000000099",
+        },
+      });
+
+      const response = await getUsuarioActivoHandler(request);
+      expect(response.status).toBe(401);
+      const body = await response.json();
+      expect(body.error).toContain("no existe o no está registrado");
+    });
+
+    it("GET /api/seguridad/usuario-activo debe retornar 403 si el usuario existe pero se encuentra inactivo", async () => {
+      vi.spyOn(seguridadRepository, "obtenerUsuarioCompletoConPermisos").mockResolvedValueOnce({
+        id: "00000000-0000-4000-8000-000000000005",
+        rut: "55555555-5",
+        nombre: "Usuario Desactivado",
+        email: "inactivo@valdivia.cl",
+        activo: false,
+        delegacionId: null,
+        rol: {
+          id: "20000000-0000-4000-8000-000000000002",
+          nombre: "Call Center",
+          codigo: "CALL_CENTER",
+          esAdmin: false,
+        },
+        permisos: [],
+      });
+
+      const request = new NextRequest("http://localhost:3000/api/seguridad/usuario-activo", {
+        headers: {
+          "x-user-id": "00000000-0000-4000-8000-000000000005",
+        },
+      });
+
+      const response = await getUsuarioActivoHandler(request);
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error).toContain("inactivo");
+    });
+  });
 });
 
 describe("Módulo de Seguridad — Persistencia y Transaccionalidad (SeguridadRepository)", () => {
@@ -1313,5 +1471,18 @@ describe("Módulo de Seguridad — Especificación OpenAPI", () => {
     expect(spec.paths["/api/seguridad/roles/{id}/permisos"]?.put?.tags).toContain(
       "Seguridad / Roles y Permisos"
     );
+
+    // Ruta HU-5: usuario-activo (CP-HU5-18)
+    expect(spec.paths["/api/seguridad/usuario-activo"]).toBeDefined();
+    expect(spec.paths["/api/seguridad/usuario-activo"]?.get).toBeDefined();
+    expect(spec.paths["/api/seguridad/usuario-activo"]?.get?.tags).toContain(
+      "Seguridad / Roles y Permisos"
+    );
+    expect(spec.paths["/api/seguridad/usuario-activo"]?.get?.responses["200"]).toBeDefined();
+    expect(spec.paths["/api/seguridad/usuario-activo"]?.get?.responses["401"]).toBeDefined();
+    expect(spec.paths["/api/seguridad/usuario-activo"]?.get?.responses["403"]).toBeDefined();
+
+    // Esquemas registrados
+    expect(spec.components?.schemas?.["UsuarioActivoResponse"]).toBeDefined();
   });
 });

@@ -200,3 +200,84 @@ export const ActualizarPermisosRolResponseSchema = z
 export type ActualizarPermisosRolResponse = z.infer<
   typeof ActualizarPermisosRolResponseSchema
 >;
+
+/**
+ * Esquema del rol asignado al usuario activo en sesión.
+ */
+export const UsuarioActivoRolSchema = z
+  .object({
+    id: z.string().uuid().openapi({
+      description: "UUID del rol asignado",
+      example: "20000000-0000-4000-8000-000000000001",
+    }),
+    nombre: z.string().openapi({
+      description: "Nombre del rol institucional",
+      example: "Administrador",
+    }),
+    codigo: z.string().openapi({
+      description: "Código identificador del rol",
+      example: "ADMIN",
+    }),
+    esAdmin: z.boolean().openapi({
+      description: "Indica si el usuario tiene privilegios de Administrador global",
+      example: true,
+    }),
+  })
+  .openapi("UsuarioActivoRol");
+
+export type UsuarioActivoRol = z.infer<typeof UsuarioActivoRolSchema>;
+
+/**
+ * Esquema del ítem consolidado de usuario activo con sus permisos dinámicos.
+ */
+export const UsuarioActivoItemSchema = z
+  .object({
+    id: z.string().uuid().openapi({
+      description: "UUID del usuario autenticado",
+      example: "00000000-0000-4000-8000-000000000001",
+    }),
+    rut: z.string().openapi({
+      description: "RUT del funcionario o informante autenticado",
+      example: "11111111-1",
+    }),
+    nombre: z.string().openapi({
+      description: "Nombre y apellidos del usuario",
+      example: "Administrador Municipal",
+    }),
+    email: z.string().email().openapi({
+      description: "Correo institucional del usuario",
+      example: "admin@valdivia.cl",
+    }),
+    activo: z.boolean().openapi({
+      description: "Indica si la cuenta del usuario está habilitada",
+      example: true,
+    }),
+    delegacionId: z.string().uuid().nullable().optional().openapi({
+      description: "UUID de la delegación territorial a la que pertenece (si aplica)",
+      example: "30000000-0000-4000-8000-000000000001",
+    }),
+    rol: UsuarioActivoRolSchema.openapi({
+      description: "Información del rol institucional asignado",
+    }),
+    permisos: z.array(z.string()).openapi({
+      description: "Lista de códigos de permisos asignados en tiempo real al usuario",
+      example: ["seguridad:roles:leer", "seguridad:roles:gestionar"],
+    }),
+  })
+  .openapi("UsuarioActivoItem");
+
+export type UsuarioActivoItem = z.infer<typeof UsuarioActivoItemSchema>;
+
+/**
+ * Esquema de respuesta para GET /api/seguridad/usuario-activo.
+ */
+export const UsuarioActivoResponseSchema = z
+  .object({
+    data: UsuarioActivoItemSchema.openapi({
+      description: "Datos del usuario activo y sus permisos dinámicos",
+    }),
+  })
+  .openapi("UsuarioActivoResponse");
+
+export type UsuarioActivoResponse = z.infer<typeof UsuarioActivoResponseSchema>;
+

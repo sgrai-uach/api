@@ -95,6 +95,12 @@ export class SeguridadService {
       );
     }
 
+    if (!detalle.activo) {
+      throw new ForbiddenError(
+        "El usuario especificado se encuentra inactivo en la institución."
+      );
+    }
+
     return detalle;
   }
 

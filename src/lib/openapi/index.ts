@@ -21,6 +21,7 @@ import {
   ListarRolesResponseSchema,
   PermisoCatalogoItemSchema,
   RolDetalleResponseSchema,
+  UsuarioActivoResponseSchema,
 } from "@/modules/seguridad/schema";
 
 import {
@@ -77,6 +78,7 @@ registry.register("PermisoCatalogoItem", PermisoCatalogoItemSchema);
 registry.register("ListarPermisosResponse", ListarPermisosResponseSchema);
 registry.register("ActualizarPermisosRolInput", ActualizarPermisosRolInputSchema);
 registry.register("ActualizarPermisosRolResponse", ActualizarPermisosRolResponseSchema);
+registry.register("UsuarioActivoResponse", UsuarioActivoResponseSchema);
 
 // Registrar esquemas de Avisos Call Center
 registry.register("AvisosPaginadosResponse", AvisosPaginadosResponseSchema);
@@ -299,6 +301,34 @@ registry.registerPath({
     401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
     403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
     404: { description: "Perfil no encontrado" },
+  },
+});
+
+// 7. GET /api/seguridad/usuario-activo (HU-5)
+registry.registerPath({
+  method: "get",
+  path: "/api/seguridad/usuario-activo",
+  summary: "Obtener usuario autenticado y permisos dinámicos",
+  description:
+    "Retorna los datos del usuario en sesión, su rol y la lista de todos los códigos de permisos asignados dinámicamente en tiempo real.",
+  tags: ["Seguridad / Roles y Permisos"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del usuario autenticado"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Datos del usuario activo y sus permisos dinámicos obtenidos exitosamente",
+      content: {
+        "application/json": {
+          schema: UsuarioActivoResponseSchema,
+        },
+      },
+    },
+    401: { description: "Cabecera de autenticación ausente o usuario no registrado" },
+    403: { description: "Acceso denegado o usuario inactivo en el sistema" },
+    500: { description: "Error interno del servidor" },
   },
 });
 

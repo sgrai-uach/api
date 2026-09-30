@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
+import { UsuarioActivoResponse } from "@/modules/seguridad/schema";
 import { seguridadService } from "@/modules/seguridad/service";
 
 /**
