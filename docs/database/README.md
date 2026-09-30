@@ -136,11 +136,13 @@ Cuentas de usuario de funcionarios y operadores municipales.
 | `nombre` | `VARCHAR(255)` | SÍ | `NULL` | Nombre completo consolidado. |
 | `email` | `VARCHAR(150)` | NO | — | Correo electrónico corporativo. Unique. |
 | `telefono` | `VARCHAR(50)` | SÍ | `NULL` | Teléfono de contacto institucional o móvil. |
-| `password_hash`| `VARCHAR(255)` | NO | `$2b$10$...` | Hash bcrypt de la contraseña. |
+| `password_hash`| `VARCHAR(255)` | NO | `$2b$10$...` | Hash bcrypt de la contraseña (contraseña unificada para pruebas locales: `Valdivia2026!`). |
+| `intentos_fallidos` | `INTEGER` | NO | `0` | Contador acumulativo de contraseñas erróneas consecutivas (protección contra ataques de fuerza bruta). |
+| `bloqueado_hasta`| `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal de inhabilitación temporal tras 5 intentos fallidos (bloqueo por 15 minutos). |
 | `rol_id` | `UUID` | NO | — | FK a `rol.id` (ON DELETE RESTRICT). |
 | `delegacion_id`| `UUID` | SÍ | `NULL` | FK a `delegacion.id` (ON DELETE SET NULL). |
 | `activo` | `BOOLEAN` | NO | `true` | Habilitación de acceso al sistema. |
-| `ultimo_acceso`| `TIMESTAMPTZ` | SÍ | `NULL` | Fecha y hora del último login. |
+| `ultimo_acceso`| `TIMESTAMPTZ` | SÍ | `NULL` | Fecha y hora del último login exitoso. |
 | `fecha_ingreso`| `DATE` | SÍ | `NULL` | Fecha de inicio de funciones. |
 | `fecha_salida` | `DATE` | SÍ | `NULL` | Fecha de desvinculación o cese de funciones. |
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de registro. |
@@ -420,6 +422,8 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 - `20000000-0000-4000-8000-000000000010` — `SUPERVISOR` (Supervisor Estratégico)
 
 ### 5.2 Usuarios Predefinidos (`usuario`)
+> **Nota de Seguridad en Entornos de Desarrollo/QA:** Todos los usuarios predefinidos cuentan con la contraseña estandarizada **`Valdivia2026!`**, correspondiente al hash bcrypt `$2b$10$dMlhpX4QFpPonWcTHVNo0usyfRLusunVKj6LsxLc9PaZ9JZkN5asm` sembrado en la migración `008_autenticacion_bloqueo_usuarios.ts`.
+
 - `00000000-0000-4000-8000-000000000001` — `admin@valdivia.cl` (Administrador General, RUT: `11111111-1`)
 - `00000000-0000-4000-8000-000000000002` — `callcenter@valdivia.cl` (Operador Call Center Genérico, RUT: `22222222-2`)
 - `c1111111-1111-4111-8111-111111111111` — `carlos.miranda@valdivia.cl` (Carlos Miranda - Call Center Mesa 1, RUT: `14111111-1`)
@@ -473,7 +477,7 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 ```bash
 npm run db:migrate
 ```
-El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `007_...`).
+El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `008_autenticacion_bloqueo_usuarios.ts`).
 
 ### 7.2 Sembrar Datos para Tablero Kanban
 ```bash
