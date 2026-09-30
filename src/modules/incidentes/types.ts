@@ -1,6 +1,11 @@
 export type EstadoAviso = "PENDIENTE_VERIFICACION" | "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO";
 
 export type EstadoIncidente =
+  | "REPORTADO"
+  | "VERIFICANDO"
+  | "EN_ATENCION"
+  | "NO_ABORDABLE"
+  | "RESUELTO"
   | "Reportado"
   | "Verificando"
   | "En Atención"

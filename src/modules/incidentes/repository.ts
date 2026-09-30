@@ -252,7 +252,8 @@ export class IncidentesRepository {
           tipo_incidente_id: tipoIncidenteValidoId,
           tipo_afectacion: aviso.tipo_afectacion,
           direccion_texto: aviso.direccion_texto,
-          estado: "Reportado", // Estado inicial ICS
+          estado: "REPORTADO", // Estado inicial ICS
+          prioridad: "MEDIA",
           descripcion: descripcionFinal,
           latitud: Number(aviso.latitud),
           longitud: Number(aviso.longitud),

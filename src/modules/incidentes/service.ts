@@ -2,6 +2,7 @@ import {
   emitirAvisoDescartado,
   emitirAvisoVerificado,
   emitirNuevoAviso,
+  notificarIncidenteCreado,
 } from "../../lib/socket";
 import { incidentesRepository, IncidentesRepository } from "./repository";
 import type {
@@ -189,6 +190,25 @@ export class IncidentesService {
         avisoId,
         incidenteId: resultado.incidente.id,
         folio: resultado.incidente.folio,
+      });
+
+      // Notificar en tiempo real al Centro de Mando (Encargados)
+      const fechaIncidenteStr =
+        typeof resultado.incidente.creado_en === "string"
+          ? resultado.incidente.creado_en
+          : resultado.incidente.creado_en.toISOString();
+
+      notificarIncidenteCreado({
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo || resultado.incidente.folio,
+        tipoAfectacion: resultado.incidente.tipo_afectacion || "Afectación no especificada",
+        direccion: resultado.incidente.direccion_texto || "Dirección no especificada",
+        latitud: Number(resultado.incidente.latitud),
+        longitud: Number(resultado.incidente.longitud),
+        estado: "REPORTADO",
+        prioridad: (resultado.incidente.prioridad as any) || "MEDIA",
+        requiereAsistenciaSocial: Boolean(resultado.incidente.requiere_asistencia_social),
+        creadoEn: fechaIncidenteStr,
       });
 
       return {
