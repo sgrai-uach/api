@@ -1,4 +1,5 @@
 import { seguridadService } from "@/modules/seguridad/service";
+import { PERMISO_LEER_RECURSO, PERMISO_CREAR_RECURSO } from "@/modules/seguridad/permisos.constants";
 import {
   determinarEstadoRecurso,
   calcularDisponibilidadOperativa,
@@ -30,8 +31,8 @@ export async function listarRecursos(
   query: ListarRecursosInputQuery,
   usuarioId?: string | null
 ): Promise<ListarRecursosPaginadosResponse> {
-  // 1. Validar autorización RBAC (requiere rol Administrador)
-  await seguridadService.validarAccesoAdministrador(usuarioId);
+  // 1. Validar autorización RBAC (requiere permiso recursos:leer o rol Administrador)
+  await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_LEER_RECURSO]);
 
   const pagina = Number(query.pagina ?? 1) || 1;
   const limite = Number(query.limite ?? 10) || 10;
@@ -125,8 +126,8 @@ export async function crearRecurso(
   input: CrearRecursoInput,
   usuarioId: string | null | undefined
 ): Promise<RecursoResponse> {
-  // 1. Validar autenticación de administrador
-  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId);
+  // 1. Validar autorización RBAC (requiere permiso recursos:crear o rol Administrador)
+  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_CREAR_RECURSO]);
 
   // 2. Determinar estado inicial según stock e inventario
   const estado = determinarEstadoRecurso(input.cantidadInventario, input.cantidadMinima);

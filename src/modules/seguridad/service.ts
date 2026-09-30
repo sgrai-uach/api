@@ -4,7 +4,7 @@ import {
   NotFoundError,
   UnauthorizedError,
 } from "./errors";
-import { PERMISO_GESTIONAR_ROLES } from "./permisos.constants";
+import { PERMISO_GESTIONAR_ROLES, PERMISO_LEER_ROLES } from "./permisos.constants";
 import { seguridadRepository, SeguridadRepository } from "./repository";
 import type {
   ActualizarPermisosRolResponseDTO,
@@ -12,16 +12,22 @@ import type {
   ListarRolesResponseDTO,
   RolDetalleResponseDTO,
   UsuarioAutenticado,
+  UsuarioActivoDTO,
 } from "./types";
 
 export class SeguridadService {
   constructor(private repo: SeguridadRepository = seguridadRepository) {}
 
   /**
-   * Valida que el identificador pertenezca a un usuario activo y con rol de Administrador.
+   * Valida acceso verificando si el usuario es Administrador o si su rol posee alguno
+   * de los permisos requeridos en persistencia.
    */
-  async validarAccesoAdministrador(
-    usuarioId?: string | null
+  async validarAccesoRoles(
+    usuarioId?: string | null,
+    permisosRequeridos: string[] = [
+      PERMISO_LEER_ROLES,
+      PERMISO_GESTIONAR_ROLES,
+    ]
   ): Promise<UsuarioAutenticado> {
     if (!usuarioId || usuarioId.trim() === "") {
       throw new UnauthorizedError(
@@ -43,13 +49,53 @@ export class SeguridadService {
       );
     }
 
-    if (usuario.rolNombre !== "Administrador") {
+    if (usuario.rolNombre === "Administrador") {
+      return usuario;
+    }
+
+    const permisosDelRol = (await this.repo.obtenerPermisosDeRol?.(usuario.rolId)) ?? [];
+    const tienePermiso = permisosDelRol.some((p) => permisosRequeridos.includes(p));
+
+    if (!tienePermiso) {
       throw new ForbiddenError(
-        "Acceso denegado. Se requiere el perfil de Administrador para acceder al listado y gestión de permisos."
+        "Acceso denegado. Se requiere el perfil de Administrador o permisos de gestión de roles para acceder."
       );
     }
 
     return usuario;
+  }
+
+  /**
+   * Compatibilidad y validación con fallback a permisos de rol.
+   */
+  async validarAccesoAdministrador(
+    usuarioId?: string | null,
+    permisosRequeridos: string[] = [
+      PERMISO_LEER_ROLES,
+      PERMISO_GESTIONAR_ROLES,
+    ]
+  ): Promise<UsuarioAutenticado> {
+    return this.validarAccesoRoles(usuarioId, permisosRequeridos);
+  }
+
+  /**
+   * Retorna los datos completos y lista de permisos del usuario autenticado.
+   */
+  async obtenerUsuarioActivo(usuarioId?: string | null): Promise<UsuarioActivoDTO> {
+    if (!usuarioId || usuarioId.trim() === "") {
+      throw new UnauthorizedError(
+        "Cabecera X-User-Id requerida para autenticación."
+      );
+    }
+
+    const detalle = await this.repo.obtenerUsuarioCompletoConPermisos(usuarioId.trim());
+    if (!detalle) {
+      throw new UnauthorizedError(
+        `Usuario con ID '${usuarioId}' no existe o no está registrado en el sistema.`
+      );
+    }
+
+    return detalle;
   }
 
   /**
@@ -102,6 +148,17 @@ export class SeguridadService {
     permisoIds: string[],
     usuarioAutenticado: UsuarioAutenticado
   ): Promise<ActualizarPermisosRolResponseDTO> {
+    // 0. Validar que el operador posea permiso para gestionar roles
+    if (usuarioAutenticado.rolNombre !== "Administrador") {
+      const permisosDelOperador =
+        (await this.repo.obtenerPermisosDeRol?.(usuarioAutenticado.rolId)) ?? [];
+      if (!permisosDelOperador.includes(PERMISO_GESTIONAR_ROLES)) {
+        throw new ForbiddenError(
+          "Acceso denegado. Se requiere el permiso 'seguridad:roles:gestionar' para modificar roles."
+        );
+      }
+    }
+
     // 1. Validar que el rol a modificar exista
     const rol = await this.repo.obtenerRolPorId(rolId);
 
@@ -121,6 +178,19 @@ export class SeguridadService {
       if (!permisoIds.includes(idPermisoGestionar)) {
         throw new BadRequestError(
           "El permiso 'seguridad:roles:gestionar' es obligatorio para el perfil Administrador y no puede ser revocado."
+        );
+      }
+
+      const permisoLeer = await this.repo.obtenerPermisoPorCodigo(
+        PERMISO_LEER_ROLES
+      );
+
+      const idPermisoLeer =
+        permisoLeer?.id ?? "10000000-0000-4000-8000-000000000003";
+
+      if (!permisoIds.includes(idPermisoLeer)) {
+        throw new BadRequestError(
+          "El permiso 'seguridad:roles:leer' es obligatorio para el perfil Administrador y no puede ser revocado."
         );
       }
     }

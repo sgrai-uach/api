@@ -44,3 +44,19 @@ export interface RolConPermisoRaw {
   permiso_asignado_en: Date | null;
   permiso_asignado_por_id: string | null;
 }
+
+export interface UsuarioActivoDTO {
+  id: string;
+  rut: string;
+  nombre: string;
+  email: string;
+  activo: boolean;
+  delegacionId?: string | null;
+  rol: {
+    id: string;
+    nombre: string;
+    codigo: string;
+    esAdmin: boolean;
+  };
+  permisos: string[];
+}

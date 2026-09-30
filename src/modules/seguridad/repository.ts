@@ -6,6 +6,7 @@ import type {
   RolConPermisoRaw,
   RolItemDTO,
   UsuarioAutenticado,
+  UsuarioActivoDTO,
 } from "./types";
 
 export class SeguridadRepository {
@@ -234,6 +235,72 @@ export class SeguridadRepository {
       rolId: usuario.rol_id,
       rolNombre: usuario.rol_nombre,
       activo: Boolean(usuario.activo),
+    };
+  }
+
+  /**
+   * Obtiene la lista de códigos de permisos asignados a un rol específico.
+   */
+  async obtenerPermisosDeRol(rolId: string): Promise<string[]> {
+    const permisos = await db
+      .selectFrom("rol_permiso")
+      .innerJoin("permiso", "permiso.id", "rol_permiso.permiso_id")
+      .select("permiso.codigo")
+      .where("rol_permiso.rol_id", "=", rolId)
+      .execute();
+
+    return permisos.map((p) => p.codigo);
+  }
+
+  /**
+   * Obtiene un usuario con su rol y la lista completa de códigos de permisos asignados.
+   */
+  async obtenerUsuarioCompletoConPermisos(
+    usuarioId: string
+  ): Promise<UsuarioActivoDTO | null> {
+    const usuario = await db
+      .selectFrom("usuario")
+      .innerJoin("rol", "rol.id", "usuario.rol_id")
+      .select([
+        "usuario.id",
+        "usuario.rut",
+        "usuario.nombre",
+        "usuario.email",
+        "usuario.activo",
+        "usuario.delegacion_id",
+        "rol.id as rol_id",
+        "rol.nombre as rol_nombre",
+        "rol.codigo as rol_codigo",
+      ])
+      .where("usuario.id", "=", usuarioId)
+      .executeTakeFirst();
+
+    if (!usuario) {
+      return null;
+    }
+
+    let codigosPermisos: string[] = [];
+    if (usuario.rol_nombre === "Administrador") {
+      const todos = await db.selectFrom("permiso").select("codigo").execute();
+      codigosPermisos = todos.map((p) => p.codigo);
+    } else {
+      codigosPermisos = await this.obtenerPermisosDeRol(usuario.rol_id);
+    }
+
+    return {
+      id: usuario.id,
+      rut: usuario.rut,
+      nombre: usuario.nombre,
+      email: usuario.email,
+      activo: Boolean(usuario.activo),
+      delegacionId: usuario.delegacion_id,
+      rol: {
+        id: usuario.rol_id,
+        nombre: usuario.rol_nombre,
+        codigo: usuario.rol_codigo ?? "",
+        esAdmin: usuario.rol_nombre === "Administrador",
+      },
+      permisos: codigosPermisos,
     };
   }
 

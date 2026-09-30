@@ -10,6 +10,7 @@
  */
 
 import { loadEnvConfig } from "@next/env";
+import { db } from "../src/lib/db";
 
 loadEnvConfig(process.cwd());
 
@@ -111,13 +112,10 @@ async function main() {
   let tiposDisponibles: TipoIncidenteApi[] = [];
   if (promoverAIncidente) {
     try {
-      const resTipos = await fetch(`${API_BASE_URL}/api/incidentes/tipos`);
-      if (resTipos.ok) {
-        const jsonTipos = await resTipos.json();
-        tiposDisponibles = jsonTipos.data || [];
-      }
+      const tiposDb = await db.selectFrom("tipo_incidente").select(["id", "nombre"]).execute();
+      tiposDisponibles = tiposDb;
     } catch (e) {
-      console.warn("⚠️ No se pudo consultar /api/incidentes/tipos:", e);
+      console.warn("⚠️ No se pudo consultar tipo_incidente desde la base de datos:", e);
     }
   }
 
@@ -167,7 +165,7 @@ async function main() {
       // 2. Si se solicitó --promover, verificar y transformar a Incidente formal
       if (promoverAIncidente) {
         const tipoMatch = tiposDisponibles.find((t) =>
-          t.nombre.toLowerCase().includes(aviso.tipoAfectacion.toLowerCase())
+          t.nombre && t.nombre.toLowerCase().includes(aviso.tipoAfectacion.toLowerCase())
         ) || tiposDisponibles[0];
 
         if (!tipoMatch) {

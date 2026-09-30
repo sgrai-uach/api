@@ -643,6 +643,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
       rolNombre: "Call Center",
       activo: true,
     });
+    vi.spyOn(seguridadRepository, "obtenerPermisosDeRol").mockResolvedValueOnce([]);
 
     const request = new NextRequest("http://localhost:3000/api/seguridad/roles", {
       headers: {
@@ -786,6 +787,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
         rolNombre: "Call Center",
         activo: true,
       });
+      vi.spyOn(seguridadRepository, "obtenerPermisosDeRol").mockResolvedValueOnce([]);
 
       const request = new NextRequest("http://localhost:3000/api/seguridad/permisos", {
         headers: {
@@ -860,6 +862,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
         rolNombre: "Call Center",
         activo: true,
       });
+      vi.spyOn(seguridadRepository, "obtenerPermisosDeRol").mockResolvedValueOnce([]);
 
       const request = new NextRequest(
         "http://localhost:3000/api/seguridad/roles/20000000-0000-4000-8000-000000000002/permisos",
