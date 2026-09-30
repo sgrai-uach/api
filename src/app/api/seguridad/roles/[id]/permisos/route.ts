@@ -6,7 +6,10 @@ import {
   NotFoundError,
   UnauthorizedError,
 } from "@/modules/seguridad/errors";
-import { ActualizarPermisosRolInputSchema } from "@/modules/seguridad/schema";
+import {
+  ActualizarPermisosRolInputSchema,
+  RolIdParamSchema,
+} from "@/modules/seguridad/schema";
 import { seguridadService } from "@/modules/seguridad/service";
 
 interface RouteContext {
@@ -24,6 +27,17 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   try {
     const usuario = await verificarAdministrador(request);
     const { id } = await context.params;
+
+    const idValidation = RolIdParamSchema.safeParse(id);
+    if (!idValidation.success) {
+      return NextResponse.json(
+        {
+          error: "El identificador de rol proporcionado no es un UUID válido.",
+          detalles: idValidation.error.issues,
+        },
+        { status: 400 }
+      );
+    }
 
     let body: unknown;
     try {
@@ -47,7 +61,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     }
 
     const resultado = await seguridadService.actualizarPermisosRol(
-      id,
+      idValidation.data,
       parseResult.data.permisoIds,
       usuario
     );

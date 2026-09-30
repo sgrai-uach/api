@@ -27,6 +27,7 @@ import {
   PermisoAsignadoSchema,
   PermisoCatalogoItemSchema,
   RolDetalleResponseSchema,
+  RolIdParamSchema,
   RolItemSchema,
   UsuarioActivoItemSchema,
   UsuarioActivoResponseSchema,
@@ -242,6 +243,16 @@ describe("Módulo de Seguridad — Esquemas Zod", () => {
 
     const resultado = ActualizarPermisosRolResponseSchema.safeParse(respuesta);
     expect(resultado.success).toBe(true);
+  });
+
+  it("debe validar un UUID válido con RolIdParamSchema y rechazar identificadores inválidos", () => {
+    const uuidValido = "20000000-0000-4000-8000-000000000001";
+    expect(RolIdParamSchema.safeParse(uuidValido).success).toBe(true);
+
+    expect(RolIdParamSchema.safeParse("abc").success).toBe(false);
+    expect(RolIdParamSchema.safeParse("123").success).toBe(false);
+    expect(RolIdParamSchema.safeParse("").success).toBe(false);
+    expect(RolIdParamSchema.safeParse("20000000-0000-0000-0000-00000000000z").success).toBe(false);
   });
 
   it("debe validar la estructura completa de UsuarioActivoResponseSchema", () => {
@@ -837,6 +848,36 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
     expect(body.data.nombre).toBe("Administrador");
   });
 
+  it("GET /api/seguridad/roles/[id] debe retornar 400 si el parámetro id no es un UUID válido", async () => {
+    vi.spyOn(seguridadRepository, "obtenerUsuarioConRolPorId").mockResolvedValueOnce({
+      id: "00000000-0000-4000-8000-000000000001",
+      rut: "11111111-1",
+      nombre: "Admin",
+      email: "admin@valdivia.cl",
+      rolId: "20000000-0000-4000-8000-000000000001",
+      rolNombre: "Administrador",
+      activo: true,
+    });
+
+    const request = new NextRequest(
+      "http://localhost:3000/api/seguridad/roles/abc",
+      {
+        headers: {
+          "x-user-id": "00000000-0000-4000-8000-000000000001",
+        },
+      }
+    );
+
+    const response = await getRolDetalleHandler(request, {
+      params: Promise.resolve({ id: "abc" }),
+    });
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toContain("no es un UUID válido");
+    expect(body.detalles).toBeDefined();
+  });
+
   describe("HU-5: Endpoints GET /api/seguridad/permisos y PUT /api/seguridad/roles/[id]/permisos", () => {
     it("GET /api/seguridad/permisos debe retornar 401 si falta cabecera X-User-Id", async () => {
       const request = new NextRequest("http://localhost:3000/api/seguridad/permisos");
@@ -1220,6 +1261,38 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
       expect(body.message).toBe("Permisos actualizados correctamente en la base de datos");
       expect(body.data.cantidadPermisos).toBe(1);
     });
+
+    it("PUT /api/seguridad/roles/[id]/permisos debe retornar 400 si el parámetro id no es un UUID válido (CP-HU5-19)", async () => {
+      vi.spyOn(seguridadRepository, "obtenerUsuarioConRolPorId").mockResolvedValueOnce({
+        id: "00000000-0000-4000-8000-000000000001",
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+        activo: true,
+      });
+
+      const request = new NextRequest(
+        "http://localhost:3000/api/seguridad/roles/abc/permisos",
+        {
+          method: "PUT",
+          headers: {
+            "x-user-id": "00000000-0000-4000-8000-000000000001",
+          },
+          body: JSON.stringify({ permisoIds: [] }),
+        }
+      );
+
+      const response = await putRolPermisosHandler(request, {
+        params: Promise.resolve({ id: "abc" }),
+      });
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain("no es un UUID válido");
+      expect(body.detalles).toBeDefined();
+    });
   });
 
   describe("HU-5: Endpoint GET /api/seguridad/usuario-activo (Resolución de permisos en tiempo real - CP-HU5-18)", () => {
@@ -1471,6 +1544,7 @@ describe("Módulo de Seguridad — Especificación OpenAPI", () => {
     expect(spec.paths["/api/seguridad/roles/{id}/permisos"]?.put?.tags).toContain(
       "Seguridad / Roles y Permisos"
     );
+    expect(spec.paths["/api/seguridad/roles/{id}/permisos"]?.put?.responses["400"]).toBeDefined();
 
     // Ruta HU-5: usuario-activo (CP-HU5-18)
     expect(spec.paths["/api/seguridad/usuario-activo"]).toBeDefined();

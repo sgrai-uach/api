@@ -62,9 +62,11 @@ El módulo **Seguridad** centraliza la autenticación, perfiles de usuario, role
 
 ## 4. Códigos de Error Esperables no Obvios
 
+- **`400 Bad Request` en `GET /api/seguridad/roles/{id}` y `PUT /api/seguridad/roles/{id}/permisos`**:
+  - El parámetro de ruta `id` no es un UUID válido según el estándar RFC 4122 (ej. `abc` o `123`).
 - **`400 Bad Request` en `PUT /api/seguridad/roles/{id}/permisos`**:
   - El cuerpo de la solicitud no es un JSON válido o no cumple con el esquema `{ "permisoIds": string[] }` (UUIDs RFC 4122 válidos).
-  - Intento de revocar el permiso crítico `seguridad:roles:gestionar` al perfil `'Administrador'`.
+  - Intento de revocar el permiso crítico `seguridad:roles:gestionar` al perfil `'Administrador'` (auto-bloqueo).
   - Uno o más UUIDs en `permisoIds` no existen en la tabla `permiso`.
 - **`401 Unauthorized` en cualquier endpoint del módulo**:
   - Falta la cabecera `X-User-Id` (o `Authorization: Bearer <usuario_id>`).
@@ -89,3 +91,4 @@ El módulo **Seguridad** centraliza la autenticación, perfiles de usuario, role
 - **`sgrai-pwa`**:
   - Consume `GET /api/seguridad/usuario-activo` para resolver los accesos operativos del usuario autenticado en terreno (Patrulla Verificadora, Delegado de Cuadrilla).
 - **Contrato de tipos**: Los frontends ejecutan `openapi-typescript` contra `GET /openapi.json` para derivar automáticamente las interfaces TypeScript sin redactarlas a mano.
+

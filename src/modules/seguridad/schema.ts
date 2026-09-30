@@ -202,6 +202,19 @@ export type ActualizarPermisosRolResponse = z.infer<
 >;
 
 /**
+ * Esquema de validación para el parámetro de ruta 'id' del rol (UUID RFC 4122).
+ */
+export const RolIdParamSchema = z
+  .string()
+  .uuid("El identificador de rol proporcionado no es un UUID válido.")
+  .openapi({
+    description: "UUID del rol/perfil institucional",
+    example: "20000000-0000-4000-8000-000000000001",
+  });
+
+export type RolIdParam = z.infer<typeof RolIdParamSchema>;
+
+/**
  * Esquema del rol asignado al usuario activo en sesión.
  */
 export const UsuarioActivoRolSchema = z

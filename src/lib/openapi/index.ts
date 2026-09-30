@@ -228,6 +228,7 @@ registry.registerPath({
         },
       },
     },
+    400: { description: "Identificador de rol no válido (debe ser UUID)" },
     401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
     403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
     404: { description: "Perfil no encontrado" },
@@ -296,7 +297,7 @@ registry.registerPath({
     },
     400: {
       description:
-        "Payload inválido, permisos inexistentes o intento de revocar permiso crítico al Administrador",
+        "Identificador de rol no válido (debe ser UUID), payload inválido, permisos inexistentes o intento de revocar permiso crítico al Administrador",
     },
     401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
     403: { description: "Acceso denegado. Se requiere perfil de Administrador" },

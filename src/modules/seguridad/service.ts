@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   BadRequestError,
   ForbiddenError,
@@ -32,6 +33,12 @@ export class SeguridadService {
     if (!usuarioId || usuarioId.trim() === "") {
       throw new UnauthorizedError(
         "Cabecera X-User-Id requerida para autenticación."
+      );
+    }
+
+    if (!z.string().uuid().safeParse(usuarioId.trim()).success) {
+      throw new UnauthorizedError(
+        `Usuario con ID '${usuarioId}' no existe o no está registrado en el sistema.`
       );
     }
 
@@ -85,6 +92,12 @@ export class SeguridadService {
     if (!usuarioId || usuarioId.trim() === "") {
       throw new UnauthorizedError(
         "Cabecera X-User-Id requerida para autenticación."
+      );
+    }
+
+    if (!z.string().uuid().safeParse(usuarioId.trim()).success) {
+      throw new UnauthorizedError(
+        `Usuario con ID '${usuarioId}' no existe o no está registrado en el sistema.`
       );
     }
 
