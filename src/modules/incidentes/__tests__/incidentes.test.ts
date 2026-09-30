@@ -218,6 +218,56 @@ describe("Módulo de Incidentes — Lógica de Negocio y Servicio", () => {
     expect(res.aviso.estado).toBe("DESCARTADO");
     expect(res.aviso.motivoDescarte).toBe("Llamada falsa o broma comprobada");
   });
+
+  it("debe listar avisos mapeando delegacionNombre y calculando tiempo de espera y paginación", async () => {
+    const mockRepo = {
+      obtenerAvisosPaginados: vi.fn().mockResolvedValue({
+        rows: [
+          {
+            id: "aviso-1",
+            codigoSeguimiento: "12345678",
+            tipoAfectacion: "Inundación",
+            tipoPreliminarNombre: "Inundación",
+            direccionTexto: "Av. España 1200",
+            descripcion: "Agua en antejardín",
+            latitud: -39.8,
+            longitud: -73.2,
+            informanteNombre: "Vecino",
+            informanteRut: "11111111-1",
+            informanteTelefono: null,
+            origenReporte: "WEB",
+            estado: "PENDIENTE_VERIFICACION",
+            esDuplicado: false,
+            avisoOriginalId: null,
+            motivoDescarte: null,
+            operadorId: null,
+            incidenteId: null,
+            delegacionNombre: "Norte",
+            creadoEn: new Date(Date.now() - 20 * 60 * 1000),
+            actualizadoEn: new Date(),
+          },
+        ],
+        total: 1,
+      }),
+    } as unknown as IncidentesRepository;
+
+    const service = new IncidentesService(mockRepo);
+    const res = await service.listarAvisos({
+      page: 1,
+      limit: 20,
+      estado: "NO_VERIFICADO",
+      delegacion: "Norte",
+    });
+
+    expect(res.message).toBe("Avisos obtenidos exitosamente");
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0].delegacionNombre).toBe("Norte");
+    expect(res.data[0].minutosEnEspera).toBe(20);
+    expect(res.pagination.total).toBe(1);
+    expect(res.pagination.totalPages).toBe(1);
+    expect(res.pagination.hasNext).toBe(false);
+    expect(res.pagination.hasPrev).toBe(false);
+  });
 });
 
 describe("Módulo de Incidentes — Especificación OpenAPI", () => {
