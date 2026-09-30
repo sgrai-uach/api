@@ -92,7 +92,35 @@ export function normalizarTipoAfectacion(valor: unknown): string {
   if (clean.includes("dan") || clean.includes("colapso") || clean.includes("estructur")) {
     return "Daño estructural";
   }
+  if (
+    clean.includes("derrame") ||
+    clean.includes("ambiental") ||
+    clean.includes("quimic") ||
+    clean.includes("gas") ||
+    clean.includes("sustancia")
+  ) {
+    return "Otro";
+  }
   if (clean === "otro" || clean === "otra" || clean === "otros") return "Otro";
+
+  // Si coincide con alguna opción canónica conocida
+  const TIPOS_VALIDOS = [
+    "Anegamiento",
+    "Inundación",
+    "Caída de árbol",
+    "Corte de energía",
+    "Deslizamiento",
+    "Deslizamiento de tierra",
+    "Daño estructural",
+    "Corte de agua potable",
+    "Anegamiento de calzada",
+    "Incendio estructural / forestal",
+    "Incendio",
+    "Otro",
+  ];
+
+  const encontrada = TIPOS_VALIDOS.find((t) => t.toLowerCase() === normalizado.toLowerCase());
+  if (encontrada) return encontrada;
 
   return normalizado;
 }

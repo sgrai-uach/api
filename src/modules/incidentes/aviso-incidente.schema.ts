@@ -99,6 +99,7 @@ export const CrearAvisoIncidenteInputSchema = z.object({
     .min(-180, "La longitud debe estar entre -180 y 180")
     .max(180, "La longitud debe estar entre -180 y 180")
     .optional(),
+  origenReporte: z.string().trim().optional(),
 });
 
 export type CrearAvisoIncidenteInput = z.infer<typeof CrearAvisoIncidenteInputSchema>;

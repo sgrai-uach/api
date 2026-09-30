@@ -8,6 +8,7 @@ import {
   notificarActualizacionSeguimiento,
   notificarIncidenteCreado,
   notificarIncidenteActualizado,
+  emitirNuevoAviso,
 } from "@/lib/socket";
 import {
   DETALLE_ESTADOS_SEGUIMIENTO,
@@ -53,9 +54,40 @@ export async function registrarAvisoDesdeChatbot(
       informante_nombre: input.informanteNombre,
       informante_rut: rutNormalizado,
       informante_telefono: input.informanteTelefono ?? null,
-      estado: duplicadoExistente.estado as EstadoIncidente,
+      origen_reporte: input.origenReporte ?? "CHATBOT",
+      estado: "PENDIENTE_VERIFICACION",
       es_duplicado: true,
       aviso_original_id: duplicadoExistente.id,
+    });
+
+    const fechaCreadoStr =
+      typeof registroDuplicado.creado_en === "string"
+        ? registroDuplicado.creado_en
+        : registroDuplicado.creado_en.toISOString();
+
+    // Notificar en tiempo real a los operadores del Call Center
+    emitirNuevoAviso({
+      id: registroDuplicado.id,
+      codigoSeguimiento: duplicadoExistente.codigo_seguimiento,
+      tipoAfectacion: registroDuplicado.tipo_afectacion,
+      tipoPreliminarNombre: registroDuplicado.tipo_afectacion,
+      direccionTexto: registroDuplicado.direccion_texto,
+      descripcion: registroDuplicado.descripcion,
+      latitud: Number(registroDuplicado.latitud),
+      longitud: Number(registroDuplicado.longitud),
+      informanteNombre: registroDuplicado.informante_nombre,
+      informanteRut: registroDuplicado.informante_rut,
+      informanteTelefono: registroDuplicado.informante_telefono,
+      origenReporte: registroDuplicado.origen_reporte,
+      estado: registroDuplicado.estado,
+      esDuplicado: true,
+      avisoOriginalId: duplicadoExistente.id,
+      motivoDescarte: null,
+      operadorId: null,
+      incidenteId: null,
+      minutosEnEspera: 0,
+      creadoEn: fechaCreadoStr,
+      actualizadoEn: fechaCreadoStr,
     });
 
     return {
@@ -66,11 +98,8 @@ export async function registrarAvisoDesdeChatbot(
         "Este incidente ya ha sido reportado previamente en esta zona. Se ha asociado su reporte al número de seguimiento existente.",
       tipoAfectacion: registroDuplicado.tipo_afectacion,
       direccion: registroDuplicado.direccion_texto,
-      estado: registroDuplicado.estado,
-      creadoEn:
-        typeof registroDuplicado.creado_en === "string"
-          ? registroDuplicado.creado_en
-          : registroDuplicado.creado_en.toISOString(),
+      estado: registroDuplicado.estado === "PENDIENTE_VERIFICACION" ? "REPORTADO" : registroDuplicado.estado,
+      creadoEn: fechaCreadoStr,
       avisoOriginalId: duplicadoExistente.id,
     };
   }
@@ -87,7 +116,8 @@ export async function registrarAvisoDesdeChatbot(
     informante_nombre: input.informanteNombre,
     informante_rut: rutNormalizado,
     informante_telefono: input.informanteTelefono ?? null,
-    estado: "REPORTADO",
+    origen_reporte: input.origenReporte ?? "CHATBOT",
+    estado: "PENDIENTE_VERIFICACION",
     es_duplicado: false,
     aviso_original_id: null,
   });
@@ -97,17 +127,29 @@ export async function registrarAvisoDesdeChatbot(
       ? nuevoRegistro.creado_en
       : nuevoRegistro.creado_en.toISOString();
 
-  // Emisión en tiempo real a la sala de encargados
-  notificarIncidenteCreado({
+  // Notificar en tiempo real a la bandeja de recepción de Call Center
+  emitirNuevoAviso({
     id: nuevoRegistro.id,
-    codigo: nuevoRegistro.codigo,
+    codigoSeguimiento: nuevoRegistro.codigo_seguimiento,
     tipoAfectacion: nuevoRegistro.tipo_afectacion,
-    direccion: nuevoRegistro.direccion_texto,
+    tipoPreliminarNombre: nuevoRegistro.tipo_afectacion,
+    direccionTexto: nuevoRegistro.direccion_texto,
+    descripcion: nuevoRegistro.descripcion,
     latitud: Number(nuevoRegistro.latitud),
     longitud: Number(nuevoRegistro.longitud),
+    informanteNombre: nuevoRegistro.informante_nombre,
+    informanteRut: nuevoRegistro.informante_rut,
+    informanteTelefono: nuevoRegistro.informante_telefono,
+    origenReporte: nuevoRegistro.origen_reporte,
     estado: nuevoRegistro.estado,
-    prioridad: nuevoRegistro.prioridad,
+    esDuplicado: false,
+    avisoOriginalId: null,
+    motivoDescarte: null,
+    operadorId: null,
+    incidenteId: null,
+    minutosEnEspera: 0,
     creadoEn: fechaCreadoStr,
+    actualizadoEn: fechaCreadoStr,
   });
 
   return {
@@ -117,7 +159,7 @@ export async function registrarAvisoDesdeChatbot(
     mensaje: "Aviso de incidente registrado exitosamente. Guarde su número de seguimiento.",
     tipoAfectacion: nuevoRegistro.tipo_afectacion,
     direccion: nuevoRegistro.direccion_texto,
-    estado: nuevoRegistro.estado,
+    estado: nuevoRegistro.estado === "PENDIENTE_VERIFICACION" ? "REPORTADO" : nuevoRegistro.estado,
     creadoEn: fechaCreadoStr,
     avisoOriginalId: null,
   };
