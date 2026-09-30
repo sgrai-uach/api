@@ -74,6 +74,7 @@ export class IncidentesRepository {
             page: filtrosOrPage,
             limit: limitParam || 20,
             estado: (estadoParam as any) || "NO_VERIFICADO",
+            delegacion: undefined,
           }
         : filtrosOrPage;
 
