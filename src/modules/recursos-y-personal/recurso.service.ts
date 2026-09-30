@@ -1,6 +1,6 @@
 import { seguridadService } from "@/modules/seguridad/service";
-import { BadRequestError, NotFoundError } from "@/modules/seguridad/errors";
-import { emitirRecursoActualizado } from "@/lib/socket";
+import { BadRequestError, NotFoundError, ConflictError } from "@/modules/seguridad/errors";
+import { emitirRecursoActualizado, emitirRecursoEliminado } from "@/lib/socket";
 import {
   determinarEstadoRecurso,
   calcularDisponibilidadOperativa,
@@ -12,6 +12,8 @@ import {
   actualizarRecurso,
   listarRecursosPaginados,
   contarRecursos,
+  verificarAsignacionesActivasRecurso,
+  marcarRecursoEliminado,
   type DatosInsertarRecurso,
   type DatosActualizarRecurso,
   type FiltrosListarRecursos,
@@ -21,6 +23,7 @@ import type {
   ActualizarRecursoInput,
   RecursoResponse,
   RecursoDetalleResponse,
+  EliminarRecursoResponse,
   ListarRecursosQuerySchema,
   ListarRecursosPaginadosResponse,
   RecursoItemResponse,
@@ -358,4 +361,58 @@ export async function editarRecurso(
 
   return respuesta;
 }
+
+/**
+ * Da de baja lógica a un recurso del sistema garantizando la preservación del historial (HU-9).
+ */
+export async function eliminarRecurso(
+  id: string,
+  usuarioId?: string | null
+): Promise<EliminarRecursoResponse> {
+  // 1. Validar autenticación y rol de administrador
+  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId);
+
+  // 2. Verificar existencia del recurso activo
+  const recursoExistente = await obtenerRecursoPorId(id);
+  if (!recursoExistente) {
+    throw new NotFoundError(`Recurso con ID '${id}' no encontrado.`);
+  }
+
+  // 3. Validar dependencias operativas activas (unidades en uso o asignado a misiones en curso)
+  const verificacionUso = await verificarAsignacionesActivasRecurso(id);
+  if (verificacionUso.enUso) {
+    throw new ConflictError(
+      verificacionUso.motivo ??
+        `No es posible eliminar el recurso '${recursoExistente.nombre}' porque se encuentra actualmente asignado a una misión activa o cuadrilla en terreno.`
+    );
+  }
+
+  // 4. Aplicar borrado lógico con estampa de auditoría
+  const resultadoEliminacion = await marcarRecursoEliminado(id, usuario.id);
+  if (!resultadoEliminacion) {
+    throw new NotFoundError(`Recurso con ID '${id}' no encontrado o ya fue dado de baja.`);
+  }
+
+  const eliminadoEnStr =
+    typeof resultadoEliminacion.eliminado_en === "string"
+      ? resultadoEliminacion.eliminado_en
+      : (resultadoEliminacion.eliminado_en as Date).toISOString();
+
+  // 5. Emitir evento Socket.io para actualización dinámica en tiempo real
+  emitirRecursoEliminado({
+    id: resultadoEliminacion.id,
+    nombre: resultadoEliminacion.nombre,
+    eliminadoPorId: usuario.id,
+    eliminadoEn: eliminadoEnStr,
+  });
+
+  return {
+    message: "Recurso dado de baja exitosamente del inventario.",
+    id: resultadoEliminacion.id,
+    nombre: resultadoEliminacion.nombre,
+    eliminadoEn: eliminadoEnStr,
+    eliminadoPorId: usuario.id,
+  };
+}
+
 

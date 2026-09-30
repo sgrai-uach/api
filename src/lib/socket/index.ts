@@ -255,5 +255,39 @@ export function emitirRecursoActualizado(recurso: Record<string, unknown>): void
   }
 }
 
+/**
+ * Emite la notificación de recurso eliminado a las vistas de Encargado, Supervisor y Administrador.
+ */
+export function emitirRecursoEliminado(payload: {
+  id: string;
+  nombre: string;
+  eliminadoPorId: string;
+  eliminadoEn: string;
+}): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("recurso:eliminado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("recurso:eliminado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("recurso:eliminado", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "encargado",
+          event: "recurso:eliminado",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
 export * from "./types";
 
