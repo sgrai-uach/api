@@ -18,6 +18,21 @@ export class IncidentesRepository {
     const informanteRut = input.informanteRut || input.datosInformante?.rut || "11111111-1";
     const informanteTelefono = input.informanteTelefono || input.datosInformante?.telefono || null;
 
+    let delegacionId = (input as any).delegacionId ?? null;
+    const delegacionManual = (input as any).delegacion ?? null;
+    if (!delegacionId && direccionTexto) {
+      const dir = direccionTexto.toLowerCase();
+      if (dir.includes("niebla") || dir.includes("molinos") || dir.includes("torobayo")) {
+        delegacionId = "30000000-0000-4000-8000-000000000003"; // Costa
+      } else if (dir.includes("alemania") || dir.includes("ánimas") || dir.includes("animas") || dir.includes("cabo blanco")) {
+        delegacionId = "30000000-0000-4000-8000-000000000001"; // Norte
+      } else if (dir.includes("francia") || dir.includes("simpson") || dir.includes("picarte") || dir.includes("angachilla") || dir.includes("guacamayo") || dir.includes("toribio")) {
+        delegacionId = "30000000-0000-4000-8000-000000000002"; // Sur
+      } else if (dir.includes("collico") || dir.includes("corvi") || dir.includes("balmaceda")) {
+        delegacionId = "30000000-0000-4000-8000-000000000004"; // Calle Calle
+      }
+    }
+
     const res = await db
       .insertInto("aviso_incidente")
       .values({
@@ -35,6 +50,8 @@ export class IncidentesRepository {
         estado: "PENDIENTE_VERIFICACION",
         es_duplicado: false,
         aviso_original_id: null,
+        delegacion_id: delegacionId,
+        delegacion_manual: delegacionManual,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
