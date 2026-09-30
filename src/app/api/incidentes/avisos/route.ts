@@ -23,15 +23,23 @@ export async function GET(request: NextRequest) {
     if (error instanceof ZodError) {
       return NextResponse.json(
         {
+          message: "Parámetros de consulta inválidos",
           error: "Parámetros de consulta inválidos",
           detalles: error.issues,
+          errors: error.issues.map((issue) => ({
+            campo: issue.path.join("."),
+            mensaje: issue.message,
+          })),
         },
         { status: 400 }
       );
     }
     console.error("Error en GET /api/incidentes/avisos:", error);
     return NextResponse.json(
-      { error: "Error interno del servidor al consultar avisos" },
+      {
+        message: "Error interno del servidor al consultar avisos",
+        error: "Error interno del servidor al consultar avisos",
+      },
       { status: 500 }
     );
   }
