@@ -232,9 +232,9 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos",
-  summary: "Listar avisos pendientes para Call Center",
+  summary: "Listar avisos para Call Center con filtros multicriterio",
   description:
-    "Retorna una lista paginada de avisos ordenados por mayor tiempo de espera calculando minutosEnEspera.",
+    "Retorna una lista paginada de avisos ordenados por mayor tiempo de espera calculando minutosEnEspera. Admite filtros combinados por delegación territorial, estado operativo, canal de origen y búsqueda textual libre.",
   tags: ["Incidentes / Avisos"],
   request: {
     query: ListarAvisosQuerySchema,

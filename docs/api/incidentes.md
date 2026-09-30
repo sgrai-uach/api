@@ -17,8 +17,17 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
   - Si la situación fue mitigada satisfactoriamente, culmina en **`RESUELTO`**.
   - Si tras la verificación se constata que no corresponde al ámbito municipal o fue una falsa alarma, se clasifica como **`NO_ABORDABLE`**.
 
-- **Priorización y Tiempos de Espera:**
-  - La consulta de avisos pendientes para el Call Center calcula dinámicamente los minutos en espera para que el frontend resalte los reportes con mayor tiempo sin atención.
+- **Priorización y Tiempos de Espera (HU-52 / HU-54):**
+  - La consulta de avisos para el Call Center calcula dinámicamente los minutos en espera (`minutosEnEspera`) para que el frontend resalte los reportes con mayor tiempo sin atención mediante un semáforo de urgencia (`<15m`, `15-30m`, `>30m`).
+
+- **Filtrado Multicriterio en Bandeja de Call Center (HU-54):**
+  - Admite filtros combinados con lógica conjuntiva (`AND`):
+    - **Delegación Territorial:** `Norte`, `Sur`, `Costa`, `Calle Calle` o `TODAS`. Resuelve tanto delegación asignada formalmente (`delegacion_id`) como manual o inferida por sector, retornando el atributo canónico `delegacionNombre: string | null`. Admite alias como `Calle-Calle`.
+    - **Estado Operativo:** `NO_VERIFICADO` (retorna avisos en `NO_VERIFICADO` y `PENDIENTE_VERIFICACION`), `VERIFICADO`, `DESCARTADO` o `TODOS` (omite filtro).
+    - **Canal de Origen:** `WEB`, `CHATBOT`, `TELEFONO`.
+    - **Búsqueda Textual:** Coincidencia libre parcial insensitiva (`busqueda` o `q`) sobre dirección, descripción, nombre de informante o código de seguimiento.
+  - Metadatos de paginación (`total`, `totalPages`, `hasNext`, `hasPrev`) reflejan con precisión los filtros aplicados.
+  - Respuestas vacías retornan `200 OK` con `data: []` y `total: 0`.
 
 - **Descarte Justificado:**
   - Todo descarte de un aviso exige obligatoriamente un motivo justificado de al menos 5 caracteres.
@@ -36,7 +45,7 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 
 | Método | Endpoint | Permiso Requerido | Propósito |
 |---|---|---|---|
-| `GET` | `/api/incidentes/avisos` | Call Center / Admin | Listar avisos paginados pendientes de revisión para el Call Center. |
+| `GET` | `/api/incidentes/avisos` | Call Center / Admin | Listar avisos paginados con soporte multicriterio (delegación, estado, canal, búsqueda) y cálculo de tiempos de espera para el Call Center. |
 | `POST` | `/api/incidentes/avisos` | Público | Registrar reporte ciudadano (Chatbot o Web) con código de seguimiento numérico. |
 | `GET` | `/api/incidentes/avisos/{id}` | Call Center / Admin | Obtener el detalle completo de un aviso para su evaluación. |
 | `POST` | `/api/incidentes/avisos/{id}/verificar` | `incidentes:avisos:verificar` | Verificar y promover un aviso preliminar a incidente formal ICS (`REPORTADO`). |
