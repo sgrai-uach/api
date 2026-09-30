@@ -1,16 +1,21 @@
 import { z } from "zod";
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
-import { validarRutChileno } from "./aviso-incidente.utils";
+import { validarRutChileno, normalizarTipoAfectacion } from "./aviso-incidente.utils";
 
 extendZodWithOpenApi(z);
 
 export const TIPOS_AFECTACION = [
   "Anegamiento",
+  "Inundación",
   "Caída de árbol",
   "Corte de energía",
   "Deslizamiento",
+  "Deslizamiento de tierra",
   "Daño estructural",
   "Corte de agua potable",
+  "Anegamiento de calzada",
+  "Incendio estructural / forestal",
+  "Incendio",
   "Otro",
 ] as const;
 
@@ -64,7 +69,10 @@ export const DETALLE_ESTADOS_SEGUIMIENTO: Record<
 } as const;
 
 export const CrearAvisoIncidenteInputSchema = z.object({
-  tipoAfectacion: TipoAfectacionEnum,
+  tipoAfectacion: z.preprocess(
+    (val) => normalizarTipoAfectacion(val),
+    TipoAfectacionEnum
+  ),
   direccion: z
     .string()
     .trim()
