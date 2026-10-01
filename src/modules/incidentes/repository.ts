@@ -1,6 +1,10 @@
 import { sql } from "kysely";
 import { db } from "../../lib/db";
-import type { CrearAvisoInput, VerificarAvisoInput } from "./schema";
+import type {
+  CrearAvisoInput,
+  ListarAvisosQuery,
+  VerificarAvisoInput,
+} from "./schema";
 
 export class IncidentesRepository {
   /**
@@ -13,6 +17,21 @@ export class IncidentesRepository {
     const informanteNombre = input.informanteNombre || input.datosInformante?.nombre || "Vecino Valdivia";
     const informanteRut = input.informanteRut || input.datosInformante?.rut || "11111111-1";
     const informanteTelefono = input.informanteTelefono || input.datosInformante?.telefono || null;
+
+    let delegacionId = input.delegacionId ?? null;
+    const delegacionManual = input.delegacion ?? null;
+    if (!delegacionId && direccionTexto) {
+      const dir = direccionTexto.toLowerCase();
+      if (dir.includes("niebla") || dir.includes("molinos") || dir.includes("torobayo")) {
+        delegacionId = "30000000-0000-4000-8000-000000000003"; // Costa
+      } else if (dir.includes("alemania") || dir.includes("ánimas") || dir.includes("animas") || dir.includes("cabo blanco")) {
+        delegacionId = "30000000-0000-4000-8000-000000000001"; // Norte
+      } else if (dir.includes("francia") || dir.includes("simpson") || dir.includes("picarte") || dir.includes("angachilla") || dir.includes("guacamayo") || dir.includes("toribio")) {
+        delegacionId = "30000000-0000-4000-8000-000000000002"; // Sur
+      } else if (dir.includes("collico") || dir.includes("corvi") || dir.includes("balmaceda")) {
+        delegacionId = "30000000-0000-4000-8000-000000000004"; // Calle Calle
+      }
+    }
 
     const res = await db
       .insertInto("aviso_incidente")
@@ -31,6 +50,8 @@ export class IncidentesRepository {
         estado: "PENDIENTE_VERIFICACION",
         es_duplicado: false,
         aviso_original_id: null,
+        delegacion_id: delegacionId,
+        delegacion_manual: delegacionManual,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -39,51 +60,124 @@ export class IncidentesRepository {
   }
 
   /**
-   * Obtiene la lista paginada de avisos ordenados por fecha de creación ascendente
-   * (destacando los que llevan más tiempo esperando revisión).
+   * Obtiene la lista paginada de avisos ordenados por mayor tiempo de espera
+   * aplicando filtros multicriterio (delegación, estado, búsqueda y canal de origen).
    */
-  async obtenerAvisosPaginados(page: number, limit: number, estado: string) {
+  async obtenerAvisosPaginados(
+    filtrosOrPage: ListarAvisosQuery | number,
+    limitParam?: number,
+    estadoParam?: string
+  ) {
+    const filtros: ListarAvisosQuery =
+      typeof filtrosOrPage === "number"
+        ? {
+            page: filtrosOrPage,
+            limit: limitParam || 20,
+            estado: (estadoParam as ListarAvisosQuery["estado"]) || "NO_VERIFICADO",
+            delegacion: undefined,
+          }
+        : filtrosOrPage;
+
+    const page = filtros.page || 1;
+    const limit = filtros.limit || 20;
     const offset = (page - 1) * limit;
-    const estadoNormalizado = estado === "NO_VERIFICADO" ? "PENDIENTE_VERIFICACION" : estado;
+    const estado = filtros.estado;
+    const delegacion = filtros.delegacion;
+    const terminoBusqueda = filtros.busqueda || filtros.q;
+    const origen = filtros.origen;
 
-    const baseQuery = db
-      .selectFrom("aviso_incidente")
-      .where("aviso_incidente.estado", "=", estadoNormalizado as "PENDIENTE_VERIFICACION" | "VERIFICADO" | "DESCARTADO");
+    let baseQuery = db
+      .selectFrom("aviso_incidente as a")
+      .leftJoin("delegacion as d", "a.delegacion_id", "d.id");
 
-    // Conteo total de registros con el filtro dado
+    // 1. Filtro condicional por Estado
+    if (estado && estado !== "TODOS") {
+      if (estado === "NO_VERIFICADO") {
+        baseQuery = baseQuery.where((eb) =>
+          eb.or([
+            eb("a.estado", "=", "NO_VERIFICADO"),
+            eb("a.estado", "=", "PENDIENTE_VERIFICACION"),
+          ])
+        );
+      } else {
+        baseQuery = baseQuery.where("a.estado", "=", estado);
+      }
+    }
+
+    // 2. Filtro condicional por Delegación Territorial
+    if (delegacion && delegacion !== "TODAS") {
+      const normDelegacion = delegacion.toLowerCase();
+      baseQuery = baseQuery.where((eb) =>
+        eb.or([
+          eb("d.nombre", "=", delegacion),
+          eb(sql`LOWER(d.nombre)`, "like", `%${normDelegacion}%`),
+          eb("a.delegacion_manual", "=", delegacion),
+          eb(sql`LOWER(a.delegacion_manual)`, "like", `%${normDelegacion}%`),
+        ])
+      );
+    }
+
+    // 3. Filtro condicional por Canal de Origen
+    if (origen) {
+      baseQuery = baseQuery.where("a.origen_reporte", "=", origen);
+    }
+
+    // 4. Filtro condicional por Búsqueda Textual (q / busqueda)
+    if (terminoBusqueda && terminoBusqueda.trim() !== "") {
+      const sanitized = terminoBusqueda.trim().toLowerCase().replace(/([%_\\])/g, "\\$1");
+      const pattern = `%${sanitized}%`;
+      baseQuery = baseQuery.where((eb) =>
+        eb.or([
+          eb(sql`LOWER(a.descripcion)`, "like", pattern),
+          eb(sql`LOWER(a.direccion_texto)`, "like", pattern),
+          eb(sql`LOWER(a.informante_nombre)`, "like", pattern),
+          eb(sql`LOWER(a.codigo_seguimiento)`, "like", pattern),
+        ])
+      );
+    }
+
+    // Conteo total coherente con los mismos filtros
     const totalResult = await baseQuery
-      .select(sql<string | number>`count(*)`.as("count"))
+      .select(sql<number>`count(a.id)::int`.as("total"))
       .executeTakeFirst();
 
-    const total = Number(totalResult?.count || 0);
+    const total = Number(totalResult?.total || 0);
 
-    // Consulta de datos
-    const rows = await db
-      .selectFrom("aviso_incidente")
-      .where("aviso_incidente.estado", "=", estadoNormalizado as "PENDIENTE_VERIFICACION" | "VERIFICADO" | "DESCARTADO")
+    // Consulta de registros ordenados por antigüedad (creado_en asc = mayor tiempo de espera)
+    const rows = await baseQuery
       .select([
-        "aviso_incidente.id",
-        "aviso_incidente.codigo_seguimiento as codigoSeguimiento",
-        "aviso_incidente.tipo_afectacion as tipoAfectacion",
-        "aviso_incidente.tipo_afectacion as tipoPreliminarNombre",
-        "aviso_incidente.direccion_texto as direccionTexto",
-        "aviso_incidente.descripcion",
-        "aviso_incidente.latitud",
-        "aviso_incidente.longitud",
-        "aviso_incidente.informante_nombre as informanteNombre",
-        "aviso_incidente.informante_rut as informanteRut",
-        "aviso_incidente.informante_telefono as informanteTelefono",
-        "aviso_incidente.origen_reporte as origenReporte",
-        "aviso_incidente.estado",
-        "aviso_incidente.es_duplicado as esDuplicado",
-        "aviso_incidente.aviso_original_id as avisoOriginalId",
-        "aviso_incidente.motivo_descarte as motivoDescarte",
-        "aviso_incidente.operador_id as operadorId",
-        "aviso_incidente.incidente_id as incidenteId",
-        "aviso_incidente.creado_en as creadoEn",
-        "aviso_incidente.actualizado_en as actualizadoEn",
+        "a.id",
+        "a.codigo_seguimiento as codigoSeguimiento",
+        "a.tipo_afectacion as tipoAfectacion",
+        "a.tipo_afectacion as tipoPreliminarNombre",
+        "a.direccion_texto as direccionTexto",
+        "a.descripcion",
+        "a.latitud",
+        "a.longitud",
+        "a.informante_nombre as informanteNombre",
+        "a.informante_rut as informanteRut",
+        "a.informante_telefono as informanteTelefono",
+        "a.origen_reporte as origenReporte",
+        "a.estado",
+        "a.es_duplicado as esDuplicado",
+        "a.aviso_original_id as avisoOriginalId",
+        "a.motivo_descarte as motivoDescarte",
+        "a.operador_id as operadorId",
+        "a.incidente_id as incidenteId",
+        "a.creado_en as creadoEn",
+        "a.actualizado_en as actualizadoEn",
+        // Delegación canónica resuelta
+        sql<string | null>`
+          CASE
+            WHEN COALESCE(d.nombre, a.delegacion_manual) ILIKE '%norte%' THEN 'Norte'
+            WHEN COALESCE(d.nombre, a.delegacion_manual) ILIKE '%sur%' THEN 'Sur'
+            WHEN COALESCE(d.nombre, a.delegacion_manual) ILIKE '%costa%' THEN 'Costa'
+            WHEN COALESCE(d.nombre, a.delegacion_manual) ILIKE '%calle%calle%' THEN 'Calle Calle'
+            ELSE COALESCE(d.nombre, a.delegacion_manual)
+          END
+        `.as("delegacionNombre"),
       ])
-      .orderBy("aviso_incidente.creado_en", "asc")
+      .orderBy("a.creado_en", "asc")
       .limit(limit)
       .offset(offset)
       .execute();
@@ -97,6 +191,7 @@ export class IncidentesRepository {
   async obtenerAvisoPorId(id: string) {
     const aviso = await db
       .selectFrom("aviso_incidente")
+      .leftJoin("delegacion as d", "aviso_incidente.delegacion_id", "d.id")
       .where("aviso_incidente.id", "=", id)
       .select([
         "aviso_incidente.id",
@@ -119,6 +214,15 @@ export class IncidentesRepository {
         "aviso_incidente.incidente_id as incidenteId",
         "aviso_incidente.creado_en as creadoEn",
         "aviso_incidente.actualizado_en as actualizadoEn",
+        sql<string | null>`
+          CASE
+            WHEN COALESCE(d.nombre, aviso_incidente.delegacion_manual) ILIKE '%norte%' THEN 'Norte'
+            WHEN COALESCE(d.nombre, aviso_incidente.delegacion_manual) ILIKE '%sur%' THEN 'Sur'
+            WHEN COALESCE(d.nombre, aviso_incidente.delegacion_manual) ILIKE '%costa%' THEN 'Costa'
+            WHEN COALESCE(d.nombre, aviso_incidente.delegacion_manual) ILIKE '%calle%calle%' THEN 'Calle Calle'
+            ELSE COALESCE(d.nombre, aviso_incidente.delegacion_manual)
+          END
+        `.as("delegacionNombre"),
       ])
       .executeTakeFirst();
 

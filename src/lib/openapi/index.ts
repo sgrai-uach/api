@@ -26,7 +26,10 @@ import {
 
 import {
   CrearRecursoInputSchema,
+  ActualizarRecursoInputSchema,
   RecursoResponseSchema,
+  RecursoDetalleResponseSchema,
+  RecursoIdParamSchema,
   ListarRecursosQuerySchema,
   ListarRecursosPaginadosResponseSchema,
 } from "@/modules/recursos-y-personal/recurso.schema";
@@ -62,7 +65,9 @@ export const registry = new OpenAPIRegistry();
 
 // Registrar esquemas de Recursos y Personal
 registry.register("CrearRecursoInput", CrearRecursoInputSchema);
+registry.register("ActualizarRecursoInput", ActualizarRecursoInputSchema);
 registry.register("RecursoResponse", RecursoResponseSchema);
+registry.register("RecursoDetalleResponse", RecursoDetalleResponseSchema);
 registry.register("ListarRecursosPaginadosResponse", ListarRecursosPaginadosResponseSchema);
 registry.register("ModificarEmpleadoInput", ModificarEmpleadoSchema);
 registry.register("EmpleadoConsolidado", EmpleadoConsolidadoSchema);
@@ -341,11 +346,14 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos",
-  summary: "Listar avisos pendientes para Call Center",
+  summary: "Listar avisos para Call Center con filtros multicriterio",
   description:
-    "Retorna una lista paginada de avisos ordenados por mayor tiempo de espera calculando minutosEnEspera.",
+    "Retorna una lista paginada de avisos ordenados por mayor tiempo de espera calculando minutosEnEspera. Admite filtros combinados por delegación territorial, estado operativo, canal de origen y búsqueda textual libre.",
   tags: ["Incidentes / Avisos"],
   request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del usuario autenticado (Call Center o Administrador)"),
+    }),
     query: ListarAvisosQuerySchema,
   },
   responses: {
@@ -358,6 +366,8 @@ registry.registerPath({
       },
     },
     400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
+    403: { description: "Acceso denegado. Permiso 'incidentes:avisos:leer' requerido" },
   },
 });
 
@@ -782,6 +792,104 @@ registry.registerPath({
       },
     },
     500: { description: "Error interno del servidor" },
+  },
+});
+
+// 19. GET /api/recursos/{id} (HU-8)
+registry.registerPath({
+  method: "get",
+  path: "/api/recursos/{id}",
+  summary: "Obtener detalle completo de un recurso logístico",
+  description:
+    "Retorna la información completa pre-cargada de un recurso (cantidades, disponibilidad operativa, delegación territorial y auditoría) para alimentar el formulario de edición. Accesible por perfil de Administrador.",
+  tags: ["Recursos y Personal"],
+  request: {
+    params: RecursoIdParamSchema,
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle completo del recurso",
+      content: {
+        "application/json": {
+          schema: RecursoDetalleResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de recurso inválido",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    404: {
+      description: "Recurso no encontrado",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 20. PUT /api/recursos/{id} (HU-8)
+registry.registerPath({
+  method: "put",
+  path: "/api/recursos/{id}",
+  summary: "Editar características de un recurso logístico",
+  description:
+    "Modifica inventario físico, ubicación geográfica, detalles técnicos y estado operativo del recurso. Notifica en tiempo real vía WebSockets (Socket.io) a las salas de Encargado y Supervisor. Mantiene inmutable el tipo de recurso (esIndividual).",
+  tags: ["Recursos y Personal"],
+  request: {
+    params: RecursoIdParamSchema,
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: ActualizarRecursoInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Recurso actualizado exitosamente",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+            data: RecursoDetalleResponseSchema,
+          }),
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos o inventario menor a unidades en uso en terreno",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    404: {
+      description: "Recurso no encontrado",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
   },
 });
 

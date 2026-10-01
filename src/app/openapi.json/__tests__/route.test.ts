@@ -15,6 +15,9 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/recursos"]).toBeDefined();
     expect(spec.paths["/api/recursos"].post).toBeDefined();
     expect(spec.paths["/api/recursos"].get).toBeDefined();
+    expect(spec.paths["/api/recursos/{id}"]).toBeDefined();
+    expect(spec.paths["/api/recursos/{id}"].get).toBeDefined();
+    expect(spec.paths["/api/recursos/{id}"].put).toBeDefined();
 
     // Rutas de Incidentes
     expect(spec.paths["/api/incidentes/manual"]).toBeDefined();
@@ -46,3 +49,4 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/seguridad/usuario-activo"].get).toBeDefined();
   });
 });
+
