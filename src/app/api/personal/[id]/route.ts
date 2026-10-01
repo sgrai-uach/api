@@ -10,7 +10,12 @@ import {
   RolNotFoundError,
   DelegacionNotFoundError,
 } from "@/modules/recursos-y-personal/services/actualizar-empleado.service";
-import { eliminarEmpleadoLogico } from "@/modules/recursos-y-personal/services/eliminar-empleado.service";
+import {
+  eliminarEmpleadoLogico,
+  EmpleadoEnMisionActivaError,
+} from "@/modules/recursos-y-personal/services/eliminar-empleado.service";
+import { verificarAdministrador } from "@/modules/seguridad/auth.guard";
+import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -171,6 +176,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
  */
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    const usuarioAutenticado = await verificarAdministrador(request);
+
     const { id } = await params;
 
     if (!id) {
@@ -180,8 +187,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const modificadoPorId = request.headers.get("x-user-id");
-    const resultado = await eliminarEmpleadoLogico(id, modificadoPorId);
+    const resultado = await eliminarEmpleadoLogico(id, usuarioAutenticado.id);
 
     return NextResponse.json({
       message: "Empleado dado de baja exitosamente",
@@ -189,10 +195,31 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       data: resultado,
     });
   } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json(
+        { error: error.message, message: error.message },
+        { status: 401 }
+      );
+    }
+
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json(
+        { error: error.message, message: error.message },
+        { status: 403 }
+      );
+    }
+
     if (error instanceof EmpleadoNotFoundError) {
       return NextResponse.json(
         { error: error.message, message: error.message },
         { status: 404 }
+      );
+    }
+
+    if (error instanceof EmpleadoEnMisionActivaError) {
+      return NextResponse.json(
+        { error: error.message, message: error.message },
+        { status: 409 }
       );
     }
 

@@ -111,3 +111,149 @@ describe("PATCH /api/personal/[id] (HU-12)", () => {
     expect(body.data.nombres).toBe("Juan");
   });
 });
+
+describe("DELETE /api/personal/[id] (HU-13)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("retorna 401 si falta cabecera de autenticación x-user-id", async () => {
+    const { DELETE } = await import("../route");
+    const req = new NextRequest("http://localhost:3000/api/personal/00000000-0000-4000-8000-000000000001", {
+      method: "DELETE",
+    });
+
+    const res = await DELETE(req, {
+      params: Promise.resolve({ id: "00000000-0000-4000-8000-000000000001" }),
+    });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("retorna 403 si el usuario que ejecuta no es Administrador", async () => {
+    const authGuard = await import("@/modules/seguridad/auth.guard");
+    const { ForbiddenError } = await import("@/modules/seguridad/errors");
+    vi.spyOn(authGuard, "verificarAdministrador").mockRejectedValueOnce(
+      new ForbiddenError("Acceso denegado. Se requiere perfil de Administrador.")
+    );
+
+    const { DELETE } = await import("../route");
+    const req = new NextRequest("http://localhost:3000/api/personal/00000000-0000-4000-8000-000000000001", {
+      method: "DELETE",
+      headers: { "x-user-id": "operador-callcenter" },
+    });
+
+    const res = await DELETE(req, {
+      params: Promise.resolve({ id: "00000000-0000-4000-8000-000000000001" }),
+    });
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain("Acceso denegado");
+  });
+
+  it("retorna 404 si el empleado a dar de baja no existe", async () => {
+    const authGuard = await import("@/modules/seguridad/auth.guard");
+    vi.spyOn(authGuard, "verificarAdministrador").mockResolvedValueOnce({
+      id: "admin-id",
+      rut: "11.111.111-1",
+      nombre: "Administrador General",
+      email: "admin@valdivia.cl",
+      rolId: "admin-rol",
+      rolNombre: "Administrador",
+      activo: true,
+    });
+
+    const eliminarService = await import(
+      "@/modules/recursos-y-personal/services/eliminar-empleado.service"
+    );
+    vi.spyOn(eliminarService, "eliminarEmpleadoLogico").mockRejectedValueOnce(
+      new actualizarEmpleadoService.EmpleadoNotFoundError("Empleado no encontrado para dar de baja")
+    );
+
+    const { DELETE } = await import("../route");
+    const req = new NextRequest("http://localhost:3000/api/personal/00000000-0000-4000-8000-000000000099", {
+      method: "DELETE",
+      headers: { "x-user-id": "admin-id" },
+    });
+
+    const res = await DELETE(req, {
+      params: Promise.resolve({ id: "00000000-0000-4000-8000-000000000099" }),
+    });
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toContain("Empleado no encontrado");
+  });
+
+  it("retorna 409 si el empleado se encuentra en una misión o patrulla activa", async () => {
+    const authGuard = await import("@/modules/seguridad/auth.guard");
+    vi.spyOn(authGuard, "verificarAdministrador").mockResolvedValueOnce({
+      id: "admin-id",
+      rut: "11.111.111-1",
+      nombre: "Administrador General",
+      email: "admin@valdivia.cl",
+      rolId: "admin-rol",
+      rolNombre: "Administrador",
+      activo: true,
+    });
+
+    const eliminarService = await import(
+      "@/modules/recursos-y-personal/services/eliminar-empleado.service"
+    );
+    vi.spyOn(eliminarService, "eliminarEmpleadoLogico").mockRejectedValueOnce(
+      new eliminarService.EmpleadoEnMisionActivaError("El empleado se encuentra en terreno")
+    );
+
+    const { DELETE } = await import("../route");
+    const req = new NextRequest("http://localhost:3000/api/personal/00000000-0000-4000-8000-000000000001", {
+      method: "DELETE",
+      headers: { "x-user-id": "admin-id" },
+    });
+
+    const res = await DELETE(req, {
+      params: Promise.resolve({ id: "00000000-0000-4000-8000-000000000001" }),
+    });
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain("El empleado se encuentra en terreno");
+  });
+
+  it("retorna 200 y confirma la baja lógica si el usuario es administrador y no hay conflictos", async () => {
+    const authGuard = await import("@/modules/seguridad/auth.guard");
+    vi.spyOn(authGuard, "verificarAdministrador").mockResolvedValueOnce({
+      id: "admin-id",
+      rut: "11.111.111-1",
+      nombre: "Administrador General",
+      email: "admin@valdivia.cl",
+      rolId: "admin-rol",
+      rolNombre: "Administrador",
+      activo: true,
+    });
+
+    const eliminarService = await import(
+      "@/modules/recursos-y-personal/services/eliminar-empleado.service"
+    );
+    vi.spyOn(eliminarService, "eliminarEmpleadoLogico").mockResolvedValueOnce({
+      usuario_id: "00000000-0000-4000-8000-000000000001",
+      activo: false,
+      fecha_salida: "2026-10-01",
+    });
+
+    const { DELETE } = await import("../route");
+    const req = new NextRequest("http://localhost:3000/api/personal/00000000-0000-4000-8000-000000000001", {
+      method: "DELETE",
+      headers: { "x-user-id": "admin-id" },
+    });
+
+    const res = await DELETE(req, {
+      params: Promise.resolve({ id: "00000000-0000-4000-8000-000000000001" }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.mensaje).toBe("Empleado dado de baja exitosamente");
+    expect(body.data.activo).toBe(false);
+  });
+});

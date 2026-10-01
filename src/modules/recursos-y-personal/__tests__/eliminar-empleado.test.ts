@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { eliminarEmpleadoLogico } from "../services/eliminar-empleado.service";
+import {
+  eliminarEmpleadoLogico,
+  EmpleadoEnMisionActivaError,
+} from "../services/eliminar-empleado.service";
 import { EmpleadoNotFoundError } from "../services/actualizar-empleado.service";
 import { db } from "@/lib/db";
 
@@ -44,7 +47,93 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
     ).rejects.toThrow(EmpleadoNotFoundError);
   });
 
-  it("da de baja exitosamente a un usuario sin ficha de personal", async () => {
+  it("lanza EmpleadoEnMisionActivaError si el empleado tiene estado operativo en_mision", async () => {
+    const mockTrx = {
+      selectFrom: vi.fn().mockImplementation((table: string) => {
+        if (table === "personal") {
+          return {
+            selectAll: () => ({
+              where: () => ({
+                executeTakeFirst: vi.fn().mockResolvedValue({
+                  id: "personal-456",
+                  usuario_id: "usuario-123",
+                  estado_operativo: "en_mision",
+                  disponible_terreno: false,
+                }),
+              }),
+            }),
+          };
+        }
+        return {};
+      }),
+    };
+
+    (db.transaction as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      execute: vi.fn().mockImplementation(async (callback) => {
+        return callback(mockTrx);
+      }),
+    });
+
+    await expect(eliminarEmpleadoLogico("personal-456")).rejects.toThrow(
+      EmpleadoEnMisionActivaError
+    );
+  });
+
+  it("lanza EmpleadoEnMisionActivaError si el usuario es delegado de cuadrilla activa en mision", async () => {
+    const mockTrx = {
+      selectFrom: vi.fn().mockImplementation((table: string) => {
+        if (table === "personal") {
+          return {
+            selectAll: () => ({
+              where: () => ({
+                executeTakeFirst: vi.fn().mockResolvedValue(null),
+              }),
+            }),
+          };
+        }
+        if (table === "usuarios") {
+          return {
+            select: () => ({
+              where: () => ({
+                executeTakeFirst: vi.fn().mockResolvedValue({
+                  id: "usuario-123",
+                  activo: true,
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === "cuadrilla") {
+          return {
+            select: () => ({
+              where: (col: string, op: string, val: string) => ({
+                where: () => ({
+                  executeTakeFirst: vi.fn().mockResolvedValue({
+                    id: "cuadrilla-1",
+                    nombre: "Cuadrilla Alfa",
+                    estado: "EN_MISION",
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+        return {};
+      }),
+    };
+
+    (db.transaction as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      execute: vi.fn().mockImplementation(async (callback) => {
+        return callback(mockTrx);
+      }),
+    });
+
+    await expect(eliminarEmpleadoLogico("usuario-123")).rejects.toThrow(
+      EmpleadoEnMisionActivaError
+    );
+  });
+
+  it("da de baja exitosamente a un usuario sin ficha de personal ni misiones activas", async () => {
     const updateExecute = vi.fn().mockResolvedValue([]);
     const insertExecute = vi.fn().mockResolvedValue([]);
 
@@ -67,6 +156,17 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
                   id: "usuario-123",
                   activo: true,
                   fecha_salida: null,
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === "cuadrilla" || table === "patrulla_verificadora") {
+          return {
+            select: () => ({
+              where: () => ({
+                where: () => ({
+                  executeTakeFirst: vi.fn().mockResolvedValue(null),
                 }),
               }),
             }),
@@ -103,7 +203,7 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
     expect(insertExecute).toHaveBeenCalledTimes(1);
   });
 
-  it("desactiva tanto el usuario como la ficha de personal cuando el empleado es operativo", async () => {
+  it("desactiva tanto el usuario como la ficha de personal cuando el empleado es operativo disponible", async () => {
     const updatePersonalExecute = vi.fn().mockResolvedValue([]);
     const updateUsuarioExecute = vi.fn().mockResolvedValue([]);
     const insertAuditExecute = vi.fn().mockResolvedValue([]);
@@ -131,6 +231,17 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
               where: () => ({
                 executeTakeFirst: vi.fn().mockResolvedValue({
                   fecha_salida: "2026-05-01",
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === "cuadrilla" || table === "patrulla_verificadora") {
+          return {
+            select: () => ({
+              where: () => ({
+                where: () => ({
+                  executeTakeFirst: vi.fn().mockResolvedValue(null),
                 }),
               }),
             }),
