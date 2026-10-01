@@ -1,5 +1,6 @@
 import * as path from "path";
 import { promises as fs } from "fs";
+import { pathToFileURL } from "url";
 import { Migrator, FileMigrationProvider, type MigrationResult } from "kysely/migration";
 import { db } from "./index";
 
@@ -15,6 +16,7 @@ export async function migrateToLatest() {
       fs,
       path,
       migrationFolder: path.join(__dirname, "migrations"),
+      import: (filePath) => import(pathToFileURL(filePath).href),
     }),
   });
 

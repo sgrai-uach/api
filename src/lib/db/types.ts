@@ -22,6 +22,7 @@ export interface RecursoTable {
   detalles: ColumnType<Record<string, unknown>, Record<string, unknown> | undefined, Record<string, unknown>>;
   delegacion_id?: string | null;
   creado_por_id: string;
+  actualizado_por_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }
@@ -312,6 +313,8 @@ export interface AvisoIncidenteTable {
   motivo_descarte: string | null;
   operador_id: string | null;
   incidente_id: string | null;
+  delegacion_id?: string | null;
+  delegacion_manual?: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }
