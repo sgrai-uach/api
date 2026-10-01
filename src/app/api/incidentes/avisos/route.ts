@@ -7,10 +7,10 @@ import {
   ListarAvisosQuerySchema,
 } from "@/modules/incidentes/schema";
 import { incidentesService } from "@/modules/incidentes/service";
-
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
-import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
+import { PERMISO_LISTAR_AVISOS } from "@/modules/seguridad/permisos.constants";
+import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/errors";
 
 /**
  * GET /api/incidentes/avisos
@@ -19,7 +19,7 @@ import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
 export async function GET(request: NextRequest) {
   try {
     const usuarioId = await extraerUsuarioId(request);
-    await verificarPermiso(usuarioId, "incidentes:avisos:leer");
+    await verificarPermiso(usuarioId, PERMISO_LISTAR_AVISOS);
 
     const searchParams = Object.fromEntries(request.nextUrl.searchParams);
     const parsedQuery = ListarAvisosQuerySchema.parse(searchParams);
@@ -28,23 +28,37 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(resultado, { status: 200 });
   } catch (error: unknown) {
     if (error instanceof UnauthorizedError) {
-      return NextResponse.json({ error: error.message }, { status: 401 });
+      return NextResponse.json(
+        { message: error.message, error: error.message },
+        { status: 401 }
+      );
     }
     if (error instanceof ForbiddenError) {
-      return NextResponse.json({ error: error.message }, { status: 403 });
+      return NextResponse.json(
+        { message: error.message, error: error.message },
+        { status: 403 }
+      );
     }
     if (error instanceof ZodError) {
       return NextResponse.json(
         {
+          message: "Parámetros de consulta inválidos",
           error: "Parámetros de consulta inválidos",
           detalles: error.issues,
+          errors: error.issues.map((issue) => ({
+            campo: issue.path.join("."),
+            mensaje: issue.message,
+          })),
         },
         { status: 400 }
       );
     }
     console.error("Error en GET /api/incidentes/avisos:", error);
     return NextResponse.json(
-      { error: "Error interno del servidor al consultar avisos" },
+      {
+        message: "Error interno del servidor al consultar avisos",
+        error: "Error interno del servidor al consultar avisos",
+      },
       { status: 500 }
     );
   }

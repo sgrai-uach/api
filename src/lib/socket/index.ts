@@ -226,4 +226,34 @@ export function emitirAvisoDescartado(payload: {
   emitirEvento("call-center", "aviso:descartado", payload);
 }
 
+/**
+ * Emite la notificación de recurso actualizado a las vistas de Encargado y Supervisor.
+ */
+export function emitirRecursoActualizado(recurso: Record<string, unknown>): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("recurso:actualizado", recurso);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("recurso:actualizado", recurso);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("recurso:actualizado", recurso);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "encargado",
+          event: "recurso:actualizado",
+          payload: recurso,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
 export * from "./types";
+
