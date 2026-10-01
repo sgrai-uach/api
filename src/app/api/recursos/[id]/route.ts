@@ -14,20 +14,10 @@ import {
   BadRequestError,
   ConflictError,
 } from "@/modules/seguridad/errors";
+import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
-}
-
-function extraerUsuarioId(req: NextRequest): string | null {
-  let usuarioId = req.headers.get("x-user-id");
-  if (!usuarioId) {
-    const auth = req.headers.get("authorization");
-    if (auth && auth.toLowerCase().startsWith("bearer ")) {
-      usuarioId = auth.substring(7).trim();
-    }
-  }
-  return usuarioId;
 }
 
 /**
@@ -36,7 +26,7 @@ function extraerUsuarioId(req: NextRequest): string | null {
  */
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const usuarioId = extraerUsuarioId(req);
+    const usuarioId = await extraerUsuarioId(req);
     const { id } = await context.params;
 
     const validacionId = RecursoIdParamSchema.safeParse({ id });
@@ -84,7 +74,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
  */
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const usuarioId = extraerUsuarioId(req);
+    const usuarioId = await extraerUsuarioId(req);
     const { id } = await context.params;
 
     const validacionId = RecursoIdParamSchema.safeParse({ id });

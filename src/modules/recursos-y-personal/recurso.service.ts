@@ -1,5 +1,9 @@
 import { seguridadService } from "@/modules/seguridad/service";
-import { PERMISO_LEER_RECURSO, PERMISO_CREAR_RECURSO } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_LEER_RECURSO,
+  PERMISO_CREAR_RECURSO,
+  PERMISO_EDITAR_RECURSO,
+} from "@/modules/seguridad/permisos.constants";
 import { BadRequestError, NotFoundError } from "@/modules/seguridad/errors";
 import { emitirRecursoActualizado } from "@/lib/socket";
 import {
@@ -193,8 +197,8 @@ export async function obtenerRecursoDetalle(
   id: string,
   usuarioId?: string | null
 ): Promise<RecursoDetalleResponse> {
-  // 1. Validar autenticación de administrador
-  await seguridadService.validarAccesoAdministrador(usuarioId);
+  // 1. Validar autorización RBAC (requiere permiso recursos:leer o rol Administrador)
+  await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_LEER_RECURSO]);
 
   // 2. Obtener recurso desde BD
   const fila = await obtenerRecursoPorId(id);
@@ -257,8 +261,8 @@ export async function editarRecurso(
   input: ActualizarRecursoInput,
   usuarioId?: string | null
 ): Promise<RecursoDetalleResponse> {
-  // 1. Validar autenticación de administrador
-  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId);
+  // 1. Validar autorización RBAC (requiere permiso recursos:editar o rol Administrador)
+  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_EDITAR_RECURSO]);
 
   // 2. Verificar existencia del recurso
   const recursoExistente = await obtenerRecursoPorId(id);
