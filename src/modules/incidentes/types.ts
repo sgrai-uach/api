@@ -40,6 +40,7 @@ export interface AvisoItemDTO {
   motivoDescarte: string | null;
   operadorId: string | null;
   incidenteId: string | null;
+  delegacionNombre: string | null;
   minutosEnEspera: number;
   creadoEn: string;
   actualizadoEn: string;
@@ -58,11 +59,14 @@ export interface AvisoDetalleDTO extends AvisoItemDTO {
 }
 
 export interface PaginacionResultado<T> {
+  message?: string;
   data: T[];
   pagination: {
     page: number;
     limit: number;
     total: number;
     totalPages: number;
+    hasNext?: boolean;
+    hasPrev?: boolean;
   };
 }

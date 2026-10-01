@@ -237,11 +237,14 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos",
-  summary: "Listar avisos pendientes para Call Center",
+  summary: "Listar avisos para Call Center con filtros multicriterio",
   description:
-    "Retorna una lista paginada de avisos ordenados por mayor tiempo de espera calculando minutosEnEspera.",
+    "Retorna una lista paginada de avisos ordenados por mayor tiempo de espera calculando minutosEnEspera. Admite filtros combinados por delegación territorial, estado operativo, canal de origen y búsqueda textual libre.",
   tags: ["Incidentes / Avisos"],
   request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del usuario autenticado (Call Center o Administrador)"),
+    }),
     query: ListarAvisosQuerySchema,
   },
   responses: {
@@ -254,6 +257,8 @@ registry.registerPath({
       },
     },
     400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
+    403: { description: "Acceso denegado. Permiso 'incidentes:avisos:leer' requerido" },
   },
 });
 
