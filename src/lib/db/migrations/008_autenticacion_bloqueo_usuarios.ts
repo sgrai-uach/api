@@ -19,7 +19,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
   await sql`
     ALTER TABLE usuario
-    ALTER COLUMN password_hash SET DEFAULT ${HASH_VALDIVIA_2026};
+    ALTER COLUMN password_hash SET DEFAULT '$2b$10$dMlhpX4QFpPonWcTHVNo0usyfRLusunVKj6LsxLc9PaZ9JZkN5asm';
   `.execute(db);
 
   // 4. Actualizar contraseñas de todos los usuarios institucionales predefinidos
