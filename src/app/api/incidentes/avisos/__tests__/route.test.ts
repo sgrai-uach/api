@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { NextRequest } from "next/server";
 import { GET, POST } from "../route";
 import * as service from "@/modules/incidentes/aviso-incidente.service";
+import { db } from "@/lib/db";
+import { sql } from "kysely";
 
 describe("Endpoint POST /api/incidentes/avisos", () => {
   it("debe responder 400 si el cuerpo no es un JSON válido", async () => {
@@ -101,7 +103,84 @@ describe("Endpoint POST /api/incidentes/avisos", () => {
 const OPERADOR_CALL_CENTER_ID = "c1111111-1111-4111-8111-111111111111";
 const AUTH_HEADER = { "x-user-id": OPERADOR_CALL_CENTER_ID };
 
+const TEST_AVISO_IDS = [
+  "f1111111-1111-4111-8111-111111111111",
+  "f2222222-2222-4222-8222-222222222222",
+  "f3333333-3333-4333-8333-333333333333",
+];
+
 describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)", () => {
+  beforeAll(async () => {
+    // 1. Limpieza defensiva previa
+    await sql`DELETE FROM aviso_incidente WHERE id IN (${sql.join(TEST_AVISO_IDS.map((id) => sql`${id}`))});`.execute(db);
+
+    // 2. Resolver delegaciones existentes para asignación
+    const delNorte = await db
+      .selectFrom("delegacion")
+      .select("id")
+      .where("nombre", "ilike", "%norte%")
+      .executeTakeFirst();
+    const delSur = await db
+      .selectFrom("delegacion")
+      .select("id")
+      .where("nombre", "ilike", "%sur%")
+      .executeTakeFirst();
+    const delCalle = await db
+      .selectFrom("delegacion")
+      .select("id")
+      .where("nombre", "ilike", "%calle%calle%")
+      .executeTakeFirst();
+
+    // 3. Sembrar fixture Norte (45 min antigüedad, NO_VERIFICADO)
+    await sql`
+      INSERT INTO aviso_incidente (
+        id, codigo_seguimiento, tipo_afectacion, direccion_texto, latitud, longitud, ubicacion,
+        informante_nombre, informante_rut, origen_reporte, estado, delegacion_id, creado_en, actualizado_en
+      ) VALUES (
+        ${TEST_AVISO_IDS[0]}, '71111111', 'Anegamiento', 'Av. Alemania 640', -39.8189, -73.2384,
+        ST_SetSRID(ST_MakePoint(-73.2384, -39.8189), 4326),
+        'Vecino Alemania', '11111111-1', 'WEB', 'NO_VERIFICADO',
+        ${delNorte?.id ?? null},
+        CURRENT_TIMESTAMP - interval '45 minutes',
+        CURRENT_TIMESTAMP - interval '45 minutes'
+      ) ON CONFLICT (id) DO NOTHING;
+    `.execute(db);
+
+    // 4. Sembrar fixture Sur (25 min antigüedad, PENDIENTE_VERIFICACION)
+    await sql`
+      INSERT INTO aviso_incidente (
+        id, codigo_seguimiento, tipo_afectacion, direccion_texto, latitud, longitud, ubicacion,
+        informante_nombre, informante_rut, origen_reporte, estado, delegacion_id, creado_en, actualizado_en
+      ) VALUES (
+        ${TEST_AVISO_IDS[1]}, '72222222', 'Caída de árbol', 'Av. Francia 1200', -39.8362, -73.2351,
+        ST_SetSRID(ST_MakePoint(-73.2351, -39.8362), 4326),
+        'Vecino Francia', '22222222-2', 'CHATBOT', 'PENDIENTE_VERIFICACION',
+        ${delSur?.id ?? null},
+        CURRENT_TIMESTAMP - interval '25 minutes',
+        CURRENT_TIMESTAMP - interval '25 minutes'
+      ) ON CONFLICT (id) DO NOTHING;
+    `.execute(db);
+
+    // 5. Sembrar fixture Calle Calle (10 min antigüedad, VERIFICADO)
+    await sql`
+      INSERT INTO aviso_incidente (
+        id, codigo_seguimiento, tipo_afectacion, direccion_texto, latitud, longitud, ubicacion,
+        informante_nombre, informante_rut, origen_reporte, estado, delegacion_id, creado_en, actualizado_en
+      ) VALUES (
+        ${TEST_AVISO_IDS[2]}, '73333333', 'Inundación', 'Av. Balmaceda 180, Collico', -39.8174, -73.2145,
+        ST_SetSRID(ST_MakePoint(-73.2145, -39.8174), 4326),
+        'Vecino Collico', '33333333-3', 'TELEFONO', 'VERIFICADO',
+        ${delCalle?.id ?? null},
+        CURRENT_TIMESTAMP - interval '10 minutes',
+        CURRENT_TIMESTAMP - interval '10 minutes'
+      ) ON CONFLICT (id) DO NOTHING;
+    `.execute(db);
+  });
+
+  afterAll(async () => {
+    // Limpieza al culminar la suite
+    await sql`DELETE FROM aviso_incidente WHERE id IN (${sql.join(TEST_AVISO_IDS.map((id) => sql`${id}`))});`.execute(db);
+  });
   it("debe retornar 401 Unauthorized si falta la cabecera x-user-id", async () => {
     const req = new NextRequest("http://localhost:3000/api/incidentes/avisos");
     const res = await GET(req);
