@@ -7,6 +7,8 @@ import {
   NotFoundError,
 } from "@/modules/incidentes/service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
+import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -15,6 +17,7 @@ interface RouteContext {
 /**
  * POST /api/incidentes/avisos/:id/verificar
  * Acción "Verificar y Enviar": transforma atómicamente el aviso a Incidente formal.
+ * Requiere permiso incidentes:avisos:verificar.
  */
 export async function POST(
   request: NextRequest,
@@ -24,12 +27,7 @@ export async function POST(
     const { id } = await context.params;
 
     const operadorId = await extraerUsuarioId(request);
-    if (!operadorId) {
-      return NextResponse.json(
-        { error: "Se requiere cabecera de autenticación Authorization: Bearer <token>" },
-        { status: 401 }
-      );
-    }
+    await verificarPermiso(operadorId, "incidentes:avisos:verificar");
 
     const body = await request.json();
     const parsedInput = VerificarAvisoInputSchema.parse(body);
@@ -51,6 +49,12 @@ export async function POST(
         { status: 400 }
       );
     }
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });
     }
@@ -64,3 +68,5 @@ export async function POST(
     );
   }
 }
+
+export const PATCH = POST;

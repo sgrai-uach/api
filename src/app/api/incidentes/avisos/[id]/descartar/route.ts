@@ -7,6 +7,8 @@ import {
   NotFoundError,
 } from "@/modules/incidentes/service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
+import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -15,6 +17,7 @@ interface RouteContext {
 /**
  * POST /api/incidentes/avisos/:id/descartar
  * Acción "Descartar": rechaza un aviso falso o duplicado con justificación obligatoria.
+ * Requiere permiso incidentes:avisos:descartar.
  */
 export async function POST(
   request: NextRequest,
@@ -24,12 +27,7 @@ export async function POST(
     const { id } = await context.params;
 
     const operadorId = await extraerUsuarioId(request);
-    if (!operadorId) {
-      return NextResponse.json(
-        { error: "Se requiere cabecera de autenticación Authorization: Bearer <token>" },
-        { status: 401 }
-      );
-    }
+    await verificarPermiso(operadorId, "incidentes:avisos:descartar");
 
     const body = await request.json();
     const parsedInput = DescartarAvisoInputSchema.parse(body);
@@ -42,6 +40,12 @@ export async function POST(
 
     return NextResponse.json(resultado, { status: 200 });
   } catch (error: unknown) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     if (error instanceof ZodError) {
       return NextResponse.json(
         {
@@ -64,3 +68,5 @@ export async function POST(
     );
   }
 }
+
+export const PATCH = POST;

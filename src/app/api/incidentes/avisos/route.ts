@@ -8,18 +8,31 @@ import {
 } from "@/modules/incidentes/schema";
 import { incidentesService } from "@/modules/incidentes/service";
 
+import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
+import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
+
 /**
  * GET /api/incidentes/avisos
- * Consulta paginada de avisos para el Call Center.
+ * Consulta paginada de avisos para el Call Center. Requiere permiso incidentes:avisos:leer.
  */
 export async function GET(request: NextRequest) {
   try {
+    const usuarioId = await extraerUsuarioId(request);
+    await verificarPermiso(usuarioId, "incidentes:avisos:leer");
+
     const searchParams = Object.fromEntries(request.nextUrl.searchParams);
     const parsedQuery = ListarAvisosQuerySchema.parse(searchParams);
 
     const resultado = await incidentesService.listarAvisos(parsedQuery);
     return NextResponse.json(resultado, { status: 200 });
   } catch (error: unknown) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     if (error instanceof ZodError) {
       return NextResponse.json(
         {
