@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verificarAdministrador } from "@/modules/seguridad/auth.guard";
 import {
+  BadRequestError,
   ForbiddenError,
   NotFoundError,
   UnauthorizedError,
 } from "@/modules/seguridad/errors";
+import { RolIdParamSchema } from "@/modules/seguridad/schema";
 import { seguridadService } from "@/modules/seguridad/service";
 
 interface RouteContext {
@@ -26,7 +28,18 @@ export async function GET(
     await verificarAdministrador(request);
     const { id } = await context.params;
 
-    const resultado = await seguridadService.obtenerDetalleRol(id);
+    const idValidation = RolIdParamSchema.safeParse(id);
+    if (!idValidation.success) {
+      return NextResponse.json(
+        {
+          error: "El identificador de rol proporcionado no es un UUID válido.",
+          detalles: idValidation.error.issues,
+        },
+        { status: 400 }
+      );
+    }
+
+    const resultado = await seguridadService.obtenerDetalleRol(idValidation.data);
     return NextResponse.json(resultado, { status: 200 });
   } catch (error: unknown) {
     if (error instanceof UnauthorizedError) {
@@ -38,6 +51,9 @@ export async function GET(
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });
     }
+    if (error instanceof BadRequestError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
 
     console.error("Error en GET /api/seguridad/roles/[id]:", error);
     return NextResponse.json(
@@ -46,3 +62,4 @@ export async function GET(
     );
   }
 }
+

@@ -211,7 +211,7 @@ export class IncidentesService {
         latitud: Number(resultado.incidente.latitud),
         longitud: Number(resultado.incidente.longitud),
         estado: "REPORTADO",
-        prioridad: String(resultado.incidente.prioridad || "MEDIA"),
+        prioridad: (resultado.incidente.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA" | undefined) || "MEDIA",
         requiereAsistenciaSocial: Boolean(resultado.incidente.requiere_asistencia_social),
         creadoEn: fechaIncidenteStr,
       });

@@ -1,12 +1,138 @@
 import { db } from "../../lib/db";
+import { BadRequestError } from "./errors";
 import type {
   PermisoAsignadoDTO,
+  PermisoCatalogoItemDTO,
   RolConPermisoRaw,
   RolItemDTO,
   UsuarioAutenticado,
+  UsuarioActivoDTO,
 } from "./types";
 
 export class SeguridadRepository {
+  /**
+   * Obtiene el catálogo completo de permisos disponibles en el sistema ordenados por módulo y nombre.
+   */
+  async obtenerTodosLosPermisos(): Promise<PermisoCatalogoItemDTO[]> {
+    const rows = await db
+      .selectFrom("permiso")
+      .select(["id", "codigo", "nombre", "descripcion", "modulo"])
+      .orderBy("modulo", "asc")
+      .orderBy("nombre", "asc")
+      .execute();
+
+    return rows.map((p) => ({
+      id: p.id,
+      codigo: p.codigo,
+      nombre: p.nombre,
+      descripcion: p.descripcion,
+      modulo: p.modulo,
+    }));
+  }
+
+  /**
+   * Obtiene un permiso específico a partir de su código único de autorización.
+   */
+  async obtenerPermisoPorCodigo(
+    codigo: string
+  ): Promise<PermisoCatalogoItemDTO | null> {
+    const row = await db
+      .selectFrom("permiso")
+      .select(["id", "codigo", "nombre", "descripcion", "modulo"])
+      .where("codigo", "=", codigo)
+      .executeTakeFirst();
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      codigo: row.codigo,
+      nombre: row.nombre,
+      descripcion: row.descripcion,
+      modulo: row.modulo,
+    };
+  }
+
+  /**
+   * Actualiza atómicamente los permisos de un rol dentro de una transacción estricta de base de datos.
+   */
+  async actualizarPermisosRol(
+    rolId: string,
+    nuevosPermisoIds: string[],
+    asignadoPorId: string
+  ): Promise<void> {
+    await db.transaction().execute(async (trx) => {
+      const idsUnicos = Array.from(new Set(nuevosPermisoIds));
+
+      // 1. Validar existencia de todos los IDs provistos en la tabla permiso
+      if (idsUnicos.length > 0) {
+        const permisosExistentes = await trx
+          .selectFrom("permiso")
+          .select("id")
+          .where("id", "in", idsUnicos)
+          .execute();
+
+        if (permisosExistentes.length !== idsUnicos.length) {
+          const existentesSet = new Set(permisosExistentes.map((p) => p.id));
+          const noEncontrados = idsUnicos.filter((id) => !existentesSet.has(id));
+          throw new BadRequestError(
+            `Uno o más permisos especificados no existen en el sistema: ${noEncontrados.join(", ")}`
+          );
+        }
+      }
+
+      // 2. Obtener permisos actualmente asignados al rol
+      const actuales = await trx
+        .selectFrom("rol_permiso")
+        .select("permiso_id")
+        .where("rol_id", "=", rolId)
+        .execute();
+
+      const actualesIds = new Set(actuales.map((a) => a.permiso_id));
+      const nuevosIds = new Set(idsUnicos);
+
+      // 3. Determinar revocaciones (eliminar) y nuevas asignaciones (insertar)
+      const aEliminar = actuales
+        .filter((a) => !nuevosIds.has(a.permiso_id))
+        .map((a) => a.permiso_id);
+
+      const aInsertar = idsUnicos.filter((id) => !actualesIds.has(id));
+
+      if (aEliminar.length > 0) {
+        await trx
+          .deleteFrom("rol_permiso")
+          .where("rol_id", "=", rolId)
+          .where("permiso_id", "in", aEliminar)
+          .execute();
+      }
+
+      if (aInsertar.length > 0) {
+        await trx
+          .insertInto("rol_permiso")
+          .values(
+            aInsertar.map((permisoId) => ({
+              rol_id: rolId,
+              permiso_id: permisoId,
+              asignado_por_id: asignadoPorId,
+              asignado_en: new Date(),
+            }))
+          )
+          .execute();
+      }
+
+      // 4. Actualizar actualizado_en en la tabla rol
+      await trx
+        .updateTable("rol")
+        .set({
+          actualizado_en: new Date(),
+        })
+        .where("id", "=", rolId)
+        .execute();
+    });
+  }
+
   /**
    * Obtiene todos los perfiles registrados con sus permisos asignados en una sola consulta optimizada.
    */
@@ -109,6 +235,72 @@ export class SeguridadRepository {
       rolId: usuario.rol_id,
       rolNombre: usuario.rol_nombre,
       activo: Boolean(usuario.activo),
+    };
+  }
+
+  /**
+   * Obtiene la lista de códigos de permisos asignados a un rol específico.
+   */
+  async obtenerPermisosDeRol(rolId: string): Promise<string[]> {
+    const permisos = await db
+      .selectFrom("rol_permiso")
+      .innerJoin("permiso", "permiso.id", "rol_permiso.permiso_id")
+      .select("permiso.codigo")
+      .where("rol_permiso.rol_id", "=", rolId)
+      .execute();
+
+    return permisos.map((p) => p.codigo);
+  }
+
+  /**
+   * Obtiene un usuario con su rol y la lista completa de códigos de permisos asignados.
+   */
+  async obtenerUsuarioCompletoConPermisos(
+    usuarioId: string
+  ): Promise<UsuarioActivoDTO | null> {
+    const usuario = await db
+      .selectFrom("usuario")
+      .innerJoin("rol", "rol.id", "usuario.rol_id")
+      .select([
+        "usuario.id",
+        "usuario.rut",
+        "usuario.nombre",
+        "usuario.email",
+        "usuario.activo",
+        "usuario.delegacion_id",
+        "rol.id as rol_id",
+        "rol.nombre as rol_nombre",
+        "rol.codigo as rol_codigo",
+      ])
+      .where("usuario.id", "=", usuarioId)
+      .executeTakeFirst();
+
+    if (!usuario) {
+      return null;
+    }
+
+    let codigosPermisos: string[] = [];
+    if (usuario.rol_nombre === "Administrador") {
+      const todos = await db.selectFrom("permiso").select("codigo").execute();
+      codigosPermisos = todos.map((p) => p.codigo);
+    } else {
+      codigosPermisos = await this.obtenerPermisosDeRol(usuario.rol_id);
+    }
+
+    return {
+      id: usuario.id,
+      rut: usuario.rut,
+      nombre: usuario.nombre,
+      email: usuario.email,
+      activo: Boolean(usuario.activo),
+      delegacionId: usuario.delegacion_id,
+      rol: {
+        id: usuario.rol_id,
+        nombre: usuario.rol_nombre,
+        codigo: usuario.rol_codigo ?? "",
+        esAdmin: usuario.rol_nombre === "Administrador",
+      },
+      permisos: codigosPermisos,
     };
   }
 
