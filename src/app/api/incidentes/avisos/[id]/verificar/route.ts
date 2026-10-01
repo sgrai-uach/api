@@ -26,8 +26,8 @@ export async function POST(
   try {
     const { id } = await context.params;
 
-    const operadorId = await extraerUsuarioId(request);
-    await verificarPermiso(operadorId, "incidentes:avisos:verificar");
+    const usuarioId = await extraerUsuarioId(request);
+    const operador = await verificarPermiso(usuarioId, "incidentes:avisos:verificar");
 
     const body = await request.json();
     const parsedInput = VerificarAvisoInputSchema.parse(body);
@@ -35,7 +35,7 @@ export async function POST(
     const resultado = await incidentesService.verificarAviso(
       id,
       parsedInput,
-      operadorId
+      operador.id
     );
 
     return NextResponse.json(resultado, { status: 201 });
