@@ -495,7 +495,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
 });
 
 describe("Módulo de Seguridad — Especificación OpenAPI", () => {
-  it("debe incluir las rutas /api/seguridad/roles y /api/seguridad/roles/{id} en el spec v0.3.0", () => {
+  it("debe incluir las rutas /api/seguridad/roles y /api/seguridad/roles/{id} en el spec OpenAPI", () => {
     const spec = generarOpenApiSpec();
 
     expect(spec.openapi).toBe("3.0.0");

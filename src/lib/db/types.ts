@@ -22,6 +22,7 @@ export interface RecursoTable {
   detalles: ColumnType<Record<string, unknown>, Record<string, unknown> | undefined, Record<string, unknown>>;
   delegacion_id?: string | null;
   creado_por_id: string;
+  actualizado_por_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }

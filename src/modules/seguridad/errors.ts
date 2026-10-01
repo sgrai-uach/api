@@ -18,3 +18,18 @@ export class NotFoundError extends Error {
     this.name = "NotFoundError";
   }
 }
+
+export class BadRequestError extends Error {
+  constructor(message = "Solicitud inválida.") {
+    super(message);
+    this.name = "BadRequestError";
+  }
+}
+
+export class ConflictError extends Error {
+  constructor(message = "Conflicto en la operación solicitada.") {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
+
