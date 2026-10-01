@@ -246,11 +246,18 @@ export class SeguridadService {
     const identificador = normalizarIdentificador(input.identificador);
     const usuario = await this.repo.obtenerUsuarioParaLogin(identificador);
 
+    // 1. Si el usuario no existe, rechazar inmediatamente
+    if (!usuario) {
+      throw new UnauthorizedError(
+        "Credenciales inválidas. Verifique su identificador o contraseña."
+      );
+    }
+
     const maxIntentos = Number(process.env.AUTH_MAX_FAILED_ATTEMPTS || 5);
     const bloqueoMinutos = Number(process.env.AUTH_LOCKOUT_MINUTES || 15);
 
-    // 1. Validar bloqueo previo si el usuario existe
-    if (usuario && usuario.bloqueado_hasta) {
+    // 2. Validar bloqueo previo si existe registro
+    if (usuario.bloqueado_hasta) {
       const ahora = Date.now();
       const tiempoBloqueo = usuario.bloqueado_hasta.getTime();
 
@@ -270,34 +277,31 @@ export class SeguridadService {
       }
     }
 
-    // 2. Verificar contraseña con bcrypt
-    const passwordValida =
-      usuario && usuario.password_hash
-        ? await bcrypt.compare(input.password, usuario.password_hash)
-        : false;
+    // 3. Verificar contraseña con bcrypt
+    const passwordValida = usuario.password_hash
+      ? await bcrypt.compare(input.password, usuario.password_hash)
+      : false;
 
     if (!passwordValida) {
-      if (usuario) {
-        const nuevosIntentos = usuario.intentos_fallidos + 1;
-        if (nuevosIntentos >= maxIntentos) {
-          const bloquearHasta = new Date(
-            Date.now() + bloqueoMinutos * 60 * 1000
-          );
-          await this.repo.registrarIntentoFallido(
-            usuario.id,
-            nuevosIntentos,
-            bloquearHasta
-          );
-          throw new ForbiddenError(
-            `Su cuenta ha sido bloqueada temporalmente tras ${maxIntentos} intentos fallidos. Intente nuevamente en ${bloqueoMinutos} minutos.`
-          );
-        } else {
-          await this.repo.registrarIntentoFallido(
-            usuario.id,
-            nuevosIntentos,
-            null
-          );
-        }
+      const nuevosIntentos = usuario.intentos_fallidos + 1;
+      if (nuevosIntentos >= maxIntentos) {
+        const bloquearHasta = new Date(
+          Date.now() + bloqueoMinutos * 60 * 1000
+        );
+        await this.repo.registrarIntentoFallido(
+          usuario.id,
+          nuevosIntentos,
+          bloquearHasta
+        );
+        throw new ForbiddenError(
+          `Su cuenta ha sido bloqueada temporalmente tras ${maxIntentos} intentos fallidos. Intente nuevamente en ${bloqueoMinutos} minutos.`
+        );
+      } else {
+        await this.repo.registrarIntentoFallido(
+          usuario.id,
+          nuevosIntentos,
+          null
+        );
       }
 
       throw new UnauthorizedError(
