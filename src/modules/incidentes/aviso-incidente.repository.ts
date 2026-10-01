@@ -26,6 +26,7 @@ export interface DatosInsertarIncidente {
   estado?: EstadoIncidente | string;
   es_duplicado?: boolean;
   aviso_original_id?: string | null;
+  delegacion_id?: string | null;
 }
 
 export type DatosInsertarAvisoIncidente = DatosInsertarIncidente;
@@ -170,6 +171,20 @@ export async function insertarIncidenteDesdeChatbot(datos: DatosInsertarIncident
       }
     }
 
+    let delegacionId: string | null = datos.delegacion_id ?? null;
+    if (!delegacionId && datos.direccion_texto) {
+      const dir = datos.direccion_texto.toLowerCase();
+      if (dir.includes("niebla") || dir.includes("molinos") || dir.includes("torobayo")) {
+        delegacionId = "30000000-0000-4000-8000-000000000003"; // Costa
+      } else if (dir.includes("alemania") || dir.includes("ánimas") || dir.includes("animas") || dir.includes("cabo blanco")) {
+        delegacionId = "30000000-0000-4000-8000-000000000001"; // Norte
+      } else if (dir.includes("francia") || dir.includes("simpson") || dir.includes("picarte") || dir.includes("angachilla") || dir.includes("guacamayo") || dir.includes("toribio")) {
+        delegacionId = "30000000-0000-4000-8000-000000000002"; // Sur
+      } else if (dir.includes("collico") || dir.includes("corvi") || dir.includes("balmaceda")) {
+        delegacionId = "30000000-0000-4000-8000-000000000004"; // Calle Calle
+      }
+    }
+
     const aviso = await trx
       .insertInto("aviso_incidente")
       .values({
@@ -187,6 +202,7 @@ export async function insertarIncidenteDesdeChatbot(datos: DatosInsertarIncident
         estado: "PENDIENTE_VERIFICACION",
         es_duplicado: datos.es_duplicado ?? false,
         aviso_original_id: avisoOriginalIdValido,
+        delegacion_id: delegacionId,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
