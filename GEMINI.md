@@ -56,18 +56,19 @@ Componentes de infraestructura interna que soportan estos módulos: **Cache y Co
 
 ## 5. Modelo de datos
 
-La fuente de verdad del modelo de datos es el diagrama Entidad-Relación (`Diagrama Entidad-Relación - SGRAI.png`, fuera de este repositorio, referenciar desde documentación del proyecto). Entidades principales que este backend debe modelar con Kysely:
+La documentación técnica exhaustiva del modelo de datos, diccionario de tablas, tipos Kysely, claves foráneas, semillas oficiales y diagrama ER vive en [`/docs/database/README.md`](docs/database/README.md). **Consulta ese documento como fuente de verdad técnica obligatoria para cualquier consulta, repositorio o migración.**
 
-- **Incidentes y Ciudadanía:** `Incidente`, `Informante`, `Fuente del incidente`, `Tipo Incidente`, `Factores de Riesgo (Niveles)`.
-- **Eventos y Prevención:** `EventoATP`, `Prevención`.
-- **Organización:** `Delegación` (Norte, Sur, Costa, Calle Calle), `Usuario`, `Personal`, `Rol`, `Permisos`, `RolPermiso`.
-- **Operaciones:** `Misión`, `Log de Misión`, `Cuadrilla`, `Patrulla Verificadora`, `Recurso`, `Reporte Terreno`, `Adjunto`.
-- **Recuperación y Asistencia Social:** `Recuperación`, `Beneficio`.
+Entidades principales que este backend modela con Kysely:
+
+- **Incidentes y Ciudadanía:** `incidente`, `aviso_incidente`, `informante`, `fuente_incidente`, `tipo_incidente`, `adjunto`.
+- **Eventos y Prevención:** `prevencion`, `mision` (misiones preventivas).
+- **Organización:** `delegacion` (Norte, Sur, Costa, Calle Calle), `usuario`, `personal`, `rol`, `permiso`, `rol_permiso`, `log_cambios_usuarios`.
+- **Operaciones:** `mision`, `cuadrilla`, `patrulla_verificadora`, `recurso`, `cuadrilla_recurso`.
 
 ## 6. Reglas de negocio críticas a respetar en la lógica de dominio
 
 - El sistema se basa en el **Sistema de Comando de Incidentes (ICS)**. Alcance actual: Sección de Operaciones (completa) y Sección de Logística (parcial). Planificación y Finanzas están fuera de alcance.
-- Ciclo de vida de un incidente: `Reportado → Verificando → En Atención → No Abordable / Resuelto`.
+- Ciclo de vida de un incidente: `REPORTADO → VERIFICANDO → EN_ATENCION → NO_ABORDABLE / RESUELTO` (siempre persistido en mayúsculas canónicas en la columna `incidente.estado` para compatibilidad con filtros del tablero Kanban).
 - La evaluación primaria de un incidente la hace una **patrulla verificadora**. Al escalar y despachar una cuadrilla u otro recurso, la patrulla verificadora debe quedar **liberada** en el sistema (disponible para nueva asignación).
 - Las cuadrillas pueden **rechazar** una misión, pero deben ingresar una justificación obligatoria.
 - Se pueden despachar misiones de **prevención** o **recuperación** ("puntos críticos") **sin necesidad de un incidente formal previo** — no fuerces esa relación como obligatoria en el modelo.

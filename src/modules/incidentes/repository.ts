@@ -175,28 +175,84 @@ export class IncidentesRepository {
         throw new Error("AVISO_ALREADY_PROCESSED");
       }
 
-      // 2. Generar folio único (ej: INC-2026-XXXX)
-      const countResult = await trx
-        .selectFrom("incidente")
-        .select(sql<string | number>`count(*)`.as("count"))
-        .executeTakeFirst();
+      // 2. Resolver operadorId seguro (respetando clave foránea en tabla usuario)
+      let operadorValidoId: string | null = null;
+      if (operadorId) {
+        const existeUsuario = await trx
+          .selectFrom("usuario")
+          .select("id")
+          .where("id", "=", operadorId)
+          .executeTakeFirst();
+        if (existeUsuario) {
+          operadorValidoId = existeUsuario.id;
+        } else {
+          const userDefault = await trx
+            .selectFrom("usuario")
+            .select("id")
+            .where("rol_id", "=", "20000000-0000-4000-8000-000000000002")
+            .limit(1)
+            .executeTakeFirst();
+          operadorValidoId = userDefault?.id ?? null;
+        }
+      }
 
-      const nextNumber = Number(countResult?.count || 0) + 1;
+      // 3. Resolver tipoIncidenteId seguro (respetando clave foránea en tabla tipo_incidente)
+      let tipoIncidenteValidoId: string | null = null;
+      if (input.tipoIncidenteId) {
+        const existeTipo = await trx
+          .selectFrom("tipo_incidente")
+          .select("id")
+          .where("id", "=", input.tipoIncidenteId)
+          .executeTakeFirst();
+        if (existeTipo) {
+          tipoIncidenteValidoId = existeTipo.id;
+        } else {
+          const tipoCoincidente = await trx
+            .selectFrom("tipo_incidente")
+            .select("id")
+            .where((eb) =>
+              eb.or([
+                eb("nombre", "ilike", `%${aviso.tipo_afectacion}%`),
+                eb("activo", "=", true),
+              ])
+            )
+            .limit(1)
+            .executeTakeFirst();
+          tipoIncidenteValidoId = tipoCoincidente?.id ?? null;
+        }
+      }
+
+      // 4. Generar folio y código único garantizado
       const year = new Date().getFullYear();
-      const folio = `INC-${year}-${String(nextNumber).padStart(4, "0")}`;
+      let folio = "";
+      let codigo = "";
+      let colision = true;
+      while (colision) {
+        const randomNum = Math.floor(1000 + Math.random() * 9000);
+        folio = `INC-${year}-${randomNum}`;
+        codigo = folio;
+        const existe = await trx
+          .selectFrom("incidente")
+          .select("id")
+          .where((eb) => eb.or([eb("codigo", "=", codigo), eb("folio", "=", folio)]))
+          .executeTakeFirst();
+        if (!existe) {
+          colision = false;
+        }
+      }
 
-      // 3. Crear registro formal en la tabla incidente
+      // 5. Crear registro formal en la tabla incidente
       const descripcionFinal = input.descripcion || aviso.descripcion || aviso.tipo_afectacion;
       const nuevoIncidente = await trx
         .insertInto("incidente")
         .values({
           folio,
-          codigo: folio,
+          codigo,
           codigo_seguimiento: aviso.codigo_seguimiento,
-          tipo_incidente_id: input.tipoIncidenteId,
+          tipo_incidente_id: tipoIncidenteValidoId,
           tipo_afectacion: aviso.tipo_afectacion,
           direccion_texto: aviso.direccion_texto,
-          estado: "Reportado", // Estado inicial ICS
+          estado: "REPORTADO", // Estado inicial ICS
           prioridad: "MEDIA",
           fuente_origen: aviso.origen_reporte || "CALL_CENTER",
           descripcion: descripcionFinal,
@@ -205,26 +261,26 @@ export class IncidentesRepository {
           ubicacion: sql`ST_SetSRID(ST_MakePoint(${Number(aviso.longitud)}, ${Number(aviso.latitud)}), 4326)`,
           requiere_asistencia_social: input.requiereAsistenciaSocial,
           aviso_id: avisoId,
-          creado_por_id: operadorId,
-          operador_id: operadorId,
+          creado_por_id: operadorValidoId,
+          operador_id: operadorValidoId,
         })
         .returningAll()
         .executeTakeFirstOrThrow();
 
-      // 4. Actualizar aviso a estado VERIFICADO
+      // 6. Actualizar aviso a estado VERIFICADO
       const avisoActualizado = await trx
         .updateTable("aviso_incidente")
         .set({
           estado: "VERIFICADO",
           incidente_id: nuevoIncidente.id,
-          operador_id: operadorId,
+          operador_id: operadorValidoId,
           actualizado_en: new Date(),
         })
         .where("id", "=", avisoId)
         .returningAll()
         .executeTakeFirstOrThrow();
 
-      // 5. Vincular los adjuntos existentes del aviso al nuevo incidente
+      // 7. Vincular los adjuntos existentes del aviso al nuevo incidente
       await trx
         .updateTable("adjunto")
         .set({ incidente_id: nuevoIncidente.id })
@@ -258,12 +314,33 @@ export class IncidentesRepository {
         throw new Error("AVISO_ALREADY_PROCESSED");
       }
 
+      // Resolver operadorId seguro (respetando clave foránea en tabla usuario)
+      let operadorValidoId: string | null = null;
+      if (operadorId) {
+        const existeUsuario = await trx
+          .selectFrom("usuario")
+          .select("id")
+          .where("id", "=", operadorId)
+          .executeTakeFirst();
+        if (existeUsuario) {
+          operadorValidoId = existeUsuario.id;
+        } else {
+          const userDefault = await trx
+            .selectFrom("usuario")
+            .select("id")
+            .where("rol_id", "=", "20000000-0000-4000-8000-000000000002")
+            .limit(1)
+            .executeTakeFirst();
+          operadorValidoId = userDefault?.id ?? null;
+        }
+      }
+
       const actualizado = await trx
         .updateTable("aviso_incidente")
         .set({
           estado: "DESCARTADO",
           motivo_descarte: motivoDescarte,
-          operador_id: operadorId,
+          operador_id: operadorValidoId,
           actualizado_en: new Date(),
         })
         .where("id", "=", avisoId)

@@ -76,7 +76,15 @@ async function bootstrap() {
       socket.join(room);
     });
 
+    socket.on("unirse", (room: string) => {
+      socket.join(room);
+    });
+
     socket.on("leave", (room: string) => {
+      socket.leave(room);
+    });
+
+    socket.on("salir", (room: string) => {
       socket.leave(room);
     });
   });
