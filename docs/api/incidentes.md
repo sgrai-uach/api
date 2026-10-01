@@ -88,3 +88,14 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
   - `incidente:actualizado`: Mueve la tarjeta entre columnas en tiempo real (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, etc.).
 - **`sala:seguimiento:{codigoSeguimiento}`:**
   - `incidente:estado_actualizado`: Actualiza el panel ciudadano con la nueva descripción y etiqueta comprensible.
+
+---
+
+## 5. Cómo Probar (Criterio CA-7 y Pruebas Operativas)
+
+13. **Enriquecimiento dinámico de tiempos de espera y delegación (`200 OK` - CA-7):**
+    ```bash
+    curl -i "http://localhost:3000/api/incidentes/avisos?estado=TODOS&limit=10" \
+      -H "X-User-Id: c1111111-1111-4111-8111-111111111111"
+    ```
+    *Respuesta esperada: HTTP 200 donde cada objeto retornado en `data` incluye el atributo `minutosEnEspera` (número entero $\ge 0$ calculado en tiempo real según la fecha de creación para alimentar el semáforo de urgencia del Call Center) y la propiedad `delegacionNombre: string | null` debidamente resuelta a partir de la relación territorial (`Norte`, `Sur`, `Costa`, `Calle Calle`).*
