@@ -60,9 +60,11 @@ export function getSocketServer(): TypedSocketServer | SocketIOServer | null {
 function getRedisPublisher(): Redis | null {
   if (!redisPublisher && process.env.REDIS_URL) {
     redisPublisher = new Redis(process.env.REDIS_URL, {
-      maxRetriesPerRequest: null,
-      lazyConnect: false,
+      maxRetriesPerRequest: 1,
+      retryStrategy: () => null,
+      lazyConnect: true,
     });
+    redisPublisher.on("error", () => {});
   }
   return redisPublisher;
 }
