@@ -22,11 +22,12 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
   - `BAJO_STOCK`: Operativo pero con inventario disponible menor o igual a la cantidad mínima (alerta de reposición).
   - `NO_DISPONIBLE`: Stock agotado (0 unidades) o inhabilitado administrativamente.
 - **Geolocalización Espacial (PostGIS):** Todo recurso almacena sus coordenadas geográficas en EPSG:4326 (`latitud`, `longitud`) y genera una columna geométrica `ubicacion` de tipo `Point` indexada mediante GIST para consultas en mapas interactivos y cálculo de proximidad.
-- **Seguridad y Control de Acceso Basado en Roles (RBAC):**
-  - La consulta y visualización del inventario logístico (`GET /api/recursos`) requiere que el usuario posea el rol **Administrador** activo o el permiso explícito **`recursos:leer`**.
-  - La creación de recursos (`POST /api/recursos`) requiere rol **Administrador** o permiso **`recursos:crear`**.
-  - La edición de recursos (`PUT /api/recursos/[id]`) requiere rol **Administrador** o permiso **`recursos:editar`**.
-  - La autenticación se verifica mediante la cabecera `X-User-Id` o el token `Authorization: Bearer <usuarioId>`.
+- **Seguridad y Control de Acceso Basado en Permisos (RBAC Estricto):**
+  - **Principio Fundamental:** El sistema depende **estrictamente de los permisos asignados**, nunca del nombre del rol institucional. Los roles actúan únicamente como contenedores organizacionales de permisos en la base de datos (`rol_permiso`), pero ninguna regla de negocio, ruta o componente de interfaz debe evaluar nombres de rol (`rol === 'Supervisor'` o `rol === 'Administrador'`) directamente:
+    - **`recursos:leer`**: Autoriza la consulta del inventario logístico y la visualización de fichas técnicas (`GET /api/recursos`, `GET /api/recursos/[id]`). Cualquier usuario que posea este permiso tiene acceso de lectura (sea Administrador, Encargado, Supervisor, o roles futuros).
+    - **`recursos:crear`**: Autoriza exclusivamente el registro y alta de nuevos recursos (`POST /api/recursos`).
+    - **`recursos:editar`**: Autoriza la modificación de características, inventario físico y estado operativo (`PUT /api/recursos/[id]`).
+  - La autenticación se verifica mediante el token estándar `Authorization: Bearer <jwt>` (o `X-User-Id` para retrocompatibilidad interna).
 - **Inmutabilidad del Tipo de Recurso (`esIndividual`):**
   - El atributo `esIndividual` no es modificable en las operaciones de edición para evitar inconsistencias graves de inventario (ej. transformar materiales a granel como sacos de arena en vehículos con patente).
 - **Auditoría de Modificaciones:**
