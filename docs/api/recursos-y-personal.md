@@ -63,8 +63,17 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 
 ## 3. Detalle de Endpoints
 
-### 3.1. `GET /api/recursos` (HU-7: Listar Recursos)
+### 3.1. `GET /api/recursos` (HU-7: Listar Recursos / HU-50: Listado de Recursos para Supervisor)
 Retorna una lista paginada de los recursos registrados en el inventario, incluyendo su estado de disponibilidad operativa calculado y los datos de su delegación territorial.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
+- **Perfiles autorizados:** `Administrador` o cualquier usuario con permiso `recursos:leer` activo (como `Supervisor` y `Encargado`).
+- **Regla RBAC de Solo Lectura (HU-50):** El perfil `Supervisor` posee exclusivamente permisos de lectura (`recursos:leer`). Intentos de invocación a `POST /api/recursos` (crear) o `PUT /api/recursos/[id]` (editar) retornarán `HTTP 403 Forbidden`.
+- **Credenciales Institucionales de Prueba para Supervisor (Semilla Migración 011):**
+  - **Email:** `supervisor@valdivia.cl`
+  - **RUT:** `44444444-4`
+  - **Contraseña:** `Valdivia2026!`
+  - **Rol:** `Supervisor Estratégico` (`SUPERVISOR`)
 
 #### Parámetros de Consulta (Query Params)
 - `pagina` (`number`, default `1`): Número de página.
@@ -73,6 +82,7 @@ Retorna una lista paginada de los recursos registrados en el inventario, incluye
 - `estado` (`string`): Filtra por estado de disponibilidad (`DISPONIBLE`, `ASIGNADO`, `EN_MANTENCION`, `BAJO_STOCK`, `NO_DISPONIBLE`).
 - `esIndividual` (`boolean`): Filtra por tipo (maquinaria individual vs granel).
 - `busqueda` (`string`): Búsqueda textual insensible a mayúsculas/minúsculas.
+- `soloLectura` (`boolean`, opcional, default `undefined`): Indicador de consulta en modo solo lectura para auditoría o visualización de perfiles estratégicos/supervisores.
 
 ### 3.2. `POST /api/recursos` (HU-6: Crear Recurso)
 Registra un nuevo recurso individual o a granel en el inventario municipal calculando automáticamente su estado inicial.
