@@ -186,7 +186,7 @@ registry.registerPath({
   path: "/api/seguridad/login",
   summary: "Iniciar sesión institucional",
   description:
-    "Autentica a un funcionario u operador mediante correo institucional (@valdivia.cl) o RUT y contraseña. Valida hash bcrypt, vigencia de cuenta y política de bloqueo por reintentos antes de emitir el token JWT de sesión.",
+    "Autentica a un funcionario u operador mediante correo o RUT y contraseña. Valida hash bcrypt, vigencia de cuenta y política de bloqueo por reintentos antes de emitir el token JWT de sesión.",
   tags: ["Seguridad / Autenticación"],
   request: {
     body: {

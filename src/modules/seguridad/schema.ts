@@ -257,8 +257,8 @@ export const UsuarioActivoItemSchema = z
       description: "Nombre y apellidos del usuario",
       example: "Administrador Municipal",
     }),
-    email: z.string().email().openapi({
-      description: "Correo institucional del usuario",
+    email: z.email().openapi({
+      description: "Correo del usuario",
       example: "admin@valdivia.cl",
     }),
     activo: z.boolean().openapi({

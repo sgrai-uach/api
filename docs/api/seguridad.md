@@ -118,7 +118,7 @@ El módulo **Seguridad** centraliza la autenticación formal de funcionarios, em
 El token generado contiene en su cuerpo los claims esenciales para inspección segura o decodificación en frontends:
 * `sub`: UUID del usuario (`usuario.id`).
 * `rut`: RUT del funcionario.
-* `email`: Correo institucional.
+* `email`: Correo.
 * `rolId`: UUID del rol asignado.
 * `rolCodigo`: Código canónico (`ADMIN`, `CALL_CENTER`, etc.).
 * `rolNombre`: Nombre legible del perfil.
