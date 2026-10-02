@@ -70,6 +70,7 @@ export class IncidentesService {
       motivoDescarte: row.motivo_descarte ?? null,
       operadorId: row.operador_id ?? null,
       incidenteId: row.incidente_id ?? null,
+      delegacionNombre: row.delegacion_manual || null,
       minutosEnEspera: 0,
       creadoEn: new Date(row.creado_en).toISOString(),
       actualizadoEn: new Date(row.actualizado_en).toISOString(),
@@ -82,16 +83,13 @@ export class IncidentesService {
   }
 
   /**
-   * Consulta paginada de avisos ordenados por mayor tiempo de espera.
+   * Consulta paginada de avisos ordenados por mayor tiempo de espera
+   * aplicando filtros multicriterio (delegación, estado, búsqueda y canal de origen).
    */
   async listarAvisos(
     query: ListarAvisosQuery
   ): Promise<PaginacionResultado<AvisoItemDTO>> {
-    const { rows, total } = await this.repo.obtenerAvisosPaginados(
-      query.page,
-      query.limit,
-      query.estado
-    );
+    const { rows, total } = await this.repo.obtenerAvisosPaginados(query);
 
     const data: AvisoItemDTO[] = rows.map((row) => ({
       id: row.id,
@@ -112,18 +110,24 @@ export class IncidentesService {
       motivoDescarte: row.motivoDescarte ?? null,
       operadorId: row.operadorId ?? null,
       incidenteId: row.incidenteId ?? null,
+      delegacionNombre: row.delegacionNombre ?? null,
       minutosEnEspera: this.calcularMinutosEnEspera(row.creadoEn),
       creadoEn: new Date(row.creadoEn).toISOString(),
       actualizadoEn: new Date(row.actualizadoEn).toISOString(),
     }));
 
+    const totalPages = Math.max(1, Math.ceil(total / query.limit));
+
     return {
+      message: "Avisos obtenidos exitosamente",
       data,
       pagination: {
         page: query.page,
         limit: query.limit,
         total,
-        totalPages: Math.ceil(total / query.limit) || 1,
+        totalPages,
+        hasNext: query.page < totalPages,
+        hasPrev: query.page > 1,
       },
     };
   }
@@ -157,6 +161,7 @@ export class IncidentesService {
       motivoDescarte: row.motivoDescarte ?? null,
       operadorId: row.operadorId ?? null,
       incidenteId: row.incidenteId ?? null,
+      delegacionNombre: row.delegacionNombre ?? null,
       minutosEnEspera: this.calcularMinutosEnEspera(row.creadoEn),
       creadoEn: new Date(row.creadoEn).toISOString(),
       actualizadoEn: new Date(row.actualizadoEn).toISOString(),
@@ -208,7 +213,7 @@ export class IncidentesService {
         latitud: Number(resultado.incidente.latitud),
         longitud: Number(resultado.incidente.longitud),
         estado: "REPORTADO",
-        prioridad: (resultado.incidente.prioridad as any) || "MEDIA",
+        prioridad: (resultado.incidente.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA" | undefined) || "MEDIA",
         requiereAsistenciaSocial: Boolean(resultado.incidente.requiere_asistencia_social),
         creadoEn: fechaIncidenteStr,
       });

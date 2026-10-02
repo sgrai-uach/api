@@ -115,3 +115,182 @@ export const RolDetalleResponseSchema = z
   .openapi("RolDetalleResponse");
 
 export type RolDetalleResponse = z.infer<typeof RolDetalleResponseSchema>;
+
+/**
+ * Esquema de un ítem del catálogo general de permisos clasificado por módulo.
+ */
+export const PermisoCatalogoItemSchema = z
+  .object({
+    id: z.string().uuid().openapi({
+      description: "UUID del permiso",
+      example: "10000000-0000-4000-8000-000000000001",
+    }),
+    codigo: z.string().openapi({
+      description: "Código único de autorización del permiso",
+      example: "recursos:crear",
+    }),
+    nombre: z.string().openapi({
+      description: "Nombre legible del permiso",
+      example: "Crear Recursos",
+    }),
+    descripcion: z.string().nullable().openapi({
+      description: "Descripción detallada de la acción permitida",
+      example: "Permite crear nuevos recursos en el inventario logístico",
+    }),
+    modulo: z.string().openapi({
+      description: "Módulo funcional al que pertenece el permiso",
+      example: "Recursos y Personal",
+    }),
+  })
+  .openapi("PermisoCatalogoItem");
+
+export type PermisoCatalogoItem = z.infer<typeof PermisoCatalogoItemSchema>;
+
+/**
+ * Esquema de respuesta para el catálogo completo de permisos del sistema.
+ */
+export const ListarPermisosResponseSchema = z
+  .object({
+    data: z.array(PermisoCatalogoItemSchema).openapi({
+      description: "Colección completa de permisos clasificados por módulo funcional",
+    }),
+    total: z.number().int().nonnegative().openapi({
+      description: "Cantidad total de permisos registrados en el catálogo",
+      example: 9,
+    }),
+  })
+  .openapi("ListarPermisosResponse");
+
+export type ListarPermisosResponse = z.infer<typeof ListarPermisosResponseSchema>;
+
+/**
+ * Esquema de entrada para actualizar atómicamente los permisos asignados a un rol.
+ */
+export const ActualizarPermisosRolInputSchema = z
+  .object({
+    permisoIds: z.array(z.string().uuid()).openapi({
+      description: "Lista de UUIDs de permisos a asignar al perfil (reemplazo masivo atómico)",
+      example: [
+        "10000000-0000-4000-8000-000000000001",
+        "10000000-0000-4000-8000-000000000003",
+      ],
+    }),
+  })
+  .openapi("ActualizarPermisosRolInput");
+
+export type ActualizarPermisosRolInput = z.infer<
+  typeof ActualizarPermisosRolInputSchema
+>;
+
+/**
+ * Esquema de respuesta tras la actualización exitosa de permisos de un perfil.
+ */
+export const ActualizarPermisosRolResponseSchema = z
+  .object({
+    message: z.string().openapi({
+      description: "Mensaje confirmando la actualización atómica en la base de datos",
+      example: "Permisos actualizados correctamente en la base de datos",
+    }),
+    data: RolItemSchema.openapi({
+      description: "Detalle del perfil y sus permisos asignados actualizados",
+    }),
+  })
+  .openapi("ActualizarPermisosRolResponse");
+
+export type ActualizarPermisosRolResponse = z.infer<
+  typeof ActualizarPermisosRolResponseSchema
+>;
+
+/**
+ * Esquema de validación para el parámetro de ruta 'id' del rol (UUID RFC 4122).
+ */
+export const RolIdParamSchema = z
+  .string()
+  .uuid("El identificador de rol proporcionado no es un UUID válido.")
+  .openapi({
+    description: "UUID del rol/perfil institucional",
+    example: "20000000-0000-4000-8000-000000000001",
+  });
+
+export type RolIdParam = z.infer<typeof RolIdParamSchema>;
+
+/**
+ * Esquema del rol asignado al usuario activo en sesión.
+ */
+export const UsuarioActivoRolSchema = z
+  .object({
+    id: z.string().uuid().openapi({
+      description: "UUID del rol asignado",
+      example: "20000000-0000-4000-8000-000000000001",
+    }),
+    nombre: z.string().openapi({
+      description: "Nombre del rol institucional",
+      example: "Administrador",
+    }),
+    codigo: z.string().openapi({
+      description: "Código identificador del rol",
+      example: "ADMIN",
+    }),
+    esAdmin: z.boolean().openapi({
+      description: "Indica si el usuario tiene privilegios de Administrador global",
+      example: true,
+    }),
+  })
+  .openapi("UsuarioActivoRol");
+
+export type UsuarioActivoRol = z.infer<typeof UsuarioActivoRolSchema>;
+
+/**
+ * Esquema del ítem consolidado de usuario activo con sus permisos dinámicos.
+ */
+export const UsuarioActivoItemSchema = z
+  .object({
+    id: z.string().uuid().openapi({
+      description: "UUID del usuario autenticado",
+      example: "00000000-0000-4000-8000-000000000001",
+    }),
+    rut: z.string().openapi({
+      description: "RUT del funcionario o informante autenticado",
+      example: "11111111-1",
+    }),
+    nombre: z.string().openapi({
+      description: "Nombre y apellidos del usuario",
+      example: "Administrador Municipal",
+    }),
+    email: z.string().email().openapi({
+      description: "Correo institucional del usuario",
+      example: "admin@valdivia.cl",
+    }),
+    activo: z.boolean().openapi({
+      description: "Indica si la cuenta del usuario está habilitada",
+      example: true,
+    }),
+    delegacionId: z.string().uuid().nullable().optional().openapi({
+      description: "UUID de la delegación territorial a la que pertenece (si aplica)",
+      example: "30000000-0000-4000-8000-000000000001",
+    }),
+    rol: UsuarioActivoRolSchema.openapi({
+      description: "Información del rol institucional asignado",
+    }),
+    permisos: z.array(z.string()).openapi({
+      description: "Lista de códigos de permisos asignados en tiempo real al usuario",
+      example: ["seguridad:roles:leer", "seguridad:roles:gestionar"],
+    }),
+  })
+  .openapi("UsuarioActivoItem");
+
+export type UsuarioActivoItem = z.infer<typeof UsuarioActivoItemSchema>;
+
+/**
+ * Esquema de respuesta para GET /api/seguridad/usuario-activo.
+ */
+export const UsuarioActivoResponseSchema = z
+  .object({
+    data: UsuarioActivoItemSchema.openapi({
+      description: "Datos del usuario activo y sus permisos dinámicos",
+    }),
+  })
+  .openapi("UsuarioActivoResponse");
+
+export type UsuarioActivoResponse = z.infer<typeof UsuarioActivoResponseSchema>;
+

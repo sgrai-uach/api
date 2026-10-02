@@ -134,7 +134,7 @@ async function main() {
         .where("activo", "=", true)
         .execute();
     } catch (e) {
-      console.warn("⚠️ No se pudo consultar la tabla tipo_incidente:", e);
+      console.warn("⚠️ No se pudo consultar tipo_incidente desde la base de datos:", e);
     }
   }
 
@@ -184,7 +184,7 @@ async function main() {
       // 2. Si se solicitó --promover, verificar y transformar a Incidente formal
       if (promoverAIncidente) {
         const tipoMatch = tiposDisponibles.find((t) =>
-          t.nombre.toLowerCase().includes(aviso.tipoAfectacion.toLowerCase())
+          t.nombre && t.nombre.toLowerCase().includes(aviso.tipoAfectacion.toLowerCase())
         ) || tiposDisponibles[0];
 
         if (!tipoMatch) {

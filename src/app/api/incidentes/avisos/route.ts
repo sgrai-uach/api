@@ -7,6 +7,9 @@ import {
   ListarAvisosQuerySchema,
 } from "@/modules/incidentes/schema";
 import { incidentesService } from "@/modules/incidentes/service";
+import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { PERMISO_LISTAR_AVISOS } from "@/modules/seguridad/permisos.constants";
+import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 /**
  * GET /api/incidentes/avisos
@@ -14,24 +17,50 @@ import { incidentesService } from "@/modules/incidentes/service";
  */
 export async function GET(request: NextRequest) {
   try {
+    // 1. Extraer cabecera de autenticación y verificar permiso RBAC
+    let usuarioId = request.headers.get("x-user-id");
+    if (!usuarioId) {
+      const authHeader = request.headers.get("authorization");
+      if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
+        usuarioId = authHeader.substring(7).trim();
+      }
+    }
+    await verificarPermiso(usuarioId, PERMISO_LISTAR_AVISOS);
+
     const searchParams = Object.fromEntries(request.nextUrl.searchParams);
     const parsedQuery = ListarAvisosQuerySchema.parse(searchParams);
 
     const resultado = await incidentesService.listarAvisos(parsedQuery);
     return NextResponse.json(resultado, { status: 200 });
   } catch (error: unknown) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ message: error.message }, { status: 401 });
+    }
+
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ message: error.message }, { status: 403 });
+    }
+
     if (error instanceof ZodError) {
       return NextResponse.json(
         {
+          message: "Parámetros de consulta inválidos",
           error: "Parámetros de consulta inválidos",
           detalles: error.issues,
+          errors: error.issues.map((issue) => ({
+            campo: issue.path.join("."),
+            mensaje: issue.message,
+          })),
         },
         { status: 400 }
       );
     }
     console.error("Error en GET /api/incidentes/avisos:", error);
     return NextResponse.json(
-      { error: "Error interno del servidor al consultar avisos" },
+      {
+        message: "Error interno del servidor al consultar avisos",
+        error: "Error interno del servidor al consultar avisos",
+      },
       { status: 500 }
     );
   }
