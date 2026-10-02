@@ -59,6 +59,12 @@ import {
   CatalogosResponseSchema,
 } from "@/modules/recursos-y-personal/schemas/modificar-empleado.schema";
 
+import {
+  ListarPuntosCriticosQuerySchema,
+  ListarPuntosCriticosResponseSchema,
+  PuntoCriticoItemResponseSchema,
+} from "@/modules/eventos-atp/punto-critico.schema";
+
 extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
@@ -893,13 +899,59 @@ registry.registerPath({
   },
 });
 
+// ==========================================
+// RUTAS PUNTOS CRÍTICOS (EVENTOS ATP - HU-57)
+// ==========================================
+registry.register("PuntoCriticoItem", PuntoCriticoItemResponseSchema);
+registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/puntos-criticos",
+  summary: "Listar puntos críticos y sectores vulnerables monitoreados",
+  description:
+    "Retorna una lista paginada de puntos críticos y sectores vulnerables monitoreados en Valdivia, incluyendo su ubicación espacial, factores de riesgo, nivel de gravedad y delegación territorial asociada. Acceso restringido al rol Administrador.",
+  tags: ["Eventos ATP / Puntos Críticos"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .describe("UUID del usuario Administrador autenticado"),
+    }),
+    query: ListarPuntosCriticosQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado paginado de puntos críticos",
+      content: {
+        "application/json": {
+          schema: ListarPuntosCriticosResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "Cabecera de autenticación X-User-Id ausente o usuario no válido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
 export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.6.0",
+      version: "0.7.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",
