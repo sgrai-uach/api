@@ -57,6 +57,8 @@ import {
   ListarEmpleadosResponseSchema,
   ActualizarEmpleadoResponseSchema,
   CatalogosResponseSchema,
+  DetalleEmpleadoResponseSchema,
+  EliminarEmpleadoResponseSchema,
 } from "@/modules/recursos-y-personal/schemas/modificar-empleado.schema";
 
 extendZodWithOpenApi(z);
@@ -74,6 +76,8 @@ registry.register("EmpleadoConsolidado", EmpleadoConsolidadoSchema);
 registry.register("ListarEmpleadosResponse", ListarEmpleadosResponseSchema);
 registry.register("ActualizarEmpleadoResponse", ActualizarEmpleadoResponseSchema);
 registry.register("CatalogosResponse", CatalogosResponseSchema);
+registry.register("DetalleEmpleadoResponse", DetalleEmpleadoResponseSchema);
+registry.register("EliminarEmpleadoResponse", EliminarEmpleadoResponseSchema);
 
 
 // Registrar esquemas de Seguridad
@@ -770,6 +774,71 @@ registry.registerPath({
     404: { description: "Empleado no encontrado" },
     409: { description: "Conflicto: Correo electrónico o RUT ya registrado" },
     422: { description: "Error de validación de campos" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// GET /api/personal/{id} (Obtener detalle de empleado)
+registry.registerPath({
+  method: "get",
+  path: "/api/personal/{id}",
+  description:
+    "Consulta los datos detallados de un empleado por ID (usuario_id o personal_id).",
+  summary: "Obtener detalle de empleado",
+  tags: ["Recursos y Personal"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del usuario o de la ficha de personal"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del empleado obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: DetalleEmpleadoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Identificador inválido (debe ser un UUID válido)" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado" },
+    404: { description: "Empleado no encontrado" },
+    409: { description: "Conflicto con el recurso" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// DELETE /api/personal/{id} (HU-13: Baja Lógica de Empleado)
+registry.registerPath({
+  method: "delete",
+  path: "/api/personal/{id}",
+  description:
+    "Ejecuta la baja lógica (soft-delete) de un empleado o funcionario en SGRAI, desactivando al usuario y marcando personal inactivo.",
+  summary: "Baja lógica de empleado",
+  tags: ["Recursos y Personal"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().optional().describe("UUID del administrador autenticado que ejecuta la baja lógica"),
+    }),
+    params: z.object({
+      id: z.string().uuid().describe("UUID del usuario o de la ficha de personal"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Empleado dado de baja exitosamente",
+      content: {
+        "application/json": {
+          schema: EliminarEmpleadoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Identificador inválido o solicitud incorrecta" },
+    401: { description: "No autenticado o cabecera de autenticación ausente/inválida" },
+    403: { description: "Acceso denegado: se requiere rol de Administrador" },
+    404: { description: "Empleado no encontrado" },
+    409: { description: "Conflicto: empleado en misión o patrulla activa" },
     500: { description: "Error interno del servidor" },
   },
 });

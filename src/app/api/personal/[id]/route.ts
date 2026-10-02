@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import { db } from "@/lib/db";
 import { ModificarEmpleadoSchema } from "@/modules/recursos-y-personal/schemas/modificar-empleado.schema";
 import {
@@ -30,9 +30,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
 
-    if (!id) {
+    const idValido = z.string().uuid().safeParse(id);
+    if (!idValido.success) {
       return NextResponse.json(
-        { error: "El identificador del empleado es requerido", message: "El identificador del empleado es requerido" },
+        {
+          error: "El identificador del empleado debe ser un UUID válido",
+          message: "El identificador del empleado debe ser un UUID válido",
+        },
         { status: 400 }
       );
     }
@@ -104,9 +108,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
 
-    if (!id) {
+    const idValido = z.string().uuid().safeParse(id);
+    if (!idValido.success) {
       return NextResponse.json(
-        { error: "El identificador del empleado es requerido", message: "El identificador del empleado es requerido" },
+        {
+          error: "El identificador del empleado debe ser un UUID válido",
+          message: "El identificador del empleado debe ser un UUID válido",
+        },
         { status: 400 }
       );
     }
@@ -180,9 +188,13 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
 
-    if (!id) {
+    const idValido = z.string().uuid().safeParse(id);
+    if (!idValido.success) {
       return NextResponse.json(
-        { error: "El identificador del empleado es requerido", message: "El identificador del empleado es requerido" },
+        {
+          error: "El identificador del empleado debe ser un UUID válido",
+          message: "El identificador del empleado debe ser un UUID válido",
+        },
         { status: 400 }
       );
     }

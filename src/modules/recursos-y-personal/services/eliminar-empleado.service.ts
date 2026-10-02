@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { EmpleadoNotFoundError } from "./actualizar-empleado.service";
 
@@ -128,7 +129,7 @@ export async function eliminarEmpleadoLogico(
 
     // 4. Registrar en log de auditoría
     let adminValido: string | null = null;
-    if (modificadoPorId) {
+    if (modificadoPorId && z.string().uuid().safeParse(modificadoPorId).success) {
       const adminExists = await trx
         .selectFrom("usuarios")
         .select("id")

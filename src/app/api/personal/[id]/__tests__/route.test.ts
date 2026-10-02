@@ -256,4 +256,60 @@ describe("DELETE /api/personal/[id] (HU-13)", () => {
     expect(body.mensaje).toBe("Empleado dado de baja exitosamente");
     expect(body.data.activo).toBe(false);
   });
+
+  it("BUG-H13-API-04: retorna 400 Bad Request si el parámetro :id no es un UUID válido", async () => {
+    const authGuard = await import("@/modules/seguridad/auth.guard");
+    vi.spyOn(authGuard, "verificarAdministrador").mockResolvedValueOnce({
+      id: "00000000-0000-4000-8000-000000000001",
+      rut: "11.111.111-1",
+      nombre: "Administrador General",
+      email: "admin@valdivia.cl",
+      rolId: "20000000-0000-4000-8000-000000000001",
+      rolNombre: "Administrador",
+      activo: true,
+    });
+
+    const { DELETE } = await import("../route");
+    const req = new NextRequest("http://localhost:3000/api/personal/no-es-un-uuid", {
+      method: "DELETE",
+      headers: { "x-user-id": "00000000-0000-4000-8000-000000000001" },
+    });
+
+    const res = await DELETE(req, {
+      params: Promise.resolve({ id: "no-es-un-uuid" }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("UUID válido");
+  });
+
+  it("BUG-H13-API-03: retorna 401 Unauthorized y no 500 ante cabecera de autenticación no-UUID", async () => {
+    const { DELETE } = await import("../route");
+    const req = new NextRequest("http://localhost:3000/api/personal/00000000-0000-4000-8000-000000000001", {
+      method: "DELETE",
+      headers: { "x-user-id": "admin" },
+    });
+
+    const res = await DELETE(req, {
+      params: Promise.resolve({ id: "00000000-0000-4000-8000-000000000001" }),
+    });
+
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("GET /api/personal/[id] (HU-13 / Validación de UUID)", () => {
+  it("BUG-H13-API-04: retorna 400 Bad Request si el parámetro :id no es un UUID válido", async () => {
+    const { GET } = await import("../route");
+    const req = new NextRequest("http://localhost:3000/api/personal/no-es-un-uuid");
+
+    const res = await GET(req, {
+      params: Promise.resolve({ id: "no-es-un-uuid" }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("UUID válido");
+  });
 });

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { db } from "../../lib/db";
 import { BadRequestError } from "./errors";
 import type {
@@ -169,6 +170,10 @@ export class SeguridadRepository {
    * Obtiene el detalle de un perfil específico por su UUID con todos sus permisos asociados.
    */
   async obtenerRolPorId(rolId: string): Promise<RolItemDTO | null> {
+    if (!rolId || !z.string().uuid().safeParse(rolId).success) {
+      return null;
+    }
+
     const rows: RolConPermisoRaw[] = await db
       .selectFrom("rol")
       .leftJoin("rol_permiso", "rol_permiso.rol_id", "rol.id")
@@ -208,6 +213,10 @@ export class SeguridadRepository {
   async obtenerUsuarioConRolPorId(
     usuarioId: string
   ): Promise<UsuarioAutenticado | null> {
+    if (!usuarioId || !z.string().uuid().safeParse(usuarioId).success) {
+      return null;
+    }
+
     const usuario = await db
       .selectFrom("usuario")
       .innerJoin("rol", "rol.id", "usuario.rol_id")
@@ -242,6 +251,10 @@ export class SeguridadRepository {
    * Obtiene la lista de códigos de permisos asignados a un rol específico.
    */
   async obtenerPermisosDeRol(rolId: string): Promise<string[]> {
+    if (!rolId || !z.string().uuid().safeParse(rolId).success) {
+      return [];
+    }
+
     const permisos = await db
       .selectFrom("rol_permiso")
       .innerJoin("permiso", "permiso.id", "rol_permiso.permiso_id")
@@ -258,6 +271,10 @@ export class SeguridadRepository {
   async obtenerUsuarioCompletoConPermisos(
     usuarioId: string
   ): Promise<UsuarioActivoDTO | null> {
+    if (!usuarioId || !z.string().uuid().safeParse(usuarioId).success) {
+      return null;
+    }
+
     const usuario = await db
       .selectFrom("usuario")
       .innerJoin("rol", "rol.id", "usuario.rol_id")

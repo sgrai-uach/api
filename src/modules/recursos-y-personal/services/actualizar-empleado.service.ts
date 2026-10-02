@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { db, type EstadoOperativoPersonal } from "@/lib/db";
 import type { ModificarEmpleadoDTO } from "../schemas/modificar-empleado.schema";
 
@@ -240,7 +241,7 @@ export async function actualizarEmpleado(
     const cambios = { ...datosUsuario, ...datosPersonal };
     if (Object.keys(cambios).length > 0) {
       let adminValido: string | null = null;
-      if (modificadoPorId) {
+      if (modificadoPorId && z.string().uuid().safeParse(modificadoPorId).success) {
         const adminExists = await trx
           .selectFrom("usuarios")
           .select("id")
