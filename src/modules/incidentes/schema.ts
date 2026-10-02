@@ -4,23 +4,49 @@ import { z } from "zod";
 extendZodWithOpenApi(z);
 
 /**
- * Esquema de consulta para listar avisos con paginación y filtros.
+ * Esquema de consulta para listar avisos con paginación y filtros multicriterio.
  */
 export const ListarAvisosQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1).openapi({
+  page: z.coerce.number().int().positive().default(1).openapi({
     description: "Número de página actual (inicia en 1)",
     example: 1,
   }),
-  limit: z.coerce.number().int().min(1).max(100).default(20).openapi({
+  limit: z.coerce.number().int().positive().max(100).default(20).openapi({
     description: "Cantidad de elementos por página (máx. 100)",
     example: 20,
   }),
   estado: z
-    .enum(["PENDIENTE_VERIFICACION", "NO_VERIFICADO", "VERIFICADO", "DESCARTADO"])
-    .default("PENDIENTE_VERIFICACION")
+    .enum(["PENDIENTE_VERIFICACION", "NO_VERIFICADO", "VERIFICADO", "DESCARTADO", "TODOS"])
+    .optional()
+    .default("NO_VERIFICADO")
     .openapi({
-      description: "Estado del aviso a consultar (por defecto PENDIENTE_VERIFICACION)",
-      example: "PENDIENTE_VERIFICACION",
+      description: "Estado del aviso a consultar (por defecto NO_VERIFICADO; si es TODOS omite el filtro)",
+      example: "NO_VERIFICADO",
+    }),
+  delegacion: z
+    .string()
+    .trim()
+    .max(100)
+    .optional()
+    .transform((val) => (val === "Calle-Calle" ? "Calle Calle" : val))
+    .openapi({
+      description: "Delegación territorial ('Norte', 'Sur', 'Costa', 'Calle Calle', 'TODAS')",
+      example: "Norte",
+    }),
+  busqueda: z.string().trim().max(100).optional().openapi({
+    description: "Texto libre para filtrar por descripción, dirección o informante",
+    example: "Alemania",
+  }),
+  q: z.string().trim().max(100).optional().openapi({
+    description: "Alias de búsqueda rápida para texto libre",
+    example: "inundación",
+  }),
+  origen: z
+    .enum(["WEB", "CHATBOT", "TELEFONO"])
+    .optional()
+    .openapi({
+      description: "Canal por el cual ingresó el reporte",
+      example: "WEB",
     }),
 });
 
@@ -109,6 +135,20 @@ export const CrearAvisoInputSchema = z
       .optional()
       .openapi({
         description: "ID opcional del catálogo de tipo de incidente",
+      }),
+    delegacionId: z
+      .string()
+      .uuid("Debe ser un UUID válido")
+      .optional()
+      .openapi({
+        description: "ID opcional de la delegación territorial",
+      }),
+    delegacion: z
+      .string()
+      .trim()
+      .optional()
+      .openapi({
+        description: "Nombre opcional de delegación territorial",
       }),
     datosInformante: z
       .object({
@@ -201,6 +241,10 @@ export const AvisoItemSchema = z
     motivoDescarte: z.string().nullable(),
     operadorId: z.string().uuid().nullable(),
     incidenteId: z.string().uuid().nullable(),
+    delegacionNombre: z.string().nullable().openapi({
+      description: "Nombre de la delegación territorial asignada (ej. Norte, Sur, Costa, Calle Calle)",
+      example: "Norte",
+    }),
     minutosEnEspera: z.number().int().nonnegative(),
     creadoEn: z.string(),
     actualizadoEn: z.string(),
@@ -212,12 +256,15 @@ export const AvisoItemSchema = z
  */
 export const AvisosPaginadosResponseSchema = z
   .object({
+    message: z.string().openapi({ example: "Avisos obtenidos exitosamente" }),
     data: z.array(AvisoItemSchema),
     pagination: z.object({
       page: z.number().int().positive(),
       limit: z.number().int().positive(),
       total: z.number().int().nonnegative(),
       totalPages: z.number().int().nonnegative(),
+      hasNext: z.boolean().openapi({ example: false }),
+      hasPrev: z.boolean().openapi({ example: false }),
     }),
   })
   .openapi("AvisosPaginadosResponse");

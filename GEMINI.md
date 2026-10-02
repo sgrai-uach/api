@@ -56,14 +56,28 @@ Componentes de infraestructura interna que soportan estos módulos: **Cache y Co
 
 ## 5. Modelo de datos
 
-La documentación técnica exhaustiva del modelo de datos, diccionario de tablas, tipos Kysely, claves foráneas, semillas oficiales y diagrama ER vive en [`/docs/database/README.md`](docs/database/README.md). **Consulta ese documento como fuente de verdad técnica obligatoria para cualquier consulta, repositorio o migración.**
+La arquitectura de datos de SGRAI se fundamenta en un **Modelo Entidad-Relación Conceptual Maestro** y un **Esquema Físico Relacional** gestionado en PostgreSQL con Kysely:
 
-Entidades principales que este backend modela con Kysely:
+- **Diagrama Entidad-Relación Maestro (Fuente de Verdad Arquitectónica):** El modelo gráfico original que define todas las entidades y cardinalidades del sistema está versionado y disponible en [`/docs/database/Diagrama Entidad-Relación - SGRAI.png`](docs/database/Diagrama%20Entidad-Relación%20-%20SGRAI.png) (y su versión editable [`Diagrama Entidad-Relación - SGRAI.drawio.png`](docs/database/Diagrama%20Entidad-Relación%20-%20SGRAI.drawio.png)).
+- **Documentación Técnica Exhaustiva:** El diccionario de datos físico, tipos Kysely, scripts de migración, semillas oficiales y relaciones activas residen en [`/docs/database/README.md`](docs/database/README.md). **Consulta ese documento como fuente de verdad técnica obligatoria para cualquier consulta, repositorio o migración.**
 
-- **Incidentes y Ciudadanía:** `incidente`, `aviso_incidente`, `informante`, `fuente_incidente`, `tipo_incidente`, `adjunto`.
-- **Eventos y Prevención:** `prevencion`, `mision` (misiones preventivas).
-- **Organización:** `delegacion` (Norte, Sur, Costa, Calle Calle), `usuario`, `personal`, `rol`, `permiso`, `rol_permiso`, `log_cambios_usuarios`.
-- **Operaciones:** `mision`, `cuadrilla`, `patrulla_verificadora`, `recurso`, `cuadrilla_recurso`.
+### Entidades fundacionales del modelo (concebidas desde el diseño inicial):
+
+- **Incidentes y Ciudadanía:** `incidente`, `aviso_incidente`, `informante`, `fuente_incidente`, `tipo_incidente`, `factores_riesgo` (Factores de Riesgo / Niveles), `adjunto`, canal `chatbot`.
+- **Eventos, Prevención y Recuperación:** `evento_atp` (EventoATP), `prevencion` (Puntos críticos de prevención y mitigación), `recuperacion` (Misiones y eventos de recuperación), `beneficio` (Ayudas y beneficios sociales).
+- **Operaciones de Terreno y Despliegue:** `mision` (Misión táctica), `patrulla_verificadora`, `cuadrilla`, `recurso`, `cuadrilla_recurso`, `log_mision` (Bitácora cronológica de misión), `reporte_terreno` (Reporte estructurado de terreno), `adjunto` (Evidencia multimedia).
+- **Organización y Seguridad:** `delegacion` (Norte, Sur, Costa, Calle Calle), `usuario`, `personal`, `rol`, `permiso`, `rol_permiso`, `log_cambios_usuarios`.
+- **Comunicaciones y Alertas:** `notificaciones` (Alertas a usuarios y personal operativo).
+
+### Estado actual de persistencia en Kysely (Migraciones 001 a 006):
+
+Las siguientes tablas ya se encuentran implementadas físicamente en la base de datos relacional:
+- **Seguridad y Organización:** `rol`, `permiso`, `rol_permiso`, `delegacion`, `usuario`, `personal`, `log_cambios_usuarios`.
+- **Incidentes y Evidencia:** `informante`, `fuente_incidente`, `tipo_incidente`, `aviso_incidente`, `incidente`, `adjunto`.
+- **Operaciones y Logística:** `recurso`, `patrulla_verificadora`, `cuadrilla`, `cuadrilla_recurso`, `prevencion`, `mision`.
+
+Las entidades restantes del modelo conceptual maestro (`evento_atp`, `log_mision`, `reporte_terreno`, `recuperacion`, `beneficio`, etc.) forman parte de la hoja de ruta y se incorporan mediante migraciones Kysely a medida que se implementan sus respectivos módulos de dominio.
+
 
 ## 6. Reglas de negocio críticas a respetar en la lógica de dominio
 

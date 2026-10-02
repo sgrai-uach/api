@@ -15,8 +15,13 @@ import {
 } from "@/modules/incidentes/schema";
 
 import {
+  ActualizarPermisosRolInputSchema,
+  ActualizarPermisosRolResponseSchema,
+  ListarPermisosResponseSchema,
   ListarRolesResponseSchema,
+  PermisoCatalogoItemSchema,
   RolDetalleResponseSchema,
+  UsuarioActivoResponseSchema,
 } from "@/modules/seguridad/schema";
 
 import {
@@ -75,6 +80,11 @@ registry.register("CatalogosResponse", CatalogosResponseSchema);
 // Registrar esquemas de Seguridad
 registry.register("ListarRolesResponse", ListarRolesResponseSchema);
 registry.register("RolDetalleResponse", RolDetalleResponseSchema);
+registry.register("PermisoCatalogoItem", PermisoCatalogoItemSchema);
+registry.register("ListarPermisosResponse", ListarPermisosResponseSchema);
+registry.register("ActualizarPermisosRolInput", ActualizarPermisosRolInputSchema);
+registry.register("ActualizarPermisosRolResponse", ActualizarPermisosRolResponseSchema);
+registry.register("UsuarioActivoResponse", UsuarioActivoResponseSchema);
 
 // Registrar esquemas de Avisos Call Center
 registry.register("AvisosPaginadosResponse", AvisosPaginadosResponseSchema);
@@ -224,9 +234,108 @@ registry.registerPath({
         },
       },
     },
+    400: { description: "Identificador de rol no válido (debe ser UUID)" },
     401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
     403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
     404: { description: "Perfil no encontrado" },
+  },
+});
+
+// 5. GET /api/seguridad/permisos (HU-5)
+registry.registerPath({
+  method: "get",
+  path: "/api/seguridad/permisos",
+  summary: "Listar catálogo completo de permisos",
+  description:
+    "Retorna el catálogo completo de permisos registrados en la base de datos clasificados por módulo funcional.",
+  tags: ["Seguridad / Roles y Permisos"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del usuario administrador autenticado"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Catálogo completo de permisos clasificados por módulo",
+      content: {
+        "application/json": {
+          schema: ListarPermisosResponseSchema,
+        },
+      },
+    },
+    401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
+    403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
+  },
+});
+
+// 6. PUT /api/seguridad/roles/{id}/permisos (HU-5)
+registry.registerPath({
+  method: "put",
+  path: "/api/seguridad/roles/{id}/permisos",
+  summary: "Actualizar permisos de un perfil",
+  description:
+    "Actualiza masiva y atómicamente los permisos asignados a un rol institucional específico mediante una lista de UUIDs.",
+  tags: ["Seguridad / Roles y Permisos"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del rol/perfil a actualizar"),
+    }),
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del usuario administrador autenticado"),
+    }),
+    body: {
+      description: "Lista de identificadores de permisos a asociar al perfil",
+      content: {
+        "application/json": {
+          schema: ActualizarPermisosRolInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Permisos actualizados correctamente en la base de datos",
+      content: {
+        "application/json": {
+          schema: ActualizarPermisosRolResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Identificador de rol no válido (debe ser UUID), payload inválido, permisos inexistentes o intento de revocar permiso crítico al Administrador",
+    },
+    401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
+    403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
+    404: { description: "Perfil no encontrado" },
+  },
+});
+
+// 7. GET /api/seguridad/usuario-activo (HU-5)
+registry.registerPath({
+  method: "get",
+  path: "/api/seguridad/usuario-activo",
+  summary: "Obtener usuario autenticado y permisos dinámicos",
+  description:
+    "Retorna los datos del usuario en sesión, su rol y la lista de todos los códigos de permisos asignados dinámicamente en tiempo real.",
+  tags: ["Seguridad / Roles y Permisos"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del usuario autenticado"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Datos del usuario activo y sus permisos dinámicos obtenidos exitosamente",
+      content: {
+        "application/json": {
+          schema: UsuarioActivoResponseSchema,
+        },
+      },
+    },
+    401: { description: "Cabecera de autenticación ausente o usuario no registrado" },
+    403: { description: "Acceso denegado o usuario inactivo en el sistema" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
@@ -238,11 +347,14 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/avisos",
-  summary: "Listar avisos pendientes para Call Center",
+  summary: "Listar avisos para Call Center con filtros multicriterio",
   description:
-    "Retorna una lista paginada de avisos ordenados por mayor tiempo de espera calculando minutosEnEspera.",
+    "Retorna una lista paginada de avisos ordenados por mayor tiempo de espera calculando minutosEnEspera. Admite filtros combinados por delegación territorial, estado operativo, canal de origen y búsqueda textual libre.",
   tags: ["Incidentes / Avisos"],
   request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().describe("UUID del usuario autenticado (Call Center o Administrador)"),
+    }),
     query: ListarAvisosQuerySchema,
   },
   responses: {
@@ -255,6 +367,8 @@ registry.registerPath({
       },
     },
     400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
+    403: { description: "Acceso denegado. Permiso 'incidentes:avisos:leer' requerido" },
   },
 });
 

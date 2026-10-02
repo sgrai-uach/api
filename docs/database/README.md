@@ -22,7 +22,90 @@ Este documento es la **fuente de verdad técnica y arquitectónica** de la base 
 
 ---
 
-## 2. Diagrama Entidad-Relación (Mermaid)
+## 2. Modelo Entidad-Relación Maestro y Arquitectura Conceptual
+
+### 2.1 Diagrama Entidad-Relación Original (SGRAI)
+
+La fuente de verdad arquitectónica del sistema es el **Diagrama Entidad-Relación Maestro** desarrollado en el diseño fundacional del SGRAI para la Dirección de Gestión de Riesgos de Desastres de la Municipalidad de Valdivia.
+
+- **Diagrama Gráfico Oficial (PNG):** [`Diagrama Entidad-Relación - SGRAI.png`](./Diagrama%20Entidad-Relación%20-%20SGRAI.png)
+- **Modelo Fuente Editable (Draw.io):** [`Diagrama Entidad-Relación - SGRAI.drawio.png`](./Diagrama%20Entidad-Relación%20-%20SGRAI.drawio.png)
+
+![Diagrama Entidad-Relación Maestro SGRAI](./Diagrama%20Entidad-Relación%20-%20SGRAI.png)
+
+### 2.2 Entidades Fundacionales del Modelo (Concebidas desde el Inicio)
+
+A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado desde el inicio para dar cobertura al ciclo completo de atención de emergencias comunales conforme al **Sistema de Comando de Incidentes (ICS)**: prevención, recepción y triage, verificación en terreno, intervención pesada, bitácora de misión y recuperación / asistencia social:
+
+1. **Incidentes, Informantes y Factores de Riesgo:**
+   - **`Incidente`:** Núcleo operacional formal de la emergencia. Maneja ciclo de vida ICS (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, `NO_ABORDABLE`, `RESUELTO`).
+   - **`Informante`:** Registro del ciudadano que reporta la emergencia.
+   - **`Chatbot`:** Interfaz conversacional directa e interactiva con el informante para la captura de reportes georreferenciados.
+   - **`Fuente del incidente` (`fuente_incidente`):** Canal oficial de ingreso (`CHATBOT`, `LLAMADA_TELEFONICA`, `FUNCIONARIO_TERRENO`, `SENAPRED`).
+   - **`Tipo Incidente` (`tipo_incidente`):** Catálogo estandarizado de tipologías (Inundación, Caída de árbol, Deslizamiento, Daño estructural, etc.).
+   - **`Factores de Riesgo (Niveles)`:** Factores de criticidad y riesgo agravante asociados al incidente o sector (riesgo eléctrico, anegamiento domiciliario, electrodependientes, adultos mayores aislados).
+   - **`Aviso Incidente` (`aviso_incidente`):** Bandeja de entrada preliminar para filtrado, deduplicación geoespacial y triage por Call Center antes de promover a incidente formal.
+   - **`Adjunto` (`adjunto`):** Evidencia multimedia (fotografías, audios, documentos) vinculada a avisos, incidentes o reportes de terreno.
+
+2. **Eventos Mayores, Prevención y Mitigación:**
+   - **`EventoATP`:** Macro-eventos adversos, temporales o climáticos mayores que agrupan o provocan múltiples incidentes y movilizan capacidades comunales a gran escala.
+   - **`Prevención` (Puntos Críticos):** Zonas identificadas de alto riesgo recurrente (quebradas, esteros, colectores de aguas lluvia) donde se programan misiones periódicas de mitigación sin requerir un incidente previo.
+
+3. **Operaciones Tácticas y Despliegue en Terreno:**
+   - **`Misión`:** Orden táctica de trabajo despachada a unidades de terreno. Conecta prevención, verificación, intervención y recuperación.
+   - **`Patrulla Verificadora`:** Unidad ágil de terreno para triage y evaluación preliminar (queda liberada al escalar a cuadrilla).
+   - **`Cuadrilla`:** Unidad táctica pesada con brigadistas y operarios municipales para resolver y mitigar la emergencia.
+   - **`Recurso`:** Maquinaria pesada, motobombas, herramientas y vehículos inventariados.
+   - **`Cuadrilla Recurso` (`cuadrilla_recurso`):** Asignación temporal de equipamiento e insumos a una cuadrilla para una misión.
+   - **`Log de Misión` (`log_mision`):** Bitácora cronológica inmutable de avances, estados, tiempos de respuesta e hitos de la misión en terreno.
+   - **`Reporte Terreno` (`reporte_terreno`):** Informe técnico consolidado levantado por la patrulla o cuadrilla al término o repliegue de la misión.
+
+4. **Recuperación y Asistencia Social:**
+   - **`Recuperación` (ex: Asistencia Social):** Fase posterior al control del evento crítico para tareas de normalización, despeje de escombros y apoyo a damnificados.
+   - **`Beneficio`:** Asignación y entrega de subsidios, materiales de construcción, techumbres, canastas o ayudas de emergencia articuladas con DIDECO mediante la Ficha Básica de Emergencia (FIBE).
+
+5. **Organización, Seguridad y Notificaciones:**
+   - **`Delegación`:** Sede territorial operativa (Norte, Sur, Costa, Calle Calle).
+   - **`Usuario`:** Cuenta de acceso institucional con credenciales y rol RBAC.
+   - **`Personal`:** Ficha técnica y funcional del trabajador municipal (especialidad, estado operativo).
+   - **`Rol` / `Permiso` / `RolPermiso`:** Matriz de control de acceso basada en roles.
+   - **`Log Cambios Usuarios`:** Registro de auditoría de modificaciones a cuentas de usuario.
+   - **`Notificaciones`:** Sistema de alertas push y eventos WebSocket en tiempo real hacia usuarios, encargados y brigadistas.
+
+### 2.3 Matriz de Trazabilidad: Modelo Conceptual Maestro vs. Tablas Físicas Implementadas (Kysely)
+
+| Entidad Original (ERD Maestro) | Tabla Física Kysely | Estado de Implementación | Módulo de Dominio | Descripción / Rol en el Sistema |
+|---|---|---|---|---|
+| **Usuario** | `usuario` | Migración 001 | Seguridad | Cuenta de acceso, rol y credenciales. |
+| **Rol** | `rol` | Migración 001 | Seguridad | Roles RBAC del sistema. |
+| **Permisos** | `permiso` | Migración 001 | Seguridad | Facultades y permisos granulares. |
+| **RolPermiso** | `rol_permiso` | Migración 001 | Seguridad | Pivote N:M entre roles y permisos. |
+| **Delegación** | `delegacion` | Migración 001 | Organización | 4 delegaciones comunales de Valdivia. |
+| **Personal** | `personal` | Migración 002 | Operaciones | Ficha operativa 1:1 con usuario. |
+| *(Auditoría)* | `log_cambios_usuarios` | Migración 002 | Seguridad | Traza histórica de cambios a usuarios. |
+| **Informante** | `informante` | Migración 003 | Incidentes | Ciudadanos que reportan incidentes. |
+| **Fuente del incidente** | `fuente_incidente` | Migración 003 | Incidentes | Canales de ingreso estandarizados. |
+| **Tipo Incidente** | `tipo_incidente` | Migración 003 | Incidentes | Catálogo de tipos de emergencia. |
+| *(Triage Call Center)* | `aviso_incidente` | Migración 003 | Incidentes | Bandeja de avisos preliminares y detección de duplicados. |
+| **Incidente** | `incidente` | Migración 004 | Incidentes | Registro central formal bajo metodología ICS. |
+| **Adjunto** | `adjunto` | Migración 004 | Evidencia | Archivos y fotos vinculadas a avisos o incidentes. |
+| **Recurso** | `recurso` | Migración 005 | Recursos | Maquinaria, motobombas y vehículos. |
+| **Patrulla Verificadora** | `patrulla_verificadora`| Migración 006 | Operaciones | Unidades tácticas de evaluación preliminar. |
+| **Cuadrilla** | `cuadrilla` | Migración 006 | Operaciones | Unidades tácticas operativas de intervención. |
+| *(Asignación Logística)* | `cuadrilla_recurso` | Migración 006 | Recursos | Asignación N:M de recursos a cuadrillas. |
+| **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 | Operaciones | Puntos críticos para misiones preventivas. |
+| **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
+| **EventoATP** | *`evento_atp`* | Hoja de Ruta (Roadmap) | Eventos ATP | Agrupación macro de incidentes / eventos climáticos mayores. |
+| **Log de Misión** | *`log_mision`* | Hoja de Ruta (Roadmap) | Misiones | Bitácora cronológica detallada de hitos de misión. |
+| **Reporte Terreno** | *`reporte_terreno`* | Hoja de Ruta (Roadmap) | Evidencia / Misiones | Informe técnico final tras intervención de patrulla/cuadrilla. |
+| **Recuperación** | *`recuperacion`* | Hoja de Ruta (Roadmap) | Asistencia Social | Puntos e intervenciones de recuperación post-emergencia. |
+| **Beneficio** | *`beneficio`* | Hoja de Ruta (Roadmap) | Asistencia Social | Ayudas sociales entregadas a damnificados (FIBE / DIDECO). |
+| **Factores de Riesgo (Niveles)**| *`factor_riesgo`* | Hoja de Ruta (Roadmap) | Incidentes | Parámetros de evaluación de riesgo y severidad. |
+| **Notificaciones** | *`notificacion`* | Hoja de Ruta (Roadmap) | Notificaciones | Registro de notificaciones push / WebSocket generadas. |
+
+### 2.4 Diagrama Entidad-Relación Integral (Mermaid)
+
+El siguiente diagrama refleja la arquitectura relacional activa y su articulación con los módulos en desarrollo:
 
 ```mermaid
 erDiagram
@@ -48,16 +131,20 @@ erDiagram
     USUARIO ||--o{ RECURSO : "creado_por"
     USUARIO ||--o{ INCIDENTE : "operador_o_encargado"
     USUARIO ||--o{ AVISO_INCIDENTE : "operador_atencion"
+    USUARIO ||--o{ NOTIFICACIONES : "recibe_alertas"
 
     INFORMANTE ||--o{ INCIDENTE : "declara"
+    CHATBOT ||--o{ INFORMANTE : "interactua"
     TIPO_INCIDENTE ||--o{ INCIDENTE : "clasifica"
     FUENTE_INCIDENTE ||--o{ INCIDENTE : "canal_origen"
+    INCIDENTE ||--o{ FACTORES_RIESGO : "posee_riesgos"
 
     AVISO_INCIDENTE ||--o| INCIDENTE : "promovido_a"
     AVISO_INCIDENTE ||--o{ AVISO_INCIDENTE : "duplicado_de"
     AVISO_INCIDENTE ||--o{ ADJUNTO : "contiene_adjuntos"
     INCIDENTE ||--o{ ADJUNTO : "evidencia_adjunta"
 
+    INCIDENTE ||--o{ EVENTO_ATP : "provoca_o_deriva_en"
     INCIDENTE ||--o{ MISION : "origina_mision"
     PREVENCION ||--o{ MISION : "origina_mision_preventiva"
 
@@ -65,6 +152,13 @@ erDiagram
     CUADRILLA ||--o{ MISION : "ejecuta_intervencion"
     CUADRILLA ||--o{ CUADRILLA_RECURSO : "utiliza"
     RECURSO ||--o{ CUADRILLA_RECURSO : "asignado_en"
+
+    MISION ||--o{ LOG_MISION : "registra_bitacora"
+    MISION ||--o{ REPORTE_TERRENO : "emite_informe"
+    REPORTE_TERRENO ||--o{ ADJUNTO : "incluye_evidencia"
+    MISION ||--o{ RECUPERACION : "deriva_recuperacion"
+    RECUPERACION ||--o{ BENEFICIO : "asigna_ayuda_fibe"
+    MISION ||--o{ NOTIFICACIONES : "despacha_notificacion"
 ```
 
 ---
@@ -386,6 +480,47 @@ Misiones tácticas despachadas a patrullas verificadoras o cuadrillas operativas
 | `fecha_cierre` | `TIMESTAMPTZ` | SÍ | `NULL` | Término o finalización de trabajos. |
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de creación. |
 | `actualizado_en`| `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de última actualización. |
+
+---
+
+### 3.4 Entidades del Modelo Maestro en Hoja de Ruta (Roadmap de Persistencia)
+
+Las siguientes entidades forman parte del diseño conceptual inicial del sistema (ver `Diagrama Entidad-Relación - SGRAI.png`) y se proyectan para su incorporación física en base de datos mediante futuras migraciones Kysely a medida que los módulos respectivos se desarrollen:
+
+#### Entidad: `evento_atp` (Eventos ATP)
+- **Propósito:** Agrupar incidentes y recursos bajo un marco operativo común para eventos adversos mayores (temporales de viento y lluvia, desbordes fluviales, emergencias comunales) o planes preventivos territoriales.
+- **Relaciones:** Relación 1:N con `incidente` (un incidente puede ser provocado por o derivar de un evento ATP) y con `mision` (misiones masivas de despliegue preventivo o de contingencia).
+- **Campos proyectados:** `id` (UUID), `codigo`, `nombre`, `descripcion`, `tipo_evento` (`TEMPORAL_VIENTO`, `TEMPORAL_LLUVIA`, `DESBORDE`, `PREVENTIVO`), `estado` (`ACTIVO`, `FINALIZADO`), `fecha_inicio`, `fecha_termino`, `creado_en`.
+
+#### Entidad: `log_mision` (Bitácora / Log de Misión)
+- **Propósito:** Registro cronológico inmutable de hitos, cambios de estado y notas de terreno emitidas por la patrulla o cuadrilla durante el ciclo de vida de la misión.
+- **Relaciones:** Relación N:1 con `mision` (una misión genera múltiples entradas de log), y N:1 con `usuario` (autor del registro).
+- **Campos proyectados:** `id` (UUID), `mision_id` (FK a `mision`), `usuario_id` (FK a `usuario`), `estado_anterior`, `nuevo_estado`, `mensaje_bitacora`, `latitud`, `longitud`, `creado_en`.
+
+#### Entidad: `reporte_terreno` (Reporte de Terreno)
+- **Propósito:** Informe técnico formal elaborado por la patrulla verificadora o delegado de cuadrilla al concluir su labor o al solicitar escalamiento de recursos.
+- **Relaciones:** Relación 1:1 o N:1 con `mision`, relación 1:N con `adjunto` (evidencia fotográfica de los trabajos realizados) y N:1 con `usuario`.
+- **Campos proyectados:** `id` (UUID), `mision_id` (FK a `mision`), `evaluador_id` (FK a `usuario`), `resumen_tecnico`, `acciones_realizadas`, `requiere_apoyo_adicional`, `danos_estimados`, `creado_en`.
+
+#### Entidad: `recuperacion` (Puntos y Eventos de Recuperación)
+- **Propósito:** Gestión de la fase posterior a la emergencia para labores de despeje de vías, remoción de escombros, sanitización y coordinación con DIDECO para asistencia social.
+- **Relaciones:** Derivada desde `mision` (misiones de tipo `RECUPERACION`), relación 1:N con `beneficio`, vinculada a `delegacion`.
+- **Campos proyectados:** `id` (UUID), `mision_id` (FK a `mision`), `delegacion_id` (FK a `delegacion`), `sector`, `estado` (`EN_EVALUACION`, `EN_EJECUCION`, `FINALIZADO`), `familias_afectadas`, `creado_en`.
+
+#### Entidad: `beneficio` (Asistencia Social / Ayuda Humanitaria)
+- **Propósito:** Registro y entrega de insumos, techumbres, canastas familiares o subsidios de arriendo a familias damnificadas tras el levantamiento de la Ficha Básica de Emergencia (FIBE).
+- **Relaciones:** Relación N:1 con `recuperacion` o con `incidente` (cuando `requiere_asistencia_social = true`), relación N:1 con `usuario` (asistente social responsable).
+- **Campos proyectados:** `id` (UUID), `recuperacion_id` (FK a `recuperacion`), `tipo_beneficio` (`TECHUMBRE`, `CANASTA_ALIMENTOS`, `COLCHONES_FRAZADAS`, `MATERIALES_CONSTRUCCION`), `cantidad`, `rut_beneficiario`, `nombre_beneficiario`, `direccion_entrega`, `entregado_en`.
+
+#### Entidad: `factor_riesgo` (Factores de Riesgo y Criticidad)
+- **Propósito:** Catálogo estructurado de agravantes que ponderan el nivel de urgencia del incidente (riesgo vital, electrocución, adultos mayores postrados, aislamiento geográfico).
+- **Relaciones:** Relación N:M con `incidente`.
+- **Campos proyectados:** `id` (UUID), `codigo`, `nombre`, `nivel_gravedad` (`LEVE`, `MODERADO`, `GRAVE`, `VITAL`), `activo`.
+
+#### Entidad: `notificacion` (Sistema de Notificaciones y Alertas)
+- **Propósito:** Auditoría y trazabilidad de notificaciones push, mensajes WhatsApp y alertas WebSocket dirigidas a usuarios, patrullas y cuadrillas.
+- **Relaciones:** Relación N:1 con `usuario` destinatario, referencia opcional a `mision_id` o `incidente_id`.
+- **Campos proyectados:** `id` (UUID), `usuario_id` (FK a `usuario`), `tipo_notificacion` (`ALERTA_MISION`, `CAMBIO_ESTADO`, `AVISO_CALL_CENTER`), `titulo`, `cuerpo`, `leida`, `creada_en`.
 
 ---
 
