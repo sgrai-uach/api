@@ -69,6 +69,7 @@ registry.register("CrearRecursoInput", CrearRecursoInputSchema);
 registry.register("ActualizarRecursoInput", ActualizarRecursoInputSchema);
 registry.register("RecursoResponse", RecursoResponseSchema);
 registry.register("RecursoDetalleResponse", RecursoDetalleResponseSchema);
+registry.register("EliminarRecursoResponse", EliminarRecursoResponseSchema);
 registry.register("ListarRecursosPaginadosResponse", ListarRecursosPaginadosResponseSchema);
 registry.register("ModificarEmpleadoInput", ModificarEmpleadoSchema);
 registry.register("EmpleadoConsolidado", EmpleadoConsolidadoSchema);

@@ -22,6 +22,7 @@ import {
 import * as recursoRepository from "../recurso.repository";
 import * as socketLib from "@/lib/socket";
 import { seguridadService } from "@/modules/seguridad/service";
+import { PERMISO_ELIMINAR_RECURSO } from "@/modules/seguridad/permisos.constants";
 import {
   UnauthorizedError,
   ForbiddenError,
@@ -700,12 +701,29 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
       await expect(eliminarRecurso(recursoId, "")).rejects.toThrow(UnauthorizedError);
     });
 
-    it("debe arrojar ForbiddenError si el usuario no tiene rol de Administrador", async () => {
+    it("debe arrojar ForbiddenError si el usuario no tiene rol de Administrador ni permiso", async () => {
       vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValueOnce(
         new ForbiddenError("Acceso denegado. Se requiere el perfil de Administrador.")
       );
 
       await expect(eliminarRecurso(recursoId, "usuario-no-admin")).rejects.toThrow(ForbiddenError);
+    });
+
+    it("debe validar el permiso recursos:eliminar al verificar el acceso", async () => {
+      const spyValidar = vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
+        id: adminId,
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+        activo: true,
+      });
+
+      vi.spyOn(recursoRepository, "obtenerRecursoPorId").mockResolvedValueOnce(null);
+
+      await expect(eliminarRecurso(recursoId, adminId)).rejects.toThrow(NotFoundError);
+      expect(spyValidar).toHaveBeenCalledWith(adminId, [PERMISO_ELIMINAR_RECURSO]);
     });
 
     it("debe arrojar NotFoundError si el recurso no existe o ya está eliminado", async () => {

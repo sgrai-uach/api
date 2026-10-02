@@ -1,5 +1,9 @@
 import { seguridadService } from "@/modules/seguridad/service";
-import { PERMISO_LEER_RECURSO, PERMISO_CREAR_RECURSO } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_LEER_RECURSO,
+  PERMISO_CREAR_RECURSO,
+  PERMISO_ELIMINAR_RECURSO,
+} from "@/modules/seguridad/permisos.constants";
 import { BadRequestError, NotFoundError, ConflictError } from "@/modules/seguridad/errors";
 import { emitirRecursoActualizado, emitirRecursoEliminado } from "@/lib/socket";
 import {
@@ -370,8 +374,10 @@ export async function eliminarRecurso(
   id: string,
   usuarioId?: string | null
 ): Promise<EliminarRecursoResponse> {
-  // 1. Validar autenticación y rol de administrador
-  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId);
+  // 1. Validar autenticación y rol de administrador o permiso de eliminación
+  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [
+    PERMISO_ELIMINAR_RECURSO,
+  ]);
 
   // 2. Verificar existencia del recurso activo
   const recursoExistente = await obtenerRecursoPorId(id);

@@ -10,7 +10,7 @@ import {
   ConflictError,
 } from "@/modules/seguridad/errors";
 
-describe("Route Handlers /api/recursos/[id] (HU-8)", () => {
+describe("Route Handlers /api/recursos/[id] (HU-8 / HU-9)", () => {
   const recursoIdValido = "40000000-0000-4000-8000-000000000001";
   const contextValido = { params: Promise.resolve({ id: recursoIdValido }) };
 
@@ -316,7 +316,7 @@ describe("Route Handlers /api/recursos/[id] (HU-8)", () => {
     });
   });
 
-  describe("DELETE /api/recursos/[id]", () => {
+  describe("DELETE /api/recursos/[id] (HU-9)", () => {
     it("debe responder 400 si el parámetro id no es un UUID válido", async () => {
       const contextInvalido = { params: Promise.resolve({ id: "id-invalido" }) };
       const req = new NextRequest("http://localhost:3000/api/recursos/id-invalido", {

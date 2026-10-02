@@ -48,6 +48,9 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/seguridad/roles/{id}/permisos"].put).toBeDefined();
     expect(spec.paths["/api/seguridad/usuario-activo"]).toBeDefined();
     expect(spec.paths["/api/seguridad/usuario-activo"].get).toBeDefined();
+
+    // Esquemas registrados en components/schemas (HU-9)
+    expect(spec.components.schemas.EliminarRecursoResponse).toBeDefined();
   });
 });
 
