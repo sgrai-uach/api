@@ -6,3 +6,4 @@ export const PERMISO_GESTIONAR_ROLES = "seguridad:roles:gestionar";
 export const PERMISO_KANBAN_INCIDENTES = "incidentes:kanban";
 export const PERMISO_CREAR_INCIDENTE_MANUAL = "crear_incidente_manual";
 export const PERMISO_LISTAR_AVISOS = "incidentes:avisos:leer";
+export const PERMISO_LISTAR_PUNTOS_CRITICOS = "puntos_criticos:leer";

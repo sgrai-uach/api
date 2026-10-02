@@ -181,6 +181,12 @@ export interface PrevencionTable {
   codigo: string;
   nombre: string;
   descripcion: string | null;
+  tipo_riesgo: ColumnType<string | null, string | null | undefined, string | null>;
+  prioridad: ColumnType<
+    PrioridadIncidente,
+    PrioridadIncidente | undefined,
+    PrioridadIncidente
+  >;
   latitud: number;
   longitud: number;
   ubicacion: ColumnType<unknown, unknown, unknown>;
