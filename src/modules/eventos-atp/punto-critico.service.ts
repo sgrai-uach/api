@@ -1,4 +1,5 @@
 import { seguridadService } from "@/modules/seguridad/service";
+import { PERMISO_LISTAR_PUNTOS_CRITICOS } from "@/modules/seguridad/permisos.constants";
 import {
   listarPuntosCriticosPaginados,
   contarPuntosCriticos,
@@ -52,8 +53,10 @@ export async function listarPuntosCriticos(
   query: ListarPuntosCriticosInput,
   usuarioId?: string | null
 ): Promise<ListarPuntosCriticosResponse> {
-  // 1. Control de Acceso RBAC: Restringido exclusivamente al Administrador
-  await seguridadService.validarAccesoAdministrador(usuarioId);
+  // 1. Control de Acceso RBAC: Requiere rol Administrador o permiso explícito puntos_criticos:leer
+  await seguridadService.validarAccesoAdministrador(usuarioId, [
+    PERMISO_LISTAR_PUNTOS_CRITICOS,
+  ]);
 
   const pagina = Number(query.pagina ?? 1) || 1;
   const limite = Number(query.limite ?? 10) || 10;

@@ -13,6 +13,7 @@ import {
   UnauthorizedError,
   ForbiddenError,
 } from "@/modules/seguridad/errors";
+import { PERMISO_LISTAR_PUNTOS_CRITICOS } from "@/modules/seguridad/permisos.constants";
 
 describe("Módulo Eventos ATP / Puntos Críticos (HU-57) - Pruebas Unitarias", () => {
   beforeEach(() => {
@@ -146,6 +147,29 @@ describe("Módulo Eventos ATP / Puntos Críticos (HU-57) - Pruebas Unitarias", (
       await expect(
         listarPuntosCriticos({}, "00000000-0000-4000-8000-000000000002")
       ).rejects.toThrow(ForbiddenError);
+    });
+
+    it("debe invocar a validarAccesoAdministrador pasando explícitamente [PERMISO_LISTAR_PUNTOS_CRITICOS]", async () => {
+      const spy = vi
+        .spyOn(seguridadService, "validarAccesoAdministrador")
+        .mockResolvedValueOnce({
+          id: "00000000-0000-4000-8000-000000000001",
+          rut: "11111111-1",
+          nombre: "Admin SGRAI",
+          email: "admin@valdivia.cl",
+          activo: true,
+          rolId: "20000000-0000-4000-8000-000000000001",
+          rolNombre: "Administrador",
+        });
+
+      vi.spyOn(puntoCriticoRepository, "listarPuntosCriticosPaginados").mockResolvedValueOnce([]);
+      vi.spyOn(puntoCriticoRepository, "contarPuntosCriticos").mockResolvedValueOnce(0);
+
+      await listarPuntosCriticos({}, "00000000-0000-4000-8000-000000000001");
+
+      expect(spy).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000001", [
+        PERMISO_LISTAR_PUNTOS_CRITICOS,
+      ]);
     });
   });
 
