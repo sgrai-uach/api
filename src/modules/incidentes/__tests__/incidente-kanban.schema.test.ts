@@ -55,6 +55,28 @@ describe("Esquemas de Tablero Kanban e Incidentes", () => {
       const resultado = ListarIncidentesQuerySchema.safeParse({ estado: "INEXISTENTE" });
       expect(resultado.success).toBe(false);
     });
+
+    it("debe validar filtros temporales (fecha y soloHoy) y delegacionId", () => {
+      const resultado = ListarIncidentesQuerySchema.safeParse({
+        fecha: "2026-10-03",
+        soloHoy: "true",
+        delegacionId: "11111111-1111-4111-8111-111111111111",
+      });
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.fecha).toBe("2026-10-03");
+        expect(resultado.data.soloHoy).toBe(true);
+        expect(resultado.data.delegacionId).toBe("11111111-1111-4111-8111-111111111111");
+      }
+    });
+
+    it("debe rechazar formato de fecha o UUID de delegacionId inválidos", () => {
+      const fechaInvalida = ListarIncidentesQuerySchema.safeParse({ fecha: "03/10/2026" });
+      expect(fechaInvalida.success).toBe(false);
+
+      const delegacionInvalida = ListarIncidentesQuerySchema.safeParse({ delegacionId: "abc" });
+      expect(delegacionInvalida.success).toBe(false);
+    });
   });
 
   describe("IncidenteResumenSchema", () => {
