@@ -324,6 +324,7 @@ export async function sembrarDatosKanban() {
         CURRENT_TIMESTAMP - interval '2 hours'
       )
     ON CONFLICT (id) DO UPDATE SET
+      creado_en = EXCLUDED.creado_en,
       estado = EXCLUDED.estado,
       prioridad = EXCLUDED.prioridad,
       tipo_incidente_id = EXCLUDED.tipo_incidente_id,
