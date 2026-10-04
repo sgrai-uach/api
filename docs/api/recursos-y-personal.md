@@ -77,8 +77,8 @@ Retorna una lista paginada de los recursos registrados en el inventario, incluye
   - **Rol:** `Supervisor Estratégico` (`SUPERVISOR`)
 
 #### Parámetros de Consulta (Query Params)
-- `pagina` (`number`, default `1`): Número de página.
-- `limite` (`number`, default `10`, max `100`): Cantidad por página.
+- `page` / `pagina` (`number`, default `1`): Número de página (estándar SGRAI `page`, alias legado `pagina`).
+- `limit` / `limite` (`number`, default `10`, max `100`): Cantidad por página (estándar SGRAI `limit`, alias legado `limite`).
 - `delegacionId` (`UUID`): Filtra por delegación.
 - `estado` (`string`): Filtra por estado de disponibilidad (`DISPONIBLE`, `ASIGNADO`, `EN_MANTENCION`, `BAJO_STOCK`, `NO_DISPONIBLE`).
 - `esIndividual` (`boolean`): Filtra por tipo (maquinaria individual vs granel).
@@ -88,14 +88,21 @@ Retorna una lista paginada de los recursos registrados en el inventario, incluye
 ### 3.2. `POST /api/recursos` (HU-6: Crear Recurso)
 Registra un nuevo recurso individual o a granel en el inventario municipal calculando automáticamente su estado inicial.
 
-### 3.3. `GET /api/personal`
-Lista y busca empleados/usuarios para los selectores del frontend.
-- `q`: Término de búsqueda (RUT, nombres, apellidos, email).
-- `solo_personal`: `true` para restringir solo a personal con ficha operativa de terreno.
-- `delegacion_id`: Filtro por delegación.
-- `rol_id`: Filtro por rol institucional.
-- `ordenar_por`: `apellidos` | `nombres` | `rut`.
-- `orden`: `asc` | `desc`.
+### 3.3. `GET /api/personal` (H34: Listado de Personal con Filtros)
+Lista y busca empleados/usuarios para los selectores del frontend y la gestión operativa del Encargado, con paginación estándar y soporte multicriterio.
+- `page` (`number`, default `1`): Número de página (inicia en 1).
+- `limit` (`number`, default `20`, máx `100`): Cantidad de registros por página.
+- `delegacionId` / `delegacion_id` (`UUID`): Filtro por delegación territorial.
+- `rolId` / `rol_id` (`UUID`): Filtro por rol institucional.
+- `estadoOperativo` / `estado_operativo`: Filtro por estado operativo (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`).
+- `cargo` (`string`): Filtro por cargo funcional (búsqueda parcial `ILIKE`).
+- `especialidad` (`string`): Filtro por especialidad técnica (búsqueda parcial `ILIKE`).
+- `soloPersonal` / `solo_personal` (`boolean`): `true` para restringir solo a personal con ficha operativa de terreno.
+- `busqueda` / `q` (`string`): Búsqueda textual insensible a mayúsculas sobre RUT, nombres, apellidos o email.
+- `ordenarPor` / `ordenar_por`: `apellidos` (default) | `nombres` | `rut`.
+- `orden`: `asc` (default) | `desc`.
+
+**Respuesta:** Retorna `{ data: PersonalItem[], meta: PaginationMeta }` conforme al estándar transversal H34.
 
 ### 3.4. `POST /api/personal` (HU-10: Registrar Nuevo Funcionario)
 Registra un nuevo funcionario municipal en el sistema SGRAI, aprovisionando su cuenta en `usuario` y su ficha operativa en `personal` si el rol es de terreno o se proveen atributos de campo.

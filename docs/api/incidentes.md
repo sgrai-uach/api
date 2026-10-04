@@ -45,7 +45,7 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 
 | Método | Endpoint | Permiso Requerido | Propósito |
 |---|---|---|---|
-| `GET` | `/api/incidentes/avisos` | `incidentes:avisos:leer` | Listar avisos paginados con soporte multicriterio (delegación, estado, canal, búsqueda) y cálculo de tiempos de espera para el Call Center. |
+| `GET` | `/api/incidentes/avisos` | `incidentes:avisos:leer` | Listar avisos paginados con soporte multicriterio: `delegacionId` (UUID, prioritario), `delegacion` (nombre legado), `estado`, `origen` (`WEB`, `CHATBOT`, `LLAMADA_TELEFONICA`), `busqueda`/`q`, `page`, `limit`. Retorna `data`, `meta` y `pagination`. |
 | `POST` | `/api/incidentes/avisos` | Público | Registrar reporte ciudadano (Chatbot o Web) con código de seguimiento numérico. |
 | `GET` | `/api/incidentes/avisos/{id}` | Call Center / Admin | Obtener el detalle completo de un aviso para su evaluación. |
 | `POST` | `/api/incidentes/avisos/{id}/verificar` | `incidentes:avisos:verificar` | Verificar y promover un aviso preliminar a incidente formal ICS (`REPORTADO`). |
@@ -54,7 +54,7 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 | `GET` | `/api/incidentes/tipos` | Público | Catálogo oficial de tipos de afectación. |
 | `POST` | `/api/incidentes/manual` | `crear_incidente_manual` | Ingreso manual de incidente desde Call Center o terreno. |
 | `POST` | `/api/incidentes/verificar-duplicado` | `crear_incidente_manual` | Consultar coincidencias de incidentes cercanos en Valdivia. |
-| `GET` | `/api/incidentes` | `incidentes:kanban` | Listado paginado de incidentes con filtros para el tablero Kanban del Encargado. |
+| `GET` | `/api/incidentes` | `incidentes:kanban` | Listado paginado de incidentes con filtros para el tablero Kanban del Encargado. Admite: `estado`, `prioridad`, `tipoAfectacion`, `delegacionId` (UUID), `fuenteOrigen` (`CHATBOT`, `LLAMADA_TELEFONICA`, `FUNCIONARIO_TERRENO`, `WEB`), `busqueda`, `page`, `limit`. Retorna `data` y `meta` (estándar H34). |
 | `GET` | `/api/incidentes/{id}` | `incidentes:kanban` | Detalle exhaustivo de incidente para puesto de mando (informante, misiones, cuadrillas). |
 
 ---
