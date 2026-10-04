@@ -65,6 +65,18 @@ import {
   RegistrarEmpleadoResponseSchema,
 } from "@/modules/recursos-y-personal/schemas/registrar-empleado.schema";
 
+import {
+  ListarPersonalQuerySchema,
+  ListarPersonalResponseSchema,
+  PersonalItemSchema,
+} from "@/modules/recursos-y-personal/personal-listado.schema";
+
+import {
+  ListarMisionesQuerySchema,
+  ListarMisionesResponseSchema,
+  MisionItemSchema,
+} from "@/modules/misiones/mision-listado.schema";
+
 extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
@@ -82,6 +94,10 @@ registry.register("EmpleadoConsolidado", EmpleadoConsolidadoSchema);
 registry.register("ListarEmpleadosResponse", ListarEmpleadosResponseSchema);
 registry.register("ActualizarEmpleadoResponse", ActualizarEmpleadoResponseSchema);
 registry.register("CatalogosResponse", CatalogosResponseSchema);
+registry.register("ListarPersonalResponse", ListarPersonalResponseSchema);
+registry.register("PersonalItem", PersonalItemSchema);
+registry.register("ListarMisionesResponse", ListarMisionesResponseSchema);
+registry.register("MisionItem", MisionItemSchema);
 
 
 // Registrar esquemas de Seguridad
@@ -751,33 +767,27 @@ registry.registerPath({
   },
 });
 
-// 16. GET /api/personal (Listar empleados/personal)
+// 16. GET /api/personal (Listar empleados/personal - H34)
 registry.registerPath({
   method: "get",
   path: "/api/personal",
   description:
-    "Lista y busca empleados y personal operativo del SGRAI con filtros territoriales, de rol y búsqueda textual.",
+    "Lista y busca empleados y personal operativo del SGRAI con filtros territoriales (delegacionId), estado operativo, cargo, especialidad, rol y búsqueda textual, con paginación estándar.",
   summary: "Listar empleados y personal",
   tags: ["Recursos y Personal"],
   request: {
-    query: z.object({
-      q: z.string().optional().describe("Término de búsqueda (RUT, nombres, apellidos o email)"),
-      solo_personal: z.enum(["true", "false"]).optional().describe("Filtrar únicamente personal con ficha de terreno"),
-      delegacion_id: z.string().uuid().optional().describe("Filtrar por delegación municipal"),
-      rol_id: z.string().uuid().optional().describe("Filtrar por rol"),
-      ordenar_por: z.enum(["apellidos", "nombres", "rut"]).optional().describe("Campo de ordenamiento"),
-      orden: z.enum(["asc", "desc"]).optional().describe("Dirección de ordenamiento"),
-    }),
+    query: ListarPersonalQuerySchema,
   },
   responses: {
     200: {
-      description: "Lista de empleados obtenida exitosamente",
+      description: "Lista paginada de empleados y personal obtenida exitosamente",
       content: {
         "application/json": {
-          schema: ListarEmpleadosResponseSchema,
+          schema: ListarPersonalResponseSchema,
         },
       },
     },
+    400: { description: "Parámetros de consulta inválidos" },
     500: { description: "Error interno del servidor" },
   },
 });
@@ -981,13 +991,42 @@ registry.registerPath({
   },
 });
 
+// 21. GET /api/misiones (H34: Listado de misiones para Encargado)
+registry.registerPath({
+  method: "get",
+  path: "/api/misiones",
+  summary: "Listar misiones operativas con filtros y paginación",
+  description:
+    "Retorna una lista paginada de misiones operativas del SGRAI para el Encargado. Admite filtros combinados por estado, tipo táctico, prioridad, delegación territorial (vía incidente o patrulla/cuadrilla) y búsqueda textual libre.",
+  tags: ["Misiones"],
+  request: {
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión"),
+    }),
+    query: ListarMisionesQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado de misiones y metadatos de paginación obtenidos exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarMisionesResponseSchema,
+        },
+      },
+    },
+    400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "No autenticado o token ausente/inválido" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
 export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.7.0",
+      version: "0.9.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",
