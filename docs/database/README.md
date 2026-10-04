@@ -439,20 +439,24 @@ Asignación temporal de recursos a cuadrillas para ejecución de tareas.
 | `asignado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de despacho del recurso. |
 
 #### Tabla: `prevencion`
-Puntos críticos de mitigación y prevención geográfica comunal.
+Puntos críticos de mitigación y prevención geográfica comunal (Migraciones 006, 011 y 013).
 
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
 |---|---|---|---|---|
 | `id` | `UUID` | NO | `gen_random_uuid()` | Identificador del punto crítico preventivo. |
-| `codigo` | `VARCHAR(20)` | NO | — | Código del punto crítico (ej. `PREV-CALLE-01`). Unique. |
-| `nombre` | `VARCHAR(150)`| NO | — | Nombre descriptivo del punto de prevención. |
-| `descripcion` | `TEXT` | SÍ | `NULL` | Medidas mitigadoras a realizar periódicamente. |
-| `latitud` | `NUMERIC(10, 7)`| NO | — | Coordenada Y del punto crítico. |
-| `longitud` | `NUMERIC(10, 7)`| NO | — | Coordenada X del punto crítico. |
+| `codigo` | `VARCHAR(20)` | NO | — | Código del punto crítico (ej. `PC-ANG-01`). Unique. |
+| `nombre` | `VARCHAR(150)`| NO | — | Nombre descriptivo del punto de prevención o sector vulnerable. |
+| `descripcion` | `TEXT` | SÍ | `NULL` | Detalle situacional y medidas mitigadoras a realizar. |
+| `tipo_riesgo` | `VARCHAR(100)`| SÍ | `NULL` | Clasificación de la amenaza recurrente (Migración 011 / HU-57). |
+| `prioridad` | `VARCHAR(20)` | NO | `'MEDIA'` | Gravedad/prioridad operativa (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`) (Migración 011 / HU-57). |
+| `latitud` | `NUMERIC(10, 7)`| NO | — | Coordenada Y (latitud EPSG:4326) del punto crítico. |
+| `longitud` | `NUMERIC(10, 7)`| NO | — | Coordenada X (longitud EPSG:4326) del punto crítico. |
 | `ubicacion` | `GEOMETRY` | SÍ | — | Geometría PostGIS Point. |
 | `delegacion_id` | `UUID` | SÍ | `NULL` | FK a `delegacion.id` correspondiente. |
-| `activo` | `BOOLEAN` | NO | `true` | Habilitado para misiones preventivas. |
-| `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de alta. |
+| `activo` | `BOOLEAN` | NO | `true` | Estado operativo de vigencia. Se actualiza a `false` en baja lógica (HU-56). |
+| `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de alta en el sistema. |
+| `eliminado_en` | `TIMESTAMPTZ` | SÍ | `NULL` | Fecha y hora de baja lógica / soft delete (Migración 013 / HU-56). |
+| `eliminado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` que ejecutó la desactivación (Migración 013 / HU-56). |
 
 #### Tabla: `mision`
 Misiones tácticas despachadas a patrullas verificadoras o cuadrillas operativas.
