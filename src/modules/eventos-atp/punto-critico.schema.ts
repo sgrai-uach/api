@@ -134,3 +134,51 @@ export const ListarPuntosCriticosResponseSchema = z.object({
 });
 
 export type ListarPuntosCriticosResponse = z.infer<typeof ListarPuntosCriticosResponseSchema>;
+
+/**
+ * Parámetro de ruta para identificar un punto crítico por su UUID (HU-56).
+ */
+export const PuntoCriticoIdParamSchema = z.object({
+  id: z.string().uuid("Identificador UUID de punto crítico inválido").openapi({
+    description: "UUID del punto crítico",
+    example: "40000000-0000-4000-8000-000000000001",
+  }),
+});
+
+export type PuntoCriticoIdParam = z.infer<typeof PuntoCriticoIdParamSchema>;
+
+/**
+ * Esquema de respuesta para la eliminación lógica de un punto crítico (HU-56).
+ */
+export const EliminarPuntoCriticoResponseSchema = z.object({
+  message: z.string().openapi({
+    description: "Mensaje de confirmación del borrado lógico",
+    example: "Punto crítico desactivado exitosamente del sistema.",
+  }),
+  id: z.string().uuid().openapi({
+    description: "Identificador UUID del punto crítico desactivado",
+    example: "40000000-0000-4000-8000-000000000001",
+  }),
+  codigo: z.string().openapi({
+    description: "Código institucional del punto crítico",
+    example: "PC-ANG-01",
+  }),
+  nombre: z.string().openapi({
+    description: "Nombre del punto crítico desactivado",
+    example: "Sector Humedal Angachilla - Pasaje Los Robles",
+  }),
+  activo: z.boolean().openapi({
+    description: "Estado operativo resultante tras el borrado lógico",
+    example: false,
+  }),
+  eliminadoEn: z.string().openapi({
+    description: "Fecha y hora en que se ejecutó la desactivación (ISO-8601)",
+    example: "2026-10-04T00:30:00.000Z",
+  }),
+  eliminadoPorId: z.string().uuid().openapi({
+    description: "Identificador UUID del administrador que realizó la desactivación",
+    example: "00000000-0000-4000-8000-000000000001",
+  }),
+});
+
+export type EliminarPuntoCriticoResponse = z.infer<typeof EliminarPuntoCriticoResponseSchema>;
