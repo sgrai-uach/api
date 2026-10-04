@@ -11,17 +11,7 @@ import {
   UnauthorizedError,
   ForbiddenError,
 } from "@/modules/seguridad/errors";
-
-function extraerUsuarioId(req: NextRequest): string | null {
-  let usuarioId = req.headers.get("x-user-id");
-  if (!usuarioId) {
-    const auth = req.headers.get("authorization");
-    if (auth && auth.toLowerCase().startsWith("bearer ")) {
-      usuarioId = auth.substring(7).trim();
-    }
-  }
-  return usuarioId;
-}
+import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 
 /**
  * GET /api/recursos
@@ -29,7 +19,7 @@ function extraerUsuarioId(req: NextRequest): string | null {
  */
 export async function GET(req: NextRequest) {
   try {
-    const usuarioId = extraerUsuarioId(req);
+    const usuarioId = await extraerUsuarioId(req);
 
     // Parsear parámetros de consulta (query params)
     const searchParams = req.nextUrl.searchParams;
@@ -81,7 +71,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const usuarioId = extraerUsuarioId(req);
+    const usuarioId = await extraerUsuarioId(req);
 
     let body: unknown;
     try {

@@ -14,7 +14,7 @@ import {
   eliminarEmpleadoLogico,
   EmpleadoEnMisionActivaError,
 } from "@/modules/recursos-y-personal/services/eliminar-empleado.service";
-import { verificarAdministrador } from "@/modules/seguridad/auth.guard";
+import { extraerUsuarioId, verificarAdministrador } from "@/modules/seguridad/auth.guard";
 import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
 
 interface RouteParams {
@@ -121,7 +121,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const datosValidados = ModificarEmpleadoSchema.parse(body);
-    const modificadoPorId = request.headers.get("x-user-id");
+    const modificadoPorId = await extraerUsuarioId(request);
 
     const empleado = await actualizarEmpleado(id, datosValidados, modificadoPorId);
 

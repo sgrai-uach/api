@@ -6,6 +6,9 @@ import {
   incidentesService,
   NotFoundError,
 } from "@/modules/incidentes/service";
+import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
+import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -14,6 +17,7 @@ interface RouteContext {
 /**
  * POST /api/incidentes/avisos/:id/verificar
  * Acción "Verificar y Enviar": transforma atómicamente el aviso a Incidente formal.
+ * Requiere permiso incidentes:avisos:verificar.
  */
 export async function POST(
   request: NextRequest,
@@ -22,13 +26,8 @@ export async function POST(
   try {
     const { id } = await context.params;
 
-    const operadorId = request.headers.get("x-user-id");
-    if (!operadorId) {
-      return NextResponse.json(
-        { error: "Cabecera X-User-Id obligatoria para auditar al operador responsable" },
-        { status: 401 }
-      );
-    }
+    const usuarioId = await extraerUsuarioId(request);
+    const operador = await verificarPermiso(usuarioId, "incidentes:avisos:verificar");
 
     const body = await request.json();
     const parsedInput = VerificarAvisoInputSchema.parse(body);
@@ -36,7 +35,7 @@ export async function POST(
     const resultado = await incidentesService.verificarAviso(
       id,
       parsedInput,
-      operadorId
+      operador.id
     );
 
     return NextResponse.json(resultado, { status: 201 });
@@ -49,6 +48,12 @@ export async function POST(
         },
         { status: 400 }
       );
+    }
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
     }
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });
@@ -63,3 +68,5 @@ export async function POST(
     );
   }
 }
+
+export const PATCH = POST;

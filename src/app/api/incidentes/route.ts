@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { ListarIncidentesQuerySchema } from "@/modules/incidentes/incidente-kanban.schema";
 import { listarIncidentesKanbanService } from "@/modules/incidentes/incidente-kanban.service";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { PERMISO_KANBAN_INCIDENTES } from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 export async function GET(req: NextRequest) {
   try {
     // 1. Extraer cabecera de autenticación y verificar permiso RBAC
-    const usuarioId = req.headers.get("x-user-id");
+    const usuarioId = await extraerUsuarioId(req);
     await verificarPermiso(usuarioId, PERMISO_KANBAN_INCIDENTES);
 
     // 2. Extraer parámetros de búsqueda de la URL
@@ -21,6 +22,9 @@ export async function GET(req: NextRequest) {
     if (searchParams.has("prioridad")) queryRaw.prioridad = searchParams.get("prioridad") ?? undefined;
     if (searchParams.has("tipoAfectacion")) queryRaw.tipoAfectacion = searchParams.get("tipoAfectacion") ?? undefined;
     if (searchParams.has("busqueda")) queryRaw.busqueda = searchParams.get("busqueda") ?? undefined;
+    if (searchParams.has("fecha")) queryRaw.fecha = searchParams.get("fecha") ?? undefined;
+    if (searchParams.has("soloHoy")) queryRaw.soloHoy = searchParams.get("soloHoy") ?? undefined;
+    if (searchParams.has("delegacionId")) queryRaw.delegacionId = searchParams.get("delegacionId") ?? undefined;
 
     // 3. Validar con Zod
     const resultadoValidacion = ListarIncidentesQuerySchema.safeParse(queryRaw);
