@@ -105,7 +105,9 @@ export class IncidentesRepository {
     }
 
     // 2. Filtro condicional por Delegación Territorial
-    if (delegacion && delegacion !== "TODAS") {
+    if (filtros.delegacionId) {
+      baseQuery = baseQuery.where("a.delegacion_id", "=", filtros.delegacionId);
+    } else if (delegacion && delegacion !== "TODAS") {
       const normDelegacion = delegacion.toLowerCase();
       baseQuery = baseQuery.where((eb) =>
         eb.or([

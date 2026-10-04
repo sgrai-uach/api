@@ -4,6 +4,7 @@ import {
   emitirNuevoAviso,
   notificarIncidenteCreado,
 } from "../../lib/socket";
+import { buildPaginationMeta } from "../../lib/shared/pagination.schema";
 import { incidentesRepository, IncidentesRepository } from "./repository";
 import type {
   CrearAvisoInput,
@@ -114,17 +115,18 @@ export class IncidentesService {
       actualizadoEn: new Date(row.actualizadoEn).toISOString(),
     }));
 
-    const totalPages = Math.max(1, Math.ceil(total / query.limit));
+    const meta = buildPaginationMeta(total, query.page, query.limit);
 
     return {
       message: "Avisos obtenidos exitosamente",
       data,
+      meta,
       pagination: {
         page: query.page,
         limit: query.limit,
         total,
-        totalPages,
-        hasNext: query.page < totalPages,
+        totalPages: Math.max(1, Math.ceil(total / query.limit)),
+        hasNext: query.page < Math.max(1, Math.ceil(total / query.limit)),
         hasPrev: query.page > 1,
       },
     };
