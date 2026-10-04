@@ -25,10 +25,17 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const q = searchParams.get("q")?.trim();
     const soloPersonal = searchParams.get("solo_personal") === "true";
+    const estado = searchParams.get("estado")?.toLowerCase();
+    const incluirInactivos = searchParams.get("incluir_inactivos") === "true" || estado === "todos" || estado === "inactivo";
     const delegacionId = searchParams.get("delegacion_id")?.trim();
     const rolId = searchParams.get("rol_id")?.trim();
     const ordenarPor = searchParams.get("ordenar_por") || "apellidos"; // apellidos | nombres | rut
     const orden = searchParams.get("orden")?.toLowerCase() === "desc" ? "desc" : "asc";
+    const limiteParam = searchParams.get("limite") || searchParams.get("limit");
+    const limite = limiteParam ? Math.min(Math.max(1, parseInt(limiteParam, 10) || 50), 100) : 50;
+    const paginaParam = searchParams.get("pagina") || searchParams.get("page");
+    const pagina = paginaParam ? Math.max(1, parseInt(paginaParam, 10) || 1) : 1;
+    const offset = (pagina - 1) * limite;
 
     let query = db
       .selectFrom("usuarios")
@@ -59,6 +66,12 @@ export async function GET(request: NextRequest) {
         "personal.observaciones",
         "personal.updated_at as personal_updated_at",
       ]);
+
+    if (estado === "inactivo") {
+      query = query.where("usuarios.activo", "=", false);
+    } else if (!incluirInactivos) {
+      query = query.where("usuarios.activo", "=", true);
+    }
 
     if (soloPersonal) {
       query = query.where("personal.id", "is not", null);
@@ -92,18 +105,23 @@ export async function GET(request: NextRequest) {
       query = query.orderBy("usuarios.apellidos", orden).orderBy("usuarios.nombres", orden);
     }
 
-    const empleados = await query.limit(50).execute();
+    const empleados = await query.limit(limite).offset(offset).execute();
 
     return NextResponse.json({
       data: empleados.map((e) => ({
         ...e,
         es_personal: e.personal_id !== null,
       })),
+      paginacion: {
+        pagina,
+        limite,
+        total_retornados: empleados.length,
+      },
     });
   } catch (error) {
     console.error("Error al listar empleados:", error);
     return NextResponse.json(
-      { error: "Error interno al obtener lista de empleados" },
+      { error: "Error interno al obtener lista de empleados", message: "Error interno al obtener lista de empleados" },
       { status: 500 }
     );
   }

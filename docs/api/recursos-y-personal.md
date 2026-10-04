@@ -53,9 +53,10 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `POST` | `/api/recursos` | Registrar un nuevo recurso en el inventario logístico con validación de stock, geolocalización y atributos técnicos. |
 | `GET` | `/api/recursos/{id}` | Obtener detalle completo de un recurso para precargar el formulario de edición. |
 | `PUT` | `/api/recursos/{id}` | Modificar características, inventario físico, especificaciones técnicas y estado de un recurso. |
-| `GET` | `/api/personal` | Listar y buscar empleados/usuarios para selectores con soporte de búsqueda textual y filtro de terreno. |
+| `GET` | `/api/personal` | Listar y buscar empleados/usuarios para selectores con soporte de búsqueda textual y filtro de activos/terreno. |
 | `POST` | `/api/personal` | Registrar a un nuevo funcionario municipal con credenciales y ficha de terreno condicional (HU-10). |
 | `PATCH` | `/api/personal/:id` | Modificar datos de un empleado actualizando concurrentemente `usuarios` y `personal` en una transacción atómica. |
+| `DELETE` | `/api/personal/:id` | Dar de baja lógica a un funcionario preservando trazabilidad histórica (H13). |
 | `GET` | `/api/catalogos` | Entregar catálogos de referencia (roles, delegaciones activas, especialidades y cargos) para selectores. |
 
 
@@ -78,9 +79,10 @@ Retorna una lista paginada de los recursos registrados en el inventario, incluye
 Registra un nuevo recurso individual o a granel en el inventario municipal calculando automáticamente su estado inicial.
 
 ### 3.3. `GET /api/personal`
-Lista y busca empleados/usuarios para los selectores del frontend.
+Lista y busca empleados/usuarios para los selectores y tablas del frontend.
 - `q`: Término de búsqueda (RUT, nombres, apellidos, email).
 - `solo_personal`: `true` para restringir solo a personal con ficha operativa de terreno.
+- `incluir_inactivos`: `true` para incluir funcionarios inactivos (`activo = false`). Por omisión (`false`), solo se devuelven activos.
 - `delegacion_id`: Filtro por delegación.
 - `rol_id`: Filtro por rol institucional.
 - `ordenar_por`: `apellidos` | `nombres` | `rut`.
@@ -169,9 +171,31 @@ Modifica los datos de un empleado en el sistema SGRAI, actualizando tanto la tab
 }
 ```
 
+#### Respuestas
+- **`200 OK`**: Datos actualizados exitosamente.
+- **`400 Bad Request`**: Rol o delegación inexistente en el sistema.
+- **`404 Not Found`**: El identificador de empleado no existe en la base de datos.
+- **`409 Conflict`**: El correo electrónico o RUT especificado ya pertenece a otro usuario registrado.
+- **`422 Unprocessable Entity`**: Formato o tipo de datos inválido según el esquema Zod.
+
+### 3.5. `DELETE /api/personal/:id` (HU-13: Baja Lógica de Empleado)
+Ejecuta la baja lógica de un empleado preservando la integridad referencial histórica para auditoría y reportes.
+- **Parámetro `:id`:** UUID de `personal` o UUID de `usuarios`.
+- **Efectos:**
+  1. En `usuarios`: `activo = false` y se registra la `fecha_salida` con la fecha actual. Revoca de inmediato el acceso al sistema.
+  2. En `personal` (si aplica): `estado_operativo = 'inactivo'` y `disponible_terreno = false`.
+  3. En `log_cambios_usuarios`: Registra la traza de auditoría con tipo de operación `BAJA_LOGICA_H13`.
+- **Respuestas:**
+  - **`200 OK`**: Empleado dado de baja exitosamente.
+  - **`400 Bad Request`**: El parámetro `:id` no posee un formato UUID válido.
+  - **`401 Unauthorized`**: Falta de cabecera de autenticación (`x-user-id` o token Bearer ausente/inválido).
+  - **`403 Forbidden`**: El usuario no cuenta con rol Administrador.
+  - **`404 Not Found`**: El identificador no corresponde a un funcionario existente.
+  - **`409 Conflict`**: Empleado con misión activa, asignado a patrulla en verificación o delegado en cuadrilla en misión.
+  - **`500 Internal Server Error`**: Error interno del servidor.
+
 ### 3.6. `GET /api/catalogos`
 Retorna listas de roles activos, delegaciones activas, cargos y especialidades registradas para alimentar selects de UI.
-
 ---
 
 ### 3.3. `GET /api/recursos/{id}` (HU-8: Detalle de Recurso)
