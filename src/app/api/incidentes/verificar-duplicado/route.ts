@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { VerificarDuplicadoInputSchema } from "@/modules/incidentes/aviso-incidente.schema";
 import { verificarDuplicadosManual } from "@/modules/incidentes/aviso-incidente.service";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { PERMISO_CREAR_INCIDENTE_MANUAL } from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 export async function POST(req: NextRequest) {
   try {
     // 1. Validar autenticación y permiso de Call Center
-    const usuarioId = req.headers.get("x-user-id");
+    const usuarioId = await extraerUsuarioId(req);
     try {
       await verificarPermiso(usuarioId, PERMISO_CREAR_INCIDENTE_MANUAL);
     } catch (authError) {

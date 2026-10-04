@@ -19,6 +19,8 @@ import {
   ActualizarPermisosRolResponseSchema,
   ListarPermisosResponseSchema,
   ListarRolesResponseSchema,
+  LoginRequestSchema,
+  LoginResponseSchema,
   PermisoCatalogoItemSchema,
   RolDetalleResponseSchema,
   UsuarioActivoResponseSchema,
@@ -58,6 +60,10 @@ import {
   ActualizarEmpleadoResponseSchema,
   CatalogosResponseSchema,
 } from "@/modules/recursos-y-personal/schemas/modificar-empleado.schema";
+import {
+  RegistrarEmpleadoSchema,
+  RegistrarEmpleadoResponseSchema,
+} from "@/modules/recursos-y-personal/schemas/registrar-empleado.schema";
 
 import {
   ListarPuntosCriticosQuerySchema,
@@ -76,6 +82,8 @@ registry.register("RecursoResponse", RecursoResponseSchema);
 registry.register("RecursoDetalleResponse", RecursoDetalleResponseSchema);
 registry.register("ListarRecursosPaginadosResponse", ListarRecursosPaginadosResponseSchema);
 registry.register("ModificarEmpleadoInput", ModificarEmpleadoSchema);
+registry.register("RegistrarEmpleadoInput", RegistrarEmpleadoSchema);
+registry.register("RegistrarEmpleadoResponse", RegistrarEmpleadoResponseSchema);
 registry.register("EmpleadoConsolidado", EmpleadoConsolidadoSchema);
 registry.register("ListarEmpleadosResponse", ListarEmpleadosResponseSchema);
 registry.register("ActualizarEmpleadoResponse", ActualizarEmpleadoResponseSchema);
@@ -90,6 +98,8 @@ registry.register("ListarPermisosResponse", ListarPermisosResponseSchema);
 registry.register("ActualizarPermisosRolInput", ActualizarPermisosRolInputSchema);
 registry.register("ActualizarPermisosRolResponse", ActualizarPermisosRolResponseSchema);
 registry.register("UsuarioActivoResponse", UsuarioActivoResponseSchema);
+registry.register("LoginRequest", LoginRequestSchema);
+registry.register("LoginResponse", LoginResponseSchema);
 
 // Registrar esquemas de Avisos Call Center
 registry.register("AvisosPaginadosResponse", AvisosPaginadosResponseSchema);
@@ -184,8 +194,41 @@ registry.registerPath({
 });
 
 // ==========================================
-// RUTAS SEGURIDAD (ROLES Y PERMISOS - HU-4)
+// RUTAS SEGURIDAD (AUTENTICACIÓN, ROLES Y PERMISOS)
 // ==========================================
+
+// POST /api/seguridad/login
+registry.registerPath({
+  method: "post",
+  path: "/api/seguridad/login",
+  summary: "Iniciar sesión institucional",
+  description:
+    "Autentica a un funcionario u operador mediante correo o RUT y contraseña. Valida hash bcrypt, vigencia de cuenta y política de bloqueo por reintentos antes de emitir el token JWT de sesión.",
+  tags: ["Seguridad / Autenticación"],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: LoginRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Inicio de sesión exitoso con token JWT y perfil de usuario retornado",
+      content: {
+        "application/json": {
+          schema: LoginResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de solicitud inválidos o campos obligatorios faltantes" },
+    401: { description: "Credenciales inválidas. Identificador o contraseña errónea" },
+    403: { description: "Cuenta deshabilitada o temporalmente bloqueada por múltiples intentos fallidos" },
+    500: { description: "Error interno del servidor al procesar el inicio de sesión" },
+  },
+});
 
 // 3. GET /api/seguridad/roles
 registry.registerPath({
@@ -354,11 +397,11 @@ registry.registerPath({
   path: "/api/incidentes/avisos",
   summary: "Listar avisos para Call Center con filtros multicriterio",
   description:
-    "Retorna una lista paginada de avisos ordenados por mayor tiempo de espera calculando minutosEnEspera. Admite filtros combinados por delegación territorial, estado operativo, canal de origen y búsqueda textual libre.",
+    "Retorna una lista paginada de avisos ordenados por mayor tiempo de espera calculando minutosEnEspera. Admite filtros combinados por delegación territorial, estado operativo, canal de origen y búsqueda textual libre. Requiere permiso incidentes:avisos:leer.",
   tags: ["Incidentes / Avisos"],
   request: {
     headers: z.object({
-      "x-user-id": z.string().uuid().describe("UUID del usuario autenticado (Call Center o Administrador)"),
+      authorization: z.string().describe("Token Bearer JWT de sesión"),
     }),
     query: ListarAvisosQuerySchema,
   },
@@ -372,8 +415,9 @@ registry.registerPath({
       },
     },
     400: { description: "Parámetros de consulta inválidos" },
-    401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
+    401: { description: "No autenticado o token Bearer inválido/expirado" },
     403: { description: "Acceso denegado. Permiso 'incidentes:avisos:leer' requerido" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
@@ -403,20 +447,20 @@ registry.registerPath({
   },
 });
 
-// 7. POST /api/incidentes/avisos/{id}/verificar
+// 7. POST y PATCH /api/incidentes/avisos/{id}/verificar
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos/{id}/verificar",
   summary: "Verificar y promover aviso a incidente",
   description:
-    "Transforma atómicamente un aviso preliminar en un incidente formal ICS con bloqueo pesimista.",
+    "Transforma atómicamente un aviso preliminar en un incidente formal ICS con bloqueo pesimista. Requiere permiso incidentes:avisos:verificar. Admite POST y PATCH.",
   tags: ["Incidentes / Avisos"],
   request: {
     params: z.object({
       id: z.string().uuid().describe("UUID del aviso a verificar"),
     }),
     headers: z.object({
-      "x-user-id": z.string().uuid().describe("UUID del operador que verifica"),
+      authorization: z.string().describe("Token Bearer JWT"),
     }),
     body: {
       content: {
@@ -429,26 +473,28 @@ registry.registerPath({
   responses: {
     200: { description: "Aviso verificado y promovido a incidente exitosamente" },
     400: { description: "Datos de entrada inválidos" },
-    401: { description: "Cabecera X-User-Id faltante" },
+    401: { description: "No autenticado o token Bearer inválido/expirado" },
+    403: { description: "No cuenta con el permiso requerido: incidentes:avisos:verificar" },
     404: { description: "Aviso no encontrado" },
     409: { description: "El aviso ya fue verificado o descartado previamente" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
-// 8. POST /api/incidentes/avisos/{id}/descartar
+// 8. POST y PATCH /api/incidentes/avisos/{id}/descartar
 registry.registerPath({
   method: "post",
   path: "/api/incidentes/avisos/{id}/descartar",
   summary: "Descartar aviso motivado",
   description:
-    "Descarta un aviso no procedente registrando la justificación obligatoria del operador.",
+    "Descarta un aviso no procedente registrando la justificación obligatoria del operador. Requiere permiso incidentes:avisos:descartar. Admite POST y PATCH.",
   tags: ["Incidentes / Avisos"],
   request: {
     params: z.object({
       id: z.string().uuid().describe("UUID del aviso"),
     }),
     headers: z.object({
-      "x-user-id": z.string().uuid().describe("UUID del operador que descarta"),
+      authorization: z.string().describe("Token Bearer JWT"),
     }),
     body: {
       content: {
@@ -461,9 +507,11 @@ registry.registerPath({
   responses: {
     200: { description: "Aviso descartado correctamente" },
     400: { description: "Justificación de descarte inválida o faltante" },
-    401: { description: "Cabecera X-User-Id faltante" },
+    401: { description: "No autenticado o token Bearer inválido/expirado" },
+    403: { description: "No cuenta con el permiso requerido: incidentes:avisos:descartar" },
     404: { description: "Aviso no encontrado" },
     409: { description: "El aviso ya fue procesado previamente" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
@@ -617,6 +665,7 @@ registry.registerPath({
         },
       },
     },
+    400: { description: "Código de seguimiento inválido o no proporcionado" },
     404: { description: "No se encontró ningún reporte con el código de seguimiento indicado" },
     500: { description: "Error interno del servidor" },
   },
@@ -736,6 +785,45 @@ registry.registerPath({
       },
     },
     500: { description: "Error interno del servidor" },
+  },
+});
+
+// 17. POST /api/personal (HU-10: Registrar Nuevo Funcionario)
+registry.registerPath({
+  method: "post",
+  path: "/api/personal",
+  description:
+    "Registra a un nuevo funcionario o empleado municipal en el sistema SGRAI, aprovisionando su cuenta institucional y opcionalmente su ficha de terreno si su rol o funciones lo requieren.",
+  summary: "Registrar nuevo funcionario",
+  tags: ["Recursos y Personal"],
+  request: {
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión con rol Administrador"),
+    }),
+    body: {
+      description: "Datos personales, asignación institucional y credenciales del nuevo funcionario",
+      content: {
+        "application/json": {
+          schema: RegistrarEmpleadoSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Funcionario registrado exitosamente",
+      content: {
+        "application/json": {
+          schema: RegistrarEmpleadoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Rol o delegación inexistente o datos de solicitud inválidos" },
+    401: { description: "No autorizado: Token de sesión ausente o expirado" },
+    403: { description: "Acceso denegado: Se requiere perfil de Administrador" },
+    409: { description: "Conflicto: RUT o correo electrónico ya registrado en el sistema" },
+    422: { description: "Error de validación de campos o RUT con dígito verificador inválido" },
+    500: { description: "Error interno del servidor al procesar el registro" },
   },
 });
 

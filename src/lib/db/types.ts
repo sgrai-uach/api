@@ -84,7 +84,7 @@ export interface RolPermisoTable {
 export interface UsuarioTable {
   id: Generated<string>;
   rut: string;
-  nombre: string;
+  nombre: Generated<string>;
   nombres?: string;
   apellidos?: string;
   email: string;
@@ -93,6 +93,8 @@ export interface UsuarioTable {
   rol_id: string;
   delegacion_id?: string | null;
   activo: ColumnType<boolean, boolean | undefined, boolean>;
+  intentos_fallidos?: ColumnType<number, number | undefined, number>;
+  bloqueado_hasta?: Date | null;
   ultimo_acceso?: Date | null;
   fecha_ingreso?: string | null;
   fecha_salida?: string | null;

@@ -4,6 +4,7 @@ import { GET, POST } from "../route";
 import * as service from "@/modules/incidentes/aviso-incidente.service";
 import { db } from "@/lib/db";
 import { sql } from "kysely";
+import { generarTokenPrueba, headersConBearer } from "@/lib/test-utils/auth";
 
 describe("Endpoint POST /api/incidentes/avisos", () => {
   it("debe responder 400 si el cuerpo no es un JSON válido", async () => {
@@ -101,7 +102,7 @@ describe("Endpoint POST /api/incidentes/avisos", () => {
 });
 
 const OPERADOR_CALL_CENTER_ID = "c1111111-1111-4111-8111-111111111111";
-const AUTH_HEADER = { "x-user-id": OPERADOR_CALL_CENTER_ID };
+let AUTH_HEADER: { authorization: string };
 
 const TEST_AVISO_IDS = [
   "f1111111-1111-4111-8111-111111111111",
@@ -111,6 +112,14 @@ const TEST_AVISO_IDS = [
 
 describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)", () => {
   beforeAll(async () => {
+    // 0. Generar token JWT Bearer para el operador de Call Center
+    const token = await generarTokenPrueba(OPERADOR_CALL_CENTER_ID, {
+      email: "carlos.miranda@valdivia.cl",
+      rolCodigo: "CALL_CENTER",
+      rolNombre: "Call Center",
+    });
+    AUTH_HEADER = headersConBearer(token);
+
     // 1. Limpieza defensiva previa
     await sql`DELETE FROM aviso_incidente WHERE id IN (${sql.join(TEST_AVISO_IDS.map((id) => sql`${id}`))});`.execute(db);
 
@@ -181,17 +190,22 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
     // Limpieza al culminar la suite
     await sql`DELETE FROM aviso_incidente WHERE id IN (${sql.join(TEST_AVISO_IDS.map((id) => sql`${id}`))});`.execute(db);
   });
-  it("debe retornar 401 Unauthorized si falta la cabecera x-user-id", async () => {
+  it("debe retornar 401 Unauthorized si falta el token de autorización Bearer", async () => {
     const req = new NextRequest("http://localhost:3000/api/incidentes/avisos");
     const res = await GET(req);
     expect(res.status).toBe(401);
     const body = await res.json();
-    expect(body.message).toContain("X-User-Id");
+    expect(body.message).toMatch(/Bearer|token|autorización/i);
   });
 
   it("debe retornar 403 Forbidden si el usuario no tiene el permiso incidentes:avisos:leer", async () => {
+    const tokenSinPermiso = await generarTokenPrueba("00000000-0000-4000-8000-000000000003", {
+      email: "encargado@valdivia.cl",
+      rolCodigo: "ENCARGADO",
+      rolNombre: "Encargado",
+    });
     const req = new NextRequest("http://localhost:3000/api/incidentes/avisos", {
-      headers: { "x-user-id": "00000000-0000-4000-8000-000000000003" },
+      headers: headersConBearer(tokenSinPermiso),
     });
     const res = await GET(req);
     expect(res.status).toBe(403);
