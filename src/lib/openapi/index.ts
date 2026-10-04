@@ -65,6 +65,7 @@ import {
   RegistrarEmpleadoResponseSchema,
 } from "@/modules/recursos-y-personal/schemas/registrar-empleado.schema";
 
+import {
   ListarPuntosCriticosQuerySchema,
   ListarPuntosCriticosResponseSchema,
   PuntoCriticoItemResponseSchema,
