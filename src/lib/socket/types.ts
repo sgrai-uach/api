@@ -5,6 +5,13 @@ export interface ServerToClientEvents {
     "aviso:verificado": (payload: { avisoId: string; incidenteId: string; folio: string }) => void;
     "aviso:descartado": (payload: { avisoId: string; motivoDescarte: string }) => void;
     "incidente:creado": (payload: unknown) => void;
+    "punto_critico:eliminado": (payload: {
+        id: string;
+        codigo: string;
+        nombre: string;
+        eliminadoPorId: string;
+        eliminadoEn: string;
+    }) => void;
 }
 
 export interface ClientToServerEvents {
