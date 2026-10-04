@@ -67,6 +67,38 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
     );
   }
 
+  // Filtro por Delegación Territorial
+  if (filtros.delegacionId) {
+    consultaBase = consultaBase.where("incidente.delegacion_id", "=", filtros.delegacionId);
+  }
+
+  // Filtro Temporal por Fecha o soloHoy (Zona horaria Chile)
+  if (filtros.fecha) {
+    consultaBase = consultaBase
+      .where(
+        "incidente.creado_en",
+        ">=",
+        sql<Date>`(${sql.val(filtros.fecha)}::date AT TIME ZONE 'America/Santiago')`
+      )
+      .where(
+        "incidente.creado_en",
+        "<",
+        sql<Date>`((${sql.val(filtros.fecha)}::date + INTERVAL '1 day') AT TIME ZONE 'America/Santiago')`
+      );
+  } else if (filtros.soloHoy) {
+    consultaBase = consultaBase
+      .where(
+        "incidente.creado_en",
+        ">=",
+        sql<Date>`(CURRENT_DATE AT TIME ZONE 'America/Santiago')`
+      )
+      .where(
+        "incidente.creado_en",
+        "<",
+        sql<Date>`((CURRENT_DATE + INTERVAL '1 day') AT TIME ZONE 'America/Santiago')`
+      );
+  }
+
   // Conteo total para metadatos de paginación
   const resultadoConteo = await consultaBase
     .select(sql<number>`count(incidente.id)::int`.as("total"))

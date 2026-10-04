@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { UnauthorizedError, ForbiddenError } from "./auth.errors";
 
@@ -12,7 +13,11 @@ export async function verificarPermiso(
   permisoRequerido: string
 ): Promise<UsuarioAutenticado> {
   if (!usuarioId || usuarioId.trim() === "") {
-    throw new UnauthorizedError("Se requiere cabecera de autenticación X-User-Id.");
+    throw new UnauthorizedError("Se requiere cabecera de autenticación Authorization: Bearer <token>.");
+  }
+
+  if (!z.string().uuid().safeParse(usuarioId.trim()).success) {
+    throw new UnauthorizedError(`Usuario con ID '${usuarioId}' no existe o no está autorizado.`);
   }
 
   const usuario = await db

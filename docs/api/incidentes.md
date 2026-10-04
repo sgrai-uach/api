@@ -39,6 +39,12 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 - **Catálogo de Estados y Descripciones Ciudadanas (Sin Jerga Técnica):**
   Para el panel de seguimiento de informantes (`GET /api/incidentes/avisos/seguimiento/{codigo}`), los estados se traducen a explicaciones comprensibles sin tecnicismos ni exposición de datos privados (RUT o teléfono).
 
+- **Contadores Rápidos y Panorama del Día para Encargado (HU-18):**
+  - El endpoint `GET /api/incidentes/kpis` consolida los 5 estados canónicos del ICS (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, `NO_ABORDABLE`, `RESUELTO`) calculados dinámicamente mediante agregación condicional SQL sobre la tabla `incidente`.
+  - El corte temporal del día opera estrictamente bajo la zona horaria chilena (`America/Santiago`), evitando desajustes de fecha con respecto a UTC.
+  - Admite filtrado opcional por delegación territorial (`delegacionId`) para segmentar los contadores por sector (Norte, Sur, Costa, Calle Calle) o consolidar el total comunal de Valdivia si no se especifica.
+  - Para permitir la navegación fluida desde las tarjetas del dashboard (CA-4), el listado paginado `GET /api/incidentes` admite los parámetros `fecha` (YYYY-MM-DD), `soloHoy` (boolean) y `delegacionId` (UUID).
+
 ---
 
 ## 2. Endpoints del Módulo
@@ -54,7 +60,8 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 | `GET` | `/api/incidentes/tipos` | Público | Catálogo oficial de tipos de afectación. |
 | `POST` | `/api/incidentes/manual` | `crear_incidente_manual` | Ingreso manual de incidente desde Call Center o terreno. |
 | `POST` | `/api/incidentes/verificar-duplicado` | `crear_incidente_manual` | Consultar coincidencias de incidentes cercanos en Valdivia. |
-| `GET` | `/api/incidentes` | `incidentes:kanban` | Listado paginado de incidentes con filtros para el tablero Kanban del Encargado. |
+| `GET` | `/api/incidentes/kpis` | `incidentes:kanban` | Contadores numéricos de incidentes del día agrupados por estado para el panel del Encargado (HU-18). |
+| `GET` | `/api/incidentes` | `incidentes:kanban` | Listado paginado de incidentes con filtros (estado, prioridad, fecha, soloHoy, delegación) para el tablero Kanban. |
 | `GET` | `/api/incidentes/{id}` | `incidentes:kanban` | Detalle exhaustivo de incidente para puesto de mando (informante, misiones, cuadrillas). |
 
 ---
@@ -84,8 +91,8 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
   - `aviso:verificado`: Notifica promoción a incidente formal `{ avisoId, incidenteId, folio }`.
   - `aviso:descartado`: Notifica descarte del aviso `{ avisoId, motivoDescarte }`.
 - **`sala:encargados`:**
-  - `incidente:creado`: Nueva tarjeta para la columna "Reportado" en el tablero Kanban.
-  - `incidente:actualizado`: Mueve la tarjeta entre columnas en tiempo real (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, etc.).
+  - `incidente:creado`: Nueva tarjeta para la columna "Reportado" en el tablero Kanban. Invalida la caché del dashboard y gatilla el refresco automático de `GET /api/incidentes/kpis`.
+  - `incidente:actualizado`: Notifica cambio de estado en tiempo real (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, etc.). Invalida y actualiza los contadores de `GET /api/incidentes/kpis` (patrón reactivo SWR) y mueve la tarjeta en el tablero.
 - **`sala:seguimiento:{codigoSeguimiento}`:**
   - `incidente:estado_actualizado`: Actualiza el panel ciudadano con la nueva descripción y etiqueta comprensible.
 

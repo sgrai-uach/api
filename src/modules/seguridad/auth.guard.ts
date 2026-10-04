@@ -1,25 +1,56 @@
 import type { NextRequest } from "next/server";
-import { seguridadService } from "./service";
-import type { UsuarioAutenticado } from "./types";
+import { UnauthorizedError } from "./errors";
+import { verificarTokenJwt } from "./jwt";
 import {
   PERMISO_LEER_ROLES,
   PERMISO_GESTIONAR_ROLES,
 } from "./permisos.constants";
+import { seguridadService } from "./service";
+import type { UsuarioAutenticado } from "./types";
 
 /**
- * Extrae la identificación del usuario de la petición HTTP.
- * Admite cabecera 'x-user-id' o 'authorization: Bearer <usuario_id>'.
+ * Extrae la identificación del usuario del token JWT presente en la cabecera 'Authorization: Bearer <token>'.
+ * Valida la firma criptográfica y expiración. Lanza UnauthorizedError si el token es inválido o ha expirado.
+ * Retorna null si la cabecera de autorización no está presente.
  */
-export function extraerUsuarioId(request: NextRequest): string | null {
-  let usuarioId = request.headers.get("x-user-id");
+export async function extraerUsuarioId(
+  request: NextRequest
+): Promise<string | null> {
+  const authHeader = request.headers.get("authorization");
 
-  if (!usuarioId) {
-    const authHeader = request.headers.get("authorization");
-    if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
-      usuarioId = authHeader.substring(7).trim();
-    }
+  if (!authHeader) {
+    return null;
   }
 
+  if (!authHeader.toLowerCase().startsWith("bearer ")) {
+    throw new UnauthorizedError(
+      "Formato de autorización no válido. Se requiere 'Authorization: Bearer <token>'."
+    );
+  }
+
+  const token = authHeader.substring(7).trim();
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const payload = await verificarTokenJwt(token);
+    return payload.sub;
+  } catch {
+    throw new UnauthorizedError("Token de sesión inválido o expirado.");
+  }
+}
+
+/**
+ * Exige que la petición contenga un token JWT de sesión válido y retorna el ID del usuario autenticado.
+ */
+export async function exigirUsuarioId(request: NextRequest): Promise<string> {
+  const usuarioId = await extraerUsuarioId(request);
+  if (!usuarioId) {
+    throw new UnauthorizedError(
+      "Se requiere cabecera de autenticación Authorization: Bearer <token>."
+    );
+  }
   return usuarioId;
 }
 
@@ -29,7 +60,7 @@ export function extraerUsuarioId(request: NextRequest): string | null {
 export async function verificarAccesoRoles(
   request: NextRequest
 ): Promise<UsuarioAutenticado> {
-  const usuarioId = extraerUsuarioId(request);
+  const usuarioId = await extraerUsuarioId(request);
   return await seguridadService.validarAccesoRoles(usuarioId, [
     PERMISO_LEER_ROLES,
     PERMISO_GESTIONAR_ROLES,
@@ -42,7 +73,7 @@ export async function verificarAccesoRoles(
 export async function verificarGestionRoles(
   request: NextRequest
 ): Promise<UsuarioAutenticado> {
-  const usuarioId = extraerUsuarioId(request);
+  const usuarioId = await extraerUsuarioId(request);
   return await seguridadService.validarAccesoRoles(usuarioId, [
     PERMISO_GESTIONAR_ROLES,
   ]);

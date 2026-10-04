@@ -94,3 +94,17 @@ export const CatalogosResponseSchema = z.object({
   }),
 });
 
+export const DetalleEmpleadoResponseSchema = z.object({
+  data: EmpleadoConsolidadoSchema,
+});
+
+export const EliminarEmpleadoResponseSchema = z.object({
+  message: z.string(),
+  mensaje: z.string().optional(),
+  data: z.object({
+    usuario_id: z.string().uuid(),
+    activo: z.boolean(),
+    fecha_salida: z.string(),
+  }),
+});
+

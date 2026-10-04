@@ -5,6 +5,8 @@ export interface ServerToClientEvents {
     "aviso:verificado": (payload: { avisoId: string; incidenteId: string; folio: string }) => void;
     "aviso:descartado": (payload: { avisoId: string; motivoDescarte: string }) => void;
     "incidente:creado": (payload: unknown) => void;
+    "incidente:actualizado": (payload: unknown) => void;
+    "recurso:actualizado": (payload: unknown) => void;
 }
 
 export interface ClientToServerEvents {
