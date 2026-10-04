@@ -2,18 +2,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   ListarPuntosCriticosQuerySchema,
   PuntoCriticoItemResponseSchema,
+  PuntoCriticoIdParamSchema,
+  EliminarPuntoCriticoResponseSchema,
 } from "../punto-critico.schema";
 import {
   listarPuntosCriticos,
   mapearFilaPuntoCritico,
+  eliminarPuntoCritico,
 } from "../punto-critico.service";
 import * as puntoCriticoRepository from "../punto-critico.repository";
 import { seguridadService } from "@/modules/seguridad/service";
 import {
   UnauthorizedError,
   ForbiddenError,
+  NotFoundError,
+  ConflictError,
 } from "@/modules/seguridad/errors";
-import { PERMISO_LISTAR_PUNTOS_CRITICOS } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_LISTAR_PUNTOS_CRITICOS,
+  PERMISO_ELIMINAR_PUNTO_CRITICO,
+} from "@/modules/seguridad/permisos.constants";
+import * as socketModule from "@/lib/socket";
 
 describe("Módulo Eventos ATP / Puntos Críticos (HU-57) - Pruebas Unitarias", () => {
   beforeEach(() => {
@@ -251,4 +260,178 @@ describe("Módulo Eventos ATP / Puntos Críticos (HU-57) - Pruebas Unitarias", (
       });
     });
   });
+
+  describe("4. Eliminación / Desactivación Lógica de Punto Crítico (HU-56)", () => {
+    const adminUser = {
+      id: "00000000-0000-4000-8000-000000000001",
+      rut: "11111111-1",
+      nombre: "Admin SGRAI",
+      email: "admin@valdivia.cl",
+      activo: true,
+      rolId: "20000000-0000-4000-8000-000000000001",
+      rolNombre: "Administrador",
+    };
+
+    it("debe validar esquema PuntoCriticoIdParamSchema correctamente con UUID", () => {
+      const valid = PuntoCriticoIdParamSchema.safeParse({
+        id: "40000000-0000-4000-8000-000000000001",
+      });
+      expect(valid.success).toBe(true);
+
+      const invalid = PuntoCriticoIdParamSchema.safeParse({ id: "id-invalido" });
+      expect(invalid.success).toBe(false);
+    });
+
+    it("debe validar esquema EliminarPuntoCriticoResponseSchema", () => {
+      const valid = EliminarPuntoCriticoResponseSchema.safeParse({
+        message: "Punto crítico desactivado exitosamente del sistema.",
+        id: "40000000-0000-4000-8000-000000000001",
+        codigo: "PC-ANG-01",
+        nombre: "Sector Humedal Angachilla",
+        activo: false,
+        eliminadoEn: "2026-10-04T00:30:00.000Z",
+        eliminadoPorId: "00000000-0000-4000-8000-000000000001",
+      });
+      expect(valid.success).toBe(true);
+    });
+
+    it("Criterio RBAC: debe rechazar la desactivación si el usuario no tiene permisos", async () => {
+      const spyValidar = vi
+        .spyOn(seguridadService, "validarAccesoAdministrador")
+        .mockRejectedValueOnce(
+          new ForbiddenError("Acceso denegado. Se requiere perfil de Administrador.")
+        );
+
+      await expect(
+        eliminarPuntoCritico("40000000-0000-4000-8000-000000000001", "no-admin")
+      ).rejects.toThrow(ForbiddenError);
+
+      expect(spyValidar).toHaveBeenCalledWith("no-admin", [
+        PERMISO_ELIMINAR_PUNTO_CRITICO,
+      ]);
+    });
+
+    it("debe lanzar NotFoundError si el punto crítico no existe", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminUser);
+      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoPorId").mockResolvedValueOnce(undefined);
+
+      await expect(
+        eliminarPuntoCritico("40000000-0000-4000-8000-000000000099", adminUser.id)
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it("debe lanzar ConflictError si el punto crítico ya está inactivo", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminUser);
+      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoPorId").mockResolvedValueOnce({
+        id: "40000000-0000-4000-8000-000000000001",
+        codigo: "PC-ANG-01",
+        nombre: "Sector Humedal Angachilla",
+        descripcion: "Zona baja",
+        tipo_riesgo: "Inundación",
+        prioridad: "ALTA",
+        activo: false,
+        latitud: -39.84,
+        longitud: -73.23,
+        ubicacion: null,
+        delegacion_id: null,
+        creado_en: new Date(),
+        eliminado_en: new Date(),
+        eliminado_por_id: adminUser.id,
+      });
+
+      await expect(
+        eliminarPuntoCritico("40000000-0000-4000-8000-000000000001", adminUser.id)
+      ).rejects.toThrow(ConflictError);
+    });
+
+    it("Criterio 3: debe bloquear la eliminación con ConflictError si tiene misiones preventivas activas", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminUser);
+      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoPorId").mockResolvedValueOnce({
+        id: "40000000-0000-4000-8000-000000000001",
+        codigo: "PC-ANG-01",
+        nombre: "Sector Humedal Angachilla",
+        descripcion: "Zona baja",
+        tipo_riesgo: "Inundación",
+        prioridad: "ALTA",
+        activo: true,
+        latitud: -39.84,
+        longitud: -73.23,
+        ubicacion: null,
+        delegacion_id: null,
+        creado_en: new Date(),
+        eliminado_en: null,
+        eliminado_por_id: null,
+      });
+
+      vi.spyOn(puntoCriticoRepository, "verificarMisionesActivasPuntoCritico").mockResolvedValueOnce({
+        tieneMisionesActivas: true,
+        totalMisiones: 2,
+        codigos: ["MIS-2026-001", "MIS-2026-002"],
+      });
+
+      await expect(
+        eliminarPuntoCritico("40000000-0000-4000-8000-000000000001", adminUser.id)
+      ).rejects.toThrowError(
+        /No es posible eliminar el punto crítico 'Sector Humedal Angachilla' porque cuenta con 2 misión\(es\) preventivas activas o patrullas asignadas/
+      );
+    });
+
+    it("Criterios 4, 5 y 6: debe aplicar borrado lógico, registrar auditoría y emitir evento Socket.io", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminUser);
+      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoPorId").mockResolvedValueOnce({
+        id: "40000000-0000-4000-8000-000000000001",
+        codigo: "PC-ANG-01",
+        nombre: "Sector Humedal Angachilla",
+        descripcion: "Zona baja",
+        tipo_riesgo: "Inundación",
+        prioridad: "ALTA",
+        activo: true,
+        latitud: -39.84,
+        longitud: -73.23,
+        ubicacion: null,
+        delegacion_id: null,
+        creado_en: new Date(),
+        eliminado_en: null,
+        eliminado_por_id: null,
+      });
+
+      vi.spyOn(puntoCriticoRepository, "verificarMisionesActivasPuntoCritico").mockResolvedValueOnce({
+        tieneMisionesActivas: false,
+        totalMisiones: 0,
+        codigos: [],
+      });
+
+      const fechaEliminacion = new Date("2026-10-04T00:30:00.000Z");
+      vi.spyOn(puntoCriticoRepository, "marcarPuntoCriticoEliminado").mockResolvedValueOnce({
+        id: "40000000-0000-4000-8000-000000000001",
+        codigo: "PC-ANG-01",
+        nombre: "Sector Humedal Angachilla",
+        activo: false,
+        eliminado_en: fechaEliminacion,
+        eliminado_por_id: adminUser.id,
+      });
+
+      const spySocket = vi.spyOn(socketModule, "emitirPuntoCriticoEliminado").mockReturnValue(undefined);
+
+      const resultado = await eliminarPuntoCritico(
+        "40000000-0000-4000-8000-000000000001",
+        adminUser.id
+      );
+
+      expect(resultado.activo).toBe(false);
+      expect(resultado.id).toBe("40000000-0000-4000-8000-000000000001");
+      expect(resultado.codigo).toBe("PC-ANG-01");
+      expect(resultado.eliminadoPorId).toBe(adminUser.id);
+      expect(resultado.eliminadoEn).toBe(fechaEliminacion.toISOString());
+      expect(spySocket).toHaveBeenCalledTimes(1);
+      expect(spySocket).toHaveBeenCalledWith({
+        id: "40000000-0000-4000-8000-000000000001",
+        codigo: "PC-ANG-01",
+        nombre: "Sector Humedal Angachilla",
+        eliminadoPorId: adminUser.id,
+        eliminadoEn: fechaEliminacion.toISOString(),
+      });
+    });
+  });
 });
+
