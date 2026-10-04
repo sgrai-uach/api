@@ -9,6 +9,7 @@ import {
   RolNotFoundError,
   DelegacionNotFoundError,
 } from "@/modules/recursos-y-personal/services/actualizar-empleado.service";
+import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -36,7 +37,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const datosValidados = ModificarEmpleadoSchema.parse(body);
-    const modificadoPorId = request.headers.get("x-user-id");
+    const modificadoPorId = await extraerUsuarioId(request);
 
     const empleado = await actualizarEmpleado(id, datosValidados, modificadoPorId);
 

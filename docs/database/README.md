@@ -88,16 +88,16 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Tipo Incidente** | `tipo_incidente` | Migración 003 | Incidentes | Catálogo de tipos de emergencia. |
 | *(Triage Call Center)* | `aviso_incidente` | Migración 003 | Incidentes | Bandeja de avisos preliminares y detección de duplicados. |
 | **Incidente** | `incidente` | Migración 004 | Incidentes | Registro central formal bajo metodología ICS. |
-| **Adjunto** | `adjunto` | Migración 004 | Evidencia | Archivos y fotos vinculadas a avisos o incidentes. |
+| **Adjunto** | `adjunto` | Migración 004 / 011 | Evidencia | Archivos y fotos vinculadas a avisos, incidentes o reportes de terreno. |
 | **Recurso** | `recurso` | Migración 005 | Recursos | Maquinaria, motobombas y vehículos. |
 | **Patrulla Verificadora** | `patrulla_verificadora`| Migración 006 | Operaciones | Unidades tácticas de evaluación preliminar. |
 | **Cuadrilla** | `cuadrilla` | Migración 006 | Operaciones | Unidades tácticas operativas de intervención. |
 | *(Asignación Logística)* | `cuadrilla_recurso` | Migración 006 | Recursos | Asignación N:M de recursos a cuadrillas. |
 | **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 | Operaciones | Puntos críticos para misiones preventivas. |
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
+| **Reporte Terreno** | `reporte_terreno` | Migración 011 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
 | **EventoATP** | *`evento_atp`* | Hoja de Ruta (Roadmap) | Eventos ATP | Agrupación macro de incidentes / eventos climáticos mayores. |
 | **Log de Misión** | *`log_mision`* | Hoja de Ruta (Roadmap) | Misiones | Bitácora cronológica detallada de hitos de misión. |
-| **Reporte Terreno** | *`reporte_terreno`* | Hoja de Ruta (Roadmap) | Evidencia / Misiones | Informe técnico final tras intervención de patrulla/cuadrilla. |
 | **Recuperación** | *`recuperacion`* | Hoja de Ruta (Roadmap) | Asistencia Social | Puntos e intervenciones de recuperación post-emergencia. |
 | **Beneficio** | *`beneficio`* | Hoja de Ruta (Roadmap) | Asistencia Social | Ayudas sociales entregadas a damnificados (FIBE / DIDECO). |
 | **Factores de Riesgo (Niveles)**| *`factor_riesgo`* | Hoja de Ruta (Roadmap) | Incidentes | Parámetros de evaluación de riesgo y severidad. |
@@ -230,11 +230,13 @@ Cuentas de usuario de funcionarios y operadores municipales.
 | `nombre` | `VARCHAR(255)` | SÍ | `NULL` | Nombre completo consolidado. |
 | `email` | `VARCHAR(150)` | NO | — | Correo electrónico corporativo. Unique. |
 | `telefono` | `VARCHAR(50)` | SÍ | `NULL` | Teléfono de contacto institucional o móvil. |
-| `password_hash`| `VARCHAR(255)` | NO | `$2b$10$...` | Hash bcrypt de la contraseña. |
+| `password_hash`| `VARCHAR(255)` | NO | `$2b$10$...` | Hash bcrypt de la contraseña (contraseña unificada para pruebas locales: `Valdivia2026!`). |
+| `intentos_fallidos` | `INTEGER` | NO | `0` | Contador acumulativo de contraseñas erróneas consecutivas (protección contra ataques de fuerza bruta). |
+| `bloqueado_hasta`| `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal de inhabilitación temporal tras 5 intentos fallidos (bloqueo por 15 minutos). |
 | `rol_id` | `UUID` | NO | — | FK a `rol.id` (ON DELETE RESTRICT). |
 | `delegacion_id`| `UUID` | SÍ | `NULL` | FK a `delegacion.id` (ON DELETE SET NULL). |
 | `activo` | `BOOLEAN` | NO | `true` | Habilitación de acceso al sistema. |
-| `ultimo_acceso`| `TIMESTAMPTZ` | SÍ | `NULL` | Fecha y hora del último login. |
+| `ultimo_acceso`| `TIMESTAMPTZ` | SÍ | `NULL` | Fecha y hora del último login exitoso. |
 | `fecha_ingreso`| `DATE` | SÍ | `NULL` | Fecha de inicio de funciones. |
 | `fecha_salida` | `DATE` | SÍ | `NULL` | Fecha de desvinculación o cese de funciones. |
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de registro. |
@@ -478,6 +480,24 @@ Misiones tácticas despachadas a patrullas verificadoras o cuadrillas operativas
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de creación. |
 | `actualizado_en`| `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de última actualización. |
 
+#### Tabla: `reporte_terreno` (Reporte Técnico de Terreno - HU-17 / Migración 011)
+Informes técnicos y diagnósticos estructurados levantados por patrullas verificadoras o cuadrillas tras su intervención o evaluación en terreno. Admite múltiples reportes por misión (1:N) para reflejar su evolución temporal.
+
+| Columna | Tipo | Nullable | Default | Descripción / Restricciones |
+|---|---|---|---|---|
+| `id` | `UUID` | NO | `gen_random_uuid()` | Clave primaria única. |
+| `mision_id` | `UUID` | NO | — | FK a `mision.id` (ON DELETE CASCADE). Misión asociada. |
+| `evaluador_id` | `UUID` | NO | — | FK a `usuario.id` (ON DELETE RESTRICT). Funcionario autor del informe. |
+| `resumen_tecnico` | `TEXT` | NO | — | Diagnóstico y detalle técnico consolidado de la intervención. |
+| `acciones_realizadas` | `TEXT` | SÍ | `NULL` | Maniobras operativas ejecutadas en terreno. |
+| `requiere_apoyo_adicional` | `BOOLEAN` | NO | `false` | Indicador de necesidad de escalamiento de recursos. |
+| `danos_estimados` | `TEXT` | SÍ | `NULL` | Estimación descriptiva o cuantitativa de daños. |
+| `observaciones` | `TEXT` | SÍ | `NULL` | Condiciones climáticas o notas de seguridad. |
+| `personas_afectadas` | `INTEGER` | NO | `0` | Cantidad estimada de damnificados en el punto. |
+| `estado_terreno` | `VARCHAR(50)` | NO | `'FINALIZADO'` | Estado operativo del reporte (`PRELIMINAR`, `EN_PROCESO`, `FINALIZADO`). |
+| `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de emisión del informe. |
+| `actualizado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Última modificación del informe. |
+
 ---
 
 ### 3.4 Entidades del Modelo Maestro en Hoja de Ruta (Roadmap de Persistencia)
@@ -493,11 +513,6 @@ Las siguientes entidades forman parte del diseño conceptual inicial del sistema
 - **Propósito:** Registro cronológico inmutable de hitos, cambios de estado y notas de terreno emitidas por la patrulla o cuadrilla durante el ciclo de vida de la misión.
 - **Relaciones:** Relación N:1 con `mision` (una misión genera múltiples entradas de log), y N:1 con `usuario` (autor del registro).
 - **Campos proyectados:** `id` (UUID), `mision_id` (FK a `mision`), `usuario_id` (FK a `usuario`), `estado_anterior`, `nuevo_estado`, `mensaje_bitacora`, `latitud`, `longitud`, `creado_en`.
-
-#### Entidad: `reporte_terreno` (Reporte de Terreno)
-- **Propósito:** Informe técnico formal elaborado por la patrulla verificadora o delegado de cuadrilla al concluir su labor o al solicitar escalamiento de recursos.
-- **Relaciones:** Relación 1:1 o N:1 con `mision`, relación 1:N con `adjunto` (evidencia fotográfica de los trabajos realizados) y N:1 con `usuario`.
-- **Campos proyectados:** `id` (UUID), `mision_id` (FK a `mision`), `evaluador_id` (FK a `usuario`), `resumen_tecnico`, `acciones_realizadas`, `requiere_apoyo_adicional`, `danos_estimados`, `creado_en`.
 
 #### Entidad: `recuperacion` (Puntos y Eventos de Recuperación)
 - **Propósito:** Gestión de la fase posterior a la emergencia para labores de despeje de vías, remoción de escombros, sanitización y coordinación con DIDECO para asistencia social.
@@ -555,6 +570,8 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 - `20000000-0000-4000-8000-000000000010` — `SUPERVISOR` (Supervisor Estratégico)
 
 ### 5.2 Usuarios Predefinidos (`usuario`)
+> **Nota de Seguridad en Entornos de Desarrollo/QA:** Todos los usuarios predefinidos cuentan con la contraseña estandarizada **`Valdivia2026!`**, correspondiente al hash bcrypt `$2b$10$dMlhpX4QFpPonWcTHVNo0usyfRLusunVKj6LsxLc9PaZ9JZkN5asm` sembrado en la migración `010_autenticacion_bloqueo_usuarios.ts`.
+
 - `00000000-0000-4000-8000-000000000001` — `admin@valdivia.cl` (Administrador General, RUT: `11111111-1`)
 - `00000000-0000-4000-8000-000000000002` — `callcenter@valdivia.cl` (Operador Call Center Genérico, RUT: `22222222-2`)
 - `c1111111-1111-4111-8111-111111111111` — `carlos.miranda@valdivia.cl` (Carlos Miranda - Call Center Mesa 1, RUT: `14111111-1`)
@@ -608,7 +625,7 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 ```bash
 npm run db:migrate
 ```
-El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `007_...`).
+El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `010_autenticacion_bloqueo_usuarios.ts`).
 
 ### 7.2 Sembrar Datos para Tablero Kanban
 ```bash

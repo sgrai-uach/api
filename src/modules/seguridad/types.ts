@@ -3,10 +3,14 @@ import type {
   ActualizarPermisosRolResponse,
   ListarPermisosResponse,
   ListarRolesResponse,
+  LoginData,
+  LoginRequest,
+  LoginResponse,
   PermisoAsignado,
   PermisoCatalogoItem,
   RolDetalleResponse,
   RolItem,
+  UsuarioPerfilSesion,
 } from "./schema";
 
 export type PermisoAsignadoDTO = PermisoAsignado;
@@ -17,6 +21,10 @@ export type PermisoCatalogoItemDTO = PermisoCatalogoItem;
 export type ListarPermisosResponseDTO = ListarPermisosResponse;
 export type ActualizarPermisosRolInputDTO = ActualizarPermisosRolInput;
 export type ActualizarPermisosRolResponseDTO = ActualizarPermisosRolResponse;
+export type LoginRequestDTO = LoginRequest;
+export type LoginResponseDTO = LoginResponse;
+export type LoginDataDTO = LoginData;
+export type UsuarioPerfilSesionDTO = UsuarioPerfilSesion;
 
 export interface UsuarioAutenticado {
   id: string;
@@ -59,4 +67,19 @@ export interface UsuarioActivoDTO {
     esAdmin: boolean;
   };
   permisos: string[];
+}
+
+export interface UsuarioLoginRaw {
+  id: string;
+  rut: string;
+  nombre: string;
+  email: string;
+  password_hash: string;
+  activo: boolean;
+  intentos_fallidos: number;
+  bloqueado_hasta: Date | null;
+  delegacion_id: string | null;
+  rol_id: string;
+  rol_nombre: string;
+  rol_codigo: string;
 }
