@@ -65,11 +65,15 @@ import {
   RegistrarEmpleadoResponseSchema,
 } from "@/modules/recursos-y-personal/schemas/registrar-empleado.schema";
 
-import {
   ListarPuntosCriticosQuerySchema,
   ListarPuntosCriticosResponseSchema,
   PuntoCriticoItemResponseSchema,
 } from "@/modules/eventos-atp/punto-critico.schema";
+
+import {
+  MisionDetalleResponseSchema,
+  MisionIdParamSchema,
+} from "@/modules/misiones/mision.schema";
 
 extendZodWithOpenApi(z);
 
@@ -984,6 +988,42 @@ registry.registerPath({
     500: {
       description: "Error interno del servidor",
     },
+  },
+});
+
+// 20. GET /api/misiones/{id} (HU-17: Detalle Completo de Misión)
+registry.registerPath({
+  method: "get",
+  path: "/api/misiones/{id}",
+  description:
+    "Obtiene la información exhaustiva de una misión operativa específica, incluyendo el incidente asociado o punto de prevención, la cuadrilla o patrulla asignada con sus recursos, la bitácora de tiempos y los reportes de terreno levantados con su evidencia multimedia.",
+  summary: "Consultar detalle completo de una misión operativa",
+  tags: ["Misiones"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "ID del usuario Encargado, Administrador o Supervisor autenticado" }),
+    }),
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle completo de la misión obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: MisionDetalleResponseSchema,
+        },
+      },
+    },
+    400: { description: "El identificador de la misión proporcionado no es un UUID válido" },
+    401: { description: "No autenticado / cabecera X-User-Id ausente o inválida" },
+    403: { description: "No cuenta con el permiso requerido: misiones:leer" },
+    404: { description: "Misión no encontrada" },
+    500: { description: "Error interno del servidor" },
   },
 });
 

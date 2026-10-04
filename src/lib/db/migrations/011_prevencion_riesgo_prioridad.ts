@@ -21,6 +21,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       v_permiso_id UUID;
       v_target_id UUID := '10000000-0000-4000-8000-000000000015';
       v_admin_rol_id UUID := '20000000-0000-4000-8000-000000000001';
+      v_admin_user_id UUID := '00000000-0000-4000-8000-000000000001';
     BEGIN
       -- Verificar si ya existe el permiso por código único
       SELECT id INTO v_permiso_id FROM permiso WHERE codigo = 'puntos_criticos:leer';
@@ -49,10 +50,16 @@ export async function up(db: Kysely<unknown>): Promise<void> {
         END IF;
       END IF;
 
+      -- Obtener el ID del usuario administrador si existe, o usar el default seed
+      SELECT id INTO v_admin_user_id FROM usuario WHERE id = '00000000-0000-4000-8000-000000000001';
+      IF v_admin_user_id IS NULL THEN
+        SELECT id INTO v_admin_user_id FROM usuario LIMIT 1;
+      END IF;
+
       -- Asignar el permiso al rol Administrador si no se encuentra asignado
       IF v_permiso_id IS NOT NULL THEN
         INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
-        VALUES (v_admin_rol_id, v_permiso_id, v_admin_rol_id)
+        VALUES (v_admin_rol_id, v_permiso_id, v_admin_user_id)
         ON CONFLICT DO NOTHING;
       END IF;
     END $$;

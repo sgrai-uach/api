@@ -52,6 +52,13 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/seguridad/roles/{id}/permisos"].put).toBeDefined();
     expect(spec.paths["/api/seguridad/usuario-activo"]).toBeDefined();
     expect(spec.paths["/api/seguridad/usuario-activo"].get).toBeDefined();
+
+    // Rutas de Misiones (HU-17)
+    expect(spec.paths["/api/misiones/{id}"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}"].get).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}"].get.summary).toBe(
+      "Consultar detalle completo de una misión operativa"
+    );
   });
 });
 
