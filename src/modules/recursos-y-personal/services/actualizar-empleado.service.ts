@@ -290,7 +290,7 @@ export async function actualizarEmpleado(
         "personal.estado_operativo",
         "personal.disponible_terreno",
         "personal.observaciones",
-        "usuarios.updated_at as usuario_updated_at",
+        "usuarios.actualizado_en as usuario_updated_at",
         "personal.updated_at as personal_updated_at",
       ])
       .where("usuarios.id", "=", usuarioId)
