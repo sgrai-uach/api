@@ -60,6 +60,10 @@ import {
   ActualizarEmpleadoResponseSchema,
   CatalogosResponseSchema,
 } from "@/modules/recursos-y-personal/schemas/modificar-empleado.schema";
+import {
+  RegistrarEmpleadoSchema,
+  RegistrarEmpleadoResponseSchema,
+} from "@/modules/recursos-y-personal/schemas/registrar-empleado.schema";
 
 extendZodWithOpenApi(z);
 
@@ -72,6 +76,8 @@ registry.register("RecursoResponse", RecursoResponseSchema);
 registry.register("RecursoDetalleResponse", RecursoDetalleResponseSchema);
 registry.register("ListarRecursosPaginadosResponse", ListarRecursosPaginadosResponseSchema);
 registry.register("ModificarEmpleadoInput", ModificarEmpleadoSchema);
+registry.register("RegistrarEmpleadoInput", RegistrarEmpleadoSchema);
+registry.register("RegistrarEmpleadoResponse", RegistrarEmpleadoResponseSchema);
 registry.register("EmpleadoConsolidado", EmpleadoConsolidadoSchema);
 registry.register("ListarEmpleadosResponse", ListarEmpleadosResponseSchema);
 registry.register("ActualizarEmpleadoResponse", ActualizarEmpleadoResponseSchema);
@@ -773,6 +779,45 @@ registry.registerPath({
       },
     },
     500: { description: "Error interno del servidor" },
+  },
+});
+
+// 17. POST /api/personal (HU-10: Registrar Nuevo Funcionario)
+registry.registerPath({
+  method: "post",
+  path: "/api/personal",
+  description:
+    "Registra a un nuevo funcionario o empleado municipal en el sistema SGRAI, aprovisionando su cuenta institucional y opcionalmente su ficha de terreno si su rol o funciones lo requieren.",
+  summary: "Registrar nuevo funcionario",
+  tags: ["Recursos y Personal"],
+  request: {
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión con rol Administrador"),
+    }),
+    body: {
+      description: "Datos personales, asignación institucional y credenciales del nuevo funcionario",
+      content: {
+        "application/json": {
+          schema: RegistrarEmpleadoSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Funcionario registrado exitosamente",
+      content: {
+        "application/json": {
+          schema: RegistrarEmpleadoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Rol o delegación inexistente o datos de solicitud inválidos" },
+    401: { description: "No autorizado: Token de sesión ausente o expirado" },
+    403: { description: "Acceso denegado: Se requiere perfil de Administrador" },
+    409: { description: "Conflicto: RUT o correo electrónico ya registrado en el sistema" },
+    422: { description: "Error de validación de campos o RUT con dígito verificador inválido" },
+    500: { description: "Error interno del servidor al procesar el registro" },
   },
 });
 

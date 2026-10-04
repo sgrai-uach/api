@@ -84,7 +84,7 @@ export interface RolPermisoTable {
 export interface UsuarioTable {
   id: Generated<string>;
   rut: string;
-  nombre: string;
+  nombre: Generated<string>;
   nombres?: string;
   apellidos?: string;
   email: string;
