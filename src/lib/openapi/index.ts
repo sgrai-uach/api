@@ -63,6 +63,8 @@ import {
   ListarPuntosCriticosQuerySchema,
   ListarPuntosCriticosResponseSchema,
   PuntoCriticoItemResponseSchema,
+  PuntoCriticoIdParamSchema,
+  EliminarPuntoCriticoResponseSchema,
 } from "@/modules/eventos-atp/punto-critico.schema";
 
 extendZodWithOpenApi(z);
@@ -900,10 +902,11 @@ registry.registerPath({
 });
 
 // ==========================================
-// RUTAS PUNTOS CRÍTICOS (EVENTOS ATP - HU-57)
+// RUTAS PUNTOS CRÍTICOS (EVENTOS ATP - HU-57 / HU-56)
 // ==========================================
 registry.register("PuntoCriticoItem", PuntoCriticoItemResponseSchema);
 registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
+registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSchema);
 
 registry.registerPath({
   method: "get",
@@ -945,13 +948,60 @@ registry.registerPath({
   },
 });
 
+// DELETE /api/puntos-criticos/{id} (HU-56)
+registry.registerPath({
+  method: "delete",
+  path: "/api/puntos-criticos/{id}",
+  summary: "Desactivar punto crítico (borrado lógico)",
+  description:
+    "Aplica un borrado lógico (soft delete) a un punto crítico comunal registrando la fecha, hora y el identificador del usuario Administrador responsable. Impide la eliminación con código 409 Conflict si existen misiones preventivas activas (PLANIFICADA, DESPACHADA, EN_CURSO) o patrullas asignadas. Emite un evento en tiempo real vía Socket.io ('punto_critico:eliminado') para la actualización reactiva del mapa interactivo y la tabla.",
+  tags: ["Eventos ATP / Puntos Críticos"],
+  request: {
+    params: PuntoCriticoIdParamSchema,
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .describe("UUID del usuario Administrador autenticado"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Punto crítico desactivado exitosamente (baja lógica aplicada)",
+      content: {
+        "application/json": {
+          schema: EliminarPuntoCriticoResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador UUID de punto crítico inválido",
+    },
+    401: {
+      description: "Cabecera de autenticación X-User-Id ausente o usuario no válido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador con permiso puntos_criticos:eliminar",
+    },
+    404: {
+      description: "Punto crítico no encontrado o ya dado de baja",
+    },
+    409: {
+      description: "Conflicto operativo: existen misiones preventivas activas en curso o patrullas asignadas en el lugar",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
 export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.7.0",
+      version: "0.8.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",
