@@ -38,7 +38,9 @@ export async function listarMisionesPaginadoRepo(filtros: ListarMisionesQuery) {
     .leftJoin("patrulla_verificadora", "patrulla_verificadora.id", "mision.patrulla_id")
     .leftJoin("delegacion", (join) =>
       join.on(
-        sql`delegacion.id = COALESCE(incidente.delegacion_id, cuadrilla.delegacion_id, patrulla_verificadora.delegacion_id)`
+        "delegacion.id",
+        "=",
+        sql`COALESCE(incidente.delegacion_id, cuadrilla.delegacion_id, patrulla_verificadora.delegacion_id)`
       )
     );
 

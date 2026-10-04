@@ -103,3 +103,7 @@ export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
 
   return { filas, total };
 }
+
+export type FilaPersonalPaginada = Awaited<
+  ReturnType<typeof listarPersonalPaginadoRepo>
+>["filas"][number];

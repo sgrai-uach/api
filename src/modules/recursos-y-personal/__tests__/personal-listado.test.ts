@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  ListarPersonalQuerySchema,
-  ListarPersonalResponseSchema,
-} from "../personal-listado.schema";
+import { ListarPersonalQuerySchema } from "../personal-listado.schema";
 import { listarPersonalService } from "../personal-listado.service";
 import * as repo from "../personal-listado.repository";
 
@@ -114,7 +111,7 @@ describe("Módulo Recursos y Personal - Listado de Personal (H34)", () => {
             observaciones: null,
             personal_updated_at: new Date(),
           },
-        ] as any,
+        ] as repo.FilaPersonalPaginada[],
         total: 25,
       });
 
@@ -136,6 +133,29 @@ describe("Módulo Recursos y Personal - Listado de Personal (H34)", () => {
       expect(resultado.data).toHaveLength(1);
       expect(resultado.data[0].es_personal).toBe(true);
       expect(resultado.data[0].rut).toBe("11111111-1");
+    });
+
+    it("debe propagar múltiples filtros combinados AND (delegacionId, estadoOperativo, cargo, especialidad) al repositorio", async () => {
+      vi.mocked(repo.listarPersonalPaginadoRepo).mockResolvedValueOnce({
+        filas: [],
+        total: 0,
+      });
+
+      const filtros = {
+        page: 1,
+        limit: 10,
+        delegacionId: "30000000-0000-4000-8000-000000000001",
+        estadoOperativo: "disponible" as const,
+        cargo: "Conductor",
+        especialidad: "Motosierrista",
+        busqueda: "Pérez",
+        ordenarPor: "apellidos" as const,
+        orden: "asc" as const,
+      };
+
+      await listarPersonalService(filtros);
+
+      expect(repo.listarPersonalPaginadoRepo).toHaveBeenCalledWith(filtros);
     });
   });
 });

@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  ListarMisionesQuerySchema,
-  ListarMisionesResponseSchema,
-} from "../mision-listado.schema";
+import { ListarMisionesQuerySchema } from "../mision-listado.schema";
 import { listarMisionesService } from "../mision-listado.service";
 import * as repo from "../mision-listado.repository";
 
@@ -94,7 +91,7 @@ describe("Módulo Misiones - Listado de Misiones (H34)", () => {
             creado_en: new Date("2026-10-04T11:00:00Z"),
             actualizado_en: new Date("2026-10-04T12:00:00Z"),
           },
-        ] as any,
+        ] as repo.FilaMisionListado[],
         total: 15,
       });
 
@@ -118,6 +115,29 @@ describe("Módulo Misiones - Listado de Misiones (H34)", () => {
       expect(res.data[0].codigo).toBe("MIS-0001");
       expect(res.data[0].delegacionNombre).toBe("Norte");
       expect(res.data[0].fechaInicio).toBe("2026-10-04T12:00:00.000Z");
+    });
+
+    it("debe propagar múltiples filtros combinados AND (delegacionId, estado, tipoMision, prioridad, busqueda) al repositorio", async () => {
+      vi.mocked(repo.listarMisionesPaginadoRepo).mockResolvedValueOnce({
+        filas: [],
+        total: 0,
+      });
+
+      const filtros = {
+        page: 1,
+        limit: 10,
+        delegacionId: "30000000-0000-4000-8000-000000000001",
+        estado: "EN_CURSO" as const,
+        tipoMision: "VERIFICACION" as const,
+        prioridad: "ALTA" as const,
+        busqueda: "Picarte",
+        ordenarPor: "creadoEn" as const,
+        orden: "desc" as const,
+      };
+
+      await listarMisionesService(filtros);
+
+      expect(repo.listarMisionesPaginadoRepo).toHaveBeenCalledWith(filtros);
     });
   });
 });

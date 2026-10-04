@@ -14,6 +14,14 @@ export async function listarPersonalService(
 
   const data: PersonalItem[] = filas.map((e) => ({
     ...e,
+    nombres: e.nombres ?? "",
+    apellidos: e.apellidos ?? "",
+    telefono: e.telefono ?? null,
+    rol_codigo: e.rol_codigo ?? null,
+    rol_nombre: e.rol_nombre ?? null,
+    delegacion_codigo: e.delegacion_codigo ?? null,
+    delegacion_nombre: e.delegacion_nombre ?? null,
+    observaciones: e.observaciones ?? null,
     es_personal: e.personal_id !== null,
   }));
 

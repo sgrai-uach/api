@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { db } from "@/lib/db";
 import { RegistrarEmpleadoSchema } from "@/modules/recursos-y-personal/schemas/registrar-empleado.schema";
 import {
   registrarEmpleado,

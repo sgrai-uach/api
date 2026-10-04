@@ -3,7 +3,6 @@ import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import {
   PaginationQuerySchema,
   PaginationMetaSchema,
-  type PaginationMeta,
 } from "@/lib/shared/pagination.schema";
 
 extendZodWithOpenApi(z);
