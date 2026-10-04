@@ -22,6 +22,9 @@ export async function GET(req: NextRequest) {
     if (searchParams.has("prioridad")) queryRaw.prioridad = searchParams.get("prioridad") ?? undefined;
     if (searchParams.has("tipoAfectacion")) queryRaw.tipoAfectacion = searchParams.get("tipoAfectacion") ?? undefined;
     if (searchParams.has("busqueda")) queryRaw.busqueda = searchParams.get("busqueda") ?? undefined;
+    if (searchParams.has("fecha")) queryRaw.fecha = searchParams.get("fecha") ?? undefined;
+    if (searchParams.has("soloHoy")) queryRaw.soloHoy = searchParams.get("soloHoy") ?? undefined;
+    if (searchParams.has("delegacionId")) queryRaw.delegacionId = searchParams.get("delegacionId") ?? undefined;
 
     // 3. Validar con Zod
     const resultadoValidacion = ListarIncidentesQuerySchema.safeParse(queryRaw);

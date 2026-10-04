@@ -20,6 +20,11 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/recursos/{id}"].put).toBeDefined();
 
     // Rutas de Incidentes
+    expect(spec.paths["/api/incidentes/kpis"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/kpis"].get).toBeDefined();
+    expect(spec.paths["/api/incidentes/kpis"].get.summary).toBe(
+      "Obtener contadores y KPIs de incidentes del día"
+    );
     expect(spec.paths["/api/incidentes/manual"]).toBeDefined();
     expect(spec.paths["/api/incidentes/manual"].post).toBeDefined();
     expect(spec.paths["/api/incidentes/manual"].post.summary).toBe(
