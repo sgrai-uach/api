@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { obtenerDetalleMisionService } from "@/modules/misiones/mision.service";
 import { MisionIdParamSchema } from "@/modules/misiones/mision.schema";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { PERMISO_LEER_MISION } from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
@@ -17,7 +18,7 @@ interface RouteContext {
 export async function GET(req: NextRequest, props: RouteContext) {
   try {
     // 1. Extraer cabecera y validar autorización RBAC
-    const usuarioId = req.headers.get("x-user-id");
+    const usuarioId = await extraerUsuarioId(req);
     await verificarPermiso(usuarioId, PERMISO_LEER_MISION);
 
     // 2. Extraer y validar parámetro de ruta UUID
