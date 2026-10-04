@@ -7,24 +7,18 @@ import {
   ListarAvisosQuerySchema,
 } from "@/modules/incidentes/schema";
 import { incidentesService } from "@/modules/incidentes/service";
+import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
 import { PERMISO_LISTAR_AVISOS } from "@/modules/seguridad/permisos.constants";
-import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
+import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/errors";
 
 /**
  * GET /api/incidentes/avisos
- * Consulta paginada de avisos para el Call Center.
+ * Consulta paginada de avisos para el Call Center. Requiere permiso incidentes:avisos:leer.
  */
 export async function GET(request: NextRequest) {
   try {
-    // 1. Extraer cabecera de autenticación y verificar permiso RBAC
-    let usuarioId = request.headers.get("x-user-id");
-    if (!usuarioId) {
-      const authHeader = request.headers.get("authorization");
-      if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
-        usuarioId = authHeader.substring(7).trim();
-      }
-    }
+    const usuarioId = await extraerUsuarioId(request);
     await verificarPermiso(usuarioId, PERMISO_LISTAR_AVISOS);
 
     const searchParams = Object.fromEntries(request.nextUrl.searchParams);
@@ -34,13 +28,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(resultado, { status: 200 });
   } catch (error: unknown) {
     if (error instanceof UnauthorizedError) {
-      return NextResponse.json({ message: error.message }, { status: 401 });
+      return NextResponse.json(
+        { message: error.message, error: error.message },
+        { status: 401 }
+      );
     }
-
     if (error instanceof ForbiddenError) {
-      return NextResponse.json({ message: error.message }, { status: 403 });
+      return NextResponse.json(
+        { message: error.message, error: error.message },
+        { status: 403 }
+      );
     }
-
     if (error instanceof ZodError) {
       return NextResponse.json(
         {

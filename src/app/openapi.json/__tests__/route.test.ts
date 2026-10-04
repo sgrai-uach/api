@@ -9,7 +9,7 @@ describe("Endpoint GET /openapi.json", () => {
     const spec = await res.json();
     expect(spec.openapi).toBe("3.0.0");
     expect(spec.info.title).toContain("SGRAI API");
-    expect(spec.info.version).toBe("0.6.0");
+    expect(spec.info.version).toBe("0.7.0");
 
     // Rutas de Recursos
     expect(spec.paths["/api/recursos"]).toBeDefined();
@@ -39,6 +39,8 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/incidentes/{id}"].get).toBeDefined();
 
     // Rutas de Seguridad
+    expect(spec.paths["/api/seguridad/login"]).toBeDefined();
+    expect(spec.paths["/api/seguridad/login"].post).toBeDefined();
     expect(spec.paths["/api/seguridad/roles"]).toBeDefined();
     expect(spec.paths["/api/seguridad/roles/{id}"]).toBeDefined();
     expect(spec.paths["/api/seguridad/permisos"]).toBeDefined();

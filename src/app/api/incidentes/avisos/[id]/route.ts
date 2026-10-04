@@ -5,6 +5,10 @@ import {
   NotFoundError,
 } from "@/modules/incidentes/service";
 
+import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
+import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
+
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
@@ -12,17 +16,27 @@ interface RouteContext {
 /**
  * GET /api/incidentes/avisos/:id
  * Consulta el detalle completo de un aviso por su UUID.
+ * Requiere permiso incidentes:avisos:leer.
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: RouteContext
 ) {
   try {
     const { id } = await context.params;
 
+    const usuarioId = await extraerUsuarioId(request);
+    await verificarPermiso(usuarioId, "incidentes:avisos:leer");
+
     const aviso = await incidentesService.obtenerDetalleAviso(id);
     return NextResponse.json(aviso, { status: 200 });
   } catch (error: unknown) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });
     }
