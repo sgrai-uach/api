@@ -30,6 +30,19 @@ export const ListarPersonalQuerySchema = PaginationQuerySchema.extend({
     description: "Filtrar por UUID de rol",
   }),
   rol_id: z.string().uuid().optional(),
+  estadoOperativo: EstadoOperativoPersonalEnum.optional().openapi({
+    description: "Filtrar por estado operativo de personal en terreno",
+    example: "disponible",
+  }),
+  estado_operativo: EstadoOperativoPersonalEnum.optional(),
+  cargo: z.string().trim().optional().openapi({
+    description: "Filtrar por cargo funcional de personal",
+    example: "Conductor",
+  }),
+  especialidad: z.string().trim().optional().openapi({
+    description: "Filtrar por especialidad técnica de personal",
+    example: "Motosierrista",
+  }),
   soloPersonal: z
     .preprocess((val) => val === "true" || val === true, z.boolean().optional())
     .openapi({

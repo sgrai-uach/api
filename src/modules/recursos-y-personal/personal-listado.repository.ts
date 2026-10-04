@@ -5,6 +5,7 @@ import type { ListarPersonalQuery } from "./personal-listado.schema";
 export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
   const delegacionId = filtros.delegacionId ?? filtros.delegacion_id;
   const rolId = filtros.rolId ?? filtros.rol_id;
+  const estadoOperativo = filtros.estadoOperativo ?? filtros.estado_operativo;
   const soloPersonal = filtros.soloPersonal ?? filtros.solo_personal;
   const busqueda = (filtros.busqueda ?? filtros.q)?.trim();
   const ordenarPor = filtros.ordenar_por ?? filtros.ordenarPor ?? "apellidos";
@@ -29,6 +30,18 @@ export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
 
   if (rolId) {
     query = query.where("usuarios.rol_id", "=", rolId);
+  }
+
+  if (estadoOperativo) {
+    query = query.where("personal.estado_operativo", "=", estadoOperativo);
+  }
+
+  if (filtros.cargo && filtros.cargo.trim() !== "") {
+    query = query.where("personal.cargo", "ilike", `%${filtros.cargo.trim()}%`);
+  }
+
+  if (filtros.especialidad && filtros.especialidad.trim() !== "") {
+    query = query.where("personal.especialidad", "ilike", `%${filtros.especialidad.trim()}%`);
   }
 
   if (busqueda && busqueda !== "") {
