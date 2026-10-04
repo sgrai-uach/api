@@ -42,14 +42,33 @@ export const ListarIncidentesQuerySchema = PaginationQuerySchema.extend({
     description: "Búsqueda textual sobre código, dirección o descripción del incidente",
     example: "Picarte",
   }),
-  delegacionId: z.string().uuid().optional().openapi({
-    description: "Filtrar por UUID de delegación territorial",
-    example: "30000000-0000-4000-8000-000000000001",
-  }),
+  delegacionId: z
+    .string()
+    .uuid("El identificador de delegación debe ser un UUID válido")
+    .optional()
+    .openapi({
+      description: "Filtrar por UUID de delegación territorial",
+      example: "30000000-0000-4000-8000-000000000001",
+    }),
   fuenteOrigen: FuenteOrigenIncidenteEnum.optional().openapi({
     description: "Filtrar por canal de origen del reporte",
     example: "LLAMADA_TELEFONICA",
   }),
+  fecha: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "El formato de fecha debe ser YYYY-MM-DD")
+    .optional()
+    .openapi({
+      description: "Filtrar incidentes por fecha específica (YYYY-MM-DD)",
+      example: "2026-10-03",
+    }),
+  soloHoy: z
+    .preprocess((val) => val === "true" || val === true, z.boolean())
+    .optional()
+    .openapi({
+      description: "Filtrar únicamente incidentes registrados en el día actual (zona horaria Chile)",
+      example: true,
+    }),
 });
 
 export type ListarIncidentesQuery = z.infer<typeof ListarIncidentesQuerySchema>;

@@ -54,6 +54,11 @@ import {
 } from "@/modules/incidentes/incidente-kanban.schema";
 
 import {
+  IncidentesKpisQuerySchema,
+  IncidentesKpisResponseSchema,
+} from "@/modules/incidentes/incidente-kpi.schema";
+
+import {
   ModificarEmpleadoSchema,
   EmpleadoConsolidadoSchema,
   ListarEmpleadosResponseSchema,
@@ -76,6 +81,17 @@ import {
   ListarMisionesResponseSchema,
   MisionItemSchema,
 } from "@/modules/misiones/mision-listado.schema";
+
+import {
+  ListarPuntosCriticosQuerySchema,
+  ListarPuntosCriticosResponseSchema,
+  PuntoCriticoItemResponseSchema,
+} from "@/modules/eventos-atp/punto-critico.schema";
+
+import {
+  MisionDetalleResponseSchema,
+  MisionIdParamSchema,
+} from "@/modules/misiones/mision.schema";
 
 extendZodWithOpenApi(z);
 
@@ -129,6 +145,7 @@ registry.register("CrearIncidenteManualResponse", CrearIncidenteManualResponseSc
 registry.register("VerificarDuplicadoInput", VerificarDuplicadoInputSchema);
 registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema);
 registry.register("IncidenteResponse", IncidenteResponseSchema);
+registry.register("IncidentesKpisResponse", IncidentesKpisResponseSchema);
 
 // ==========================================
 // RUTAS RECURSOS Y PERSONAL
@@ -991,7 +1008,7 @@ registry.registerPath({
   },
 });
 
-// 21. GET /api/misiones (H34: Listado de misiones para Encargado)
+// 20. GET /api/misiones (H34: Listado de misiones para Encargado)
 registry.registerPath({
   method: "get",
   path: "/api/misiones",
@@ -1020,6 +1037,130 @@ registry.registerPath({
   },
 });
 
+// 21. GET /api/misiones/{id} (HU-17: Detalle Completo de Misión)
+registry.registerPath({
+  method: "get",
+  path: "/api/misiones/{id}",
+  description:
+    "Obtiene la información exhaustiva de una misión operativa específica, incluyendo el incidente asociado o punto de prevención, la cuadrilla o patrulla asignada con sus recursos, la bitácora de tiempos y los reportes de terreno levantados con su evidencia multimedia.",
+  summary: "Consultar detalle completo de una misión operativa",
+  tags: ["Misiones"],
+  request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "ID del usuario Encargado, Administrador o Supervisor autenticado" }),
+    }),
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle completo de la misión obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: MisionDetalleResponseSchema,
+        },
+      },
+    },
+    400: { description: "El identificador de la misión proporcionado no es un UUID válido" },
+    401: { description: "No autenticado / cabecera X-User-Id ausente o inválida" },
+    403: { description: "No cuenta con el permiso requerido: misiones:leer" },
+    404: { description: "Misión no encontrada" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// ==========================================
+// RUTAS PUNTOS CRÍTICOS (EVENTOS ATP - HU-57)
+// ==========================================
+registry.register("PuntoCriticoItem", PuntoCriticoItemResponseSchema);
+registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/puntos-criticos",
+  summary: "Listar puntos críticos y sectores vulnerables monitoreados",
+  description:
+    "Retorna una lista paginada de puntos críticos y sectores vulnerables monitoreados en Valdivia, incluyendo su ubicación espacial, factores de riesgo, nivel de gravedad y delegación territorial asociada. Acceso restringido al rol Administrador.",
+  tags: ["Eventos ATP / Puntos Críticos"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .describe("UUID del usuario Administrador autenticado"),
+    }),
+    query: ListarPuntosCriticosQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado paginado de puntos críticos",
+      content: {
+        "application/json": {
+          schema: ListarPuntosCriticosResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "Cabecera de autenticación X-User-Id ausente o usuario no válido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 22. GET /api/incidentes/kpis (HU-18)
+registry.registerPath({
+  method: "get",
+  path: "/api/incidentes/kpis",
+  summary: "Obtener contadores y KPIs de incidentes del día",
+  description:
+    "Retorna los contadores numéricos consolidados de incidentes agrupados por los 5 estados canónicos (REPORTADO, VERIFICANDO, EN_ATENCION, NO_ABORDABLE, RESUELTO) para el día indicado o la fecha actual en Valdivia/Chile (America/Santiago). Admite filtrado opcional por delegación territorial.",
+  tags: ["Incidentes"],
+  request: {
+    query: IncidentesKpisQuerySchema,
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Admin)" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Contadores de incidentes del día obtenidos exitosamente",
+      content: {
+        "application/json": {
+          schema: IncidentesKpisResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "Acceso denegado. Permiso insuficiente",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
 export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
