@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import { db } from "../../lib/db";
 import { BadRequestError } from "./errors";
 import type {
@@ -7,6 +8,7 @@ import type {
   RolItemDTO,
   UsuarioAutenticado,
   UsuarioActivoDTO,
+  UsuarioLoginRaw,
 } from "./types";
 
 export class SeguridadRepository {
@@ -351,6 +353,94 @@ export class SeguridadRepository {
     }
 
     return Array.from(rolesMap.values());
+  }
+
+  /**
+   * Obtiene un usuario por correo o RUT con sus credenciales, estado y datos de bloqueo para el proceso de login.
+   */
+  async obtenerUsuarioParaLogin(
+    identificador: string
+  ): Promise<UsuarioLoginRaw | null> {
+    const idLimpio = identificador.trim().toLowerCase();
+
+    const row = await db
+      .selectFrom("usuario")
+      .innerJoin("rol", "rol.id", "usuario.rol_id")
+      .select([
+        "usuario.id",
+        "usuario.rut",
+        "usuario.nombre",
+        "usuario.email",
+        "usuario.password_hash",
+        "usuario.activo",
+        "usuario.intentos_fallidos",
+        "usuario.bloqueado_hasta",
+        "usuario.delegacion_id",
+        "rol.id as rol_id",
+        "rol.nombre as rol_nombre",
+        "rol.codigo as rol_codigo",
+      ])
+      .where((eb) =>
+        eb.or([
+          eb(sql<string>`LOWER(usuario.email)`, "=", idLimpio),
+          eb("usuario.rut", "=", identificador.trim().toUpperCase()),
+        ])
+      )
+      .executeTakeFirst();
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      rut: row.rut,
+      nombre: row.nombre ?? "",
+      email: row.email,
+      password_hash: row.password_hash ?? "",
+      activo: Boolean(row.activo),
+      intentos_fallidos: Number(row.intentos_fallidos ?? 0),
+      bloqueado_hasta: row.bloqueado_hasta ? new Date(row.bloqueado_hasta) : null,
+      delegacion_id: row.delegacion_id ?? null,
+      rol_id: row.rol_id,
+      rol_nombre: row.rol_nombre,
+      rol_codigo: row.rol_codigo ?? "",
+    };
+  }
+
+  /**
+   * Registra un intento de inicio de sesión fallido e incrementa el contador, actualizando además la fecha de bloqueo si corresponde.
+   */
+  async registrarIntentoFallido(
+    usuarioId: string,
+    nuevosIntentos: number,
+    bloquearHasta: Date | null
+  ): Promise<void> {
+    await db
+      .updateTable("usuario")
+      .set({
+        intentos_fallidos: nuevosIntentos,
+        bloqueado_hasta: bloquearHasta,
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", usuarioId)
+      .execute();
+  }
+
+  /**
+   * Registra un inicio de sesión exitoso, reiniciando contadores de fallos y actualizando la marca temporal de último acceso.
+   */
+  async registrarLoginExitoso(usuarioId: string): Promise<void> {
+    await db
+      .updateTable("usuario")
+      .set({
+        intentos_fallidos: 0,
+        bloqueado_hasta: null,
+        ultimo_acceso: sql`CURRENT_TIMESTAMP`,
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", usuarioId)
+      .execute();
   }
 }
 

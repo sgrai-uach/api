@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeAll } from "vitest";
 import { NextRequest } from "next/server";
 import { GET as getRolesHandler } from "../../../app/api/seguridad/roles/route";
 import { GET as getRolDetalleHandler } from "../../../app/api/seguridad/roles/[id]/route";
@@ -7,6 +7,7 @@ import { PUT as putRolPermisosHandler } from "../../../app/api/seguridad/roles/[
 import { GET as getUsuarioActivoHandler } from "../../../app/api/seguridad/usuario-activo/route";
 import { db } from "../../../lib/db";
 import { generarOpenApiSpec } from "../../../lib/openapi";
+import { generarTokenPrueba } from "../../../lib/test-utils/auth";
 import {
   BadRequestError,
   ForbiddenError,
@@ -29,9 +30,7 @@ import {
   RolDetalleResponseSchema,
   RolIdParamSchema,
   RolItemSchema,
-  UsuarioActivoItemSchema,
   UsuarioActivoResponseSchema,
-  UsuarioActivoRolSchema,
 } from "../schema";
 import { SeguridadService } from "../service";
 import type {
@@ -705,13 +704,28 @@ describe("Módulo de Seguridad — Control de Acceso RBAC y Lógica de Servicio"
 });
 
 describe("Módulo de Seguridad — Route Handlers HTTP", () => {
-  it("GET /api/seguridad/roles debe retornar 401 si falta la cabecera X-User-Id", async () => {
+  let adminToken: string;
+  let callcenterToken: string;
+  let inactivoToken: string;
+
+  beforeAll(async () => {
+    adminToken = await generarTokenPrueba("00000000-0000-4000-8000-000000000001");
+    callcenterToken = await generarTokenPrueba("00000000-0000-4000-8000-000000000002", {
+      email: "callcenter@valdivia.cl",
+      rolCodigo: "CALL_CENTER",
+      rolNombre: "Call Center",
+    });
+    inactivoToken = await generarTokenPrueba("00000000-0000-4000-8000-000000000005", {
+      email: "inactivo@valdivia.cl",
+    });
+  });
+  it("GET /api/seguridad/roles debe retornar 401 si falta token Bearer", async () => {
     const request = new NextRequest("http://localhost:3000/api/seguridad/roles");
     const response = await getRolesHandler(request);
 
     expect(response.status).toBe(401);
     const body = await response.json();
-    expect(body.error).toContain("Cabecera X-User-Id requerida");
+    expect(body.error).toContain("Se requiere cabecera de autenticación Authorization: Bearer <token>");
   });
 
   it("GET /api/seguridad/roles debe retornar 403 si el usuario no tiene rol Administrador", async () => {
@@ -728,7 +742,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
 
     const request = new NextRequest("http://localhost:3000/api/seguridad/roles", {
       headers: {
-        "x-user-id": "00000000-0000-4000-8000-000000000002",
+        authorization: `Bearer ${callcenterToken}`,
       },
     });
 
@@ -765,7 +779,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
 
     const request = new NextRequest("http://localhost:3000/api/seguridad/roles", {
       headers: {
-        "x-user-id": "00000000-0000-4000-8000-000000000001",
+        authorization: `Bearer ${adminToken}`,
       },
     });
 
@@ -793,7 +807,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
       "http://localhost:3000/api/seguridad/roles/00000000-0000-4000-8000-000000000999",
       {
         headers: {
-          "x-user-id": "00000000-0000-4000-8000-000000000001",
+          authorization: `Bearer ${adminToken}`,
         },
       }
     );
@@ -834,7 +848,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
       "http://localhost:3000/api/seguridad/roles/20000000-0000-4000-8000-000000000001",
       {
         headers: {
-          "x-user-id": "00000000-0000-4000-8000-000000000001",
+          authorization: `Bearer ${adminToken}`,
         },
       }
     );
@@ -863,7 +877,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
       "http://localhost:3000/api/seguridad/roles/abc",
       {
         headers: {
-          "x-user-id": "00000000-0000-4000-8000-000000000001",
+          authorization: `Bearer ${adminToken}`,
         },
       }
     );
@@ -879,13 +893,13 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
   });
 
   describe("HU-5: Endpoints GET /api/seguridad/permisos y PUT /api/seguridad/roles/[id]/permisos", () => {
-    it("GET /api/seguridad/permisos debe retornar 401 si falta cabecera X-User-Id", async () => {
+    it("GET /api/seguridad/permisos debe retornar 401 si falta token Bearer", async () => {
       const request = new NextRequest("http://localhost:3000/api/seguridad/permisos");
       const response = await getPermisosHandler(request);
 
       expect(response.status).toBe(401);
       const body = await response.json();
-      expect(body.error).toContain("Cabecera X-User-Id requerida");
+      expect(body.error).toContain("Se requiere cabecera de autenticación Authorization: Bearer <token>");
     });
 
     it("GET /api/seguridad/permisos debe retornar 403 si el usuario no es Administrador", async () => {
@@ -902,7 +916,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
 
       const request = new NextRequest("http://localhost:3000/api/seguridad/permisos", {
         headers: {
-          "x-user-id": "00000000-0000-4000-8000-000000000002",
+          authorization: `Bearer ${callcenterToken}`,
         },
       });
 
@@ -935,7 +949,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
 
       const request = new NextRequest("http://localhost:3000/api/seguridad/permisos", {
         headers: {
-          "x-user-id": "00000000-0000-4000-8000-000000000001",
+          authorization: `Bearer ${adminToken}`,
         },
       });
 
@@ -947,7 +961,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
       expect(body.data[0].codigo).toBe("recursos:crear");
     });
 
-    it("PUT /api/seguridad/roles/[id]/permisos debe retornar 401 si falta cabecera X-User-Id", async () => {
+    it("PUT /api/seguridad/roles/[id]/permisos debe retornar 401 si falta token Bearer", async () => {
       const request = new NextRequest(
         "http://localhost:3000/api/seguridad/roles/20000000-0000-4000-8000-000000000002/permisos",
         {
@@ -980,7 +994,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
         {
           method: "PUT",
           headers: {
-            "x-user-id": "00000000-0000-4000-8000-000000000002",
+            authorization: `Bearer ${callcenterToken}`,
           },
           body: JSON.stringify({ permisoIds: [] }),
         }
@@ -1009,7 +1023,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
         {
           method: "PUT",
           headers: {
-            "x-user-id": "00000000-0000-4000-8000-000000000001",
+            authorization: `Bearer ${adminToken}`,
           },
           body: "no-es-json-valido",
         }
@@ -1040,7 +1054,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
         {
           method: "PUT",
           headers: {
-            "x-user-id": "00000000-0000-4000-8000-000000000001",
+            authorization: `Bearer ${adminToken}`,
           },
           body: JSON.stringify({ permisoIds: ["invalido"] }),
         }
@@ -1073,7 +1087,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
         {
           method: "PUT",
           headers: {
-            "x-user-id": "00000000-0000-4000-8000-000000000001",
+            authorization: `Bearer ${adminToken}`,
           },
           body: JSON.stringify({
             permisoIds: ["10000000-0000-4000-8000-000000000001"],
@@ -1126,7 +1140,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
         {
           method: "PUT",
           headers: {
-            "x-user-id": "00000000-0000-4000-8000-000000000001",
+            authorization: `Bearer ${adminToken}`,
           },
           body: JSON.stringify({
             permisoIds: ["10000000-0000-4000-8000-000000000001"],
@@ -1177,7 +1191,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
         {
           method: "PUT",
           headers: {
-            "x-user-id": "00000000-0000-4000-8000-000000000001",
+            authorization: `Bearer ${adminToken}`,
           },
           body: JSON.stringify({
             permisoIds: ["10000000-0000-4000-8000-000000000999"],
@@ -1244,7 +1258,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
         {
           method: "PUT",
           headers: {
-            "x-user-id": "00000000-0000-4000-8000-000000000001",
+            authorization: `Bearer ${adminToken}`,
           },
           body: JSON.stringify({
             permisoIds: ["10000000-0000-4000-8000-000000000001"],
@@ -1278,7 +1292,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
         {
           method: "PUT",
           headers: {
-            "x-user-id": "00000000-0000-4000-8000-000000000001",
+            authorization: `Bearer ${adminToken}`,
           },
           body: JSON.stringify({ permisoIds: [] }),
         }
@@ -1315,7 +1329,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
 
       const request = new NextRequest("http://localhost:3000/api/seguridad/usuario-activo", {
         headers: {
-          "x-user-id": "00000000-0000-4000-8000-000000000001",
+          authorization: `Bearer ${adminToken}`,
         },
       });
 
@@ -1335,7 +1349,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
 
       expect(response.status).toBe(401);
       const body = await response.json();
-      expect(body.error).toContain("Cabecera X-User-Id requerida");
+      expect(body.error).toContain("Se requiere cabecera de autenticación Authorization: Bearer <token>");
     });
 
     it("GET /api/seguridad/usuario-activo debe retornar 401 si el usuario no existe", async () => {
@@ -1343,7 +1357,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
 
       const request = new NextRequest("http://localhost:3000/api/seguridad/usuario-activo", {
         headers: {
-          "x-user-id": "00000000-0000-4000-8000-000000000099",
+          authorization: `Bearer ${adminToken}`,
         },
       });
 
@@ -1372,7 +1386,7 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
 
       const request = new NextRequest("http://localhost:3000/api/seguridad/usuario-activo", {
         headers: {
-          "x-user-id": "00000000-0000-4000-8000-000000000005",
+          authorization: `Bearer ${inactivoToken}`,
         },
       });
 
@@ -1522,6 +1536,13 @@ describe("Módulo de Seguridad — Especificación OpenAPI", () => {
     expect(spec.openapi).toBe("3.0.0");
     expect(spec.info.version).toBe("0.8.0");
     expect(spec.paths).toBeDefined();
+
+    // Ruta de Login
+    expect(spec.paths["/api/seguridad/login"]).toBeDefined();
+    expect(spec.paths["/api/seguridad/login"]?.post).toBeDefined();
+    expect(spec.paths["/api/seguridad/login"]?.post?.tags).toContain(
+      "Seguridad / Autenticación"
+    );
 
     expect(spec.paths["/api/seguridad/roles"]).toBeDefined();
     expect(spec.paths["/api/seguridad/roles"]?.get).toBeDefined();

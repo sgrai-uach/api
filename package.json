@@ -17,7 +17,9 @@
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
+    "bcryptjs": "^3.0.3",
     "ioredis": "^6.0.0",
+    "jose": "^6.2.12",
     "kysely": "^0.29.5",
     "next": "16.3.4",
     "pg": "^8.23.0",
@@ -28,6 +30,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/pg": "^8.16.0",
     "@types/react": "^19",

@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { ListarIncidentesQuerySchema } from "@/modules/incidentes/incidente-kanban.schema";
 import { listarIncidentesKanbanService } from "@/modules/incidentes/incidente-kanban.service";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { PERMISO_KANBAN_INCIDENTES } from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 export async function GET(req: NextRequest) {
   try {
     // 1. Extraer cabecera de autenticación y verificar permiso RBAC
-    const usuarioId = req.headers.get("x-user-id");
+    const usuarioId = await extraerUsuarioId(req);
     await verificarPermiso(usuarioId, PERMISO_KANBAN_INCIDENTES);
 
     // 2. Extraer parámetros de búsqueda de la URL
