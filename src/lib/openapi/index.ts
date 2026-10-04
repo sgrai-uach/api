@@ -996,9 +996,11 @@ registry.registerPath({
   tags: ["Misiones"],
   request: {
     headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
       "x-user-id": z
         .string()
         .uuid()
+        .optional()
         .openapi({ description: "ID del usuario Encargado, Administrador o Supervisor autenticado" }),
     }),
     params: z.object({
