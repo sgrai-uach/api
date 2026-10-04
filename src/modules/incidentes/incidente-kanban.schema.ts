@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import { PaginationQuerySchema } from "@/lib/shared/pagination.schema";
 
 extendZodWithOpenApi(z);
 
@@ -13,16 +14,15 @@ export const EstadoIncidenteEnum = z.enum([
 
 export const PrioridadIncidenteEnum = z.enum(["BAJA", "MEDIA", "ALTA", "CRITICA"]);
 
+export const FuenteOrigenIncidenteEnum = z.enum([
+  "CHATBOT",
+  "LLAMADA_TELEFONICA",
+  "FUNCIONARIO_TERRENO",
+  "WEB",
+]);
+
 // 1. Esquema de validación para parámetros de consulta (Query Params)
-export const ListarIncidentesQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1).openapi({
-    description: "Número de página para paginación (comienza en 1)",
-    example: 1,
-  }),
-  limit: z.coerce.number().int().min(1).max(100).default(20).openapi({
-    description: "Cantidad de elementos por página (máximo 100)",
-    example: 20,
-  }),
+export const ListarIncidentesQuerySchema = PaginationQuerySchema.extend({
   estado: EstadoIncidenteEnum.optional().openapi({
     description: "Filtrar por columna/estado específico del Kanban",
     example: "REPORTADO",
@@ -38,6 +38,14 @@ export const ListarIncidentesQuerySchema = z.object({
   busqueda: z.string().optional().openapi({
     description: "Búsqueda textual sobre código, dirección o descripción del incidente",
     example: "Picarte",
+  }),
+  delegacionId: z.string().uuid().optional().openapi({
+    description: "Filtrar por UUID de delegación territorial",
+    example: "30000000-0000-4000-8000-000000000001",
+  }),
+  fuenteOrigen: FuenteOrigenIncidenteEnum.optional().openapi({
+    description: "Filtrar por canal de origen del reporte",
+    example: "LLAMADA_TELEFONICA",
   }),
 });
 

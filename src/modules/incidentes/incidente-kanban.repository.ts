@@ -67,6 +67,16 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
     );
   }
 
+  // Filtro por Delegación
+  if (filtros.delegacionId) {
+    consultaBase = consultaBase.where("incidente.delegacion_id", "=", filtros.delegacionId);
+  }
+
+  // Filtro por Fuente de Origen
+  if (filtros.fuenteOrigen) {
+    consultaBase = consultaBase.where("incidente.fuente_origen", "=", filtros.fuenteOrigen);
+  }
+
   // Conteo total para metadatos de paginación
   const resultadoConteo = await consultaBase
     .select(sql<number>`count(incidente.id)::int`.as("total"))

@@ -55,6 +55,32 @@ describe("Esquemas de Tablero Kanban e Incidentes", () => {
       const resultado = ListarIncidentesQuerySchema.safeParse({ estado: "INEXISTENTE" });
       expect(resultado.success).toBe(false);
     });
+
+    it("debe aceptar delegacionId UUID válido y fuenteOrigen enum válido", () => {
+      const resultado = ListarIncidentesQuerySchema.safeParse({
+        delegacionId: "30000000-0000-4000-8000-000000000001",
+        fuenteOrigen: "LLAMADA_TELEFONICA",
+      });
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.delegacionId).toBe("30000000-0000-4000-8000-000000000001");
+        expect(resultado.data.fuenteOrigen).toBe("LLAMADA_TELEFONICA");
+      }
+    });
+
+    it("debe rechazar delegacionId que no sea un UUID válido", () => {
+      const resultado = ListarIncidentesQuerySchema.safeParse({
+        delegacionId: "no-es-uuid",
+      });
+      expect(resultado.success).toBe(false);
+    });
+
+    it("debe rechazar fuenteOrigen no permitida", () => {
+      const resultado = ListarIncidentesQuerySchema.safeParse({
+        fuenteOrigen: "INVALIDA",
+      });
+      expect(resultado.success).toBe(false);
+    });
   });
 
   describe("IncidenteResumenSchema", () => {
