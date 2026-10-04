@@ -42,7 +42,7 @@ export const ListarAvisosQuerySchema = z.object({
     example: "inundación",
   }),
   origen: z
-    .enum(["WEB", "CHATBOT", "TELEFONO"])
+    .enum(["WEB", "CHATBOT", "LLAMADA_TELEFONICA"])
     .optional()
     .openapi({
       description: "Canal por el cual ingresó el reporte",
@@ -123,7 +123,7 @@ export const CrearAvisoInputSchema = z
         example: -73.2459,
       }),
     origenReporte: z
-      .enum(["WEB", "CHATBOT", "TELEFONO"])
+      .enum(["WEB", "CHATBOT", "LLAMADA_TELEFONICA"])
       .default("WEB")
       .openapi({
         description: "Canal por el cual ingresó el aviso",
@@ -234,7 +234,7 @@ export const AvisoItemSchema = z
     informanteNombre: z.string(),
     informanteRut: z.string(),
     informanteTelefono: z.string().nullable(),
-    origenReporte: z.enum(["WEB", "CHATBOT", "TELEFONO"]),
+    origenReporte: z.enum(["WEB", "CHATBOT", "LLAMADA_TELEFONICA"]),
     estado: z.enum(["PENDIENTE_VERIFICACION", "NO_VERIFICADO", "VERIFICADO", "DESCARTADO"]),
     esDuplicado: z.boolean(),
     avisoOriginalId: z.string().uuid().nullable().optional(),

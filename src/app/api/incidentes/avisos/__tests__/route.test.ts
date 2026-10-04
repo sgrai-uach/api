@@ -178,7 +178,7 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
       ) VALUES (
         ${TEST_AVISO_IDS[2]}, '73333333', 'Inundación', 'Av. Balmaceda 180, Collico', -39.8174, -73.2145,
         ST_SetSRID(ST_MakePoint(-73.2145, -39.8174), 4326),
-        'Vecino Collico', '33333333-3', 'TELEFONO', 'VERIFICADO',
+        'Vecino Collico', '33333333-3', 'LLAMADA_TELEFONICA', 'VERIFICADO',
         ${delCalle?.id ?? null},
         CURRENT_TIMESTAMP - interval '10 minutes',
         CURRENT_TIMESTAMP - interval '10 minutes'

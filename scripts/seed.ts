@@ -74,7 +74,7 @@ const NOMBRES = [
   "Cristián Muñoz", "Javiera Morales", "Andrés Castro", "Valentina Rojas"
 ];
 
-const ORIGENES = ["WEB", "CHATBOT", "TELEFONO"] as const;
+const ORIGENES = ["WEB", "CHATBOT", "LLAMADA_TELEFONICA"] as const;
 
 // UUID por defecto para auditar operador en acciones ICS
 const OPERADOR_ID = "a0000000-0000-0000-0000-000000000001";

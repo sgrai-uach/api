@@ -12,7 +12,7 @@ export type EstadoIncidente =
   | "No Abordable"
   | "Resuelto";
 
-export type OrigenReporte = "WEB" | "CHATBOT" | "TELEFONO";
+export type OrigenReporte = "WEB" | "CHATBOT" | "LLAMADA_TELEFONICA";
 
 export interface DatosInformante {
   nombre?: string;

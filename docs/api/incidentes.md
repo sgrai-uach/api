@@ -24,7 +24,7 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
   - Admite filtros combinados con lógica conjuntiva (`AND`):
     - **Delegación Territorial:** `Norte`, `Sur`, `Costa`, `Calle Calle` o `TODAS`. Resuelve tanto delegación asignada formalmente (`delegacion_id`) como manual o inferida por sector, retornando el atributo canónico `delegacionNombre: string | null`. Admite alias como `Calle-Calle`.
     - **Estado Operativo:** `NO_VERIFICADO` (retorna avisos en `NO_VERIFICADO` y `PENDIENTE_VERIFICACION`), `VERIFICADO`, `DESCARTADO` o `TODOS` (omite filtro).
-    - **Canal de Origen:** `WEB`, `CHATBOT`, `TELEFONO`.
+    - **Canal de Origen:** `WEB`, `CHATBOT`, `LLAMADA_TELEFONICA`.
     - **Búsqueda Textual:** Coincidencia libre parcial insensitiva (`busqueda` o `q`) sobre dirección, descripción, nombre de informante o código de seguimiento.
   - Metadatos de paginación (`total`, `totalPages`, `hasNext`, `hasPrev`) reflejan con precisión los filtros aplicados.
   - Respuestas vacías retornan `200 OK` con `data: []` y `total: 0`.
