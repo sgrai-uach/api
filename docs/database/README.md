@@ -625,7 +625,7 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 ```bash
 npm run db:migrate
 ```
-El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `010_autenticacion_bloqueo_usuarios.ts`).
+El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `015_indices_filtros_listados.ts`).
 
 ### 7.2 Sembrar Datos para Tablero Kanban
 ```bash
