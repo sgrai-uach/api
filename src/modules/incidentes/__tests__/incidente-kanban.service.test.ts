@@ -50,6 +50,14 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
       });
 
       expect(resultado.message).toBe("Listado de incidentes obtenido exitosamente");
+      expect(resultado.meta).toEqual({
+        total: 45,
+        page: 2,
+        limit: 10,
+        totalPages: 5,
+        hasNext: true,
+        hasPrev: true,
+      });
       expect(resultado.paginacion).toEqual({
         total: 45,
         pagina: 2,

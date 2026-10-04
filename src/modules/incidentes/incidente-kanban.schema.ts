@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
-import { PaginationQuerySchema } from "@/lib/shared/pagination.schema";
+import {
+  PaginationQuerySchema,
+  PaginationMetaSchema,
+  type PaginationMeta,
+} from "@/lib/shared/pagination.schema";
 
 extendZodWithOpenApi(z);
 
@@ -90,7 +94,10 @@ export type IncidenteResumen = z.infer<typeof IncidenteResumenSchema>;
 export const ListarIncidentesResponseSchema = z.object({
   message: z.string().openapi({ example: "Listado de incidentes obtenido exitosamente" }),
   data: z.array(IncidenteResumenSchema),
-  paginacion: PaginacionMetaSchema,
+  meta: PaginationMetaSchema,
+  paginacion: PaginacionMetaSchema.optional().openapi({
+    description: "Metadatos de paginación legados (retrocompatibilidad, usar 'meta')",
+  }),
 });
 
 export type ListarIncidentesResponse = z.infer<typeof ListarIncidentesResponseSchema>;

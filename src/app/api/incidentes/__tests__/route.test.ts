@@ -93,6 +93,14 @@ describe("Route Handler GET /api/incidentes (Tablero Kanban)", () => {
           actualizadoEn: "2026-09-22T10:00:00.000Z",
         },
       ],
+      meta: {
+        total: 1,
+        page: 1,
+        limit: 20,
+        totalPages: 1,
+        hasNext: false,
+        hasPrev: false,
+      },
       paginacion: {
         total: 1,
         pagina: 1,
@@ -111,6 +119,7 @@ describe("Route Handler GET /api/incidentes (Tablero Kanban)", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.data).toHaveLength(1);
+    expect(json.meta.total).toBe(1);
     expect(json.paginacion.total).toBe(1);
     expect(json.data[0].codigo).toBe("INC-58291045");
   });
