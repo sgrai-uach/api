@@ -227,9 +227,9 @@ describe("Route Handlers /api/puntos-criticos/[id] (HU-55)", () => {
       expect(res.status).toBe(404);
     });
 
-    it("debe responder 409 si hay conflicto por misiones activas al cambiar coordenadas (Opción B)", async () => {
+    it("debe responder 409 si el punto crítico se encuentra desactivado del sistema", async () => {
       vi.spyOn(puntoCriticoService, "editarPuntoCritico").mockRejectedValueOnce(
-        new ConflictError("No es posible modificar las coordenadas geográficas porque cuenta con misiones activas.")
+        new ConflictError("No es posible editar el punto crítico porque se encuentra desactivado del sistema.")
       );
 
       const req = new NextRequest(`http://localhost:3000/api/puntos-criticos/${puntoIdValido}`, {
@@ -244,7 +244,7 @@ describe("Route Handlers /api/puntos-criticos/[id] (HU-55)", () => {
       const res = await PUT(req, contextValido);
       expect(res.status).toBe(409);
       const body = await res.json();
-      expect(body.message).toContain("misiones activas");
+      expect(body.message).toContain("desactivado");
     });
 
     it("debe responder 200 con el punto crítico actualizado exitosamente", async () => {

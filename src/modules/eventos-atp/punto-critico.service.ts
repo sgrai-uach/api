@@ -14,7 +14,6 @@ import {
   contarPuntosCriticos,
   obtenerPuntoCriticoDetallePorId,
   verificarDelegacionExiste,
-  verificarMisionesActivasPuntoCritico,
   actualizarPuntoCritico,
   type FiltrosListarPuntosCriticos,
   type FilaPuntoCriticoConDelegacion,
@@ -154,9 +153,9 @@ export async function obtenerDetallePuntoCritico(
 
 /**
  * Actualiza las características y coordenadas geográficas de un punto crítico (HU-55).
- * - Restringe la reubicación si existen misiones preventivas activas en terreno (Opción B).
+ * - Permite actualizar ubicación y características en cualquier momento, notificando a la central y patrullas vía Socket.io (Opción A).
  * - Garantiza inmutabilidad del código institucional y preserva el estado de vigencia activo.
- * - Registra auditoría y emite evento en tiempo real vía Socket.io para actualización cartográfica.
+ * - Registra auditoría y emite evento en tiempo real vía Socket.io para actualización cartográfica inmediata.
  */
 export async function editarPuntoCritico(
   id: string,
@@ -191,44 +190,22 @@ export async function editarPuntoCritico(
     }
   }
 
-  // 5. Regla de Negocio Opción B: Bloquear cambio de coordenadas si existen misiones activas
-  const latitudActual = Number(puntoExistente.latitud);
-  const longitudActual = Number(puntoExistente.longitud);
-  const nuevaLatitud = Number(input.latitud);
-  const nuevaLongitud = Number(input.longitud);
-
-  const epsilon = 0.000001;
-  const cambioUbicacion =
-    Math.abs(latitudActual - nuevaLatitud) > epsilon ||
-    Math.abs(longitudActual - nuevaLongitud) > epsilon;
-
-  if (cambioUbicacion) {
-    const dependencias = await verificarMisionesActivasPuntoCritico(id);
-    if (dependencias.tieneMisionesActivas) {
-      const detalleMisiones =
-        dependencias.codigos.length > 0
-          ? ` (${dependencias.codigos.join(", ")})`
-          : "";
-      throw new ConflictError(
-        `No es posible modificar las coordenadas geográficas del punto crítico '${puntoExistente.nombre}' porque cuenta con ${dependencias.totalMisiones} misión(es) preventiva(s) activa(s) en terreno${detalleMisiones}. Concluya o cancele las misiones activas antes de reubicar el punto crítico.`
-      );
-    }
-  }
-
-  // 6. Persistir cambios en la base de datos con PostGIS ST_SetSRID y auditoría
+  // 5. Preparar datos y actualizar en BD con PostGIS ST_SetSRID y auditoría (Opción A)
+  // Se permite actualizar características y ubicación en cualquier momento,
+  // notificando en tiempo real a la central, supervisores y patrullas mediante Socket.io
   const datosParaActualizar: DatosActualizarPuntoCritico = {
     nombre: input.nombre,
     descripcion: input.descripcion ?? null,
     tipoRiesgo: input.tipoRiesgo ?? null,
     prioridad: input.prioridad,
     delegacionId: input.delegacionId ?? null,
-    latitud: nuevaLatitud,
-    longitud: nuevaLongitud,
+    latitud: Number(input.latitud),
+    longitud: Number(input.longitud),
   };
 
   await actualizarPuntoCritico(id, datosParaActualizar, usuario.id);
 
-  // 7. Consultar registro consolidado
+  // 6. Consultar registro consolidado
   const puntoActualizado = await obtenerPuntoCriticoDetallePorId(id);
   const filaFinal = puntoActualizado ?? {
     ...puntoExistente,
@@ -239,7 +216,7 @@ export async function editarPuntoCritico(
 
   const respuesta = mapearFilaPuntoCriticoDetalle(filaFinal);
 
-  // 8. Notificar actualización inmediata en tiempo real vía Socket.io para el módulo cartográfico
+  // 7. Notificar actualización inmediata en tiempo real vía Socket.io para el módulo cartográfico (Opción A)
   emitirPuntoCriticoActualizado(respuesta as unknown as Record<string, unknown>);
 
   return respuesta;

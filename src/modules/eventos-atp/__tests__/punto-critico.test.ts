@@ -485,30 +485,38 @@ describe("Módulo Eventos ATP / Puntos Críticos (HU-57) - Pruebas Unitarias", (
       ).rejects.toThrow(BadRequestError);
     });
 
-    it("Regla Opción B: debe lanzar ConflictError al intentar reubicar coordenadas si existen misiones activas", async () => {
+    it("Regla Opción A: debe permitir reubicar coordenadas aun cuando existan misiones activas en curso", async () => {
       vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminMock);
-      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoDetallePorId").mockResolvedValueOnce(
-        puntoExistenteMock
-      );
+      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoDetallePorId")
+        .mockResolvedValueOnce(puntoExistenteMock)
+        .mockResolvedValueOnce({
+          ...puntoExistenteMock,
+          nombre: "Sector Trasladado",
+          latitud: -39.8200,
+          longitud: -73.2100,
+          actualizado_en: new Date("2026-10-04T19:00:00.000Z"),
+          actualizado_por_id: adminMock.id,
+        });
       vi.spyOn(puntoCriticoRepository, "verificarDelegacionExiste").mockResolvedValueOnce(true);
-      vi.spyOn(puntoCriticoRepository, "verificarMisionesActivasPuntoCritico").mockResolvedValueOnce({
-        tieneMisionesActivas: true,
-        totalMisiones: 1,
-        codigos: ["MIS-2026-0042"],
-      });
 
-      await expect(
-        editarPuntoCritico(
-          puntoExistenteMock.id,
-          {
-            nombre: "Sector Trasladado",
-            prioridad: "ALTA",
-            latitud: -39.8200, // Coordenada modificada
-            longitud: -73.2100,
-          },
-          adminMock.id
-        )
-      ).rejects.toThrow(ConflictError);
+      const actualizarSpy = vi
+        .spyOn(puntoCriticoRepository, "actualizarPuntoCritico")
+        .mockResolvedValueOnce({} as unknown as Awaited<ReturnType<typeof puntoCriticoRepository.actualizarPuntoCritico>>);
+
+      const resultado = await editarPuntoCritico(
+        puntoExistenteMock.id,
+        {
+          nombre: "Sector Trasladado",
+          prioridad: "ALTA",
+          latitud: -39.8200, // Coordenada modificada
+          longitud: -73.2100,
+        },
+        adminMock.id
+      );
+
+      expect(actualizarSpy).toHaveBeenCalledTimes(1);
+      expect(resultado.latitud).toBe(-39.82);
+      expect(resultado.longitud).toBe(-73.21);
     });
 
     it("Regla Opción B: debe permitir editar campos descriptivos con misiones activas si las coordenadas no cambian", async () => {

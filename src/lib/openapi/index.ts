@@ -1227,7 +1227,7 @@ registry.registerPath({
   path: "/api/puntos-criticos/{id}",
   summary: "Editar características y ubicación de un punto crítico",
   description:
-    "Modifica los datos y la ubicación geográfica (PostGIS EPSG:4326) de un punto crítico comunal. El código institucional es inmutable. Si existen misiones preventivas activas en terreno, se bloquea la modificación de coordenadas para proteger la operación. Emite notificación reactiva vía Socket.io.",
+    "Modifica los datos y la ubicación geográfica (PostGIS EPSG:4326) de un punto crítico comunal. El código institucional es inmutable. Permite actualizar la ubicación en cualquier momento y emite notificación reactiva vía Socket.io a la central, supervisores y cuadrillas/patrullas.",
   tags: ["Eventos ATP"],
   request: {
     params: PuntoCriticoIdParamSchema,
@@ -1268,7 +1268,7 @@ registry.registerPath({
       description: "Punto crítico no encontrado",
     },
     409: {
-      description: "Conflicto operativo: punto desactivado o intento de reubicación con misiones activas en curso",
+      description: "Conflicto operativo: no es posible editar un punto crítico que se encuentra desactivado del sistema",
     },
     500: {
       description: "Error interno del servidor al procesar la solicitud",

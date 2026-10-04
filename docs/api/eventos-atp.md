@@ -199,7 +199,7 @@ Permite al Administrador modificar las características, factores de riesgo y ub
 ### Reglas de Negocio Específicas de Edición:
 1. **Inmutabilidad del Código:** El código institucional (`codigo`) es inmutable tras la creación para salvaguardar la consistencia con bitácoras e informes históricos. No se incluye en el cuerpo de la petición.
 2. **Exclusión del Estado Operativo:** El estado `activo` no es editable en este formulario; la vigencia se gestiona exclusivamente mediante el ciclo de borrado lógico. Puntos inactivos no pueden ser editados (`409 Conflict`).
-3. **Protección Operativa de Terreno (Opción B):** Si existen misiones preventivas activas (`PLANIFICADA`, `DESPACHADA` o `EN_CURSO`) o patrullas desplegadas hacia el sector, se **bloquea la modificación de coordenadas geográficas** con código `409 Conflict`, permitiendo modificar únicamente atributos descriptivos y factores de riesgo.
+3. **Reubicación Dinámica con Notificación en Tiempo Real (Opción A):** El Administrador puede actualizar las coordenadas geográficas en cualquier momento. El backend recalcula la geometría PostGIS y difunde de inmediato el evento `"punto_critico:actualizado"` vía Socket.io a la central de despacho, supervisores y patrullas/cuadrillas en terreno para que visualicen el nuevo emplazamiento sin refrescar la pantalla.
 4. **Persistencia Geoespacial PostGIS:** Al actualizar coordenadas numéricas WGS84, el backend recalcula y persiste la geometría espacial `ubicacion = ST_SetSRID(ST_MakePoint(longitud, latitud), 4326)`.
 5. **Auditoría de Modificación:** Se actualiza `actualizado_en = CURRENT_TIMESTAMP` y se almacena `actualizado_por_id` con el UUID del administrador autenticado.
 6. **Sincronización Reactiva (Socket.io):** Al completarse la actualización, se emite el evento `"punto_critico:actualizado"` a las salas `"encargado"`, `"supervisor"` y `"administrador"`, garantizando que los tableros cartográficos reflejen el cambio de inmediato.
@@ -264,9 +264,9 @@ Retorna la entidad consolidada con el detalle actualizado y las estampas de audi
 }
 ```
 
-#### `409 Conflict` — Conflicto operativo (misiones en curso)
+#### `409 Conflict` — Punto crítico inactivo
 ```json
 {
-  "message": "No es posible modificar las coordenadas geográficas del punto crítico 'Sector Humedal Angachilla' porque cuenta con 1 misión(es) preventiva(s) activa(s) en terreno (MIS-2026-0042). Concluya o cancele las misiones activas antes de reubicar el punto crítico."
+  "message": "No es posible editar el punto crítico 'Sector Humedal Angachilla' porque se encuentra desactivado del sistema."
 }
 ```
