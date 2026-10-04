@@ -1,15 +1,31 @@
 import { seguridadService } from "@/modules/seguridad/service";
-import { PERMISO_LISTAR_PUNTOS_CRITICOS } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_LISTAR_PUNTOS_CRITICOS,
+  PERMISO_EDITAR_PUNTO_CRITICO,
+} from "@/modules/seguridad/permisos.constants";
+import {
+  NotFoundError,
+  BadRequestError,
+  ConflictError,
+} from "@/modules/seguridad/errors";
+import { emitirPuntoCriticoActualizado } from "@/lib/socket";
 import {
   listarPuntosCriticosPaginados,
   contarPuntosCriticos,
+  obtenerPuntoCriticoDetallePorId,
+  verificarDelegacionExiste,
+  verificarMisionesActivasPuntoCritico,
+  actualizarPuntoCritico,
   type FiltrosListarPuntosCriticos,
   type FilaPuntoCriticoConDelegacion,
+  type DatosActualizarPuntoCritico,
 } from "./punto-critico.repository";
 import type {
   ListarPuntosCriticosInput,
   ListarPuntosCriticosResponse,
   PuntoCriticoItemResponse,
+  ActualizarPuntoCriticoBody,
+  PuntoCriticoDetalleResponse,
 } from "./punto-critico.schema";
 
 /**
@@ -42,6 +58,25 @@ export function mapearFilaPuntoCritico(
       fila.creado_en instanceof Date
         ? fila.creado_en.toISOString()
         : new Date(fila.creado_en).toISOString(),
+  };
+}
+
+/**
+ * Transforma un registro de la base de datos relacional al formato detallado con auditoría.
+ */
+export function mapearFilaPuntoCriticoDetalle(
+  fila: FilaPuntoCriticoConDelegacion
+): PuntoCriticoDetalleResponse {
+  const base = mapearFilaPuntoCritico(fila);
+
+  return {
+    ...base,
+    actualizadoEn: fila.actualizado_en
+      ? fila.actualizado_en instanceof Date
+        ? fila.actualizado_en.toISOString()
+        : new Date(fila.actualizado_en).toISOString()
+      : null,
+    actualizadoPorId: fila.actualizado_por_id ?? null,
   };
 }
 
@@ -95,4 +130,117 @@ export async function listarPuntosCriticos(
       totalPaginas,
     },
   };
+}
+
+/**
+ * Obtiene el detalle de un punto crítico específico para precarga del formulario de edición.
+ */
+export async function obtenerDetallePuntoCritico(
+  id: string,
+  usuarioId?: string | null
+): Promise<PuntoCriticoDetalleResponse> {
+  // Control de Acceso RBAC: Requiere rol Administrador o permiso de lectura
+  await seguridadService.validarAccesoAdministrador(usuarioId, [
+    PERMISO_LISTAR_PUNTOS_CRITICOS,
+  ]);
+
+  const fila = await obtenerPuntoCriticoDetallePorId(id);
+  if (!fila) {
+    throw new NotFoundError(`Punto crítico con ID '${id}' no encontrado.`);
+  }
+
+  return mapearFilaPuntoCriticoDetalle(fila);
+}
+
+/**
+ * Actualiza las características y coordenadas geográficas de un punto crítico (HU-55).
+ * - Restringe la reubicación si existen misiones preventivas activas en terreno (Opción B).
+ * - Garantiza inmutabilidad del código institucional y preserva el estado de vigencia activo.
+ * - Registra auditoría y emite evento en tiempo real vía Socket.io para actualización cartográfica.
+ */
+export async function editarPuntoCritico(
+  id: string,
+  input: ActualizarPuntoCriticoBody,
+  usuarioId?: string | null
+): Promise<PuntoCriticoDetalleResponse> {
+  // 1. Control de Acceso RBAC: Requiere rol Administrador con permiso puntos_criticos:editar
+  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [
+    PERMISO_EDITAR_PUNTO_CRITICO,
+  ]);
+
+  // 2. Verificar existencia del punto crítico
+  const puntoExistente = await obtenerPuntoCriticoDetallePorId(id);
+  if (!puntoExistente) {
+    throw new NotFoundError(`Punto crítico con ID '${id}' no encontrado.`);
+  }
+
+  // 3. Validar estado operativo (no se permite editar puntos inactivos)
+  if (!puntoExistente.activo) {
+    throw new ConflictError(
+      `No es posible editar el punto crítico '${puntoExistente.nombre}' porque se encuentra desactivado del sistema.`
+    );
+  }
+
+  // 4. Validar existencia de la delegación territorial si se proporciona
+  if (input.delegacionId) {
+    const existeDelegacion = await verificarDelegacionExiste(input.delegacionId);
+    if (!existeDelegacion) {
+      throw new BadRequestError(
+        `La delegación territorial con ID '${input.delegacionId}' no existe en el sistema.`
+      );
+    }
+  }
+
+  // 5. Regla de Negocio Opción B: Bloquear cambio de coordenadas si existen misiones activas
+  const latitudActual = Number(puntoExistente.latitud);
+  const longitudActual = Number(puntoExistente.longitud);
+  const nuevaLatitud = Number(input.latitud);
+  const nuevaLongitud = Number(input.longitud);
+
+  const epsilon = 0.000001;
+  const cambioUbicacion =
+    Math.abs(latitudActual - nuevaLatitud) > epsilon ||
+    Math.abs(longitudActual - nuevaLongitud) > epsilon;
+
+  if (cambioUbicacion) {
+    const dependencias = await verificarMisionesActivasPuntoCritico(id);
+    if (dependencias.tieneMisionesActivas) {
+      const detalleMisiones =
+        dependencias.codigos.length > 0
+          ? ` (${dependencias.codigos.join(", ")})`
+          : "";
+      throw new ConflictError(
+        `No es posible modificar las coordenadas geográficas del punto crítico '${puntoExistente.nombre}' porque cuenta con ${dependencias.totalMisiones} misión(es) preventiva(s) activa(s) en terreno${detalleMisiones}. Concluya o cancele las misiones activas antes de reubicar el punto crítico.`
+      );
+    }
+  }
+
+  // 6. Persistir cambios en la base de datos con PostGIS ST_SetSRID y auditoría
+  const datosParaActualizar: DatosActualizarPuntoCritico = {
+    nombre: input.nombre,
+    descripcion: input.descripcion ?? null,
+    tipoRiesgo: input.tipoRiesgo ?? null,
+    prioridad: input.prioridad,
+    delegacionId: input.delegacionId ?? null,
+    latitud: nuevaLatitud,
+    longitud: nuevaLongitud,
+  };
+
+  await actualizarPuntoCritico(id, datosParaActualizar, usuario.id);
+
+  // 7. Consultar registro consolidado
+  const puntoActualizado = await obtenerPuntoCriticoDetallePorId(id);
+  const filaFinal = puntoActualizado ?? {
+    ...puntoExistente,
+    ...datosParaActualizar,
+    actualizado_en: new Date(),
+    actualizado_por_id: usuario.id,
+  };
+
+  const respuesta = mapearFilaPuntoCriticoDetalle(filaFinal);
+
+  // 8. Notificar actualización inmediata en tiempo real vía Socket.io para el módulo cartográfico
+  emitirPuntoCriticoActualizado(respuesta as unknown as Record<string, unknown>);
+
+  return respuesta;
 }
