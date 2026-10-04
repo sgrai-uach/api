@@ -64,6 +64,21 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/misiones/{id}"].get.summary).toBe(
       "Consultar detalle completo de una misión operativa"
     );
+
+    // Rutas de Personal (HU-12 y HU-13)
+    expect(spec.paths["/api/personal"]).toBeDefined();
+    expect(spec.paths["/api/personal"].get).toBeDefined();
+    expect(spec.paths["/api/personal/{id}"]).toBeDefined();
+    expect(spec.paths["/api/personal/{id}"].get).toBeDefined();
+    expect(spec.paths["/api/personal/{id}"].patch).toBeDefined();
+    expect(spec.paths["/api/personal/{id}"].delete).toBeDefined();
+    expect(spec.paths["/api/personal/{id}"].delete.responses["200"]).toBeDefined();
+    expect(spec.paths["/api/personal/{id}"].delete.responses["400"]).toBeDefined();
+    expect(spec.paths["/api/personal/{id}"].delete.responses["401"]).toBeDefined();
+    expect(spec.paths["/api/personal/{id}"].delete.responses["403"]).toBeDefined();
+    expect(spec.paths["/api/personal/{id}"].delete.responses["404"]).toBeDefined();
+    expect(spec.paths["/api/personal/{id}"].delete.responses["409"]).toBeDefined();
+    expect(spec.paths["/api/personal/{id}"].delete.responses["500"]).toBeDefined();
   });
 });
 
