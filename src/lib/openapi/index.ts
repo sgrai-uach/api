@@ -54,6 +54,11 @@ import {
 } from "@/modules/incidentes/incidente-kanban.schema";
 
 import {
+  IncidentesKpisQuerySchema,
+  IncidentesKpisResponseSchema,
+} from "@/modules/incidentes/incidente-kpi.schema";
+
+import {
   ModificarEmpleadoSchema,
   EmpleadoConsolidadoSchema,
   ListarEmpleadosResponseSchema,
@@ -124,6 +129,7 @@ registry.register("CrearIncidenteManualResponse", CrearIncidenteManualResponseSc
 registry.register("VerificarDuplicadoInput", VerificarDuplicadoInputSchema);
 registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema);
 registry.register("IncidenteResponse", IncidenteResponseSchema);
+registry.register("IncidentesKpisResponse", IncidentesKpisResponseSchema);
 
 // ==========================================
 // RUTAS RECURSOS Y PERSONAL
@@ -1002,9 +1008,11 @@ registry.registerPath({
   tags: ["Misiones"],
   request: {
     headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
       "x-user-id": z
         .string()
         .uuid()
+        .optional()
         .openapi({ description: "ID del usuario Encargado, Administrador o Supervisor autenticado" }),
     }),
     params: z.object({
@@ -1067,6 +1075,47 @@ registry.registerPath({
     },
     403: {
       description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 21. GET /api/incidentes/kpis (HU-18)
+registry.registerPath({
+  method: "get",
+  path: "/api/incidentes/kpis",
+  summary: "Obtener contadores y KPIs de incidentes del día",
+  description:
+    "Retorna los contadores numéricos consolidados de incidentes agrupados por los 5 estados canónicos (REPORTADO, VERIFICANDO, EN_ATENCION, NO_ABORDABLE, RESUELTO) para el día indicado o la fecha actual en Valdivia/Chile (America/Santiago). Admite filtrado opcional por delegación territorial.",
+  tags: ["Incidentes"],
+  request: {
+    query: IncidentesKpisQuerySchema,
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Admin)" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Contadores de incidentes del día obtenidos exitosamente",
+      content: {
+        "application/json": {
+          schema: IncidentesKpisResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "Acceso denegado. Permiso insuficiente",
     },
     500: {
       description: "Error interno del servidor",
