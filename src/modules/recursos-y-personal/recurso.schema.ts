@@ -310,3 +310,17 @@ export const ListarRecursosPaginadosResponseSchema = z.object({
 export type ListarRecursosPaginadosResponse = z.infer<
   typeof ListarRecursosPaginadosResponseSchema
 >;
+
+/**
+ * Esquema de respuesta para la eliminación lógica de un recurso (HU-9).
+ */
+export const EliminarRecursoResponseSchema = z.object({
+  message: z.string().openapi({ example: "Recurso eliminado exitosamente del inventario activo." }),
+  id: z.string().uuid().openapi({ example: "40000000-0000-4000-8000-000000000001" }),
+  nombre: z.string().openapi({ example: "Camioneta Rescate 4x4" }),
+  eliminadoEn: z.string().openapi({ example: "2026-09-30T19:30:00.000Z" }),
+  eliminadoPorId: z.string().uuid().openapi({ example: "00000000-0000-4000-8000-000000000001" }),
+});
+
+export type EliminarRecursoResponse = z.infer<typeof EliminarRecursoResponseSchema>;
+

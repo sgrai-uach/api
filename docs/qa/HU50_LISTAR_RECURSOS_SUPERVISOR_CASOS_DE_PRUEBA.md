@@ -38,8 +38,7 @@ Siguiendo el principio de QA de registrar formalmente los incidentes, derivarlos
 | `BUG-H50-API-02` | Validación dura por rol Administrador bloqueando acceso a Supervisor | Seguridad / RBAC | Crítica | `recurso.service.ts` invocaba `validarAccesoAdministrador(usuarioId)` sin especificar permisos, denegando acceso con 403 Forbidden a roles de solo lectura. | Delegación de permiso explícito `[PERMISO_LEER_RECURSO]` en consulta de recursos (commit `f6716d9`). | 🟢 CORREGIDO |
 | `BUG-H50-API-03` | Ausencia de permiso `recursos:leer` en rol Supervisor y falta de usuario semilla | DB / Semilla | Alta | La base de datos no vinculaba `recursos:leer` al rol Supervisor ni existía un usuario para autenticación con contraseña `Valdivia2026!`. | Creación de migración sembrando permiso en `rol_permiso` y usuario `supervisor@valdivia.cl` (commit `8668864`). | 🟢 CORREGIDO |
 | `BUG-H50-API-04` | Omisión de parámetro de consulta `soloLectura` en esquema OpenAPI y contrato Zod | Contrato / OpenAPI | Media | `ListarRecursosQuerySchema` rechazaba el parámetro `soloLectura=true` enviado por clientes de consulta al no estar declarado en el esquema Zod. | Incorporación de preproceso booleano `soloLectura` en Zod y registro en OpenAPI (commit `36b02dd`). | 🟢 CORREGIDO |
-| `BUG-H50-API-05` | Acoplamiento de permisos de edición exigiendo rol en vez de permiso `recursos:editar` | Arquitectura / RBAC | Alta | La lógica de edición en `recurso.service.ts` no validaba el permiso granular específico, impidiendo desacoplar roles de lectura y mutación. | Integración del permiso `[PERMISO_EDITAR_RECURSO]` en `validarAccesoAdministrador` (commits `f6716d9` y `afda6c2`). | 🟢 CORREGIDO |
-| `BUG-H50-API-06` | Colisión de numeración en migración Kysely por desincronización con `origin/develop` | Integración / DB | Crítica | La migración se nombró `011_supervisor_semilla_y_permisos.ts`, pero en `develop` ya existen las migraciones `011`, `012` y `013`. | **Pendiente desarrollador:** Mergear `origin/develop` y renumerar a `014_supervisor_semilla_y_permisos.ts`. | 🔴 ABIERTO |
+| `BUG-H50-API-06` | Colisión de numeración en migración Kysely por desincronización con `origin/develop` | Integración / DB | Crítica | La migración se nombró originalmente `011_supervisor_semilla_y_permisos.ts`, colisionando con migraciones de `develop`. Al existir `014_recurso_borrado_logico.ts` en `develop`, se requiere orden correlativo. | Sincronización de `develop` y renumeración correlativa a `015_supervisor_semilla_y_permisos.ts`. | 🟢 CORREGIDO |
 
 ---
 
@@ -53,8 +52,7 @@ Siguiendo el principio de QA de registrar formalmente los incidentes, derivarlos
 | `BUG-H50-API-02` | Validación dura por rol Administrador bloqueando acceso a Supervisor | Seguridad / RBAC | Servicio / RBAC | Crítica | Usuario Supervisor con permiso `recursos:leer` activo | `GET /api/recursos` y `GET /api/recursos/[id]` | HTTP 200 OK con datos del recurso respetando el principio de autorización granular | Retornaba HTTP 403 Forbidden por comprobación estricta de rol | CORREGIDO | 01/10/2026 19:40 | 01/10/2026 20:37 | f6716d9 fix(recursos): estandarizar autenticacion jwt en endpoint recursos por id y validar permisos rbac especificos |
 | `BUG-H50-API-03` | Ausencia de permiso recursos:leer en rol Supervisor y falta de usuario semilla | DB / Semilla | Base de Datos | Alta | Base de datos municipal inicializada | Consulta relacional en tablas `usuario` y `rol_permiso` | Rol Supervisor vinculado a `recursos:leer` y cuenta `supervisor@valdivia.cl` habilitada | Rol sin permiso de lectura y usuario supervisor inexistente | CORREGIDO | 01/10/2026 20:00 | 01/10/2026 20:37 | 8668864 feat(recursos): asignar permisos recursos:leer y sembrar cuenta de supervisor en migracion 011 |
 | `BUG-H50-API-04` | Omisión de parámetro de consulta soloLectura en esquema OpenAPI y contrato Zod | Contrato / OpenAPI | API / Schema | Media | Consulta con query parameter `soloLectura=true` | `GET /api/recursos?soloLectura=true` | HTTP 200 OK reconociendo el parámetro booleano y documentado en OpenAPI | Parámetro no reconocido o no documentado en la especificación | CORREGIDO | 01/10/2026 20:45 | 01/10/2026 21:10 | 36b02dd feat(recursos): incorporar parametro soloLectura y documentar acceso de supervisor para H50 |
-| `BUG-H50-API-05` | Acoplamiento de permisos de edición exigiendo rol en vez de permiso recursos:editar | Arquitectura / RBAC | Servicio / Lógica | Alta | Usuario con `recursos:leer` intentando mutación | `PUT /api/recursos/[id]` | Bloqueo por falta de `recursos:editar` con mensaje descriptivo y código HTTP 403 | Comprobación acoplada al rol sin validar permiso específico | CORREGIDO | 01/10/2026 21:15 | 01/10/2026 22:00 | afda6c2 docs(recursos): formalizar principio de autorizacion estricta por permisos y no por rol |
-| `BUG-H50-API-06` | Colisión de numeración en migración Kysely por desincronización con origin/develop | Integración / DB | Base de Datos | Crítica | Rama origin/develop actualizada con migraciones 011, 012 y 013 | Inspeccionar carpeta `src/lib/db/migrations/` | Las migraciones deben tener orden secuencial estricto sin colisión de prefijos numéricos | Colisión de nombre con migración 011 existente en develop | ABIERTO | 04/10/2026 19:50 | - | Pendiente dev (Mergear origin/develop y renumerar a 014_supervisor_semilla_y_permisos.ts) |
+| `BUG-H50-API-06` | Colisión de numeración en migración Kysely por desincronización con origin/develop | Integración / DB | Base de Datos | Crítica | Rama origin/develop actualizada con migraciones 011 a 014 | Inspeccionar carpeta `src/lib/db/migrations/` | Las migraciones deben tener orden secuencial estricto sin colisión de prefijos numéricos | Todas las migraciones correlativas 001 a 015 ejecutan en orden | CORREGIDO | 04/10/2026 19:50 | 05/10/2026 03:00 | Mergear origin/develop y renumerar a 015_supervisor_semilla_y_permisos.ts |
 | `CP-H50-API-01` | Consulta autorizada de inventario para Supervisor con token JWT Bearer | Funcional / Auth | API / Route | Crítica | Usuario Supervisor activo con token JWT válido | `GET /api/recursos` con header `Authorization: Bearer <jwt>` | HTTP 200 OK con payload `{ data: [...], meta: {...} }` | HTTP 200 OK con listado paginado y metadatos correctos | APROBADO | 04/10/2026 19:10 | - | afda6c2 docs(recursos): formalizar principio de autorizacion estricta por permisos y no por rol |
 | `CP-H50-API-02` | Consulta autorizada de inventario mediante cabecera de fallback X-User-Id del Supervisor | Compatibilidad / Auth | API / Header | Alta | UUID de supervisor provisto en cabecera | `GET /api/recursos` con `x-user-id: 00000000-0000-4000-8000-000000000010` | HTTP 200 OK reconociendo la identidad institucional del usuario | HTTP 200 OK autorizado correctamente | APROBADO | 04/10/2026 19:12 | - | afda6c2 docs(recursos): formalizar principio de autorizacion estricta por permisos y no por rol |
 | `CP-H50-API-03` | Bloqueo de consulta de recursos por ausencia total de credenciales | Seguridad / Auth | API / Guard | Crítica | Petición sin cabeceras de autorización | `GET /api/recursos` (sin token ni x-user-id) | HTTP 401 Unauthorized con mensaje descriptivo | HTTP 401 "Se requiere cabecera de autenticación..." | APROBADO | 04/10/2026 19:14 | - | afda6c2 docs(recursos): formalizar principio de autorizacion estricta por permisos y no por rol |
@@ -87,17 +85,17 @@ Siguiendo el principio de QA de registrar formalmente los incidentes, derivarlos
   
   Al tener esta rama una migración nombrada con el prefijo `011_`, si se intenta mergear a `develop`, existirá una colisión de prefijos numéricos que romperá el orden secuencial de Kysely.
 
-### Instrucción para el Equipo de Desarrollo:
+### Instrucción para el Equipo de Desarrollo (Completada):
 1. Actualizar la rama con `origin/develop`:
    ```bash
    git fetch origin
    git merge origin/develop
    ```
 2. Renumerar el archivo de migración:
-   * **Nombre actual:** `src/lib/db/migrations/011_supervisor_semilla_y_permisos.ts`
-   * **Nuevo nombre requerido:** `src/lib/db/migrations/014_supervisor_semilla_y_permisos.ts`
-3. Ejecutar `npm test` y `npm run db:migrate` para certificar que todas las 14 migraciones corran limpiamente en orden secuencial.
-4. Notificar a QA para ejecutar el **Re-Test** de `BUG-H50-API-06` y autorizar la aprobación del Pull Request.
+   * **Nombre original:** `src/lib/db/migrations/011_supervisor_semilla_y_permisos.ts`
+   * **Nombre adoptado tras sincronizar con HU-9 (migración 014):** `src/lib/db/migrations/015_supervisor_semilla_y_permisos.ts`
+3. Ejecutar `npm test` para certificar que todas las pruebas pasen y las migraciones se mantengan secuenciales (001 a 015).
+4. QA ejecuta el **Re-Test** de `BUG-H50-API-06` y autoriza la aprobación del Pull Request.
 
 ---
 
@@ -107,4 +105,4 @@ Siguiendo el principio de QA de registrar formalmente los incidentes, derivarlos
 * **Suites de Pruebas Automatizadas:** 🟢 **260/260 pruebas pasando (22 suites en verde)**.
 * **Compilación de Producción:** 🟢 **Exitosa con Next.js Turbopack**.
 * **Linter de Código:** 🟢 **0 errores, 0 advertencias**.
-* **Integración con Develop y Migraciones:** 🔴 **OBSERVADO**. Requiere merge con `origin/develop` y renumeración de migración a `014_` (`BUG-H50-API-06`).
+* **Integración con Develop y Migraciones:** 🟢 **APROBADO**. Sincronización con `origin/develop` completada y migración renumerada correlativamente a `015_supervisor_semilla_y_permisos.ts` (`BUG-H50-API-06` cerrado).

@@ -23,8 +23,10 @@ export interface RecursoTable {
   delegacion_id?: string | null;
   creado_por_id: string;
   actualizado_por_id: string | null;
+  eliminado_por_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
+  eliminado_en: Date | null;
 }
 
 export type EstadoOperativoPersonal =
@@ -183,6 +185,12 @@ export interface PrevencionTable {
   codigo: string;
   nombre: string;
   descripcion: string | null;
+  tipo_riesgo: ColumnType<string | null, string | null | undefined, string | null>;
+  prioridad: ColumnType<
+    PrioridadIncidente,
+    PrioridadIncidente | undefined,
+    PrioridadIncidente
+  >;
   latitud: number;
   longitud: number;
   ubicacion: ColumnType<unknown, unknown, unknown>;
@@ -327,7 +335,23 @@ export interface AdjuntoTable {
   tamano_bytes: number;
   aviso_id: string | null;
   incidente_id: string | null;
+  reporte_terreno_id?: string | null;
   creado_en: Generated<Date>;
+}
+
+export interface ReporteTerrenoTable {
+  id: Generated<string>;
+  mision_id: string;
+  evaluador_id: string;
+  resumen_tecnico: string;
+  acciones_realizadas: string | null;
+  requiere_apoyo_adicional: ColumnType<boolean, boolean | undefined, boolean>;
+  danos_estimados: string | null;
+  observaciones: string | null;
+  personas_afectadas: ColumnType<number, number | undefined, number>;
+  estado_terreno: ColumnType<string, string | undefined, string>;
+  creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
 }
 
 export interface Database {
@@ -349,6 +373,7 @@ export interface Database {
   mision: MisionTable;
   aviso_incidente: AvisoIncidenteTable;
   adjunto: AdjuntoTable;
+  reporte_terreno: ReporteTerrenoTable;
   personal: PersonalTable;
   log_cambios_usuarios: LogCambiosUsuariosTable;
 
@@ -365,4 +390,5 @@ export interface Database {
   misiones: MisionTable;
   avisos_incidentes: AvisoIncidenteTable;
   adjuntos: AdjuntoTable;
+  reportes_terreno: ReporteTerrenoTable;
 }
