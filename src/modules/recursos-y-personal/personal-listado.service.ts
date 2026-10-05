@@ -10,7 +10,9 @@ export async function listarPersonalService(
   filtros: ListarPersonalQuery
 ): Promise<ListarPersonalResponse> {
   const { filas, total } = await listarPersonalPaginadoRepo(filtros);
-  const meta = buildPaginationMeta(total, filtros.page, filtros.limit);
+  const page = filtros.page || filtros.pagina || 1;
+  const limit = filtros.limit || filtros.limite || 20;
+  const meta = buildPaginationMeta(total, page, limit);
 
   const data: PersonalItem[] = filas.map((e) => ({
     ...e,

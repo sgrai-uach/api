@@ -1,6 +1,7 @@
 export const PERMISO_CREAR_RECURSO = "recursos:crear";
 export const PERMISO_LEER_RECURSO = "recursos:leer";
 export const PERMISO_EDITAR_RECURSO = "recursos:editar";
+export const PERMISO_ELIMINAR_RECURSO = "recursos:eliminar";
 export const PERMISO_LEER_ROLES = "seguridad:roles:leer";
 export const PERMISO_GESTIONAR_ROLES = "seguridad:roles:gestionar";
 export const PERMISO_KANBAN_INCIDENTES = "incidentes:kanban";

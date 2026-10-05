@@ -360,6 +360,7 @@ export class IncidentesRepository {
           direccion_texto: aviso.direccion_texto,
           estado: "REPORTADO", // Estado inicial ICS
           prioridad: "MEDIA",
+          fuente_origen: aviso.origen_reporte || "CALL_CENTER",
           descripcion: descripcionFinal,
           latitud: Number(aviso.latitud),
           longitud: Number(aviso.longitud),

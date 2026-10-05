@@ -10,8 +10,8 @@ export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
   const busqueda = (filtros.busqueda ?? filtros.q)?.trim();
   const ordenarPor = filtros.ordenar_por ?? filtros.ordenarPor ?? "apellidos";
   const orden = filtros.orden ?? "asc";
-  const page = filtros.page || 1;
-  const limit = filtros.limit || 20;
+  const page = filtros.page || filtros.pagina || 1;
+  const limit = filtros.limit || filtros.limite || 20;
   const offset = (page - 1) * limit;
 
   let query = db
@@ -19,6 +19,18 @@ export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
     .leftJoin("roles", "roles.id", "usuarios.rol_id")
     .leftJoin("delegaciones", "delegaciones.id", "usuarios.delegacion_id")
     .leftJoin("personal", "personal.usuario_id", "usuarios.id");
+
+  const estado = filtros.estado?.toLowerCase();
+  const incluirInactivos =
+    filtros.incluirInactivos ??
+    filtros.incluir_inactivos ??
+    (estado === "todos" || estado === "inactivo");
+
+  if (estado === "inactivo") {
+    query = query.where("usuarios.activo", "=", false);
+  } else if (!incluirInactivos) {
+    query = query.where("usuarios.activo", "=", true);
+  }
 
   if (soloPersonal) {
     query = query.where("personal.id", "is not", null);

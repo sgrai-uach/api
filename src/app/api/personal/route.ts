@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error al listar empleados:", error);
     return NextResponse.json(
-      { error: "Error interno al obtener lista de empleados" },
+      { error: "Error interno al obtener lista de empleados", message: "Error interno al obtener lista de empleados" },
       { status: 500 }
     );
   }

@@ -58,6 +58,25 @@ export const ListarPersonalQuerySchema = PaginationQuerySchema.extend({
   q: z.string().trim().optional().openapi({
     description: "Alias rápido para búsqueda textual",
   }),
+  pagina: z.coerce.number().int().min(1).optional().openapi({
+    description: "Alias legado de 'page'",
+  }),
+  limite: z.coerce.number().int().min(1).max(100).optional().openapi({
+    description: "Alias legado de 'limit'",
+  }),
+  incluirInactivos: z
+    .preprocess((val) => val === "true" || val === true, z.boolean().optional())
+    .openapi({
+      description: "Si es true, incluye funcionarios inactivos (activo = false)",
+    }),
+  incluir_inactivos: z.preprocess(
+    (val) => val === "true" || val === true,
+    z.boolean().optional()
+  ),
+  estado: z.enum(["activo", "inactivo", "todos"]).optional().openapi({
+    description: "Filtrar por estado activo/inactivo/todos de usuario",
+    example: "activo",
+  }),
   ordenarPor: z.enum(["apellidos", "nombres", "rut"]).default("apellidos").openapi({
     description: "Campo de ordenamiento",
     example: "apellidos",

@@ -51,7 +51,14 @@ async function bootstrap() {
   // Suscribirse al canal de Redis para recibir eventos de Workers / Route Handlers
   if (process.env.REDIS_URL) {
     try {
-      const redisSubscriber = new Redis(process.env.REDIS_URL);
+      const redisSubscriber = new Redis(process.env.REDIS_URL, {
+        maxRetriesPerRequest: 1,
+        retryStrategy: () => null,
+        lazyConnect: true,
+      });
+      redisSubscriber.on("error", () => {});
+
+      await redisSubscriber.connect();
       await redisSubscriber.subscribe(REDIS_SOCKET_CHANNEL);
 
       redisSubscriber.on("message", (channel, message) => {
@@ -66,8 +73,8 @@ async function bootstrap() {
         }
       });
       console.log("> Conectado a Redis Pub/Sub para eventos de Socket.io.");
-    } catch (err) {
-      console.warn("> Advertencia: Redis no disponible para Socket.io, operando en memoria:", err);
+    } catch {
+      console.warn("> Advertencia: Redis no disponible para Socket.io, operando en memoria.");
     }
   }
 
