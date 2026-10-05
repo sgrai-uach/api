@@ -1,0 +1,53 @@
+# SERVIDOR — descarga las imágenes de GHCR, NO construye.
+# NO publica puertos: Caddy (contenedor en red_taller_software) llega por container_name:
+#   <dominio>/api/*  ->  grupo1_backend:4001
+#   <dominio>/*      ->  grupo1_frontend:3001
+# El .env vive SOLO en el servidor, junto a este archivo.
+
+# version explícita: el servidor tiene un Compose viejo que la exige.
+# (Compose v2 moderno la ignora con un warning inofensivo.)
+version: "3.8"
+
+services:
+  grupo1_backend:
+    image: ghcr.io/sgrai-uach/api:${IMAGE_TAG:-develop}
+    container_name: grupo1_backend
+    restart: unless-stopped
+    pull_policy: always
+    environment:
+      - PORT=4001
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@grupo1_postgres:5432/${POSTGRES_DB:-sgrai}
+      - REDIS_URL=redis://grupo1_redis:6379
+    env_file: .env
+    depends_on:
+      - grupo1_postgres
+      - grupo1_redis
+    networks:
+      - red_taller_software
+
+  grupo1_postgres:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: grupo1_postgres
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - red_taller_software
+
+  grupo1_redis:
+    image: redis:7-alpine
+    container_name: grupo1_redis
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    networks:
+      - red_taller_software
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  red_taller_software:
+    external: true
