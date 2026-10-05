@@ -197,17 +197,17 @@ registry.registerPath({
   },
 });
 
-// 2. GET /api/recursos (HU-7)
+// 2. GET /api/recursos (HU-7 / HU-50)
 registry.registerPath({
   method: "get",
   path: "/api/recursos",
   summary: "Listar recursos logísticos y verificar disponibilidad",
   description:
-    "Retorna una lista paginada de los recursos registrados en el inventario, incluyendo estado de disponibilidad operativa, cantidades y delegación territorial asociada.",
+    "Retorna una lista paginada de los recursos registrados en el inventario, incluyendo estado de disponibilidad operativa, cantidades y delegación territorial asociada. Accesible por perfiles con permiso recursos:leer (Administrador, Encargado, Supervisor - HU-50).",
   tags: ["Recursos y Personal"],
   request: {
     headers: z.object({
-      "x-user-id": z.string().uuid().describe("UUID del usuario administrador autenticado"),
+      "x-user-id": z.string().uuid().optional().describe("UUID del usuario autenticado (opcional si se envía Authorization: Bearer <token>)"),
     }),
     query: ListarRecursosQuerySchema,
   },
@@ -221,8 +221,8 @@ registry.registerPath({
       },
     },
     400: { description: "Parámetros de consulta inválidos" },
-    401: { description: "No autenticado / cabecera X-User-Id ausente" },
-    403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
+    401: { description: "No autenticado / token o cabecera de autenticación ausente" },
+    403: { description: "Acceso denegado. Se requiere permiso recursos:leer o perfil Administrador" },
     500: { description: "Error interno del servidor" },
   },
 });

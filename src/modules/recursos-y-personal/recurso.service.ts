@@ -2,6 +2,7 @@ import { seguridadService } from "@/modules/seguridad/service";
 import {
   PERMISO_LEER_RECURSO,
   PERMISO_CREAR_RECURSO,
+  PERMISO_EDITAR_RECURSO,
   PERMISO_ELIMINAR_RECURSO,
 } from "@/modules/seguridad/permisos.constants";
 import { BadRequestError, NotFoundError, ConflictError } from "@/modules/seguridad/errors";
@@ -41,13 +42,13 @@ export type ListarRecursosInputQuery = z.input<typeof ListarRecursosQuerySchema>
 
 /**
  * Consulta y lista los recursos del inventario logístico con paginación y filtros.
- * Accesible exclusivamente por usuarios con perfil de Administrador activo.
+ * Accesible por usuarios con el permiso 'recursos:leer'.
  */
 export async function listarRecursos(
   query: ListarRecursosInputQuery,
   usuarioId?: string | null
 ): Promise<ListarRecursosPaginadosResponse> {
-  // 1. Validar autorización RBAC (requiere permiso recursos:leer o rol Administrador)
+  // 1. Validar autorización RBAC (requiere permiso recursos:leer)
   await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_LEER_RECURSO]);
 
   const pagina = Number(query.pagina ?? 1) || 1;
@@ -142,7 +143,7 @@ export async function crearRecurso(
   input: CrearRecursoInput,
   usuarioId: string | null | undefined
 ): Promise<RecursoResponse> {
-  // 1. Validar autorización RBAC (requiere permiso recursos:crear o rol Administrador)
+  // 1. Validar autorización RBAC (requiere permiso recursos:crear)
   const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_CREAR_RECURSO]);
 
   // 2. Determinar estado inicial según stock e inventario
@@ -200,8 +201,8 @@ export async function obtenerRecursoDetalle(
   id: string,
   usuarioId?: string | null
 ): Promise<RecursoDetalleResponse> {
-  // 1. Validar autenticación de administrador
-  await seguridadService.validarAccesoAdministrador(usuarioId);
+  // 1. Validar autorización RBAC (requiere permiso recursos:leer)
+  await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_LEER_RECURSO]);
 
   // 2. Obtener recurso desde BD
   const fila = await obtenerRecursoPorId(id);
@@ -264,8 +265,8 @@ export async function editarRecurso(
   input: ActualizarRecursoInput,
   usuarioId?: string | null
 ): Promise<RecursoDetalleResponse> {
-  // 1. Validar autenticación de administrador
-  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId);
+  // 1. Validar autorización RBAC (requiere permiso recursos:editar)
+  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_EDITAR_RECURSO]);
 
   // 2. Verificar existencia del recurso
   const recursoExistente = await obtenerRecursoPorId(id);
