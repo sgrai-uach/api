@@ -77,6 +77,8 @@ import {
   ListarPuntosCriticosQuerySchema,
   ListarPuntosCriticosResponseSchema,
   PuntoCriticoItemResponseSchema,
+  CrearPuntoCriticoBodySchema,
+  PuntoCriticoDetalleResponseSchema,
 } from "@/modules/eventos-atp/punto-critico.schema";
 
 import {
@@ -136,6 +138,12 @@ registry.register("VerificarDuplicadoInput", VerificarDuplicadoInputSchema);
 registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema);
 registry.register("IncidenteResponse", IncidenteResponseSchema);
 registry.register("IncidentesKpisResponse", IncidentesKpisResponseSchema);
+
+// Registrar esquemas de Eventos ATP (Puntos Críticos)
+registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
+registry.register("PuntoCriticoItemResponse", PuntoCriticoItemResponseSchema);
+registry.register("CrearPuntoCriticoBody", CrearPuntoCriticoBodySchema);
+registry.register("PuntoCriticoDetalleResponse", PuntoCriticoDetalleResponseSchema);
 
 // ==========================================
 // RUTAS RECURSOS Y PERSONAL
@@ -1238,6 +1246,102 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor",
+    },
+  },
+});
+
+// ==========================================
+// RUTAS EVENTOS ATP (PUNTOS CRÍTICOS)
+// ==========================================
+
+// 24. GET /api/puntos-criticos (HU-57)
+registry.registerPath({
+  method: "get",
+  path: "/api/puntos-criticos",
+  summary: "Listar puntos críticos y sectores vulnerables",
+  description:
+    "Retorna la colección paginada de puntos críticos y sectores vulnerables monitoreados en Valdivia. Admite filtros por delegación, prioridad, estado activo y búsqueda textual. Requiere rol Administrador.",
+  tags: ["Eventos ATP"],
+  request: {
+    query: ListarPuntosCriticosQuerySchema,
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Colección paginada de puntos críticos obtenida exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarPuntosCriticosResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "No autenticado. Se requiere cabecera de autenticación válida",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador con permiso puntos_criticos:leer",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la solicitud",
+    },
+  },
+});
+
+// 25. POST /api/puntos-criticos (HU-58)
+registry.registerPath({
+  method: "post",
+  path: "/api/puntos-criticos",
+  summary: "Crear nuevo punto crítico o sector vulnerable",
+  description:
+    "Registra un nuevo punto crítico o sector vulnerable con coordenadas PostGIS (EPSG:4326), autogenera su código correlativo institucional y emite notificación en tiempo real vía Socket.io. Requiere rol Administrador con permiso puntos_criticos:crear.",
+  tags: ["Eventos ATP"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+    body: {
+      description: "Datos requeridos para la creación del punto crítico",
+      content: {
+        "application/json": {
+          schema: CrearPuntoCriticoBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Punto crítico creado exitosamente",
+      content: {
+        "application/json": {
+          schema: PuntoCriticoDetalleResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de creación inválidos o delegación no encontrada",
+    },
+    401: {
+      description: "No autenticado. Se requiere cabecera de autenticación válida",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador con permiso puntos_criticos:crear",
+    },
+    409: {
+      description: "Conflicto por código duplicado",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la solicitud",
     },
   },
 });

@@ -1,15 +1,31 @@
 import { seguridadService } from "@/modules/seguridad/service";
-import { PERMISO_LISTAR_PUNTOS_CRITICOS } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_LISTAR_PUNTOS_CRITICOS,
+  PERMISO_CREAR_PUNTO_CRITICO,
+} from "@/modules/seguridad/permisos.constants";
+import {
+  NotFoundError,
+  BadRequestError,
+  ConflictError,
+} from "@/modules/seguridad/errors";
+import { emitirPuntoCriticoCreado } from "@/lib/socket";
 import {
   listarPuntosCriticosPaginados,
   contarPuntosCriticos,
+  obtenerDelegacionPorId,
+  determinarPrefijoPuntoCritico,
+  generarSiguienteCodigoPuntoCritico,
+  insertarPuntoCritico,
   type FiltrosListarPuntosCriticos,
   type FilaPuntoCriticoConDelegacion,
+  type DatosCrearPuntoCritico,
 } from "./punto-critico.repository";
 import type {
   ListarPuntosCriticosInput,
   ListarPuntosCriticosResponse,
   PuntoCriticoItemResponse,
+  CrearPuntoCriticoInput,
+  PuntoCriticoDetalleResponse,
 } from "./punto-critico.schema";
 
 /**
@@ -42,6 +58,20 @@ export function mapearFilaPuntoCritico(
       fila.creado_en instanceof Date
         ? fila.creado_en.toISOString()
         : new Date(fila.creado_en).toISOString(),
+  };
+}
+
+/**
+ * Transforma un registro de la base de datos relacional al formato detallado con auditoría.
+ */
+export function mapearFilaPuntoCriticoDetalle(
+  fila: FilaPuntoCriticoConDelegacion
+): PuntoCriticoDetalleResponse {
+  const base = mapearFilaPuntoCritico(fila);
+
+  return {
+    ...base,
+    creadoPorId: fila.creado_por_id ?? null,
   };
 }
 
@@ -95,4 +125,57 @@ export async function listarPuntosCriticos(
       totalPaginas,
     },
   };
+}
+
+/**
+ * Registra un nuevo punto crítico o sector vulnerable en el sistema (HU-58).
+ * - Restringido exclusivamente al perfil Administrador con permiso puntos_criticos:crear.
+ * - Genera automáticamente el código correlativo según la delegación territorial o general (PC-VAL-001, etc.).
+ * - Persiste las coordenadas geográficas con PostGIS (EPSG:4326) y registra la auditoría del creador.
+ * - Emite notificación reactiva vía Socket.io para actualización inmediata en mapas interactivos y salas operativas.
+ */
+export async function crearPuntoCritico(
+  input: CrearPuntoCriticoInput,
+  usuarioId?: string | null
+): Promise<PuntoCriticoDetalleResponse> {
+  // 1. Control de Acceso RBAC: Requiere rol Administrador con permiso puntos_criticos:crear
+  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [
+    PERMISO_CREAR_PUNTO_CRITICO,
+    "eventos_atp:crear",
+  ]);
+
+  // 2. Validar existencia de la delegación territorial si se proporciona y obtener su código
+  let prefijo = "PC-VAL";
+  if (input.delegacionId) {
+    const delegacion = await obtenerDelegacionPorId(input.delegacionId);
+    if (!delegacion) {
+      throw new BadRequestError(
+        `La delegación territorial con ID '${input.delegacionId}' no existe en el sistema.`
+      );
+    }
+    prefijo = determinarPrefijoPuntoCritico(delegacion.codigo);
+  }
+
+  // 3. Generar automáticamente código institucional único
+  const codigo = await generarSiguienteCodigoPuntoCritico(prefijo);
+
+  // 4. Preparar datos y persistir con PostGIS y auditoría
+  const datosParaInsertar: DatosCrearPuntoCritico = {
+    codigo,
+    nombre: input.nombre,
+    descripcion: input.descripcion ?? null,
+    tipoRiesgo: input.tipoRiesgo ?? null,
+    prioridad: input.prioridad ?? "MEDIA",
+    delegacionId: input.delegacionId ?? null,
+    latitud: Number(input.latitud),
+    longitud: Number(input.longitud),
+  };
+
+  const filaGuardada = await insertarPuntoCritico(datosParaInsertar, usuario.id);
+  const respuesta = mapearFilaPuntoCriticoDetalle(filaGuardada);
+
+  // 5. Notificar en tiempo real vía Socket.io al módulo cartográfico y salas operativas
+  emitirPuntoCriticoCreado(respuesta as unknown as Record<string, unknown>);
+
+  return respuesta;
 }
