@@ -1,40 +1,52 @@
 services:
-  api:
+  grupo1_backend:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: grupo1_backend
+    restart: unless-stopped
+    env_file: .env
     ports:
-      - "3000:3000"
+      - "4001:4001"
     environment:
-      - DATABASE_URL=postgresql://sgrai:sgrai_dev@postgres:5432/sgrai
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-sgrai}:${POSTGRES_PASSWORD:-sgrai_dev}@postgres:5432/${POSTGRES_DB:-sgrai}
       - REDIS_URL=redis://redis:6379
       - NODE_ENV=production
+      - PORT=4001
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - red_taller_software
 
   postgres:
     image: postgis/postgis:16-3.4-alpine
+    container_name: grupo1_postgres
+    restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5001:5432"
     environment:
-      POSTGRES_DB: sgrai
-      POSTGRES_USER: sgrai
-      POSTGRES_PASSWORD: sgrai_dev
+      POSTGRES_DB: ${POSTGRES_DB:-sgrai}
+      POSTGRES_USER: ${POSTGRES_USER:-sgrai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sgrai_dev}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sgrai -d sgrai"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sgrai} -d ${POSTGRES_DB:-sgrai}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - red_taller_software
 
   redis:
     image: redis:7-alpine
+    container_name: grupo1_redis
+    restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6001:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -42,7 +54,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - red_taller_software
 
 volumes:
   pgdata:
   redisdata:
+
+networks:
+  red_taller_software:
+    driver: bridge
