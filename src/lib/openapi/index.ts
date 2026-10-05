@@ -89,6 +89,7 @@ import {
   ListarPuntosCriticosQuerySchema,
   ListarPuntosCriticosResponseSchema,
   PuntoCriticoItemResponseSchema,
+  CrearPuntoCriticoBodySchema,
   ActualizarPuntoCriticoBodySchema,
   PuntoCriticoDetalleResponseSchema,
   PuntoCriticoIdParamSchema,
@@ -166,6 +167,7 @@ registry.register("IncidentesKpisResponse", IncidentesKpisResponseSchema);
 // Registrar esquemas de Eventos ATP (Puntos Críticos)
 registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
 registry.register("PuntoCriticoItemResponse", PuntoCriticoItemResponseSchema);
+registry.register("CrearPuntoCriticoBody", CrearPuntoCriticoBodySchema);
 registry.register("ActualizarPuntoCriticoBody", ActualizarPuntoCriticoBodySchema);
 registry.register("PuntoCriticoDetalleResponse", PuntoCriticoDetalleResponseSchema);
 registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSchema);
@@ -1301,7 +1303,58 @@ registry.registerPath({
   },
 });
 
-// 23. GET /api/puntos-criticos/{id} (HU-55)
+// 23. POST /api/puntos-criticos (HU-58)
+registry.registerPath({
+  method: "post",
+  path: "/api/puntos-criticos",
+  summary: "Crear nuevo punto crítico o sector vulnerable",
+  description:
+    "Registra un nuevo punto crítico o sector vulnerable con coordenadas PostGIS (EPSG:4326), autogenera su código correlativo institucional y emite notificación en tiempo real vía Socket.io. Requiere rol Administrador con permiso puntos_criticos:crear.",
+  tags: ["Eventos ATP"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+    body: {
+      description: "Datos requeridos para la creación del punto crítico",
+      content: {
+        "application/json": {
+          schema: CrearPuntoCriticoBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Punto crítico creado exitosamente",
+      content: {
+        "application/json": {
+          schema: PuntoCriticoDetalleResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de creación inválidos o delegación no encontrada",
+    },
+    401: {
+      description: "No autenticado. Se requiere cabecera de autenticación válida",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador con permiso puntos_criticos:crear",
+    },
+    409: {
+      description: "Conflicto por código duplicado",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la solicitud",
+    },
+  },
+});
+
+// 24. GET /api/puntos-criticos/{id} (HU-55)
 registry.registerPath({
   method: "get",
   path: "/api/puntos-criticos/{id}",

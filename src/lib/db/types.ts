@@ -196,6 +196,7 @@ export interface PrevencionTable {
   delegacion_id: string | null;
   activo: ColumnType<boolean, boolean | undefined, boolean>;
   creado_en: Generated<Date>;
+  creado_por_id?: string | null;
   actualizado_en?: ColumnType<Date | null, Date | null | undefined, Date | null>;
   actualizado_por_id?: string | null;
   eliminado_en?: Date | null;

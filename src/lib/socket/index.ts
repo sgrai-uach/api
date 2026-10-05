@@ -292,6 +292,38 @@ export function emitirRecursoEliminado(payload: {
 }
 
 /**
+ * Emite la notificación de nuevo punto crítico creado a las vistas de Encargado, Supervisor y Administrador (HU-58).
+ * Permite reflejar inmediatamente el nuevo punto en el mapa interactivo y módulos cartográficos.
+ */
+export function emitirPuntoCriticoCreado(payload: Record<string, unknown>): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("punto_critico:creado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("punto_critico:creado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("administrador") as any).emit("punto_critico:creado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("punto_critico:creado", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "administrador",
+          event: "punto_critico:creado",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
+/**
  * Emite la notificación de nuevo evento de recuperación creado a las vistas de Encargado y al mapa interactivo.
  */
 export function emitirRecuperacionCreada(payload: unknown): void {
@@ -355,7 +387,7 @@ export function emitirPuntoCriticoActualizado(payload: Record<string, unknown>):
 }
 
 /**
- * Emite la notificación de punto crítico eliminado lógicamente a las vistas de Encargado, Supervisor y Administrador.
+ * Emite la notificación de punto crítico eliminado lógicamente a las vistas de Encargado, Supervisor y Administrador (HU-56).
  */
 export function emitirPuntoCriticoEliminado(payload: {
   id: string;
@@ -393,4 +425,5 @@ export function emitirPuntoCriticoEliminado(payload: {
 }
 
 export * from "./types";
+
 
