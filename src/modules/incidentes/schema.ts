@@ -1,5 +1,6 @@
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+import { PaginationMetaSchema } from "@/lib/shared/pagination.schema";
 
 extendZodWithOpenApi(z);
 
@@ -23,6 +24,14 @@ export const ListarAvisosQuerySchema = z.object({
       description: "Estado del aviso a consultar (por defecto NO_VERIFICADO; si es TODOS omite el filtro)",
       example: "NO_VERIFICADO",
     }),
+  delegacionId: z
+    .string()
+    .uuid("Debe ser un UUID válido")
+    .optional()
+    .openapi({
+      description: "Filtrar por UUID de delegación territorial (tiene prioridad sobre 'delegacion')",
+      example: "30000000-0000-4000-8000-000000000001",
+    }),
   delegacion: z
     .string()
     .trim()
@@ -42,7 +51,7 @@ export const ListarAvisosQuerySchema = z.object({
     example: "inundación",
   }),
   origen: z
-    .enum(["WEB", "CHATBOT", "TELEFONO"])
+    .enum(["WEB", "CHATBOT", "LLAMADA_TELEFONICA"])
     .optional()
     .openapi({
       description: "Canal por el cual ingresó el reporte",
@@ -123,7 +132,7 @@ export const CrearAvisoInputSchema = z
         example: -73.2459,
       }),
     origenReporte: z
-      .enum(["WEB", "CHATBOT", "TELEFONO"])
+      .enum(["WEB", "CHATBOT", "LLAMADA_TELEFONICA"])
       .default("WEB")
       .openapi({
         description: "Canal por el cual ingresó el aviso",
@@ -234,7 +243,7 @@ export const AvisoItemSchema = z
     informanteNombre: z.string(),
     informanteRut: z.string(),
     informanteTelefono: z.string().nullable(),
-    origenReporte: z.enum(["WEB", "CHATBOT", "TELEFONO"]),
+    origenReporte: z.enum(["WEB", "CHATBOT", "LLAMADA_TELEFONICA"]),
     estado: z.enum(["PENDIENTE_VERIFICACION", "NO_VERIFICADO", "VERIFICADO", "DESCARTADO"]),
     esDuplicado: z.boolean(),
     avisoOriginalId: z.string().uuid().nullable().optional(),
@@ -258,6 +267,7 @@ export const AvisosPaginadosResponseSchema = z
   .object({
     message: z.string().openapi({ example: "Avisos obtenidos exitosamente" }),
     data: z.array(AvisoItemSchema),
+    meta: PaginationMetaSchema.optional(),
     pagination: z.object({
       page: z.number().int().positive(),
       limit: z.number().int().positive(),

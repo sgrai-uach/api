@@ -154,8 +154,7 @@ export type OrigenReporte =
   | "CHATBOT"
   | "LLAMADA_TELEFONICA"
   | "FUNCIONARIO_TERRENO"
-  | "WEB"
-  | "TELEFONO";
+  | "WEB";
 
 export interface InformanteTable {
   id: Generated<string>;
@@ -360,9 +359,9 @@ export interface AvisoIncidenteTable {
   informante_rut: string;
   informante_telefono: string | null;
   origen_reporte: ColumnType<
-    "WEB" | "CHATBOT" | "TELEFONO",
-    "WEB" | "CHATBOT" | "TELEFONO" | string | undefined,
-    "WEB" | "CHATBOT" | "TELEFONO"
+    "WEB" | "CHATBOT" | "LLAMADA_TELEFONICA",
+    "WEB" | "CHATBOT" | "LLAMADA_TELEFONICA" | string | undefined,
+    "WEB" | "CHATBOT" | "LLAMADA_TELEFONICA"
   >;
   estado: ColumnType<
     "PENDIENTE_VERIFICACION" | "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO",

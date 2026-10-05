@@ -1,3 +1,5 @@
+import type { PaginationMeta } from "@/lib/shared/pagination.schema";
+
 export type EstadoAviso = "PENDIENTE_VERIFICACION" | "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO";
 
 export type EstadoIncidente =
@@ -12,7 +14,7 @@ export type EstadoIncidente =
   | "No Abordable"
   | "Resuelto";
 
-export type OrigenReporte = "WEB" | "CHATBOT" | "TELEFONO";
+export type OrigenReporte = "WEB" | "CHATBOT" | "LLAMADA_TELEFONICA";
 
 export interface DatosInformante {
   nombre?: string;
@@ -61,6 +63,7 @@ export interface AvisoDetalleDTO extends AvisoItemDTO {
 export interface PaginacionResultado<T> {
   message?: string;
   data: T[];
+  meta?: PaginationMeta;
   pagination: {
     page: number;
     limit: number;

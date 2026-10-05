@@ -5,8 +5,15 @@ import {
   PERMISO_EDITAR_RECURSO,
   PERMISO_ELIMINAR_RECURSO,
 } from "@/modules/seguridad/permisos.constants";
-import { BadRequestError, NotFoundError, ConflictError } from "@/modules/seguridad/errors";
-import { emitirRecursoActualizado, emitirRecursoEliminado } from "@/lib/socket";
+import {
+  BadRequestError,
+  NotFoundError,
+  ConflictError,
+} from "@/modules/seguridad/errors";
+import {
+  emitirRecursoActualizado,
+  emitirRecursoEliminado,
+} from "@/lib/socket";
 import {
   determinarEstadoRecurso,
   calcularDisponibilidadOperativa,
@@ -51,8 +58,8 @@ export async function listarRecursos(
   // 1. Validar autorización RBAC (requiere permiso recursos:leer)
   await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_LEER_RECURSO]);
 
-  const pagina = Number(query.pagina ?? 1) || 1;
-  const limite = Number(query.limite ?? 10) || 10;
+  const pagina = Number(query.page ?? query.pagina ?? 1) || 1;
+  const limite = Number(query.limit ?? query.limite ?? 10) || 10;
 
   const esIndividual =
     typeof query.esIndividual === "boolean"
@@ -129,6 +136,11 @@ export async function listarRecursos(
     data,
     meta: {
       total,
+      page: pagina,
+      limit: limite,
+      totalPages: totalPaginas,
+      hasNext: pagina < totalPaginas,
+      hasPrev: pagina > 1,
       pagina,
       limite,
       totalPaginas,

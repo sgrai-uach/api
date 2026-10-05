@@ -1,3 +1,4 @@
+import { buildPaginationMeta } from "@/lib/shared/pagination.schema";
 import {
   listarIncidentesPaginadosRepo,
   obtenerIncidenteDetallePorIdRepo,
@@ -17,10 +18,7 @@ export async function listarIncidentesKanbanService(
   filtros: ListarIncidentesQuery
 ): Promise<ListarIncidentesResponse> {
   const { filas, total } = await listarIncidentesPaginadosRepo(filtros);
-
-  const totalPaginas = Math.ceil(total / filtros.limit) || 1;
-  const tieneSiguiente = filtros.page < totalPaginas;
-  const tieneAnterior = filtros.page > 1;
+  const meta = buildPaginationMeta(total, filtros.page, filtros.limit);
 
   const data: IncidenteResumen[] = filas.map((fila) => ({
     id: fila.id,
@@ -51,13 +49,14 @@ export async function listarIncidentesKanbanService(
   return {
     message: "Listado de incidentes obtenido exitosamente",
     data,
+    meta,
     paginacion: {
       total,
       pagina: filtros.page,
       limite: filtros.limit,
-      totalPaginas,
-      tieneSiguiente,
-      tieneAnterior,
+      totalPaginas: meta.totalPages,
+      tieneSiguiente: meta.hasNext,
+      tieneAnterior: meta.hasPrev,
     },
   };
 }
