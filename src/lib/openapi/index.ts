@@ -1172,54 +1172,7 @@ registry.registerPath({
   },
 });
 
-// ==========================================
-// RUTAS PUNTOS CRÍTICOS (EVENTOS ATP - HU-57 / HU-56)
-// ==========================================
-registry.register("PuntoCriticoItem", PuntoCriticoItemResponseSchema);
-registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
-registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSchema);
-
-registry.registerPath({
-  method: "get",
-  path: "/api/puntos-criticos",
-  summary: "Listar puntos críticos y sectores vulnerables monitoreados",
-  description:
-    "Retorna una lista paginada de puntos críticos y sectores vulnerables monitoreados en Valdivia, incluyendo su ubicación espacial, factores de riesgo, nivel de gravedad y delegación territorial asociada. Acceso restringido al rol Administrador.",
-  tags: ["Eventos ATP / Puntos Críticos"],
-  request: {
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .describe("UUID del usuario Administrador autenticado"),
-    }),
-    query: ListarPuntosCriticosQuerySchema,
-  },
-  responses: {
-    200: {
-      description: "Listado paginado de puntos críticos",
-      content: {
-        "application/json": {
-          schema: ListarPuntosCriticosResponseSchema,
-        },
-      },
-    },
-    400: {
-      description: "Parámetros de consulta inválidos",
-    },
-    401: {
-      description: "Cabecera de autenticación X-User-Id ausente o usuario no válido",
-    },
-    403: {
-      description: "Acceso denegado. Se requiere perfil de Administrador",
-    },
-    500: {
-      description: "Error interno del servidor",
-    },
-  },
-});
-
-// 23. GET /api/incidentes/kpis (HU-18)
+// 22. GET /api/incidentes/kpis (HU-18)
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/kpis",
@@ -1263,8 +1216,11 @@ registry.registerPath({
 // ==========================================
 // RUTAS EVENTOS ATP (PUNTOS CRÍTICOS)
 // ==========================================
+registry.register("PuntoCriticoItem", PuntoCriticoItemResponseSchema);
+registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
+registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSchema);
 
-// 22. GET /api/puntos-criticos (HU-57)
+// 23. GET /api/puntos-criticos (HU-57)
 registry.registerPath({
   method: "get",
   path: "/api/puntos-criticos",
