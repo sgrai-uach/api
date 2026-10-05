@@ -31,6 +31,14 @@ export async function verificarPermiso(
     throw new UnauthorizedError(`Usuario con ID '${usuarioId}' no existe o no está autorizado.`);
   }
 
+  if (usuario.rol_nombre === "Administrador" || usuario.rol_id === "20000000-0000-4000-8000-000000000001") {
+    return {
+      id: usuario.id,
+      nombre: usuario.nombre,
+      rol: usuario.rol_nombre,
+    };
+  }
+
   const permisos = await db
     .selectFrom("rol_permiso")
     .innerJoin("permiso", "permiso.id", "rol_permiso.permiso_id")
