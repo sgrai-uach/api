@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PuntoCriticoIdParamSchema } from "@/modules/eventos-atp/punto-critico.schema";
 import { eliminarPuntoCritico } from "@/modules/eventos-atp/punto-critico.service";
+import { extraerUsuarioId as extraerUsuarioIdGuard } from "@/modules/seguridad/auth.guard";
 import {
   UnauthorizedError,
   ForbiddenError,
@@ -13,15 +14,12 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-function extraerUsuarioId(req: NextRequest): string | null {
-  let usuarioId = req.headers.get("x-user-id");
-  if (!usuarioId) {
-    const auth = req.headers.get("authorization");
-    if (auth && auth.toLowerCase().startsWith("bearer ")) {
-      usuarioId = auth.substring(7).trim();
-    }
+async function obtenerUsuarioId(req: NextRequest): Promise<string | null> {
+  const authHeader = req.headers.get("authorization");
+  if (authHeader) {
+    return await extraerUsuarioIdGuard(req);
   }
-  return usuarioId;
+  return req.headers.get("x-user-id");
 }
 
 /**
@@ -31,7 +29,7 @@ function extraerUsuarioId(req: NextRequest): string | null {
  */
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
-    const usuarioId = extraerUsuarioId(req);
+    const usuarioId = await obtenerUsuarioId(req);
     const { id } = await context.params;
 
     const validacionId = PuntoCriticoIdParamSchema.safeParse({ id });
