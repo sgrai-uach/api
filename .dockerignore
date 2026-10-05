@@ -1,8 +1,10 @@
 node_modules
 .next
 .git
+.gitignore
 *.md
 !README.md
 .env*
+!.env.example
 .dockerignore
-docker-compose.yml
+docker-compose*.yml

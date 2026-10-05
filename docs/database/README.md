@@ -93,7 +93,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Patrulla Verificadora** | `patrulla_verificadora`| Migración 006 | Operaciones | Unidades tácticas de evaluación preliminar. |
 | **Cuadrilla** | `cuadrilla` | Migración 006 | Operaciones | Unidades tácticas operativas de intervención. |
 | *(Asignación Logística)* | `cuadrilla_recurso` | Migración 006 | Recursos | Asignación N:M de recursos a cuadrillas. |
-| **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 | Operaciones | Puntos críticos para misiones preventivas. |
+| **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 / 012 / 015 / 016 | Eventos ATP | Puntos críticos, factores de riesgo, edición (HU-55) y borrado lógico (HU-56). |
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
 | **Reporte Terreno** | `reporte_terreno` | Migración 011 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
 | **EventoATP** | *`evento_atp`* | Hoja de Ruta (Roadmap) | Eventos ATP | Agrupación macro de incidentes / eventos climáticos mayores. |
@@ -444,20 +444,24 @@ Asignación temporal de recursos a cuadrillas para ejecución de tareas.
 | `asignado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de despacho del recurso. |
 
 #### Tabla: `prevencion`
-Puntos críticos de mitigación y prevención geográfica comunal.
+Puntos críticos de mitigación y prevención geográfica comunal (Migraciones 006, 011 y 013).
 
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
 |---|---|---|---|---|
 | `id` | `UUID` | NO | `gen_random_uuid()` | Identificador del punto crítico preventivo. |
-| `codigo` | `VARCHAR(20)` | NO | — | Código del punto crítico (ej. `PREV-CALLE-01`). Unique. |
-| `nombre` | `VARCHAR(150)`| NO | — | Nombre descriptivo del punto de prevención. |
-| `descripcion` | `TEXT` | SÍ | `NULL` | Medidas mitigadoras a realizar periódicamente. |
-| `latitud` | `NUMERIC(10, 7)`| NO | — | Coordenada Y del punto crítico. |
-| `longitud` | `NUMERIC(10, 7)`| NO | — | Coordenada X del punto crítico. |
+| `codigo` | `VARCHAR(20)` | NO | — | Código del punto crítico (ej. `PC-ANG-01`). Unique. |
+| `nombre` | `VARCHAR(150)`| NO | — | Nombre descriptivo del punto de prevención o sector vulnerable. |
+| `descripcion` | `TEXT` | SÍ | `NULL` | Detalle situacional y medidas mitigadoras a realizar. |
+| `tipo_riesgo` | `VARCHAR(100)`| SÍ | `NULL` | Clasificación de la amenaza recurrente (Migración 011 / HU-57). |
+| `prioridad` | `VARCHAR(20)` | NO | `'MEDIA'` | Gravedad/prioridad operativa (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`) (Migración 011 / HU-57). |
+| `latitud` | `NUMERIC(10, 7)`| NO | — | Coordenada Y (latitud EPSG:4326) del punto crítico. |
+| `longitud` | `NUMERIC(10, 7)`| NO | — | Coordenada X (longitud EPSG:4326) del punto crítico. |
 | `ubicacion` | `GEOMETRY` | SÍ | — | Geometría PostGIS Point. |
 | `delegacion_id` | `UUID` | SÍ | `NULL` | FK a `delegacion.id` correspondiente. |
-| `activo` | `BOOLEAN` | NO | `true` | Habilitado para misiones preventivas. |
-| `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de alta. |
+| `activo` | `BOOLEAN` | NO | `true` | Estado operativo de vigencia. Se actualiza a `false` en baja lógica (HU-56). |
+| `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de alta en el sistema. |
+| `eliminado_en` | `TIMESTAMPTZ` | SÍ | `NULL` | Fecha y hora de baja lógica / soft delete (Migración 013 / HU-56). |
+| `eliminado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` que ejecutó la desactivación (Migración 013 / HU-56). |
 
 #### Tabla: `mision`
 Misiones tácticas despachadas a patrullas verificadoras o cuadrillas operativas.
@@ -581,6 +585,7 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 - `c2222222-2222-4222-8222-222222222222` — `patricia.valenzuela@valdivia.cl` (Patricia Valenzuela - Call Center Mesa 2, RUT: `15222222-2`)
 - `a0000000-0000-4000-8000-000000000001` — `operador.qa@valdivia.cl` (Operador QA Call Center, RUT: `99999999-9`)
 - `00000000-0000-4000-8000-000000000003` — `encargado@valdivia.cl` (Encargado de Operaciones Centro de Mando, RUT: `33333333-3`)
+- `00000000-0000-4000-8000-000000000010` — `supervisor@valdivia.cl` (Supervisor Estratégico, RUT: `44444444-4`)
 
 ### 5.3 Delegaciones Municipales (`delegacion`)
 - `30000000-0000-4000-8000-000000000001` — `DEL_NORTE` (Delegación Municipal Norte)
@@ -628,7 +633,7 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 ```bash
 npm run db:migrate
 ```
-El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `016_indices_filtros_listados.ts`).
+El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `018_indices_filtros_listados.ts`).
 
 ### 7.2 Sembrar Datos para Tablero Kanban
 ```bash

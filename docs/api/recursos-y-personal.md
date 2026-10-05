@@ -71,7 +71,7 @@ Retorna una lista paginada de los recursos registrados en el inventario, incluye
 
 - **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
 - **Perfiles autorizados:** `Administrador` o cualquier usuario con permiso `recursos:leer` activo (como `Supervisor` y `Encargado`).
-- **Regla RBAC de Solo Lectura (HU-50):** El perfil `Supervisor` posee exclusivamente permisos de lectura (`recursos:leer`). Intentos de invocación a `POST /api/recursos` (crear) o `PUT /api/recursos/[id]` (editar) retornarán `HTTP 403 Forbidden`.
+- **Regla RBAC de Solo Lectura (HU-50):** El perfil `Supervisor` posee exclusivamente permisos de lectura (`recursos:leer`). Intentos de invocación a mutaciones como `POST /api/recursos` (crear), `PUT /api/recursos/[id]` (editar) o `DELETE /api/recursos/[id]` (eliminar) retornarán `HTTP 403 Forbidden`.
 - **Credenciales Institucionales de Prueba para Supervisor (Semilla Migración 015):**
   - **Email:** `supervisor@valdivia.cl`
   - **RUT:** `44444444-4`
