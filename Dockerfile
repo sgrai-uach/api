@@ -32,9 +32,15 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Custom server compilado y fuentes necesarios
 COPY --from=builder --chown=nextjs:nodejs /app/src ./src
+COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./
+COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json ./
+COPY --from=builder --chown=nextjs:nodejs /app/next.config.ts ./
 # Dependencias de runtime para tsx y socket.io
 COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+
+# Asegurar permisos del directorio /app para el usuario no privilegiado
+RUN chown -R nextjs:nodejs /app
 
 USER nextjs
 
