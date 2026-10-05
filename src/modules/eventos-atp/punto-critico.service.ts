@@ -2,18 +2,25 @@ import { seguridadService } from "@/modules/seguridad/service";
 import {
   PERMISO_LISTAR_PUNTOS_CRITICOS,
   PERMISO_EDITAR_PUNTO_CRITICO,
+  PERMISO_ELIMINAR_PUNTO_CRITICO,
 } from "@/modules/seguridad/permisos.constants";
 import {
   NotFoundError,
   BadRequestError,
   ConflictError,
 } from "@/modules/seguridad/errors";
-import { emitirPuntoCriticoActualizado } from "@/lib/socket";
+import {
+  emitirPuntoCriticoActualizado,
+  emitirPuntoCriticoEliminado,
+} from "@/lib/socket";
 import {
   listarPuntosCriticosPaginados,
   contarPuntosCriticos,
+  obtenerPuntoCriticoPorId,
   obtenerPuntoCriticoDetallePorId,
   verificarDelegacionExiste,
+  verificarMisionesActivasPuntoCritico,
+  marcarPuntoCriticoEliminado,
   actualizarPuntoCritico,
   type FiltrosListarPuntosCriticos,
   type FilaPuntoCriticoConDelegacion,
@@ -25,6 +32,7 @@ import type {
   PuntoCriticoItemResponse,
   ActualizarPuntoCriticoBody,
   PuntoCriticoDetalleResponse,
+  EliminarPuntoCriticoResponse,
 } from "./punto-critico.schema";
 
 /**
@@ -191,8 +199,6 @@ export async function editarPuntoCritico(
   }
 
   // 5. Preparar datos y actualizar en BD con PostGIS ST_SetSRID y auditoría (Opción A)
-  // Se permite actualizar características y ubicación en cualquier momento,
-  // notificando en tiempo real a la central, supervisores y patrullas mediante Socket.io
   const datosParaActualizar: DatosActualizarPuntoCritico = {
     nombre: input.nombre,
     descripcion: input.descripcion ?? null,
@@ -220,4 +226,77 @@ export async function editarPuntoCritico(
   emitirPuntoCriticoActualizado(respuesta as unknown as Record<string, unknown>);
 
   return respuesta;
+}
+
+/**
+ * Aplica el borrado lógico (soft delete) a un punto crítico garantizando la trazabilidad histórica (HU-56).
+ * Bloquea la eliminación si existen misiones activas (PLANIFICADA, DESPACHADA, EN_CURSO) asociadas al punto.
+ */
+export async function eliminarPuntoCritico(
+  id: string,
+  usuarioId?: string | null
+): Promise<EliminarPuntoCriticoResponse> {
+  // 1. Control de Acceso RBAC: Requiere rol Administrador con permiso puntos_criticos:eliminar
+  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [
+    PERMISO_ELIMINAR_PUNTO_CRITICO,
+  ]);
+
+  // 2. Verificar existencia del punto crítico
+  const puntoExistente = await obtenerPuntoCriticoPorId(id);
+  if (!puntoExistente) {
+    throw new NotFoundError(`Punto crítico con ID '${id}' no encontrado.`);
+  }
+
+  // 3. Si ya se encuentra inactivo / eliminado lógicamente
+  if (!puntoExistente.activo) {
+    throw new ConflictError(
+      `El punto crítico '${puntoExistente.nombre}' ya se encuentra desactivado del sistema.`
+    );
+  }
+
+  // 4. Validar dependencias operativas activas (misiones preventivas o patrullas en curso/despachadas)
+  const dependencias = await verificarMisionesActivasPuntoCritico(id);
+  if (dependencias.tieneMisionesActivas) {
+    const detalleMisiones =
+      dependencias.codigos.length > 0
+        ? ` (Misiones asociadas: ${dependencias.codigos.join(", ")})`
+        : "";
+    throw new ConflictError(
+      `No es posible eliminar el punto crítico '${puntoExistente.nombre}' porque cuenta con ${dependencias.totalMisiones} misión(es) preventivas activas o patrullas asignadas en terreno${detalleMisiones}.`
+    );
+  }
+
+  // 5. Aplicar borrado lógico con estampa de auditoría
+  const resultado = await marcarPuntoCriticoEliminado(id, usuario.id);
+  if (!resultado) {
+    throw new NotFoundError(
+      `Punto crítico con ID '${id}' no encontrado o no pudo ser desactivado.`
+    );
+  }
+
+  const eliminadoEnStr =
+    resultado.eliminado_en instanceof Date
+      ? resultado.eliminado_en.toISOString()
+      : typeof resultado.eliminado_en === "string"
+      ? resultado.eliminado_en
+      : new Date().toISOString();
+
+  // 6. Emitir evento Socket.io para actualización reactiva en tiempo real del mapa y la tabla
+  emitirPuntoCriticoEliminado({
+    id: resultado.id,
+    codigo: resultado.codigo,
+    nombre: resultado.nombre,
+    eliminadoPorId: usuario.id,
+    eliminadoEn: eliminadoEnStr,
+  });
+
+  return {
+    message: "Punto crítico desactivado exitosamente del sistema.",
+    id: resultado.id,
+    codigo: resultado.codigo,
+    nombre: resultado.nombre,
+    activo: false,
+    eliminadoEn: eliminadoEnStr,
+    eliminadoPorId: usuario.id,
+  };
 }

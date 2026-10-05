@@ -226,6 +226,33 @@ export async function verificarMisionesActivasPuntoCritico(
 }
 
 /**
+ * Aplica el borrado lógico (soft delete) sobre un punto crítico, registrando
+ * la fecha/hora y el identificador del usuario administrador responsable.
+ */
+export async function marcarPuntoCriticoEliminado(
+  id: string,
+  usuarioId: string
+) {
+  return await db
+    .updateTable("prevencion")
+    .set({
+      activo: false,
+      eliminado_en: sql`CURRENT_TIMESTAMP`,
+      eliminado_por_id: usuarioId,
+    })
+    .where("id", "=", id)
+    .returning([
+      "id",
+      "codigo",
+      "nombre",
+      "activo",
+      "eliminado_en",
+      "eliminado_por_id",
+    ])
+    .executeTakeFirst();
+}
+
+/**
  * Actualiza los datos y la ubicación espacial (PostGIS Point EPSG:4326) de un punto crítico.
  * Registra auditoría con estampa de tiempo y usuario editor.
  */

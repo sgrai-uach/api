@@ -26,9 +26,18 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
    - La consulta y visualización de la lista de puntos críticos (`GET /api/puntos-criticos`) está **restringida estrictamente al rol `Administrador`** del sistema.
    - Cualquier petición anónima es rechazada con `401 Unauthorized`.
    - Cualquier petición proveniente de un usuario con un perfil distinto a `Administrador` es rechazada con `403 Forbidden`.
-   - La autenticación se verifica a través de la cabecera HTTP `X-User-Id: <UUID>` o el token Bearer (`Authorization: Bearer <UUID>`).
+   - La autenticación se verifica a través de la cabecera HTTP `X-User-Id: <UUID>` o el token Bearer (`Authorization: Bearer <token>`).
 6. **Respuesta ante Lista Vacía (Criterio de Aceptación 3):**
    - Si no existen puntos críticos registrados en la base de datos (o si los filtros aplicados no retornan coincidencias), la API responde `200 OK` con un arreglo vacío `data: []` y `total: 0`. Esto permite al frontend (`sgrai-web`) desplegar de forma limpia su mensaje de estado vacío ("No hay puntos críticos registrados") sin incurrir en excepciones.
+7. **Edición y Reubicación Dinámica con Notificación en Tiempo Real (HU-55):**
+   - El Administrador puede modificar los datos descriptivos y reubicar las coordenadas de un punto crítico en cualquier momento. El backend recalcula la geometría PostGIS y difunde el evento `"punto_critico:actualizado"` vía Socket.io a la central, supervisores y unidades en terreno para su actualización inmediata.
+   - El código institucional es inmutable. No se permite editar puntos inactivos (`409 Conflict`).
+8. **Borrado Lógico y Auditoría (HU-56):**
+   - Para mantener la trazabilidad de eventos preventivos pasados asociados a una coordenada (y el histórico requerido para reportería SENAPRED), la desactivación de un punto crítico **no destruye físicamente el registro**. En su lugar, se actualiza `activo = false`, registrando de forma inmutable la estampa de tiempo `eliminado_en` y el UUID del usuario responsable `eliminado_por_id`.
+9. **Protección de Operaciones Activas en Terreno (HU-56):**
+   - Si el punto crítico se encuentra vinculado a una misión preventiva activa (estados `PLANIFICADA`, `DESPACHADA` o `EN_CURSO`) o tiene una patrulla/cuadrilla asignada, la API **rechaza la solicitud de eliminación con código HTTP `409 Conflict`**, evitando dejar unidades operativas huérfanas o desarticular el plan de contingencia en curso.
+10. **Sincronización Reactiva en Tiempo Real (Socket.io):**
+    - Al procesarse la eliminación lógica, la API emite el evento `"punto_critico:eliminado"` a las salas `"encargado"` y `"supervisor"`, así como en difusión global, permitiendo al visor cartográfico de `sgrai-web` retirar el marcador y actualizar la tabla instantáneamente sin recargar la página.
 
 ---
 
@@ -39,6 +48,7 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `GET` | `/api/puntos-criticos` | Listar los puntos críticos y sectores vulnerables monitoreados con paginación, filtros territoriales/prioridad y datos de delegación asociada (HU-57). |
 | `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
+| `DELETE` | `/api/puntos-criticos/{id}` | Desactivar (borrado lógico) un punto crítico comunal, validando dependencias operativas y notificando vía Socket.io (HU-56). |
 
 > Nota: Los contratos OpenAPI 3.0 se autogeneran a partir de los esquemas Zod y están expuestos públicamente en `GET /openapi.json`.
 
@@ -269,4 +279,156 @@ Retorna la entidad consolidada con el detalle actualizado y las estampas de audi
 {
   "message": "No es posible editar el punto crítico 'Sector Humedal Angachilla' porque se encuentra desactivado del sistema."
 }
+```
+
+---
+
+## 6. Detalle de Endpoint: `DELETE /api/puntos-criticos/{id}` (HU-56)
+
+Aplica el **borrado lógico** (*soft delete*) de un punto crítico del catálogo comunal. El registro se desactiva (`activo: false`) y se estampan los metadatos de auditoría `eliminado_en` y `eliminado_por_id`.
+
+Si el punto crítico está vinculado a una misión preventiva en curso o tiene personal desplegado en el lugar, la eliminación es rechazada para preservar la integridad operativa del Sistema de Comando de Incidentes (ICS).
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `X-User-Id` | `UUID` | Sí | Identificador del usuario con rol `Administrador` y permiso `puntos_criticos:eliminar`. |
+
+### Parámetros de Ruta (Path Params)
+
+| Parámetro | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `id` | `UUID` | Sí | Identificador único del punto crítico a desactivar. |
+
+### Reglas de Validación de Dependencias Operativas (Bloqueo 409)
+
+Antes de proceder con la baja lógica, la API evalúa si existen registros en la tabla `mision` vinculados al punto (`mision.prevencion_id = :id`) en cualquiera de los estados operativos activos:
+* `PLANIFICADA`: Misión programada pendiente de despacho.
+* `DESPACHADA`: Unidad táctica asignada en ruta al sector.
+* `EN_CURSO`: Patrulla verificadora o cuadrilla trabajando activamente en las coordenadas.
+
+En caso afirmativo, la API aborta la transacción y responde inmediatamente `409 Conflict`.
+
+### Respuestas HTTP Esperadas
+
+#### `200 OK` — Desactivación lógica exitosa
+```json
+{
+  "message": "Punto crítico desactivado exitosamente del sistema.",
+  "id": "40000000-0000-4000-8000-000000000001",
+  "codigo": "PC-ANG-01",
+  "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
+  "activo": false,
+  "eliminadoEn": "2026-10-04T00:30:00.000Z",
+  "eliminadoPorId": "00000000-0000-4000-8000-000000000001"
+}
+```
+
+#### `400 Bad Request` — Identificador UUID inválido
+```json
+{
+  "message": "Identificador de punto crítico inválido.",
+  "errors": [
+    {
+      "campo": "id",
+      "mensaje": "Identificador UUID de punto crítico inválido"
+    }
+  ]
+}
+```
+
+#### `401 Unauthorized` — Falta cabecera de autenticación
+```json
+{
+  "message": "Cabecera X-User-Id requerida para autenticación."
+}
+```
+
+#### `403 Forbidden` — Acceso denegado (Perfil no autorizado)
+```json
+{
+  "message": "Acceso denegado. Se requiere el perfil de Administrador con permiso puntos_criticos:eliminar."
+}
+```
+
+#### `404 Not Found` — Punto crítico inexistente
+```json
+{
+  "message": "Punto crítico con ID '40000000-0000-4000-8000-000000000099' no encontrado."
+}
+```
+
+#### `409 Conflict` — Misiones preventivas o patrullas activas en el lugar
+```json
+{
+  "message": "No es posible eliminar el punto crítico 'Sector Humedal Angachilla - Pasaje Los Robles' porque cuenta con 1 misión(es) preventivas activas o patrullas asignadas en terreno (Misiones asociadas: MIS-2026-004)."
+}
+```
+
+---
+
+## 7. Eventos de Tiempo Real (Socket.io)
+
+### Evento: `punto_critico:actualizado`
+
+Emitido automáticamente tras una actualización exitosa de características o coordenadas hacia las salas `"encargado"`, `"supervisor"` y `"administrador"`.
+
+* **Payload:**
+```json
+{
+  "id": "40000000-0000-4000-8000-000000000001",
+  "codigo": "PC-ANG-01",
+  "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
+  "descripcion": "Zona baja con riesgo de anegamiento por desborde fluvial",
+  "tipoRiesgo": "Inundación y anegamiento",
+  "prioridad": "ALTA",
+  "activo": true,
+  "estadoTexto": "Activo",
+  "latitud": -39.8456,
+  "longitud": -73.2389,
+  "delegacion": {
+    "id": "30000000-0000-4000-8000-000000000001",
+    "codigo": "DEL-SUR",
+    "nombre": "Delegación Municipal Sur"
+  },
+  "creadoEn": "2026-06-15T12:00:00.000Z",
+  "actualizadoEn": "2026-10-04T19:00:00.000Z",
+  "actualizadoPorId": "00000000-0000-4000-8000-000000000001"
+}
+```
+
+* **Consumo esperado en `sgrai-web`:**
+```typescript
+socket.on("punto_critico:actualizado", (puntoActualizado) => {
+  // 1. Actualizar el marcador en el mapa cartográfico
+  mapa.actualizarMarcador(puntoActualizado);
+  // 2. Actualizar la fila en la tabla
+  tabla.actualizarFila(puntoActualizado);
+});
+```
+
+### Evento: `punto_critico:eliminado`
+
+Emitido automáticamente tras un borrado lógico exitoso hacia las salas `"encargado"` y `"supervisor"`, así como por difusión general.
+
+* **Payload:**
+```json
+{
+  "id": "40000000-0000-4000-8000-000000000001",
+  "codigo": "PC-ANG-01",
+  "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
+  "eliminadoPorId": "00000000-0000-4000-8000-000000000001",
+  "eliminadoEn": "2026-10-04T00:30:00.000Z"
+}
+```
+
+* **Consumo esperado en `sgrai-web`:**
+```typescript
+socket.on("punto_critico:eliminado", ({ id }) => {
+  // 1. Remover el marcador Leaflet del mapa interactivo
+  mapa.removerMarcadorPuntoCritico(id);
+  // 2. Retirar la fila de la tabla de puntos críticos en vivo
+  tablaPuntosCriticos.removerFila(id);
+});
 ```
