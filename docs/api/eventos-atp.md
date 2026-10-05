@@ -53,8 +53,9 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `GET` | `/api/puntos-criticos` | Listar los puntos críticos y sectores vulnerables monitoreados con paginación, filtros territoriales/prioridad y datos de delegación asociada (HU-57). |
 | `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
-| `DELETE` | `/api/puntos-criticos/{id}` | Desactivar (borrado lógico) un punto crítico comunal, validando dependencias operativas y notificando vía Socket.io (HU-56). |
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
+| `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
+| `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
 
 > Nota: Los contratos OpenAPI 3.0 se autogeneran a partir de los esquemas Zod y están expuestos públicamente en `GET /openapi.json`.
 
@@ -526,3 +527,140 @@ Al completar exitosamente la transacción de creación del evento, el backend em
 * **Propósito en Frontend (`sgrai-web`):**
   - Actualizar inmediatamente el mapa interactivo (añadiendo el nuevo marcador del evento con sus coordenadas).
   - Actualizar la tabla de misiones en curso y la lista de patrullas disponibles/ocupadas sin requerir recargar la página.
+
+### Evento: `asistencia_social:creada`
+
+Al registrar exitosamente un evento de asistencia social excepcional, el backend emite:
+
+* **Evento:** `asistencia_social:creada`
+* **Salas:** `"sala:encargados"`, `"encargado"`, `"asistente_social"`, `"administrador"` y difusión general.
+* **Payload:** Objeto del evento recién registrado (idéntico a la propiedad `data` de `POST /api/eventos-atp/asistencia-social`).
+* **Propósito en Frontend (`sgrai-web`):**
+  - Incorporar de forma inmediata el nuevo registro en el panel de eventos pendientes para la asignación de asistentes sociales.
+  - Notificar en tiempo real al Encargado y a los Asistentes Sociales sin necesidad de recargar la página.
+
+---
+
+## 9. Detalle de Endpoints: Asistencia Social y FIBE (H28)
+
+### 9.1 `POST /api/eventos-atp/asistencia-social`
+
+Permite al rol **Encargado** (o Administrador) registrar un caso excepcional que requiere levantamiento urgente de la Ficha Básica de Emergencia (FIBE), **sin necesidad de que provenga de un incidente formal previo**.
+
+#### Cabeceras Requeridas
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `Authorization` | `Bearer <token>` o `X-User-Id: <UUID>` | Sí | Identificador del Encargado o Administrador con permiso `asistencia_social:crear`. |
+
+#### Cuerpo de la Petición (Request Body)
+```json
+{
+  "descripcion": "Familia de 4 integrantes con vivienda inundada por desborde secundario fuera de radio de incidente.",
+  "tipoAfectacion": "VIVIENDA_ANEGADA",
+  "direccionTexto": "Calle Los Alerces 1420, Sector Collico",
+  "latitud": -39.8234,
+  "longitud": -73.2189,
+  "personasAfectadas": 4,
+  "familiasAfectadas": 1,
+  "prioridad": "ALTA",
+  "contactoNombre": "María González",
+  "contactoTelefono": "+56912345678",
+  "contactoRut": "12.345.678-9",
+  "delegacionId": "30000000-0000-4000-8000-000000000001"
+}
+```
+
+#### Respuestas HTTP
+* **`201 Created`:**
+```json
+{
+  "message": "Evento de asistencia social registrado exitosamente.",
+  "data": {
+    "id": "70000000-0000-4000-8000-000000000001",
+    "codigo": "AS-2026-0001",
+    "descripcion": "Familia de 4 integrantes con vivienda inundada por desborde secundario...",
+    "tipoAfectacion": "VIVIENDA_ANEGADA",
+    "personasAfectadas": 4,
+    "familiasAfectadas": 1,
+    "direccionTexto": "Calle Los Alerces 1420, Sector Collico",
+    "latitud": -39.8234,
+    "longitud": -73.2189,
+    "prioridad": "ALTA",
+    "estado": "PENDIENTE",
+    "contactoNombre": "María González",
+    "contactoTelefono": "+56912345678",
+    "contactoRut": "12.345.678-9",
+    "delegacionId": "30000000-0000-4000-8000-000000000001",
+    "delegacionNombre": "Delegación Municipal Costa",
+    "incidenteId": null,
+    "asistenteSocialId": null,
+    "asistenteSocialNombre": null,
+    "creadoPor": {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "nombre": "Encargado de Operaciones"
+    },
+    "creadoEn": "2026-10-05T12:00:00.000Z",
+    "actualizadoEn": "2026-10-05T12:00:00.000Z"
+  }
+}
+```
+
+* **`400 Bad Request`:** Coordenadas fuera de rango o campos obligatorios vacíos (`descripcion`, `direccionTexto`, `latitud`, `longitud`).
+* **`401 Unauthorized`:** Cabecera de autenticación ausente o inválida.
+* **`403 Forbidden`:** Usuario no posee permiso `asistencia_social:crear`.
+
+---
+
+### 9.2 `GET /api/eventos-atp/asistencia-social`
+
+Consulta los eventos de asistencia social con filtros de estado, delegación, prioridad operativa y paginación. Diseñado específicamente para alimentar el **panel de eventos pendientes** previo a la asignación de Asistentes Sociales.
+
+#### Query Params
+| Parámetro | Tipo | Requerido | Default | Descripción |
+|---|---|---|---|---|
+| `pagina` | `number` | No | `1` | Número de página (inicia en 1). |
+| `limite` | `number` | No | `10` | Cantidad de elementos por página (máx. 100). |
+| `estado` | `string` | No | - | Filtra por estado (`PENDIENTE`, `ASIGNADO`, `EN_EVALUACION_FIBE`, `FINALIZADO`). |
+| `delegacionId` | `UUID` | No | - | Filtra por identificador de delegación municipal. |
+| `prioridad` | `string` | No | - | Filtra por prioridad (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
+| `busqueda` | `string` | No | - | Búsqueda insensible a mayúsculas por código, descripción, dirección o contacto. |
+
+#### Respuestas HTTP
+* **`200 OK`:**
+```json
+{
+  "data": [
+    {
+      "id": "70000000-0000-4000-8000-000000000001",
+      "codigo": "AS-2026-0001",
+      "descripcion": "Familia de 4 integrantes con vivienda inundada...",
+      "tipoAfectacion": "VIVIENDA_ANEGADA",
+      "personasAfectadas": 4,
+      "familiasAfectadas": 1,
+      "direccionTexto": "Calle Los Alerces 1420, Sector Collico",
+      "latitud": -39.8234,
+      "longitud": -73.2189,
+      "prioridad": "ALTA",
+      "estado": "PENDIENTE",
+      "contactoNombre": "María González",
+      "contactoTelefono": "+56912345678",
+      "contactoRut": "12.345.678-9",
+      "delegacionId": "30000000-0000-4000-8000-000000000001",
+      "delegacionNombre": "Delegación Municipal Costa",
+      "incidenteId": null,
+      "asistenteSocialId": null,
+      "asistenteSocialNombre": null,
+      "creadoPor": {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "nombre": "Encargado de Operaciones"
+      },
+      "creadoEn": "2026-10-05T12:00:00.000Z",
+      "actualizadoEn": "2026-10-05T12:00:00.000Z"
+    }
+  ],
+  "total": 1,
+  "pagina": 1,
+  "limite": 10,
+  "totalPaginas": 1
+}
+```
