@@ -197,6 +197,7 @@ export interface PrevencionTable {
   delegacion_id: string | null;
   activo: ColumnType<boolean, boolean | undefined, boolean>;
   creado_en: Generated<Date>;
+  creado_por_id?: string | null;
 }
 
 export type EstadoPatrulla = "DISPONIBLE" | "EN_VERIFICACION" | "NO_DISPONIBLE";
