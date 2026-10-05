@@ -10,9 +10,11 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.openapi).toBe("3.0.0");
     expect(spec.info.title).toContain("SGRAI API");
     expect(spec.info.version).toBe("0.7.0");
-    // Rutas de Puntos Críticos (Eventos ATP - HU-57)
+    // Rutas de Puntos Críticos y Recuperación (Eventos ATP - HU-57 / HU-29)
     expect(spec.paths["/api/puntos-criticos"]).toBeDefined();
     expect(spec.paths["/api/puntos-criticos"].get).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/recuperacion"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/recuperacion"].post).toBeDefined();
 
     // Rutas de Recursos
     expect(spec.paths["/api/recursos"]).toBeDefined();
