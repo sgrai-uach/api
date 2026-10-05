@@ -21,6 +21,7 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/recursos/{id}"]).toBeDefined();
     expect(spec.paths["/api/recursos/{id}"].get).toBeDefined();
     expect(spec.paths["/api/recursos/{id}"].put).toBeDefined();
+    expect(spec.paths["/api/recursos/{id}"].delete).toBeDefined();
 
     // Rutas de Incidentes
     expect(spec.paths["/api/incidentes/kpis"]).toBeDefined();
@@ -57,6 +58,9 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/seguridad/roles/{id}/permisos"].put).toBeDefined();
     expect(spec.paths["/api/seguridad/usuario-activo"]).toBeDefined();
     expect(spec.paths["/api/seguridad/usuario-activo"].get).toBeDefined();
+
+    // Esquemas registrados en components/schemas (HU-9)
+    expect(spec.components.schemas.EliminarRecursoResponse).toBeDefined();
 
     // Rutas de Misiones (HU-17)
     expect(spec.paths["/api/misiones/{id}"]).toBeDefined();

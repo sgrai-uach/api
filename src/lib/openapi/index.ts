@@ -34,6 +34,7 @@ import {
   RecursoIdParamSchema,
   ListarRecursosQuerySchema,
   ListarRecursosPaginadosResponseSchema,
+  EliminarRecursoResponseSchema,
 } from "@/modules/recursos-y-personal/recurso.schema";
 
 import {
@@ -92,6 +93,7 @@ registry.register("CrearRecursoInput", CrearRecursoInputSchema);
 registry.register("ActualizarRecursoInput", ActualizarRecursoInputSchema);
 registry.register("RecursoResponse", RecursoResponseSchema);
 registry.register("RecursoDetalleResponse", RecursoDetalleResponseSchema);
+registry.register("EliminarRecursoResponse", EliminarRecursoResponseSchema);
 registry.register("ListarRecursosPaginadosResponse", ListarRecursosPaginadosResponseSchema);
 registry.register("ModificarEmpleadoInput", ModificarEmpleadoSchema);
 registry.register("RegistrarEmpleadoInput", RegistrarEmpleadoSchema);
@@ -1067,7 +1069,55 @@ registry.registerPath({
   },
 });
 
-// 20. GET /api/misiones/{id} (HU-17: Detalle Completo de Misión)
+// 21. DELETE /api/recursos/{id} (HU-9)
+registry.registerPath({
+  method: "delete",
+  path: "/api/recursos/{id}",
+  summary: "Eliminar recurso del inventario (borrado lógico)",
+  description:
+    "Aplica un borrado lógico (soft delete) a un recurso existente registrando fecha, hora y usuario responsable. Impide la eliminación con código 409 Conflict si el recurso está actualmente en uso en terreno o asignado a una misión activa / cuadrilla. Emite evento WebSocket 'recurso:eliminado' a los clientes conectados.",
+  tags: ["Recursos y Personal"],
+  request: {
+    params: RecursoIdParamSchema,
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Recurso eliminado exitosamente (baja lógica aplicada)",
+      content: {
+        "application/json": {
+          schema: EliminarRecursoResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de recurso inválido",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    404: {
+      description: "Recurso no encontrado o ya dado de baja",
+    },
+    409: {
+      description: "Conflicto operativo: el recurso está asignado a una misión activa o cuadrilla en terreno",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 22. GET /api/misiones/{id} (HU-17: Detalle Completo de Misión)
 registry.registerPath({
   method: "get",
   path: "/api/misiones/{id}",
@@ -1151,7 +1201,7 @@ registry.registerPath({
   },
 });
 
-// 21. GET /api/incidentes/kpis (HU-18)
+// 23. GET /api/incidentes/kpis (HU-18)
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/kpis",

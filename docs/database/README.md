@@ -402,8 +402,11 @@ Inventario de equipamiento, vehículos y maquinaria disponible para emergencias.
 | `detalles` | `JSONB` | NO | `'{}'` | Metadatos adicionales (número de serie, ficha de mantención). |
 | `delegacion_id` | `UUID` | SÍ | `NULL` | FK a `delegacion.id` donde se almacena el recurso. |
 | `creado_por_id` | `UUID` | NO | — | FK a `usuario.id` responsable del inventario. |
+| `actualizado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` que modificó el recurso. |
+| `eliminado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` que ejecutó la baja lógica (HU-9). |
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de alta en inventario. |
 | `actualizado_en`| `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de actualización. |
+| `eliminado_en` | `TIMESTAMPTZ` | SÍ | `NULL` | Fecha y hora de baja lógica / soft delete (HU-9). |
 
 #### Tabla: `patrulla_verificadora`
 Unidades tácticas ligeras de terreno destinadas a la verificación primaria del incidente.
