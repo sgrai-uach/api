@@ -32,11 +32,20 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 
 ---
 
+7. **Creación de Eventos de Recuperación y Despacho Directo (HU-29):**
+   - El Encargado puede registrar eventos de recuperación en terreno para entregar insumos y asistencia a sectores o familias damnificadas sin necesidad de un incidente formal previo.
+   - El sistema valida atómicamente la existencia y disponibilidad de la patrulla verificadora seleccionada (`patrulla_verificadora.estado = 'DISPONIBLE'`).
+   - El sistema comprueba mediante bloqueo transaccional (`FOR UPDATE`) que haya stock suficiente en bodega (`cantidad_inventario - cantidad_en_uso >= cantidad_solicitada`).
+   - En la misma transacción atómica de Kysely, se descuentan los recursos del inventario disponible (`cantidad_inventario`), se actualiza la patrulla al estado `'EN_RECUPERACION'`, se genera una misión táctica en estado `'DESPACHADA'` y se emite el evento WebSocket `recuperacion:creada` en tiempo real.
+
+---
+
 ## 2. Endpoints del Módulo
 
 | Método | Endpoint | Propósito |
 |---|---|---|
 | `GET` | `/api/puntos-criticos` | Listar los puntos críticos y sectores vulnerables monitoreados con paginación, filtros territoriales/prioridad y datos de delegación asociada. |
+| `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
 
 > Nota: Los contratos OpenAPI 3.0 se autogeneran a partir de los esquemas Zod y están expuestos públicamente en `GET /openapi.json`.
 
@@ -136,3 +145,170 @@ Retorna una lista paginada de los puntos críticos registrados, incluyendo sus f
   "message": "Acceso denegado. Se requiere el perfil de Administrador para acceder al listado y gestión de permisos."
 }
 ```
+
+---
+
+## 4. Detalle de Endpoint: `POST /api/eventos-atp/recuperacion` (HU-29)
+
+Permite al perfil **Encargado de Operaciones** (o Administrador) crear un evento de recuperación territorial y despachar una patrulla verificadora con insumos y recursos logísticos hacia un sector afectado, de forma atómica y sin requerir un incidente formal.
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `X-User-Id` | `UUID` | Sí | Identificador del usuario autenticado con permiso `recuperacion:crear` (Encargado o Administrador). |
+| `Content-Type` | `string` | Sí | `application/json` |
+
+### Cuerpo de la Solicitud (Payload JSON)
+
+| Campo | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `nombre` | `string` | Sí | Título descriptivo del evento (3 a 150 caracteres). |
+| `descripcion` | `string` | No | Detalle o instrucciones para la patrulla (máx. 1000 caracteres). |
+| `sector` | `string` | Sí | Sector geográfico o población en Valdivia (ej. `"Collico"`, `"Isla Teja"`). |
+| `direccionTexto` | `string` | No | Dirección o punto de referencia en terreno. |
+| `prioridad` | `enum` | No | Nivel de urgencia: `'BAJA'`, `'MEDIA'`, `'ALTA'`, `'CRITICA'` (default: `'MEDIA'`). |
+| `contactoNombre` | `string` | No | Nombre del referente vecinal o solicitante en terreno. |
+| `contactoTelefono` | `string` | No | Teléfono de contacto en terreno. |
+| `latitud` | `number` | Sí | Latitud geográfica WGS84 (-90 a 90). |
+| `longitud` | `number` | Sí | Longitud geográfica WGS84 (-180 a 180). |
+| `delegacionId` | `UUID` | No | Identificador de la delegación territorial (si se omite, se hereda de la patrulla). |
+| `patrullaId` | `UUID` | Sí | Identificador de la patrulla verificadora asignada (debe estar en estado `'DISPONIBLE'`). |
+| `familiasAfectadas` | `number` | No | Cantidad estimada de familias beneficiarias (default: `0`). |
+| `recursos` | `array` | Sí | Arreglo de insumos solicitados con `{ recursoId: UUID, cantidad: number > 0 }` (mínimo 1 elemento). |
+
+#### Ejemplo de Solicitud (Request Body)
+```json
+{
+  "nombre": "Entrega de frazadas y techumbre en Sector Collico",
+  "descripcion": "Damnificados por temporal de viento con voladura de techos",
+  "sector": "Collico",
+  "direccionTexto": "Calle Balmaceda 1245 con Las Palmeras",
+  "prioridad": "ALTA",
+  "contactoNombre": "Don Juan Pérez",
+  "contactoTelefono": "+56912345678",
+  "latitud": -39.8142,
+  "longitud": -73.2459,
+  "delegacionId": "30000000-0000-4000-8000-000000000001",
+  "patrullaId": "50000000-0000-4000-8000-000000000001",
+  "familiasAfectadas": 4,
+  "recursos": [
+    {
+      "recursoId": "80000000-0000-4000-8000-000000000001",
+      "cantidad": 10
+    }
+  ]
+}
+```
+
+### Respuestas HTTP Esperadas
+
+#### `201 Created` — Evento registrado y patrulla despachada
+```json
+{
+  "message": "Evento de recuperación registrado y patrulla despachada exitosamente.",
+  "data": {
+    "id": "70000000-0000-4000-8000-000000000001",
+    "codigo": "REC-2026-0001",
+    "nombre": "Entrega de frazadas y techumbre en Sector Collico",
+    "descripcion": "Damnificados por temporal de viento con voladura de techos",
+    "sector": "Collico",
+    "direccionTexto": "Calle Balmaceda 1245 con Las Palmeras",
+    "prioridad": "ALTA",
+    "contactoNombre": "Don Juan Pérez",
+    "contactoTelefono": "+56912345678",
+    "latitud": -39.8142,
+    "longitud": -73.2459,
+    "estado": "PLANIFICADA",
+    "familiasAfectadas": 4,
+    "delegacion": {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "codigo": "DEL-SUR",
+      "nombre": "Delegación Municipal Sur"
+    },
+    "mision": {
+      "id": "60000000-0000-4000-8000-000000000001",
+      "codigo": "MIS-2026-0001",
+      "titulo": "Entrega de frazadas y techumbre en Sector Collico",
+      "estado": "DESPACHADA",
+      "tipoMision": "RECUPERACION"
+    },
+    "patrulla": {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "nombre": "Patrulla Verificadora Alfa",
+      "estado": "EN_RECUPERACION"
+    },
+    "recursos": [
+      {
+        "recursoId": "80000000-0000-4000-8000-000000000001",
+        "nombre": "Frazadas Térmicas",
+        "cantidadAsignada": 10
+      }
+    ],
+    "creadoPorId": "00000000-0000-4000-8000-000000000003",
+    "creadoEn": "2026-10-04T22:30:00.000Z",
+    "actualizadoEn": "2026-10-04T22:30:00.000Z"
+  }
+}
+```
+
+#### `400 Bad Request` — Fallo de validación de datos
+```json
+{
+  "message": "Datos de entrada inválidos para el evento de recuperación.",
+  "errors": [
+    {
+      "campo": "recursos",
+      "mensaje": "Debe asignar al menos un recurso al evento de recuperación"
+    }
+  ]
+}
+```
+
+#### `401 Unauthorized` — Usuario no autenticado
+```json
+{
+  "message": "Cabecera X-User-Id requerida para autenticación."
+}
+```
+
+#### `403 Forbidden` — Falta permiso `recuperacion:crear`
+```json
+{
+  "message": "No posee el permiso requerido: recuperacion:crear"
+}
+```
+
+#### `404 Not Found` — Patrulla o recurso no encontrado
+```json
+{
+  "message": "La patrulla verificadora indicada no fue encontrada."
+}
+```
+
+#### `409 Conflict` — Conflicto operativo (Patrulla ocupada o Stock insuficiente)
+* **Patrulla no disponible:**
+```json
+{
+  "message": "La patrulla \"Patrulla Verificadora Alfa\" no está disponible para asignación (estado actual: EN_VERIFICACION)."
+}
+```
+* **Stock insuficiente:**
+```json
+{
+  "message": "Stock insuficiente para el recurso \"Frazadas Térmicas\". Solicitado: 10, Disponible: 3."
+}
+```
+
+---
+
+## 5. Eventos en Tiempo Real (Socket.io & Redis Pub/Sub)
+
+Al completar exitosamente la transacción de creación del evento, el backend emite:
+
+* **Evento:** `recuperacion:creada`
+* **Salas:** `"sala:encargados"`, `"encargado"`, `"mapa"`
+* **Payload:** Objeto idéntico a la propiedad `data` de la respuesta `201 Created`.
+* **Propósito en Frontend (`sgrai-web`):**
+  - Actualizar inmediatamente el mapa interactivo (añadiendo el nuevo marcador del evento con sus coordenadas).
+  - Actualizar la tabla de misiones en curso y la lista de patrullas disponibles/ocupadas sin requerir recargar la página.
