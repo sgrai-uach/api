@@ -324,6 +324,37 @@ export function emitirPuntoCriticoCreado(payload: Record<string, unknown>): void
 }
 
 /**
+ * Emite la notificación de nuevo evento de recuperación creado a las vistas de Encargado y al mapa interactivo.
+ */
+export function emitirRecuperacionCreada(payload: unknown): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("recuperacion:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("recuperacion:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("mapa") as any).emit("recuperacion:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("recuperacion:creada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "sala:encargados",
+          event: "recuperacion:creada",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
+/**
  * Emite la notificación de punto crítico actualizado a las vistas de Encargado, Supervisor y Administrador (HU-55).
  * Permite reflejar inmediatamente los cambios geoespaciales y atributos en el módulo cartográfico.
  */

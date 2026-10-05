@@ -22,11 +22,12 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
   - `BAJO_STOCK`: Operativo pero con inventario disponible menor o igual a la cantidad mínima (alerta de reposición).
   - `NO_DISPONIBLE`: Stock agotado (0 unidades) o inhabilitado administrativamente.
 - **Geolocalización Espacial (PostGIS):** Todo recurso almacena sus coordenadas geográficas en EPSG:4326 (`latitud`, `longitud`) y genera una columna geométrica `ubicacion` de tipo `Point` indexada mediante GIST para consultas en mapas interactivos y cálculo de proximidad.
-- **Seguridad y Control de Acceso Basado en Roles (RBAC):**
-  - La consulta y visualización del inventario logístico (`GET /api/recursos`) requiere que el usuario posea el rol **Administrador** activo o el permiso explícito **`recursos:leer`**.
-  - La creación de recursos (`POST /api/recursos`) requiere rol **Administrador** o permiso **`recursos:crear`**.
-  - La edición de recursos (`PUT /api/recursos/[id]`) requiere rol **Administrador** o permiso **`recursos:editar`**.
-  - La autenticación se verifica mediante la cabecera `X-User-Id` o el token `Authorization: Bearer <usuarioId>`.
+- **Seguridad y Control de Acceso Basado en Permisos (RBAC Estricto):**
+  - **Principio Fundamental:** El sistema depende **estrictamente de los permisos asignados**, nunca del nombre del rol institucional. Los roles actúan únicamente como contenedores organizacionales de permisos en la base de datos (`rol_permiso`), pero ninguna regla de negocio, ruta o componente de interfaz debe evaluar nombres de rol (`rol === 'Supervisor'` o `rol === 'Administrador'`) directamente:
+    - **`recursos:leer`**: Autoriza la consulta del inventario logístico y la visualización de fichas técnicas (`GET /api/recursos`, `GET /api/recursos/[id]`). Cualquier usuario que posea este permiso tiene acceso de lectura (sea Administrador, Encargado, Supervisor, o roles futuros).
+    - **`recursos:crear`**: Autoriza exclusivamente el registro y alta de nuevos recursos (`POST /api/recursos`).
+    - **`recursos:editar`**: Autoriza la modificación de características, inventario físico y estado operativo (`PUT /api/recursos/[id]`).
+  - La autenticación se verifica mediante el token estándar `Authorization: Bearer <jwt>` (o `X-User-Id` para retrocompatibilidad interna).
 - **Inmutabilidad del Tipo de Recurso (`esIndividual`):**
   - El atributo `esIndividual` no es modificable en las operaciones de edición para evitar inconsistencias graves de inventario (ej. transformar materiales a granel como sacos de arena en vehículos con patente).
 - **Auditoría de Modificaciones:**
@@ -65,29 +66,47 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 
 ## 3. Detalle de Endpoints
 
-### 3.1. `GET /api/recursos` (HU-7: Listar Recursos)
+### 3.1. `GET /api/recursos` (HU-7: Listar Recursos / HU-50: Listado de Recursos para Supervisor)
 Retorna una lista paginada de los recursos registrados en el inventario, incluyendo su estado de disponibilidad operativa calculado y los datos de su delegación territorial.
 
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
+- **Perfiles autorizados:** `Administrador` o cualquier usuario con permiso `recursos:leer` activo (como `Supervisor` y `Encargado`).
+- **Regla RBAC de Solo Lectura (HU-50):** El perfil `Supervisor` posee exclusivamente permisos de lectura (`recursos:leer`). Intentos de invocación a mutaciones como `POST /api/recursos` (crear), `PUT /api/recursos/[id]` (editar) o `DELETE /api/recursos/[id]` (eliminar) retornarán `HTTP 403 Forbidden`.
+- **Credenciales Institucionales de Prueba para Supervisor (Semilla Migración 015):**
+  - **Email:** `supervisor@valdivia.cl`
+  - **RUT:** `44444444-4`
+  - **Contraseña:** `Valdivia2026!`
+  - **Rol:** `Supervisor Estratégico` (`SUPERVISOR`)
+
 #### Parámetros de Consulta (Query Params)
-- `pagina` (`number`, default `1`): Número de página.
-- `limite` (`number`, default `10`, max `100`): Cantidad por página.
+- `page` / `pagina` (`number`, default `1`): Número de página (estándar SGRAI `page`, alias legado `pagina`).
+- `limit` / `limite` (`number`, default `10`, max `100`): Cantidad por página (estándar SGRAI `limit`, alias legado `limite`).
 - `delegacionId` (`UUID`): Filtra por delegación.
 - `estado` (`string`): Filtra por estado de disponibilidad (`DISPONIBLE`, `ASIGNADO`, `EN_MANTENCION`, `BAJO_STOCK`, `NO_DISPONIBLE`).
 - `esIndividual` (`boolean`): Filtra por tipo (maquinaria individual vs granel).
 - `busqueda` (`string`): Búsqueda textual insensible a mayúsculas/minúsculas.
+- `soloLectura` (`boolean`, opcional, default `undefined`): Indicador de consulta en modo solo lectura para auditoría o visualización de perfiles estratégicos/supervisores.
 
 ### 3.2. `POST /api/recursos` (HU-6: Crear Recurso)
 Registra un nuevo recurso individual o a granel en el inventario municipal calculando automáticamente su estado inicial.
 
-### 3.3. `GET /api/personal`
-Lista y busca empleados/usuarios para los selectores y tablas del frontend.
-- `q`: Término de búsqueda (RUT, nombres, apellidos, email).
-- `solo_personal`: `true` para restringir solo a personal con ficha operativa de terreno.
-- `incluir_inactivos`: `true` para incluir funcionarios inactivos (`activo = false`). Por omisión (`false`), solo se devuelven activos.
-- `delegacion_id`: Filtro por delegación.
-- `rol_id`: Filtro por rol institucional.
-- `ordenar_por`: `apellidos` | `nombres` | `rut`.
-- `orden`: `asc` | `desc`.
+### 3.3. `GET /api/personal` (H34: Listado de Personal con Filtros y Paginación Estándar)
+Lista y busca empleados/usuarios para los selectores del frontend, tablas de administración y la gestión operativa del Encargado, con paginación estándar transversal SGRAI y soporte multicriterio.
+- `page` / `pagina` (`number`, default `1`): Número de página (inicia en 1).
+- `limit` / `limite` (`number`, default `20`, máx `100`): Cantidad de registros por página.
+- `delegacionId` / `delegacion_id` (`UUID`): Filtro por delegación territorial.
+- `rolId` / `rol_id` (`UUID`): Filtro por rol institucional.
+- `estadoOperativo` / `estado_operativo`: Filtro por estado operativo (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`).
+- `cargo` (`string`): Filtro por cargo funcional (búsqueda parcial `ILIKE`).
+- `especialidad` (`string`): Filtro por especialidad técnica (búsqueda parcial `ILIKE`).
+- `soloPersonal` / `solo_personal` (`boolean`): `true` para restringir solo a personal con ficha operativa de terreno.
+- `busqueda` / `q` (`string`): Búsqueda textual insensible a mayúsculas sobre RUT, nombres, apellidos o email.
+- `incluir_inactivos` / `incluirInactivos` (`boolean`, default `false`): Por omisión (`false`), solo se devuelven funcionarios activos (`activo = true`). Si es `true`, incluye también funcionarios dados de baja.
+- `estado` (`string`): `'activo'` | `'inactivo'` | `'todos'`. Permite filtrar funcionarios por estado laboral.
+- `ordenarPor` / `ordenar_por`: `apellidos` (default) | `nombres` | `rut`.
+- `orden`: `asc` (default) | `desc`.
+
+**Respuesta:** Retorna `{ data: PersonalItem[], meta: PaginationMeta }` conforme al estándar transversal H34.
 
 ### 3.4. `POST /api/personal` (HU-10: Registrar Nuevo Funcionario)
 Registra un nuevo funcionario municipal en el sistema SGRAI, aprovisionando su cuenta en `usuario` y su ficha operativa en `personal` si el rol es de terreno o se proveen atributos de campo.

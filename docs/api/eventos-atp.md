@@ -1,12 +1,12 @@
-# Módulo: Eventos ATP (Prevención y Puntos Críticos) — Documentación Técnica de API
+# Módulo: Eventos ATP (Prevención, Puntos Críticos y Recuperación) — Documentación Técnica de API
 
-Este documento describe la operativa técnica de los endpoints y reglas de negocio del módulo de **Eventos ATP** (Alerta Temprana Preventiva, Prevención y Puntos Críticos) en el backend monolítico modular `sgrai-api`, dirigido a los desarrolladores de `sgrai-web` (específicamente la interfaz de Monitoreo del Administrador) y `sgrai-pwa`.
+Este documento describe la operativa técnica de los endpoints y reglas de negocio del módulo de **Eventos ATP** (Alerta Temprana Preventiva, Prevención, Puntos Críticos y Recuperación) en el backend monolítico modular `sgrai-api`, dirigido a los desarrolladores de `sgrai-web` (específicamente la interfaz de Monitoreo del Administrador y Centro de Mando) y `sgrai-pwa`.
 
 ---
 
 ## 1. Contexto y Reglas de Negocio Aplicadas
 
-El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulnerabilidad y eventos de mitigación/prevención en la comuna de Valdivia:
+El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulnerabilidad, eventos de mitigación/prevención y recuperación en la comuna de Valdivia:
 
 1. **Monitoreo de Puntos Críticos y Sectores Vulnerables (HU-57):**
    - El sistema almacena y cataloga los sectores geográficos vulnerables recurrentes de Valdivia (ej. humedales, riberas de ríos, laderas de cerros propensas a remoción en masa, zonas bajas propensas a anegamiento).
@@ -29,6 +29,7 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
    - Todo punto crítico almacena sus coordenadas geográficas en EPSG:4326 (`latitud`, `longitud`) y las indexa con GIST sobre la columna geométrica `ubicacion` (`Point`), permitiendo visualizaciones en mapas interactivos y futuros cálculos de proximidad de recursos.
 6. **Control de Acceso Basado en Roles (RBAC):**
    - La gestión de puntos críticos (`GET`, `POST`, `PUT`, `DELETE`) está **restringida estrictamente al rol `Administrador`** del sistema (permisos `puntos_criticos:leer`, `puntos_criticos:crear`, `puntos_criticos:editar`, `puntos_criticos:eliminar`).
+   - La creación de eventos de recuperación está habilitada para `Encargado de Operaciones` y `Administrador` (permiso `recuperacion:crear`).
    - Cualquier petición anónima es rechazada con `401 Unauthorized`.
    - Cualquier petición proveniente de un usuario sin los permisos requeridos es rechazada con `403 Forbidden`.
    - La autenticación se verifica a través de la cabecera HTTP `X-User-Id: <UUID>` o el token Bearer (`Authorization: Bearer <token>`).
@@ -41,8 +42,13 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
    - Para mantener la trazabilidad de eventos preventivos pasados asociados a una coordenada (y el histórico requerido para reportería SENAPRED), la desactivación de un punto crítico **no destruye físicamente el registro**. En su lugar, se actualiza `activo = false`, registrando de forma inmutable la estampa de tiempo `eliminado_en` y el UUID del usuario responsable `eliminado_por_id`.
 10. **Protección de Operaciones Activas en Terreno (HU-56):**
     - Si el punto crítico se encuentra vinculado a una misión preventiva activa (estados `PLANIFICADA`, `DESPACHADA` o `EN_CURSO`) o tiene una patrulla/cuadrilla asignada, la API **rechaza la solicitud de eliminación con código HTTP `409 Conflict`**, evitando dejar unidades operativas huérfanas o desarticular el plan de contingencia en curso.
-11. **Sincronización Reactiva en Tiempo Real (Socket.io):**
-    - Al crearse, modificarse o eliminarse lógicamente un punto crítico, la API emite eventos dedicados (`"punto_critico:creado"`, `"punto_critico:actualizado"`, `"punto_critico:eliminado"`) a las salas `"administrador"`, `"encargado"` y `"supervisor"`, así como en difusión general, permitiendo al visor cartográfico de `sgrai-web` actualizar el mapa interactivo y la tabla instantáneamente sin recargar la página.
+11. **Creación de Eventos de Recuperación y Despacho Directo (HU-29):**
+    - El Encargado puede registrar eventos de recuperación en terreno para entregar insumos y asistencia a sectores o familias damnificadas sin necesidad de un incidente formal previo.
+    - El sistema valida atómicamente la existencia y disponibilidad de la patrulla verificadora seleccionada (`patrulla_verificadora.estado = 'DISPONIBLE'`).
+    - El sistema comprueba mediante bloqueo transaccional (`FOR UPDATE`) que haya stock suficiente en bodega (`cantidad_inventario - cantidad_en_uso >= cantidad_solicitada`).
+    - En la misma transacción atómica de Kysely, se descuentan los recursos del inventario disponible (`cantidad_inventario`), se actualiza la patrulla al estado `'EN_RECUPERACION'`, se genera una misión táctica en estado `'DESPACHADA'` y se emite el evento WebSocket `recuperacion:creada` en tiempo real.
+12. **Sincronización Reactiva en Tiempo Real (Socket.io):**
+    - Al crearse, modificarse o eliminarse lógicamente un punto crítico, o registrarse un evento de recuperación, la API emite eventos dedicados (`"punto_critico:creado"`, `"punto_critico:actualizado"`, `"punto_critico:eliminado"`, `"recuperacion:creada"`) a las salas correspondientes (`"administrador"`, `"encargado"`, `"supervisor"`, `"mapa"`), permitiendo al visor cartográfico de `sgrai-web` actualizar el mapa interactivo y las tablas instantáneamente sin recargar la página.
 
 ---
 
@@ -55,6 +61,7 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
 | `DELETE` | `/api/puntos-criticos/{id}` | Desactivar (borrado lógico) un punto crítico comunal, validando dependencias operativas y notificando vía Socket.io (HU-56). |
+| `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
 
 > Nota: Los contratos OpenAPI 3.0 se autogeneran a partir de los esquemas Zod y están expuestos públicamente en `GET /openapi.json`.
 
@@ -91,7 +98,7 @@ Retorna una lista paginada de los puntos críticos registrados, incluyendo sus f
       "id": "40000000-0000-4000-8000-000000000001",
       "codigo": "PC-ANG-01",
       "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
-      "descripcion": "Zona baja con riesgo de anegamiento por desborde fluvial",
+      "descripcion": "Zona baja con riesgo recurrente de anegamiento por desborde en temporada invernal",
       "tipoRiesgo": "Inundación y anegamiento",
       "prioridad": "ALTA",
       "activo": true,
@@ -99,8 +106,8 @@ Retorna una lista paginada de los puntos críticos registrados, incluyendo sus f
       "latitud": -39.8456,
       "longitud": -73.2389,
       "delegacion": {
-        "id": "30000000-0000-4000-8000-000000000001",
-        "codigo": "DEL-SUR",
+        "id": "30000000-0000-4000-8000-000000000002",
+        "codigo": "DEL_SUR",
         "nombre": "Delegación Municipal Sur"
       },
       "creadoEn": "2026-06-15T12:00:00.000Z"
@@ -112,39 +119,6 @@ Retorna una lista paginada de los puntos críticos registrados, incluyendo sus f
     "limite": 10,
     "totalPaginas": 1
   }
-}
-```
-
-#### `200 OK` — Lista vacía (sin registros)
-```json
-{
-  "data": [],
-  "meta": {
-    "total": 0,
-    "pagina": 1,
-    "limite": 10,
-    "totalPaginas": 0
-  }
-}
-```
-
-#### `400 Bad Request` — Parámetros inválidos
-```json
-{
-  "message": "Parámetros de consulta inválidos.",
-  "errors": [
-    {
-      "campo": "pagina",
-      "mensaje": "Number must be greater than or equal to 1"
-    }
-  ]
-}
-```
-
-#### `401 Unauthorized` — Falta cabecera de autenticación
-```json
-{
-  "message": "Cabecera X-User-Id requerida para autenticación."
 }
 ```
 
@@ -297,6 +271,13 @@ Retorna la información completa de un punto crítico específico con auditoría
 
 Permite actualizar los atributos descriptivos, factores de riesgo y coordenadas geográficas de un punto crítico comunal.
 
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `X-User-Id` | `UUID` | Sí | Identificador del usuario con rol `Administrador` y permiso `puntos_criticos:editar`. |
+| `Content-Type` | `string` | Sí | `application/json` |
+
 ### Reglas de Negocio del Endpoint
 1. **Inmutabilidad del Código:** El código institucional (`codigo`) no puede modificarse.
 2. **Reubicación Dinámica:** Las coordenadas pueden modificarse en cualquier momento recalculando la columna geométrica PostGIS.
@@ -364,6 +345,19 @@ Aplica el **borrado lógico** (*soft delete*) de un punto crítico del catálogo
 
 Si el punto crítico está vinculado a una misión preventiva activa (estados `PLANIFICADA`, `DESPACHADA` o `EN_CURSO`) o tiene personal desplegado en el lugar, la eliminación es rechazada con `409 Conflict`.
 
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `Authorization` | `string` | No | Token Bearer JWT de sesión. |
+| `X-User-Id` | `UUID` | No | Identificador del usuario con rol `Administrador` y permiso `puntos_criticos:eliminar`. |
+
+### Parámetros de Ruta (Path Params)
+
+| Parámetro | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `id` | `UUID` | Sí | Identificador único del punto crítico a desactivar. |
+
 ### Respuestas HTTP Esperadas
 
 #### `200 OK` — Desactivación lógica exitosa
@@ -379,6 +373,33 @@ Si el punto crítico está vinculado a una misión preventiva activa (estados `P
 }
 ```
 
+#### `400 Bad Request` — Identificador UUID inválido
+```json
+{
+  "message": "Identificador de punto crítico inválido."
+}
+```
+
+#### `401 Unauthorized` — Falta cabecera de autenticación
+```json
+{
+  "message": "Cabecera X-User-Id o token Bearer requerido para autenticación."
+}
+```
+
+#### `403 Forbidden` — Acceso denegado
+```json
+{
+  "message": "Acceso denegado. Se requiere el perfil de Administrador con permiso puntos_criticos:eliminar."
+}
+```
+
+#### `404 Not Found` — Punto crítico inexistente
+```json
+{
+  "message": "Punto crítico con ID '40000000-0000-4000-8000-000000000099' no encontrado."
+}
+```
 #### `409 Conflict` — Misiones preventivas o patrullas activas en el lugar
 ```json
 {
@@ -388,12 +409,167 @@ Si el punto crítico está vinculado a una misión preventiva activa (estados `P
 
 ---
 
-## 8. Eventos de Tiempo Real (Socket.io)
+## 8. Detalle de Endpoint: `POST /api/eventos-atp/recuperacion` (HU-29)
+
+Permite al perfil **Encargado de Operaciones** (o Administrador) crear un evento de recuperación territorial y despachar una patrulla verificadora con insumos y recursos logísticos hacia un sector afectado, de forma atómica y sin requerir un incidente formal.
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `X-User-Id` | `UUID` | Sí | Identificador del usuario autenticado con permiso `recuperacion:crear` (Encargado o Administrador). |
+| `Content-Type` | `string` | Sí | `application/json` |
+
+### Cuerpo de la Solicitud (Payload JSON)
+
+| Campo | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `nombre` | `string` | Sí | Título descriptivo del evento (3 a 150 caracteres). |
+| `descripcion` | `string` | No | Detalle o instrucciones para la patrulla (máx. 1000 caracteres). |
+| `sector` | `string` | Sí | Sector geográfico o población en Valdivia (ej. `"Collico"`, `"Isla Teja"`). |
+| `direccionTexto` | `string` | No | Dirección o punto de referencia en terreno. |
+| `prioridad` | `enum` | No | Nivel de urgencia: `'BAJA'`, `'MEDIA'`, `'ALTA'`, `'CRITICA'` (default: `'MEDIA'`). |
+| `contactoNombre` | `string` | No | Nombre del referente vecinal o solicitante en terreno. |
+| `contactoTelefono` | `string` | No | Teléfono de contacto en terreno. |
+| `latitud` | `number` | Sí | Latitud geográfica WGS84 (-90 a 90). |
+| `longitud` | `number` | Sí | Longitud geográfica WGS84 (-180 a 180). |
+| `delegacionId` | `UUID` | No | Identificador de la delegación territorial (si se omite, se hereda de la patrulla). |
+| `patrullaId` | `UUID` | Sí | Identificador de la patrulla verificadora asignada (debe estar en estado `'DISPONIBLE'`). |
+| `familiasAfectadas` | `number` | No | Cantidad estimada de familias beneficiarias (default: `0`). |
+| `recursos` | `array` | Sí | Arreglo de insumos solicitados con `{ recursoId: UUID, cantidad: number > 0 }` (mínimo 1 elemento). |
+
+#### Ejemplo de Solicitud (Request Body)
+```json
+{
+  "nombre": "Entrega de frazadas y techumbre en Sector Collico",
+  "descripcion": "Damnificados por temporal de viento con voladura de techos",
+  "sector": "Collico",
+  "direccionTexto": "Calle Balmaceda 1245 con Las Palmeras",
+  "prioridad": "ALTA",
+  "contactoNombre": "Don Juan Pérez",
+  "contactoTelefono": "+56912345678",
+  "latitud": -39.8142,
+  "longitud": -73.2459,
+  "delegacionId": "30000000-0000-4000-8000-000000000001",
+  "patrullaId": "50000000-0000-4000-8000-000000000001",
+  "familiasAfectadas": 4,
+  "recursos": [
+    {
+      "recursoId": "80000000-0000-4000-8000-000000000001",
+      "cantidad": 10
+    }
+  ]
+}
+```
+
+### Respuestas HTTP Esperadas
+
+#### `201 Created` — Evento registrado y patrulla despachada
+```json
+{
+  "message": "Evento de recuperación registrado y patrulla despachada exitosamente.",
+  "data": {
+    "id": "70000000-0000-4000-8000-000000000001",
+    "codigo": "REC-2026-0001",
+    "nombre": "Entrega de frazadas y techumbre en Sector Collico",
+    "descripcion": "Damnificados por temporal de viento con voladura de techos",
+    "sector": "Collico",
+    "direccionTexto": "Calle Balmaceda 1245 con Las Palmeras",
+    "prioridad": "ALTA",
+    "contactoNombre": "Don Juan Pérez",
+    "contactoTelefono": "+56912345678",
+    "latitud": -39.8142,
+    "longitud": -73.2459,
+    "estado": "PLANIFICADA",
+    "familiasAfectadas": 4,
+    "delegacion": {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "codigo": "DEL-SUR",
+      "nombre": "Delegación Municipal Sur"
+    },
+    "mision": {
+      "id": "60000000-0000-4000-8000-000000000001",
+      "codigo": "MIS-2026-0001",
+      "titulo": "Entrega de frazadas y techumbre en Sector Collico",
+      "estado": "DESPACHADA",
+      "tipoMision": "RECUPERACION"
+    },
+    "patrulla": {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "nombre": "Patrulla Verificadora Alfa",
+      "estado": "EN_RECUPERACION"
+    },
+    "recursos": [
+      {
+        "recursoId": "80000000-0000-4000-8000-000000000001",
+        "nombre": "Frazadas Térmicas",
+        "cantidadAsignada": 10
+      }
+    ],
+    "creadoPorId": "00000000-0000-4000-8000-000000000003",
+    "creadoEn": "2026-10-04T22:30:00.000Z",
+    "actualizadoEn": "2026-10-04T22:30:00.000Z"
+  }
+}
+```
+
+#### `400 Bad Request` — Fallo de validación de datos
+```json
+{
+  "message": "Datos de entrada inválidos para el evento de recuperación.",
+  "errors": [
+    {
+      "campo": "recursos",
+      "mensaje": "Debe asignar al menos un recurso al evento de recuperación"
+    }
+  ]
+}
+```
+
+#### `401 Unauthorized` — Usuario no autenticado
+```json
+{
+  "message": "Cabecera X-User-Id requerida para autenticación."
+}
+```
+
+#### `403 Forbidden` — Falta permiso `recuperacion:crear`
+```json
+{
+  "message": "No posee el permiso requerido: recuperacion:crear"
+}
+```
+
+#### `404 Not Found` — Patrulla o recurso no encontrado
+```json
+{
+  "message": "La patrulla verificadora indicada no fue encontrada."
+}
+```
+
+#### `409 Conflict` — Conflicto operativo (Patrulla ocupada o Stock insuficiente)
+* **Patrulla no disponible:**
+```json
+{
+  "message": "La patrulla \"Patrulla Verificadora Alfa\" no está disponible para asignación (estado actual: EN_VERIFICACION)."
+}
+```
+* **Stock insuficiente:**
+```json
+{
+  "message": "Stock insuficiente para el recurso \"Frazadas Térmicas\". Solicitado: 10, Disponible: 3."
+}
+```
+
+---
+
+## 9. Eventos de Tiempo Real (Socket.io)
 
 ### Evento: `punto_critico:creado`
 
 Emitido automáticamente tras el registro exitoso de un nuevo punto crítico hacia las salas `"encargado"`, `"supervisor"` y `"administrador"`.
 
+* **Consumo en Frontend:**
 ```typescript
 socket.on("punto_critico:creado", (nuevoPunto) => {
   // 1. Agregar nuevo marcador en el mapa cartográfico
@@ -407,6 +583,31 @@ socket.on("punto_critico:creado", (nuevoPunto) => {
 
 Emitido automáticamente tras una actualización exitosa de características o coordenadas hacia las salas `"encargado"`, `"supervisor"` y `"administrador"`.
 
+* **Payload:**
+```json
+{
+  "id": "40000000-0000-4000-8000-000000000001",
+  "codigo": "PC-ANG-01",
+  "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
+  "descripcion": "Zona baja con riesgo de anegamiento por desborde fluvial",
+  "tipoRiesgo": "Inundación y anegamiento",
+  "prioridad": "ALTA",
+  "activo": true,
+  "estadoTexto": "Activo",
+  "latitud": -39.8456,
+  "longitud": -73.2389,
+  "delegacion": {
+    "id": "30000000-0000-4000-8000-000000000001",
+    "codigo": "DEL-SUR",
+    "nombre": "Delegación Municipal Sur"
+  },
+  "creadoEn": "2026-06-15T12:00:00.000Z",
+  "actualizadoEn": "2026-10-04T19:00:00.000Z",
+  "actualizadoPorId": "00000000-0000-4000-8000-000000000001"
+}
+```
+
+* **Consumo en Frontend:**
 ```typescript
 socket.on("punto_critico:actualizado", (puntoActualizado) => {
   // 1. Actualizar el marcador en el mapa cartográfico
@@ -420,6 +621,18 @@ socket.on("punto_critico:actualizado", (puntoActualizado) => {
 
 Emitido automáticamente tras un borrado lógico exitoso hacia las salas `"encargado"`, `"supervisor"` y difusión general.
 
+* **Payload:**
+```json
+{
+  "id": "40000000-0000-4000-8000-000000000001",
+  "codigo": "PC-ANG-01",
+  "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
+  "eliminadoPorId": "00000000-0000-4000-8000-000000000001",
+  "eliminadoEn": "2026-10-04T00:30:00.000Z"
+}
+```
+
+* **Consumo en Frontend:**
 ```typescript
 socket.on("punto_critico:eliminado", ({ id }) => {
   // 1. Remover el marcador Leaflet del mapa interactivo
@@ -428,3 +641,14 @@ socket.on("punto_critico:eliminado", ({ id }) => {
   tablaPuntosCriticos.removerFila(id);
 });
 ```
+
+### Evento: `recuperacion:creada`
+
+Al completar exitosamente la transacción de creación del evento, el backend emite:
+
+* **Evento:** `recuperacion:creada`
+* **Salas:** `"sala:encargados"`, `"encargado"`, `"mapa"`
+* **Payload:** Objeto idéntico a la propiedad `data` de la respuesta `201 Created`.
+* **Propósito en Frontend (`sgrai-web`):**
+  - Actualizar inmediatamente el mapa interactivo (añadiendo el nuevo marcador del evento con sus coordenadas).
+  - Actualizar la tabla de misiones en curso y la lista de patrullas disponibles/ocupadas sin requerir recargar la página.
