@@ -34,6 +34,7 @@ import {
   RecursoIdParamSchema,
   ListarRecursosQuerySchema,
   ListarRecursosPaginadosResponseSchema,
+  EliminarRecursoResponseSchema,
 } from "@/modules/recursos-y-personal/recurso.schema";
 
 import {
@@ -54,11 +55,18 @@ import {
 } from "@/modules/incidentes/incidente-kanban.schema";
 
 import {
+  IncidentesKpisQuerySchema,
+  IncidentesKpisResponseSchema,
+} from "@/modules/incidentes/incidente-kpi.schema";
+
+import {
   ModificarEmpleadoSchema,
   EmpleadoConsolidadoSchema,
   ListarEmpleadosResponseSchema,
   ActualizarEmpleadoResponseSchema,
   CatalogosResponseSchema,
+  DetalleEmpleadoResponseSchema,
+  EliminarEmpleadoResponseSchema,
 } from "@/modules/recursos-y-personal/schemas/modificar-empleado.schema";
 import {
   RegistrarEmpleadoSchema,
@@ -87,6 +95,7 @@ registry.register("CrearRecursoInput", CrearRecursoInputSchema);
 registry.register("ActualizarRecursoInput", ActualizarRecursoInputSchema);
 registry.register("RecursoResponse", RecursoResponseSchema);
 registry.register("RecursoDetalleResponse", RecursoDetalleResponseSchema);
+registry.register("EliminarRecursoResponse", EliminarRecursoResponseSchema);
 registry.register("ListarRecursosPaginadosResponse", ListarRecursosPaginadosResponseSchema);
 registry.register("ModificarEmpleadoInput", ModificarEmpleadoSchema);
 registry.register("RegistrarEmpleadoInput", RegistrarEmpleadoSchema);
@@ -95,6 +104,8 @@ registry.register("EmpleadoConsolidado", EmpleadoConsolidadoSchema);
 registry.register("ListarEmpleadosResponse", ListarEmpleadosResponseSchema);
 registry.register("ActualizarEmpleadoResponse", ActualizarEmpleadoResponseSchema);
 registry.register("CatalogosResponse", CatalogosResponseSchema);
+registry.register("DetalleEmpleadoResponse", DetalleEmpleadoResponseSchema);
+registry.register("EliminarEmpleadoResponse", EliminarEmpleadoResponseSchema);
 
 
 // Registrar esquemas de Seguridad
@@ -126,6 +137,7 @@ registry.register("CrearIncidenteManualResponse", CrearIncidenteManualResponseSc
 registry.register("VerificarDuplicadoInput", VerificarDuplicadoInputSchema);
 registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema);
 registry.register("IncidenteResponse", IncidenteResponseSchema);
+registry.register("IncidentesKpisResponse", IncidentesKpisResponseSchema);
 
 // ==========================================
 // RUTAS RECURSOS Y PERSONAL
@@ -875,6 +887,71 @@ registry.registerPath({
   },
 });
 
+// GET /api/personal/{id} (Obtener detalle de empleado)
+registry.registerPath({
+  method: "get",
+  path: "/api/personal/{id}",
+  description:
+    "Consulta los datos detallados de un empleado por ID (usuario_id o personal_id).",
+  summary: "Obtener detalle de empleado",
+  tags: ["Recursos y Personal"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del usuario o de la ficha de personal"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del empleado obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: DetalleEmpleadoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Identificador inválido (debe ser un UUID válido)" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado" },
+    404: { description: "Empleado no encontrado" },
+    409: { description: "Conflicto con el recurso" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// DELETE /api/personal/{id} (HU-13: Baja Lógica de Empleado)
+registry.registerPath({
+  method: "delete",
+  path: "/api/personal/{id}",
+  description:
+    "Ejecuta la baja lógica (soft-delete) de un empleado o funcionario en SGRAI, desactivando al usuario y marcando personal inactivo.",
+  summary: "Baja lógica de empleado",
+  tags: ["Recursos y Personal"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().optional().describe("UUID del administrador autenticado que ejecuta la baja lógica"),
+    }),
+    params: z.object({
+      id: z.string().uuid().describe("UUID del usuario o de la ficha de personal"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Empleado dado de baja exitosamente",
+      content: {
+        "application/json": {
+          schema: EliminarEmpleadoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Identificador inválido o solicitud incorrecta" },
+    401: { description: "No autenticado o cabecera de autenticación ausente/inválida" },
+    403: { description: "Acceso denegado: se requiere rol de Administrador" },
+    404: { description: "Empleado no encontrado" },
+    409: { description: "Conflicto: empleado en misión o patrulla activa" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
 // 18. GET /api/catalogos (Catálogos de roles, delegaciones, cargos y especialidades)
 registry.registerPath({
   method: "get",
@@ -994,7 +1071,55 @@ registry.registerPath({
   },
 });
 
-// 20. GET /api/misiones/{id} (HU-17: Detalle Completo de Misión)
+// 21. DELETE /api/recursos/{id} (HU-9)
+registry.registerPath({
+  method: "delete",
+  path: "/api/recursos/{id}",
+  summary: "Eliminar recurso del inventario (borrado lógico)",
+  description:
+    "Aplica un borrado lógico (soft delete) a un recurso existente registrando fecha, hora y usuario responsable. Impide la eliminación con código 409 Conflict si el recurso está actualmente en uso en terreno o asignado a una misión activa / cuadrilla. Emite evento WebSocket 'recurso:eliminado' a los clientes conectados.",
+  tags: ["Recursos y Personal"],
+  request: {
+    params: RecursoIdParamSchema,
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Recurso eliminado exitosamente (baja lógica aplicada)",
+      content: {
+        "application/json": {
+          schema: EliminarRecursoResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de recurso inválido",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    404: {
+      description: "Recurso no encontrado o ya dado de baja",
+    },
+    409: {
+      description: "Conflicto operativo: el recurso está asignado a una misión activa o cuadrilla en terreno",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 22. GET /api/misiones/{id} (HU-17: Detalle Completo de Misión)
 registry.registerPath({
   method: "get",
   path: "/api/misiones/{id}",
@@ -1004,9 +1129,11 @@ registry.registerPath({
   tags: ["Misiones"],
   request: {
     headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
       "x-user-id": z
         .string()
         .uuid()
+        .optional()
         .openapi({ description: "ID del usuario Encargado, Administrador o Supervisor autenticado" }),
     }),
     params: z.object({
@@ -1077,6 +1204,47 @@ registry.registerPath({
   },
 });
 
+// 23. GET /api/incidentes/kpis (HU-18)
+registry.registerPath({
+  method: "get",
+  path: "/api/incidentes/kpis",
+  summary: "Obtener contadores y KPIs de incidentes del día",
+  description:
+    "Retorna los contadores numéricos consolidados de incidentes agrupados por los 5 estados canónicos (REPORTADO, VERIFICANDO, EN_ATENCION, NO_ABORDABLE, RESUELTO) para el día indicado o la fecha actual en Valdivia/Chile (America/Santiago). Admite filtrado opcional por delegación territorial.",
+  tags: ["Incidentes"],
+  request: {
+    query: IncidentesKpisQuerySchema,
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Admin)" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Contadores de incidentes del día obtenidos exitosamente",
+      content: {
+        "application/json": {
+          schema: IncidentesKpisResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente",
+    },
+    403: {
+      description: "Acceso denegado. Permiso insuficiente",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
 // DELETE /api/puntos-criticos/{id} (HU-56)
 registry.registerPath({
   method: "delete",
@@ -1088,9 +1256,14 @@ registry.registerPath({
   request: {
     params: PuntoCriticoIdParamSchema,
     headers: z.object({
+      authorization: z
+        .string()
+        .optional()
+        .describe("Token Bearer JWT de sesión"),
       "x-user-id": z
         .string()
         .uuid()
+        .optional()
         .describe("UUID del usuario Administrador autenticado"),
     }),
   },
@@ -1107,7 +1280,7 @@ registry.registerPath({
       description: "Identificador UUID de punto crítico inválido",
     },
     401: {
-      description: "Cabecera de autenticación X-User-Id ausente o usuario no válido",
+      description: "Cabecera de autenticación ausente o token no válido",
     },
     403: {
       description: "Acceso denegado. Se requiere perfil de Administrador con permiso puntos_criticos:eliminar",

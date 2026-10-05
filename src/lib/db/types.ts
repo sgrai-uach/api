@@ -23,8 +23,10 @@ export interface RecursoTable {
   delegacion_id?: string | null;
   creado_por_id: string;
   actualizado_por_id: string | null;
+  eliminado_por_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
+  eliminado_en: Date | null;
 }
 
 export type EstadoOperativoPersonal =

@@ -10,19 +10,24 @@ import {
   RecursoIdParamSchema,
   DetallesRecursoSchema,
   ListarRecursosQuerySchema,
+  EliminarRecursoResponseSchema,
 } from "../recurso.schema";
 import {
   crearRecurso,
   listarRecursos,
   obtenerRecursoDetalle,
   editarRecurso,
+  eliminarRecurso,
 } from "../recurso.service";
 import * as recursoRepository from "../recurso.repository";
+import * as socketLib from "@/lib/socket";
 import { seguridadService } from "@/modules/seguridad/service";
+import { PERMISO_ELIMINAR_RECURSO } from "@/modules/seguridad/permisos.constants";
 import {
   UnauthorizedError,
   ForbiddenError,
   NotFoundError,
+  ConflictError,
 } from "@/modules/seguridad/errors";
 
 describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
@@ -686,5 +691,242 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
       expect(resultado.estado).toBe("NO_DISPONIBLE");
     });
   });
+
+  describe("8. Servicio de Eliminación Lógica de Recurso (eliminarRecurso - HU-9)", () => {
+    const adminId = "00000000-0000-4000-8000-000000000001";
+    const recursoId = "40000000-0000-4000-8000-000000000001";
+
+    it("debe arrojar UnauthorizedError si usuarioId está ausente o vacío", async () => {
+      await expect(eliminarRecurso(recursoId, null)).rejects.toThrow(UnauthorizedError);
+      await expect(eliminarRecurso(recursoId, "")).rejects.toThrow(UnauthorizedError);
+    });
+
+    it("debe arrojar ForbiddenError si el usuario no tiene rol de Administrador ni permiso", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValueOnce(
+        new ForbiddenError("Acceso denegado. Se requiere el perfil de Administrador.")
+      );
+
+      await expect(eliminarRecurso(recursoId, "usuario-no-admin")).rejects.toThrow(ForbiddenError);
+    });
+
+    it("debe validar el permiso recursos:eliminar al verificar el acceso", async () => {
+      const spyValidar = vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
+        id: adminId,
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+        activo: true,
+      });
+
+      vi.spyOn(recursoRepository, "obtenerRecursoPorId").mockResolvedValueOnce(null);
+
+      await expect(eliminarRecurso(recursoId, adminId)).rejects.toThrow(NotFoundError);
+      expect(spyValidar).toHaveBeenCalledWith(adminId, [PERMISO_ELIMINAR_RECURSO]);
+    });
+
+    it("debe arrojar NotFoundError si el recurso no existe o ya está eliminado", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
+        id: adminId,
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+        activo: true,
+      });
+
+      vi.spyOn(recursoRepository, "obtenerRecursoPorId").mockResolvedValueOnce(null);
+
+      await expect(eliminarRecurso(recursoId, adminId)).rejects.toThrow(NotFoundError);
+    });
+
+    it("debe arrojar ConflictError si el recurso tiene unidades activas en uso", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
+        id: adminId,
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+        activo: true,
+      });
+
+      vi.spyOn(recursoRepository, "obtenerRecursoPorId").mockResolvedValueOnce({
+        id: recursoId,
+        nombre: "Camioneta 4x4",
+        es_individual: true,
+        estado: "ASIGNADO" as const,
+        cantidad_inventario: 1,
+        cantidad_en_uso: 1,
+        cantidad_minima: 0,
+        latitud: -39.8142,
+        longitud: -73.2459,
+        descripcion: null,
+        detalles: {},
+        delegacion_id: null,
+        creado_por_id: adminId,
+        actualizado_por_id: null,
+        eliminado_por_id: null,
+        creado_en: new Date(),
+        actualizado_en: new Date(),
+        eliminado_en: null,
+      } as unknown as Awaited<ReturnType<typeof recursoRepository.obtenerRecursoPorId>>);
+
+      vi.spyOn(recursoRepository, "verificarAsignacionesActivasRecurso").mockResolvedValueOnce({
+        enUso: true,
+        motivo: "El recurso 'Camioneta 4x4' tiene 1 unidades actualmente en uso en terreno.",
+      });
+
+      await expect(eliminarRecurso(recursoId, adminId)).rejects.toThrow(ConflictError);
+    });
+
+    it("debe arrojar ConflictError si el recurso está asignado a cuadrillas en misión activa", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
+        id: adminId,
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+        activo: true,
+      });
+
+      vi.spyOn(recursoRepository, "obtenerRecursoPorId").mockResolvedValueOnce({
+        id: recursoId,
+        nombre: "Generador 5kVA",
+        es_individual: true,
+        estado: "DISPONIBLE" as const,
+        cantidad_inventario: 1,
+        cantidad_en_uso: 0,
+        cantidad_minima: 0,
+        latitud: -39.8142,
+        longitud: -73.2459,
+        descripcion: null,
+        detalles: {},
+        delegacion_id: null,
+        creado_por_id: adminId,
+        actualizado_por_id: null,
+        eliminado_por_id: null,
+        creado_en: new Date(),
+        actualizado_en: new Date(),
+        eliminado_en: null,
+      } as unknown as Awaited<ReturnType<typeof recursoRepository.obtenerRecursoPorId>>);
+
+      vi.spyOn(recursoRepository, "verificarAsignacionesActivasRecurso").mockResolvedValueOnce({
+        enUso: true,
+        motivo: "El recurso 'Generador 5kVA' se encuentra asignado a cuadrillas con misiones activas o en terreno (Cuadrilla Vías y Calles).",
+      });
+
+      await expect(eliminarRecurso(recursoId, adminId)).rejects.toThrow(
+        /se encuentra asignado a cuadrillas con misiones activas/
+      );
+    });
+
+    it("debe aplicar borrado lógico correctamente, registrar fecha/usuario y emitir evento Socket.io", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
+        id: adminId,
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+        activo: true,
+      });
+
+      vi.spyOn(recursoRepository, "obtenerRecursoPorId").mockResolvedValueOnce({
+        id: recursoId,
+        nombre: "Pala Cuadrada",
+        es_individual: false,
+        estado: "DISPONIBLE" as const,
+        cantidad_inventario: 20,
+        cantidad_en_uso: 0,
+        cantidad_minima: 5,
+        latitud: -39.8142,
+        longitud: -73.2459,
+        descripcion: null,
+        detalles: {},
+        delegacion_id: null,
+        creado_por_id: adminId,
+        actualizado_por_id: null,
+        eliminado_por_id: null,
+        creado_en: new Date(),
+        actualizado_en: new Date(),
+        eliminado_en: null,
+      } as unknown as Awaited<ReturnType<typeof recursoRepository.obtenerRecursoPorId>>);
+
+      vi.spyOn(recursoRepository, "verificarAsignacionesActivasRecurso").mockResolvedValueOnce({
+        enUso: false,
+      });
+
+      const fechaBaja = new Date("2026-09-30T19:30:00.000Z");
+      const marcarSpy = vi.spyOn(recursoRepository, "marcarRecursoEliminado").mockResolvedValueOnce({
+        id: recursoId,
+        nombre: "Pala Cuadrada",
+        eliminado_en: fechaBaja,
+        eliminado_por_id: adminId,
+      } as unknown as Awaited<ReturnType<typeof recursoRepository.marcarRecursoEliminado>>);
+
+      const socketSpy = vi.spyOn(socketLib, "emitirRecursoEliminado").mockReturnValue(undefined);
+
+      const resultado = await eliminarRecurso(recursoId, adminId);
+
+      expect(marcarSpy).toHaveBeenCalledWith(recursoId, adminId);
+      expect(socketSpy).toHaveBeenCalledWith({
+        id: recursoId,
+        nombre: "Pala Cuadrada",
+        eliminadoPorId: adminId,
+        eliminadoEn: fechaBaja.toISOString(),
+      });
+      expect(resultado.id).toBe(recursoId);
+      expect(resultado.nombre).toBe("Pala Cuadrada");
+      expect(resultado.eliminadoPorId).toBe(adminId);
+      expect(resultado.eliminadoEn).toBe(fechaBaja.toISOString());
+      expect(EliminarRecursoResponseSchema.safeParse(resultado).success).toBe(true);
+    });
+
+    it("debe arrojar NotFoundError si marcarRecursoEliminado retorna null", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
+        id: adminId,
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+        activo: true,
+      });
+
+      vi.spyOn(recursoRepository, "obtenerRecursoPorId").mockResolvedValueOnce({
+        id: recursoId,
+        nombre: "Recurso Concurrente",
+        es_individual: false,
+        estado: "DISPONIBLE" as const,
+        cantidad_inventario: 10,
+        cantidad_en_uso: 0,
+        cantidad_minima: 2,
+        latitud: -39.8142,
+        longitud: -73.2459,
+        descripcion: null,
+        detalles: {},
+        delegacion_id: null,
+        creado_por_id: adminId,
+        actualizado_por_id: null,
+        eliminado_por_id: null,
+        creado_en: new Date(),
+        actualizado_en: new Date(),
+        eliminado_en: null,
+      } as unknown as Awaited<ReturnType<typeof recursoRepository.obtenerRecursoPorId>>);
+
+      vi.spyOn(recursoRepository, "verificarAsignacionesActivasRecurso").mockResolvedValueOnce({
+        enUso: false,
+      });
+
+      vi.spyOn(recursoRepository, "marcarRecursoEliminado").mockResolvedValueOnce(null);
+
+      await expect(eliminarRecurso(recursoId, adminId)).rejects.toThrow(NotFoundError);
+    });
+  });
 });
+
 

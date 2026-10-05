@@ -60,9 +60,11 @@ export function getSocketServer(): TypedSocketServer | SocketIOServer | null {
 function getRedisPublisher(): Redis | null {
   if (!redisPublisher && process.env.REDIS_URL) {
     redisPublisher = new Redis(process.env.REDIS_URL, {
-      maxRetriesPerRequest: null,
-      lazyConnect: false,
+      maxRetriesPerRequest: 1,
+      retryStrategy: () => null,
+      lazyConnect: true,
     });
+    redisPublisher.on("error", () => {});
   }
   return redisPublisher;
 }
@@ -249,6 +251,40 @@ export function emitirRecursoActualizado(recurso: Record<string, unknown>): void
           room: "encargado",
           event: "recurso:actualizado",
           payload: recurso,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
+/**
+ * Emite la notificación de recurso eliminado a las vistas de Encargado, Supervisor y Administrador.
+ */
+export function emitirRecursoEliminado(payload: {
+  id: string;
+  nombre: string;
+  eliminadoPorId: string;
+  eliminadoEn: string;
+}): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("recurso:eliminado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("recurso:eliminado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("recurso:eliminado", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "encargado",
+          event: "recurso:eliminado",
+          payload,
         })
       )
       .catch(() => {});
