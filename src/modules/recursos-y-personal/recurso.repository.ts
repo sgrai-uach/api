@@ -83,8 +83,8 @@ export interface DatosActualizarRecurso {
   actualizado_por_id: string;
 }
 
-export async function obtenerRecursoPorId(id: string) {
-  const recurso = await db
+export async function obtenerRecursoPorId(id: string, incluirEliminados: boolean = false) {
+  let query = db
     .selectFrom("recurso")
     .leftJoin("delegacion", "delegacion.id", "recurso.delegacion_id")
     .select([
@@ -101,15 +101,21 @@ export async function obtenerRecursoPorId(id: string) {
       "recurso.detalles",
       "recurso.creado_por_id",
       "recurso.actualizado_por_id",
+      "recurso.eliminado_por_id",
       "recurso.creado_en",
       "recurso.actualizado_en",
+      "recurso.eliminado_en",
       "delegacion.id as delegacion_id",
       "delegacion.codigo_delegacion as delegacion_codigo",
       "delegacion.nombre_delegacion as delegacion_nombre",
     ])
-    .where("recurso.id", "=", id)
-    .executeTakeFirst();
+    .where("recurso.id", "=", id);
 
+  if (!incluirEliminados) {
+    query = query.where("recurso.eliminado_en", "is", null);
+  }
+
+  const recurso = await query.executeTakeFirst();
   return recurso ?? null;
 }
 
@@ -131,6 +137,7 @@ export async function actualizarRecurso(id: string, datos: DatosActualizarRecurs
       actualizado_en: sql`CURRENT_TIMESTAMP`,
     })
     .where("id", "=", id)
+    .where("eliminado_en", "is", null)
     .returning([
       "id",
       "nombre",
@@ -154,7 +161,6 @@ export async function actualizarRecurso(id: string, datos: DatosActualizarRecurs
   return fila;
 }
 
-
 export async function listarRecursosPaginados(
   filtros: FiltrosListarRecursos,
   paginacion: OpcionesPaginacion
@@ -165,6 +171,7 @@ export async function listarRecursosPaginados(
   let query = db
     .selectFrom("recurso")
     .leftJoin("delegacion", "delegacion.id", "recurso.delegacion_id")
+    .where("recurso.eliminado_en", "is", null)
     .select([
       "recurso.id",
       "recurso.nombre",
@@ -215,7 +222,7 @@ export async function listarRecursosPaginados(
 }
 
 export async function contarRecursos(filtros: FiltrosListarRecursos): Promise<number> {
-  let query = db.selectFrom("recurso");
+  let query = db.selectFrom("recurso").where("recurso.eliminado_en", "is", null);
 
   if (filtros.delegacionId) {
     query = query.where("recurso.delegacion_id", "=", filtros.delegacionId);
@@ -245,3 +252,87 @@ export async function contarRecursos(filtros: FiltrosListarRecursos): Promise<nu
 
   return Number(resultado?.total ?? 0);
 }
+
+/**
+ * Verifica si un recurso tiene compromisos operativos vigentes (unidades en uso o cuadrillas en misión activa).
+ */
+export async function verificarAsignacionesActivasRecurso(id: string): Promise<{
+  enUso: boolean;
+  motivo?: string;
+}> {
+  const recurso = await db
+    .selectFrom("recurso")
+    .select(["id", "nombre", "cantidad_en_uso", "estado"])
+    .where("id", "=", id)
+    .where("eliminado_en", "is", null)
+    .executeTakeFirst();
+
+  if (!recurso) {
+    return { enUso: false };
+  }
+
+  const cantidadEnUso = Number(recurso.cantidad_en_uso ?? 0);
+  if (cantidadEnUso > 0 || recurso.estado === "ASIGNADO") {
+    return {
+      enUso: true,
+      motivo: `El recurso '${recurso.nombre}' tiene ${cantidadEnUso} unidades actualmente en uso en terreno.`,
+    };
+  }
+
+  const asignacionesActivas = await db
+    .selectFrom("cuadrilla_recurso")
+    .innerJoin("cuadrilla", "cuadrilla.id", "cuadrilla_recurso.cuadrilla_id")
+    .leftJoin("mision", "mision.cuadrilla_id", "cuadrilla.id")
+    .select([
+      "cuadrilla.nombre as cuadrilla_nombre",
+      "cuadrilla.estado as cuadrilla_estado",
+      "mision.codigo as mision_codigo",
+      "mision.estado as mision_estado",
+    ])
+    .where("cuadrilla_recurso.recurso_id", "=", id)
+    .where((eb) =>
+      eb.or([
+        eb("cuadrilla.estado", "=", "EN_MISION"),
+        eb("mision.estado", "in", ["PLANIFICADA", "DESPACHADA", "EN_CURSO"]),
+      ])
+    )
+    .execute();
+
+  if (asignacionesActivas.length > 0) {
+    const nombresCuadrillas = Array.from(
+      new Set(asignacionesActivas.map((a) => a.cuadrilla_nombre))
+    ).join(", ");
+    return {
+      enUso: true,
+      motivo: `El recurso '${recurso.nombre}' se encuentra asignado a cuadrillas con misiones activas o en terreno (${nombresCuadrillas}).`,
+    };
+  }
+
+  return { enUso: false };
+}
+
+/**
+ * Aplica el borrado lógico a un recurso existente, estampando fecha y usuario responsable.
+ */
+export async function marcarRecursoEliminado(id: string, eliminadoPorId: string) {
+  const fila = await db
+    .updateTable("recurso")
+    .set({
+      eliminado_en: sql`CURRENT_TIMESTAMP`,
+      eliminado_por_id: eliminadoPorId,
+      actualizado_por_id: eliminadoPorId,
+      actualizado_en: sql`CURRENT_TIMESTAMP`,
+    })
+    .where("id", "=", id)
+    .where("eliminado_en", "is", null)
+    .returning([
+      "id",
+      "nombre",
+      "eliminado_en",
+      "eliminado_por_id",
+    ])
+    .executeTakeFirst();
+
+  return fila ?? null;
+}
+

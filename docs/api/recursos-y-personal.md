@@ -53,9 +53,11 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `POST` | `/api/recursos` | Registrar un nuevo recurso en el inventario logístico con validación de stock, geolocalización y atributos técnicos. |
 | `GET` | `/api/recursos/{id}` | Obtener detalle completo de un recurso para precargar el formulario de edición. |
 | `PUT` | `/api/recursos/{id}` | Modificar características, inventario físico, especificaciones técnicas y estado de un recurso. |
-| `GET` | `/api/personal` | Listar y buscar empleados/usuarios para selectores con soporte de búsqueda textual y filtro de terreno. |
+| `DELETE` | `/api/recursos/{id}` | Eliminar un recurso del inventario mediante borrado lógico (soft delete) y trazabilidad completa. |
+| `GET` | `/api/personal` | Listar y buscar empleados/usuarios para selectores con soporte de búsqueda textual y filtro de activos/terreno. |
 | `POST` | `/api/personal` | Registrar a un nuevo funcionario municipal con credenciales y ficha de terreno condicional (HU-10). |
 | `PATCH` | `/api/personal/:id` | Modificar datos de un empleado actualizando concurrentemente `usuarios` y `personal` en una transacción atómica. |
+| `DELETE` | `/api/personal/:id` | Dar de baja lógica a un funcionario preservando trazabilidad histórica (H13). |
 | `GET` | `/api/catalogos` | Entregar catálogos de referencia (roles, delegaciones activas, especialidades y cargos) para selectores. |
 
 
@@ -78,9 +80,10 @@ Retorna una lista paginada de los recursos registrados en el inventario, incluye
 Registra un nuevo recurso individual o a granel en el inventario municipal calculando automáticamente su estado inicial.
 
 ### 3.3. `GET /api/personal`
-Lista y busca empleados/usuarios para los selectores del frontend.
+Lista y busca empleados/usuarios para los selectores y tablas del frontend.
 - `q`: Término de búsqueda (RUT, nombres, apellidos, email).
 - `solo_personal`: `true` para restringir solo a personal con ficha operativa de terreno.
+- `incluir_inactivos`: `true` para incluir funcionarios inactivos (`activo = false`). Por omisión (`false`), solo se devuelven activos.
 - `delegacion_id`: Filtro por delegación.
 - `rol_id`: Filtro por rol institucional.
 - `ordenar_por`: `apellidos` | `nombres` | `rut`.
@@ -169,9 +172,31 @@ Modifica los datos de un empleado en el sistema SGRAI, actualizando tanto la tab
 }
 ```
 
+#### Respuestas
+- **`200 OK`**: Datos actualizados exitosamente.
+- **`400 Bad Request`**: Rol o delegación inexistente en el sistema.
+- **`404 Not Found`**: El identificador de empleado no existe en la base de datos.
+- **`409 Conflict`**: El correo electrónico o RUT especificado ya pertenece a otro usuario registrado.
+- **`422 Unprocessable Entity`**: Formato o tipo de datos inválido según el esquema Zod.
+
+### 3.5. `DELETE /api/personal/:id` (HU-13: Baja Lógica de Empleado)
+Ejecuta la baja lógica de un empleado preservando la integridad referencial histórica para auditoría y reportes.
+- **Parámetro `:id`:** UUID de `personal` o UUID de `usuarios`.
+- **Efectos:**
+  1. En `usuarios`: `activo = false` y se registra la `fecha_salida` con la fecha actual. Revoca de inmediato el acceso al sistema.
+  2. En `personal` (si aplica): `estado_operativo = 'inactivo'` y `disponible_terreno = false`.
+  3. En `log_cambios_usuarios`: Registra la traza de auditoría con tipo de operación `BAJA_LOGICA_H13`.
+- **Respuestas:**
+  - **`200 OK`**: Empleado dado de baja exitosamente.
+  - **`400 Bad Request`**: El parámetro `:id` no posee un formato UUID válido.
+  - **`401 Unauthorized`**: Falta de cabecera de autenticación (`x-user-id` o token Bearer ausente/inválido).
+  - **`403 Forbidden`**: El usuario no cuenta con rol Administrador.
+  - **`404 Not Found`**: El identificador no corresponde a un funcionario existente.
+  - **`409 Conflict`**: Empleado con misión activa, asignado a patrulla en verificación o delegado en cuadrilla en misión.
+  - **`500 Internal Server Error`**: Error interno del servidor.
+
 ### 3.6. `GET /api/catalogos`
 Retorna listas de roles activos, delegaciones activas, cargos y especialidades registradas para alimentar selects de UI.
-
 ---
 
 ### 3.3. `GET /api/recursos/{id}` (HU-8: Detalle de Recurso)
@@ -287,11 +312,33 @@ Actualiza las características, inventario físico, ubicación espacial y estado
 }
 ```
 
+### 3.7. `DELETE /api/recursos/{id}` (HU-9: Eliminar Recurso - Borrado Lógico)
+Aplica un **borrado lógico (soft delete)** sobre un recurso existente en el sistema. Preserva el registro físico en la base de datos para no alterar el historial de misiones pasadas, asignaciones previas ni reportes institucionales (ej. Informe Alfa 37G de SENAPRED).
+
+#### Reglas de Negocio
+1. **Control de Acceso (RBAC):** Requiere autenticación de usuario activo con rol de `Administrador` o permiso `recursos:eliminar`.
+2. **Protección Operativa de Terreno:** Impide la eliminación y responde con código **`409 Conflict`** si el recurso se encuentra en cualquiera de los siguientes estados:
+   - Tiene unidades en uso (`cantidadEnUso > 0` o `estado === 'ASIGNADO'`).
+   - Se encuentra asignado en `cuadrilla_recurso` a una cuadrilla en estado `EN_MISION` o adscrita a una misión `PLANIFICADA`, `DESPACHADA` o `EN_CURSO`.
+3. **Auditoría:** Registra en la base de datos la fecha/hora exacta en `eliminado_en` y el usuario responsable en `eliminado_por_id`.
+4. **Sincronización en Tiempo Real:** Emite el evento WebSocket `recurso:eliminado` a las salas `encargado`, `supervisor` y canal global para actualizar dinámicamente las listas en `sgrai-web` y `sgrai-pwa`.
+
+#### Ejemplo de Respuesta Exitosa (`200 OK`)
+```json
+{
+  "message": "Recurso dado de baja exitosamente del inventario.",
+  "id": "40000000-0000-4000-8000-000000000001",
+  "nombre": "Pala Cuadrada",
+  "eliminadoEn": "2026-09-30T19:30:00.000Z",
+  "eliminadoPorId": "00000000-0000-4000-8000-000000000001"
+}
+```
+
 ---
 
 ## 4. Códigos de Estado y Errores Esperables
 
-- **`200 OK`:** Solicitud procesada correctamente / Consulta o actualización realizada con éxito.
+- **`200 OK`:** Solicitud procesada correctamente / Consulta, actualización o eliminación lógica realizada con éxito.
 - **`201 Created`:** Recurso validado, geolocalizado e insertado exitosamente.
 - **`400 Bad Request`:**
   - Parámetros de consulta o cuerpo JSON inválidos según esquema Zod (ej. `nombre` menor a 3 caracteres, cantidad negativa).
@@ -300,8 +347,10 @@ Actualiza las características, inventario físico, ubicación espacial y estado
   - Identificadores de rol/delegación inexistentes o inválidos.
 - **`401 Unauthorized`:** Cabecera `X-User-Id` (o `Authorization: Bearer`) ausente, vacía o usuario no autenticado.
 - **`403 Forbidden`:** Usuario no cuenta con permisos suficientes (requiere rol Administrador o permiso explícito).
-- **`404 Not Found`:** Recurso o empleado no encontrado en el sistema.
-- **`409 Conflict`:** Correo electrónico o RUT duplicado en otro usuario.
+- **`404 Not Found`:** Recurso o empleado no encontrado en el sistema, o recurso ya dado de baja previamente.
+- **`409 Conflict`:**
+  - El recurso no se puede eliminar porque actualmente tiene unidades en uso en terreno o se encuentra asignado a cuadrillas en misión activa.
+  - Correo electrónico o RUT duplicado en otro usuario.
 - **`422 Unprocessable Entity`:** Formato o tipo de datos inválido según validación Zod.
 - **`500 Internal Server Error`:** Falla de conexión a base de datos PostgreSQL o error de servidor no controlado.
 

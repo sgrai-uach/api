@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { db, type EstadoOperativoPersonal } from "@/lib/db";
 import type { ModificarEmpleadoDTO } from "../schemas/modificar-empleado.schema";
 
@@ -239,11 +240,23 @@ export async function actualizarEmpleado(
     // 7. Registrar trazabilidad en log de cambios de usuarios
     const cambios = { ...datosUsuario, ...datosPersonal };
     if (Object.keys(cambios).length > 0) {
+      let adminValido: string | null = null;
+      if (modificadoPorId && z.string().uuid().safeParse(modificadoPorId).success) {
+        const adminExists = await trx
+          .selectFrom("usuarios")
+          .select("id")
+          .where("id", "=", modificadoPorId)
+          .executeTakeFirst();
+        if (adminExists) {
+          adminValido = modificadoPorId;
+        }
+      }
+
       await trx
         .insertInto("log_cambios_usuarios")
         .values({
           usuario_modificado_id: usuarioId,
-          modificado_por_id: modificadoPorId || null,
+          modificado_por_id: adminValido,
           campos_modificados: JSON.stringify(cambios),
         })
         .execute();
@@ -277,7 +290,7 @@ export async function actualizarEmpleado(
         "personal.estado_operativo",
         "personal.disponible_terreno",
         "personal.observaciones",
-        "usuarios.updated_at as usuario_updated_at",
+        "usuarios.actualizado_en as usuario_updated_at",
         "personal.updated_at as personal_updated_at",
       ])
       .where("usuarios.id", "=", usuarioId)
