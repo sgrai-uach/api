@@ -7,7 +7,7 @@ import type {
   ListarEventosAsistenciaSocialResponse,
 } from "@/modules/eventos-atp/asistencia-social.schema";
 import * as authGuard from "@/modules/seguridad/auth.guard";
-import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
+import { ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 describe("Route Handlers /api/eventos-atp/asistencia-social (H28)", () => {
   const usuarioEncargadoId = "00000000-0000-4000-8000-000000000003";
