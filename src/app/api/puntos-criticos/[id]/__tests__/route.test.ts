@@ -8,6 +8,7 @@ import {
   NotFoundError,
   ConflictError,
 } from "@/modules/seguridad/errors";
+import { generarTokenPrueba } from "@/lib/test-utils/auth";
 
 describe("Route Handlers /api/puntos-criticos/[id] (HU-56)", () => {
   beforeEach(() => {
@@ -160,6 +161,33 @@ describe("Route Handlers /api/puntos-criticos/[id] (HU-56)", () => {
       expect(res.status).toBe(500);
       const body = await res.json();
       expect(body.message).toBe("Error interno del servidor al procesar la solicitud.");
+    });
+
+    it("debe extraer el usuario id correctamente desde un token JWT Bearer firmado", async () => {
+      const token = await generarTokenPrueba(adminUserId);
+      const mockResponse = {
+        message: "Punto crítico desactivado exitosamente del sistema.",
+        id: validUuid,
+        codigo: "PC-ANG-01",
+        nombre: "Sector Humedal Angachilla - Pasaje Los Robles",
+        activo: false,
+        eliminadoEn: "2026-10-04T00:30:00.000Z",
+        eliminadoPorId: adminUserId,
+      };
+
+      const spyEliminar = vi.spyOn(puntoCriticoService, "eliminarPuntoCritico").mockResolvedValueOnce(mockResponse);
+
+      const req = new NextRequest(`http://localhost:3000/api/puntos-criticos/${validUuid}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      const res = await DELETE(req, {
+        params: Promise.resolve({ id: validUuid }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(spyEliminar).toHaveBeenCalledWith(validUuid, adminUserId);
     });
   });
 });
