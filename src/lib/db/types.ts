@@ -253,6 +253,47 @@ export interface RecuperacionRecursoTable {
   creado_en: Generated<Date>;
 }
 
+export type EstadoEventoAsistenciaSocial =
+  | "PENDIENTE"
+  | "ASIGNADO"
+  | "EN_EVALUACION_FIBE"
+  | "FINALIZADO"
+  | "DESCARTADO";
+
+export interface EventoAsistenciaSocialTable {
+  id: Generated<string>;
+  codigo: string;
+  descripcion: string;
+  tipo_afectacion: string;
+  personas_afectadas: ColumnType<number, number | undefined, number>;
+  familias_afectadas: ColumnType<number, number | undefined, number>;
+  direccion_texto: string;
+  latitud: number;
+  longitud: number;
+  ubicacion: ColumnType<unknown, unknown, unknown>;
+  contacto_nombre: string | null;
+  contacto_telefono: string | null;
+  contacto_rut: string | null;
+  prioridad: ColumnType<
+    PrioridadIncidente,
+    PrioridadIncidente | undefined,
+    PrioridadIncidente
+  >;
+  estado: ColumnType<
+    EstadoEventoAsistenciaSocial,
+    EstadoEventoAsistenciaSocial | undefined,
+    EstadoEventoAsistenciaSocial
+  >;
+  incidente_id: string | null;
+  delegacion_id: string | null;
+  asistente_social_id: string | null;
+  creado_por_id: string;
+  creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
+  eliminado_en: Date | null;
+  eliminado_por_id: string | null;
+}
+
 export interface PatrullaVerificadoraTable {
   id: Generated<string>;
   nombre: string;
@@ -422,6 +463,7 @@ export interface Database {
   prevencion: PrevencionTable;
   recuperacion: RecuperacionTable;
   recuperacion_recurso: RecuperacionRecursoTable;
+  evento_asistencia_social: EventoAsistenciaSocialTable;
   patrulla_verificadora: PatrullaVerificadoraTable;
   cuadrilla: CuadrillaTable;
   cuadrilla_recurso: CuadrillaRecursoTable;
@@ -445,6 +487,7 @@ export interface Database {
   misiones: MisionTable;
   recuperaciones: RecuperacionTable;
   recuperacion_recursos: RecuperacionRecursoTable;
+  eventos_asistencia_social: EventoAsistenciaSocialTable;
   avisos_incidentes: AvisoIncidenteTable;
   adjuntos: AdjuntoTable;
   reportes_terreno: ReporteTerrenoTable;
