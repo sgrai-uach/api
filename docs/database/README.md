@@ -585,6 +585,7 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 - `c2222222-2222-4222-8222-222222222222` — `patricia.valenzuela@valdivia.cl` (Patricia Valenzuela - Call Center Mesa 2, RUT: `15222222-2`)
 - `a0000000-0000-4000-8000-000000000001` — `operador.qa@valdivia.cl` (Operador QA Call Center, RUT: `99999999-9`)
 - `00000000-0000-4000-8000-000000000003` — `encargado@valdivia.cl` (Encargado de Operaciones Centro de Mando, RUT: `33333333-3`)
+- `00000000-0000-4000-8000-000000000010` — `supervisor@valdivia.cl` (Supervisor Estratégico, RUT: `44444444-4`)
 
 ### 5.3 Delegaciones Municipales (`delegacion`)
 - `30000000-0000-4000-8000-000000000001` — `DEL_NORTE` (Delegación Municipal Norte)
@@ -632,7 +633,7 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 ```bash
 npm run db:migrate
 ```
-El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `013_indices_kpis_incidentes.ts`).
+El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `018_supervisor_semilla_y_permisos.ts`).
 
 ### 7.2 Sembrar Datos para Tablero Kanban
 ```bash

@@ -238,6 +238,16 @@ export const ListarRecursosQuerySchema = z.object({
     description: "Búsqueda textual por nombre o descripción del recurso",
     example: "Camioneta",
   }),
+  soloLectura: z
+    .preprocess((val) => {
+      if (val === "true" || val === true) return true;
+      if (val === "false" || val === false) return false;
+      return undefined;
+    }, z.boolean().optional())
+    .openapi({
+      description: "Parámetro indicador de modo solo lectura para perfiles como Supervisor (HU-50)",
+      example: true,
+    }),
 });
 
 export type ListarRecursosQuery = z.infer<typeof ListarRecursosQuerySchema>;
