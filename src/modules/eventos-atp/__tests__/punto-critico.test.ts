@@ -2,18 +2,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   ListarPuntosCriticosQuerySchema,
   PuntoCriticoItemResponseSchema,
+  CrearPuntoCriticoBodySchema,
+  TIPOS_RIESGO_PUNTO_CRITICO,
 } from "../punto-critico.schema";
 import {
   listarPuntosCriticos,
   mapearFilaPuntoCritico,
+  crearPuntoCritico,
 } from "../punto-critico.service";
 import * as puntoCriticoRepository from "../punto-critico.repository";
+import * as socketLib from "@/lib/socket";
 import { seguridadService } from "@/modules/seguridad/service";
 import {
   UnauthorizedError,
   ForbiddenError,
+  BadRequestError,
+  ConflictError,
 } from "@/modules/seguridad/errors";
-import { PERMISO_LISTAR_PUNTOS_CRITICOS } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_LISTAR_PUNTOS_CRITICOS,
+  PERMISO_CREAR_PUNTO_CRITICO,
+} from "@/modules/seguridad/permisos.constants";
 
 describe("Módulo Eventos ATP / Puntos Críticos (HU-57) - Pruebas Unitarias", () => {
   beforeEach(() => {
@@ -248,6 +257,246 @@ describe("Módulo Eventos ATP / Puntos Críticos (HU-57) - Pruebas Unitarias", (
         pagina: 1,
         limite: 10,
         totalPaginas: 1,
+      });
+    });
+  });
+
+  describe("5. Creación de Puntos Críticos (HU-58)", () => {
+    describe("5.1 Validación de CrearPuntoCriticoBodySchema", () => {
+      it("debe validar un payload de creación completo y válido", () => {
+        const bodyValido = {
+          nombre: "Nuevo Sector Las Ánimas",
+          descripcion: "Monitoreo por riesgo de remoción en ladera",
+          tipoRiesgo: "Deslizamiento / Remoción en masa",
+          prioridad: "ALTA",
+          delegacionId: "30000000-0000-4000-8000-000000000001",
+          latitud: -39.815,
+          longitud: -73.235,
+        };
+
+        const parsed = CrearPuntoCriticoBodySchema.safeParse(bodyValido);
+        expect(parsed.success).toBe(true);
+        if (parsed.success) {
+          expect(parsed.data.nombre).toBe("Nuevo Sector Las Ánimas");
+          expect(parsed.data.prioridad).toBe("ALTA");
+          expect(parsed.data.tipoRiesgo).toBe("Deslizamiento / Remoción en masa");
+        }
+      });
+
+      it("debe aplicar prioridad MEDIA por defecto si no es especificada", () => {
+        const bodyMinimo = {
+          nombre: "Punto de Monitoreo Puente Calle Calle",
+          latitud: -39.8123,
+          longitud: -73.2289,
+        };
+
+        const parsed = CrearPuntoCriticoBodySchema.safeParse(bodyMinimo);
+        expect(parsed.success).toBe(true);
+        if (parsed.success) {
+          expect(parsed.data.prioridad).toBe("MEDIA");
+          expect(parsed.data.tipoRiesgo).toBeUndefined();
+          expect(parsed.data.descripcion).toBeUndefined();
+        }
+      });
+
+      it("debe rechazar nombres con menos de 3 caracteres", () => {
+        const resultado = CrearPuntoCriticoBodySchema.safeParse({
+          nombre: "AB",
+          latitud: -39.8,
+          longitud: -73.2,
+        });
+
+        expect(resultado.success).toBe(false);
+      });
+
+      it("debe rechazar coordenadas de latitud o longitud fuera de rango", () => {
+        const latInvalida = CrearPuntoCriticoBodySchema.safeParse({
+          nombre: "Coordenada fuera de rango",
+          latitud: -95,
+          longitud: -73.2,
+        });
+        expect(latInvalida.success).toBe(false);
+
+        const lngInvalida = CrearPuntoCriticoBodySchema.safeParse({
+          nombre: "Coordenada fuera de rango",
+          latitud: -39.8,
+          longitud: 190,
+        });
+        expect(lngInvalida.success).toBe(false);
+      });
+
+      it("debe admitir opciones sugeridas de TIPOS_RIESGO_PUNTO_CRITICO y opción Otro (VARCHAR)", () => {
+        expect(TIPOS_RIESGO_PUNTO_CRITICO).toContain("Otro");
+        expect(TIPOS_RIESGO_PUNTO_CRITICO).toContain("Inundación y anegamiento");
+
+        const resultadoOtro = CrearPuntoCriticoBodySchema.safeParse({
+          nombre: "Punto de prueba riesgo personalizado",
+          tipoRiesgo: "Afloramiento de aguas subterráneas",
+          latitud: -39.8,
+          longitud: -73.2,
+        });
+        expect(resultadoOtro.success).toBe(true);
+      });
+    });
+
+    describe("5.2 Servicio crearPuntoCritico", () => {
+      const adminMock = {
+        id: "00000000-0000-4000-8000-000000000001",
+        rut: "11111111-1",
+        nombre: "Admin SGRAI",
+        email: "admin@valdivia.cl",
+        activo: true,
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+      };
+
+      it("Flujo Feliz: debe autogenerar código PC-VAL-001, insertar y emitir notificación Socket.io", async () => {
+        vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminMock);
+        vi.spyOn(puntoCriticoRepository, "generarSiguienteCodigoPuntoCritico").mockResolvedValueOnce("PC-VAL-001");
+
+        const filaMock: puntoCriticoRepository.FilaPuntoCriticoConDelegacion = {
+          id: "40000000-0000-4000-8000-000000000099",
+          codigo: "PC-VAL-001",
+          nombre: "Punto Costanera Norte",
+          descripcion: "Oleaje fluvial alto",
+          tipo_riesgo: "Inundación y anegamiento",
+          prioridad: "MEDIA",
+          activo: true,
+          latitud: -39.81,
+          longitud: -73.24,
+          creado_en: new Date("2026-10-05T00:00:00.000Z"),
+          creado_por_id: adminMock.id,
+          delegacion_id: null,
+          delegacion_codigo: null,
+          delegacion_nombre: null,
+        };
+
+        const insertarSpy = vi
+          .spyOn(puntoCriticoRepository, "insertarPuntoCritico")
+          .mockResolvedValueOnce(filaMock);
+
+        const socketSpy = vi.spyOn(socketLib, "emitirPuntoCriticoCreado");
+
+        const resultado = await crearPuntoCritico(
+          {
+            nombre: "Punto Costanera Norte",
+            descripcion: "Oleaje fluvial alto",
+            tipoRiesgo: "Inundación y anegamiento",
+            prioridad: "MEDIA",
+            latitud: -39.81,
+            longitud: -73.24,
+          },
+          adminMock.id
+        );
+
+        expect(insertarSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            codigo: "PC-VAL-001",
+            nombre: "Punto Costanera Norte",
+            latitud: -39.81,
+            longitud: -73.24,
+          }),
+          adminMock.id
+        );
+
+        expect(socketSpy).toHaveBeenCalledTimes(1);
+        expect(resultado.codigo).toBe("PC-VAL-001");
+        expect(resultado.creadoPorId).toBe(adminMock.id);
+        expect(resultado.activo).toBe(true);
+      });
+
+      it("Flujo Feliz con Delegación: debe consultar delegación y generar código con prefijo territorial", async () => {
+        vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminMock);
+        vi.spyOn(puntoCriticoRepository, "obtenerDelegacionPorId").mockResolvedValueOnce({
+          id: "30000000-0000-4000-8000-000000000002",
+          codigo: "DEL_SUR",
+          nombre: "Delegación Municipal Sur",
+        });
+        vi.spyOn(puntoCriticoRepository, "generarSiguienteCodigoPuntoCritico").mockResolvedValueOnce("PC-SUR-005");
+
+        const filaMock: puntoCriticoRepository.FilaPuntoCriticoConDelegacion = {
+          id: "40000000-0000-4000-8000-000000000088",
+          codigo: "PC-SUR-005",
+          nombre: "Sector Guacamayo Sur",
+          descripcion: null,
+          tipo_riesgo: "Desborde de cauce / humedal",
+          prioridad: "ALTA",
+          activo: true,
+          latitud: -39.85,
+          longitud: -73.25,
+          creado_en: new Date("2026-10-05T00:00:00.000Z"),
+          creado_por_id: adminMock.id,
+          delegacion_id: "30000000-0000-4000-8000-000000000002",
+          delegacion_codigo: "DEL_SUR",
+          delegacion_nombre: "Delegación Municipal Sur",
+        };
+
+        vi.spyOn(puntoCriticoRepository, "insertarPuntoCritico").mockResolvedValueOnce(filaMock);
+        const socketSpy = vi.spyOn(socketLib, "emitirPuntoCriticoCreado");
+
+        const resultado = await crearPuntoCritico(
+          {
+            nombre: "Sector Guacamayo Sur",
+            tipoRiesgo: "Desborde de cauce / humedal",
+            prioridad: "ALTA",
+            delegacionId: "30000000-0000-4000-8000-000000000002",
+            latitud: -39.85,
+            longitud: -73.25,
+          },
+          adminMock.id
+        );
+
+        expect(resultado.codigo).toBe("PC-SUR-005");
+        expect(resultado.delegacion?.codigo).toBe("DEL_SUR");
+        expect(socketSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it("debe lanzar BadRequestError si la delegación territorial proporcionada no existe", async () => {
+        vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminMock);
+        vi.spyOn(puntoCriticoRepository, "obtenerDelegacionPorId").mockResolvedValueOnce(null);
+
+        await expect(
+          crearPuntoCritico(
+            {
+              nombre: "Punto con delegación inexistente",
+              delegacionId: "30000000-0000-4000-8000-999999999999",
+              latitud: -39.8,
+              longitud: -73.2,
+            },
+            adminMock.id
+          )
+        ).rejects.toThrow(BadRequestError);
+      });
+
+      it("debe rechazar con ForbiddenError si el usuario no tiene rol Administrador", async () => {
+        vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValueOnce(
+          new ForbiddenError("Acceso denegado. Se requiere el perfil de Administrador.")
+        );
+
+        await expect(
+          crearPuntoCritico(
+            {
+              nombre: "Punto sin permiso",
+              latitud: -39.8,
+              longitud: -73.2,
+            },
+            "00000000-0000-4000-8000-000000000002"
+          )
+        ).rejects.toThrow(ForbiddenError);
+      });
+
+      it("debe rechazar con UnauthorizedError si no se provee usuario", async () => {
+        vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValueOnce(
+          new UnauthorizedError("Cabecera X-User-Id requerida para autenticación.")
+        );
+
+        await expect(
+          crearPuntoCritico({
+            nombre: "Punto anónimo",
+            latitud: -39.8,
+            longitud: -73.2,
+          })
+        ).rejects.toThrow(UnauthorizedError);
       });
     });
   });
