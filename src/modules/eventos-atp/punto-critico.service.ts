@@ -3,11 +3,7 @@ import {
   PERMISO_LISTAR_PUNTOS_CRITICOS,
   PERMISO_CREAR_PUNTO_CRITICO,
 } from "@/modules/seguridad/permisos.constants";
-import {
-  NotFoundError,
-  BadRequestError,
-  ConflictError,
-} from "@/modules/seguridad/errors";
+import { BadRequestError } from "@/modules/seguridad/errors";
 import { emitirPuntoCriticoCreado } from "@/lib/socket";
 import {
   listarPuntosCriticosPaginados,
@@ -20,11 +16,12 @@ import {
   type FilaPuntoCriticoConDelegacion,
   type DatosCrearPuntoCritico,
 } from "./punto-critico.repository";
-import type {
+import {
   ListarPuntosCriticosInput,
   ListarPuntosCriticosResponse,
   PuntoCriticoItemResponse,
   CrearPuntoCriticoInput,
+  CrearPuntoCriticoBodySchema,
   PuntoCriticoDetalleResponse,
 } from "./punto-critico.schema";
 
@@ -144,13 +141,16 @@ export async function crearPuntoCritico(
     "eventos_atp:crear",
   ]);
 
+  // Validar y normalizar datos de entrada con el esquema Zod
+  const datosValidados = CrearPuntoCriticoBodySchema.parse(input);
+
   // 2. Validar existencia de la delegación territorial si se proporciona y obtener su código
   let prefijo = "PC-VAL";
-  if (input.delegacionId) {
-    const delegacion = await obtenerDelegacionPorId(input.delegacionId);
+  if (datosValidados.delegacionId) {
+    const delegacion = await obtenerDelegacionPorId(datosValidados.delegacionId);
     if (!delegacion) {
       throw new BadRequestError(
-        `La delegación territorial con ID '${input.delegacionId}' no existe en el sistema.`
+        `La delegación territorial con ID '${datosValidados.delegacionId}' no existe en el sistema.`
       );
     }
     prefijo = determinarPrefijoPuntoCritico(delegacion.codigo);
@@ -162,13 +162,13 @@ export async function crearPuntoCritico(
   // 4. Preparar datos y persistir con PostGIS y auditoría
   const datosParaInsertar: DatosCrearPuntoCritico = {
     codigo,
-    nombre: input.nombre,
-    descripcion: input.descripcion ?? null,
-    tipoRiesgo: input.tipoRiesgo ?? null,
-    prioridad: input.prioridad ?? "MEDIA",
-    delegacionId: input.delegacionId ?? null,
-    latitud: Number(input.latitud),
-    longitud: Number(input.longitud),
+    nombre: datosValidados.nombre,
+    descripcion: datosValidados.descripcion,
+    tipoRiesgo: datosValidados.tipoRiesgo,
+    prioridad: datosValidados.prioridad,
+    delegacionId: datosValidados.delegacionId,
+    latitud: Number(datosValidados.latitud),
+    longitud: Number(datosValidados.longitud),
   };
 
   const filaGuardada = await insertarPuntoCritico(datosParaInsertar, usuario.id);

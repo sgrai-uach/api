@@ -90,6 +90,10 @@ export async function POST(req: NextRequest) {
 
     const resultadoValidacion = CrearPuntoCriticoBodySchema.safeParse(bodyJson);
     if (!resultadoValidacion.success) {
+      console.warn("POST /api/puntos-criticos - Validación Zod fallida:", {
+        bodyRecibido: bodyJson,
+        errores: resultadoValidacion.error.issues,
+      });
       return NextResponse.json(
         {
           message: "Datos de creación de punto crítico inválidos.",

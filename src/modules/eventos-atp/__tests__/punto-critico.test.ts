@@ -17,12 +17,8 @@ import {
   UnauthorizedError,
   ForbiddenError,
   BadRequestError,
-  ConflictError,
 } from "@/modules/seguridad/errors";
-import {
-  PERMISO_LISTAR_PUNTOS_CRITICOS,
-  PERMISO_CREAR_PUNTO_CRITICO,
-} from "@/modules/seguridad/permisos.constants";
+import { PERMISO_LISTAR_PUNTOS_CRITICOS } from "@/modules/seguridad/permisos.constants";
 
 describe("Módulo Eventos ATP / Puntos Críticos (HU-57) - Pruebas Unitarias", () => {
   beforeEach(() => {

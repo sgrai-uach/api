@@ -179,8 +179,8 @@ export const CrearPuntoCriticoBodySchema = z.object({
     .string()
     .trim()
     .max(1000, "La descripción no puede exceder los 1000 caracteres.")
-    .nullable()
-    .optional()
+    .nullish()
+    .transform((val) => (val === "" ? null : val))
     .openapi({
       description: "Detalle situacional y factores de riesgo del sector",
       example: "Zona baja propensa a anegamiento por desborde en temporada invernal",
@@ -189,22 +189,36 @@ export const CrearPuntoCriticoBodySchema = z.object({
     .string()
     .trim()
     .max(100, "El tipo de riesgo no puede exceder los 100 caracteres.")
-    .nullable()
-    .optional()
+    .nullish()
+    .transform((val) => (val === "" ? null : val))
     .openapi({
       description:
         "Clasificación de la amenaza recurrente (VARCHAR hasta 100 caracteres). Sugerencias: Inundación y anegamiento, Deslizamiento / Remoción en masa, Desborde de cauce / humedal, Incendio forestal / pastizales, Colapso estructural / socavón, Viento / Voladura de techumbres, Otro.",
       example: "Inundación y anegamiento",
     }),
-  prioridad: PrioridadPuntoCriticoSchema.default("MEDIA").openapi({
-    description: "Nivel de gravedad o prioridad operativa homologado con incidentes",
-    example: "ALTA",
-  }),
+  prioridad: z
+    .string()
+    .optional()
+    .default("MEDIA")
+    .transform((val): PrioridadPuntoCritico => {
+      const upper = (val || "MEDIA").toUpperCase().trim();
+      if (upper.startsWith("CRITIC")) return "CRITICA";
+      if (upper.startsWith("ALT")) return "ALTA";
+      if (upper.startsWith("MED")) return "MEDIA";
+      if (upper.startsWith("BAJ")) return "BAJA";
+      return "MEDIA";
+    })
+    .openapi({
+      description: "Nivel de gravedad o prioridad operativa homologado con incidentes",
+      example: "ALTA",
+    }),
   delegacionId: z
     .string()
-    .uuid("Identificador UUID de delegación territorial inválido.")
-    .nullable()
-    .optional()
+    .nullish()
+    .transform((val) => (val === "" || val === "null" ? null : val))
+    .refine((val) => val === null || val === undefined || z.string().uuid().safeParse(val).success, {
+      message: "Identificador UUID de delegación territorial inválido.",
+    })
     .openapi({
       description: "UUID de la delegación municipal territorial asignada",
       example: "30000000-0000-4000-8000-000000000001",
