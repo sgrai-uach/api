@@ -9,5 +9,6 @@ export const PERMISO_CREAR_INCIDENTE_MANUAL = "crear_incidente_manual";
 export const PERMISO_LISTAR_AVISOS = "incidentes:avisos:leer";
 export const PERMISO_LISTAR_PUNTOS_CRITICOS = "puntos_criticos:leer";
 export const PERMISO_CREAR_PUNTO_CRITICO = "puntos_criticos:crear";
+export const PERMISO_EDITAR_PUNTO_CRITICO = "puntos_criticos:editar";
+export const PERMISO_ELIMINAR_PUNTO_CRITICO = "puntos_criticos:eliminar";
 export const PERMISO_LEER_MISION = "misiones:leer";
-

@@ -323,5 +323,76 @@ export function emitirPuntoCriticoCreado(payload: Record<string, unknown>): void
   }
 }
 
+/**
+ * Emite la notificación de punto crítico actualizado a las vistas de Encargado, Supervisor y Administrador (HU-55).
+ * Permite reflejar inmediatamente los cambios geoespaciales y atributos en el módulo cartográfico.
+ */
+export function emitirPuntoCriticoActualizado(payload: Record<string, unknown>): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("punto_critico:actualizado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("punto_critico:actualizado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("administrador") as any).emit("punto_critico:actualizado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("punto_critico:actualizado", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "administrador",
+          event: "punto_critico:actualizado",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
+/**
+ * Emite la notificación de punto crítico eliminado lógicamente a las vistas de Encargado, Supervisor y Administrador (HU-56).
+ */
+export function emitirPuntoCriticoEliminado(payload: {
+  id: string;
+  codigo: string;
+  nombre: string;
+  eliminadoPorId: string;
+  eliminadoEn: string;
+}): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("punto_critico:eliminado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("punto_critico:eliminado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("administrador") as any).emit("punto_critico:eliminado", payload);
+    // Difusión general para actualización reactiva de mapas y tablas
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("punto_critico:eliminado", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "encargado",
+          event: "punto_critico:eliminado",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
 export * from "./types";
+
 

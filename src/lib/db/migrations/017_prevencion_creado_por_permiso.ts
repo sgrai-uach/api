@@ -21,6 +21,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     DECLARE
       v_permiso_id UUID;
       v_target_id UUID := '10000000-0000-4000-8000-000000000018';
+      v_admin_rol_id UUID := '20000000-0000-4000-8000-000000000001';
+      v_admin_user_id UUID;
     BEGIN
       SELECT id INTO v_permiso_id FROM permiso WHERE codigo = 'puntos_criticos:crear';
 
@@ -47,14 +49,18 @@ export async function up(db: Kysely<unknown>): Promise<void> {
         END IF;
       END IF;
 
+      -- Obtener el ID del usuario administrador si existe, o usar el default seed
+      SELECT id INTO v_admin_user_id FROM usuario WHERE id = '00000000-0000-4000-8000-000000000001';
+      IF v_admin_user_id IS NULL THEN
+        SELECT id INTO v_admin_user_id FROM usuario LIMIT 1;
+      END IF;
+
       -- 4. Asignar permiso 'puntos_criticos:crear' al rol Administrador
-      INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
-      VALUES (
-        '20000000-0000-4000-8000-000000000001',
-        v_permiso_id,
-        '00000000-0000-4000-8000-000000000001'
-      )
-      ON CONFLICT DO NOTHING;
+      IF v_permiso_id IS NOT NULL THEN
+        INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
+        VALUES (v_admin_rol_id, v_permiso_id, v_admin_user_id)
+        ON CONFLICT DO NOTHING;
+      END IF;
     END $$;
   `.execute(db);
 }
