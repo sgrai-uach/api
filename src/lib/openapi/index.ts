@@ -80,6 +80,12 @@ import {
 } from "@/modules/eventos-atp/punto-critico.schema";
 
 import {
+  CrearEventoRecuperacionInputSchema,
+  CrearEventoRecuperacionResponseSchema,
+  EventoRecuperacionResponseSchema,
+} from "@/modules/eventos-atp/recuperacion.schema";
+
+import {
   MisionDetalleResponseSchema,
   MisionIdParamSchema,
 } from "@/modules/misiones/mision.schema";
@@ -1235,6 +1241,64 @@ registry.registerPath({
     },
     403: {
       description: "Acceso denegado. Permiso insuficiente",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 24. POST /api/eventos-atp/recuperacion (HU-29)
+registry.register("CrearEventoRecuperacionInput", CrearEventoRecuperacionInputSchema);
+registry.register("EventoRecuperacion", EventoRecuperacionResponseSchema);
+registry.register("CrearEventoRecuperacionResponse", CrearEventoRecuperacionResponseSchema);
+
+registry.registerPath({
+  method: "post",
+  path: "/api/eventos-atp/recuperacion",
+  summary: "Crear evento de recuperación y despachar patrulla con recursos logísticos (HU-29)",
+  description:
+    "Permite al Encargado de operaciones generar un nuevo evento territorial de recuperación, asignando una patrulla verificadora disponible y recursos de inventario para su entrega directa en terreno, sin requerir la existencia formal de un incidente previo.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
+    }),
+    body: {
+      description: "Datos del evento de recuperación, sector geográfico, patrulla y recursos solicitados",
+      content: {
+        "application/json": {
+          schema: CrearEventoRecuperacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Evento de recuperación registrado exitosamente y patrulla despachada",
+      content: {
+        "application/json": {
+          schema: CrearEventoRecuperacionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos o faltantes en el payload",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id ausente o inválida",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recuperacion:crear'",
+    },
+    404: {
+      description: "Patrulla o recurso no encontrado en el sistema",
+    },
+    409: {
+      description: "Conflicto operativo: Patrulla no disponible o stock insuficiente en bodega",
     },
     500: {
       description: "Error interno del servidor",
