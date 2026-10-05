@@ -14,6 +14,7 @@ export interface ServerToClientEvents {
         eliminadoPorId: string;
         eliminadoEn: string;
     }) => void;
+    "punto_critico:actualizado": (payload: unknown) => void;
 }
 
 export interface ClientToServerEvents {

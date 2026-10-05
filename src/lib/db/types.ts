@@ -196,9 +196,11 @@ export interface PrevencionTable {
   ubicacion: ColumnType<unknown, unknown, unknown>;
   delegacion_id: string | null;
   activo: ColumnType<boolean, boolean | undefined, boolean>;
-  eliminado_por_id: string | null;
   creado_en: Generated<Date>;
-  eliminado_en: Date | null;
+  actualizado_en?: ColumnType<Date | null, Date | null | undefined, Date | null>;
+  actualizado_por_id?: string | null;
+  eliminado_en?: Date | null;
+  eliminado_por_id?: string | null;
 }
 
 export type EstadoPatrulla = "DISPONIBLE" | "EN_VERIFICACION" | "NO_DISPONIBLE";

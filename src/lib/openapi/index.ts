@@ -77,6 +77,8 @@ import {
   ListarPuntosCriticosQuerySchema,
   ListarPuntosCriticosResponseSchema,
   PuntoCriticoItemResponseSchema,
+  ActualizarPuntoCriticoBodySchema,
+  PuntoCriticoDetalleResponseSchema,
   PuntoCriticoIdParamSchema,
   EliminarPuntoCriticoResponseSchema,
 } from "@/modules/eventos-atp/punto-critico.schema";
@@ -138,6 +140,13 @@ registry.register("VerificarDuplicadoInput", VerificarDuplicadoInputSchema);
 registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema);
 registry.register("IncidenteResponse", IncidenteResponseSchema);
 registry.register("IncidentesKpisResponse", IncidentesKpisResponseSchema);
+
+// Registrar esquemas de Eventos ATP (Puntos Críticos)
+registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
+registry.register("PuntoCriticoItemResponse", PuntoCriticoItemResponseSchema);
+registry.register("ActualizarPuntoCriticoBody", ActualizarPuntoCriticoBodySchema);
+registry.register("PuntoCriticoDetalleResponse", PuntoCriticoDetalleResponseSchema);
+registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSchema);
 
 // ==========================================
 // RUTAS RECURSOS Y PERSONAL
@@ -1245,14 +1254,158 @@ registry.registerPath({
   },
 });
 
-// DELETE /api/puntos-criticos/{id} (HU-56)
+// ==========================================
+// RUTAS EVENTOS ATP (PUNTOS CRÍTICOS)
+// ==========================================
+
+// 22. GET /api/puntos-criticos (HU-57)
+registry.registerPath({
+  method: "get",
+  path: "/api/puntos-criticos",
+  summary: "Listar puntos críticos y sectores vulnerables",
+  description:
+    "Retorna la colección paginada de puntos críticos y sectores vulnerables monitoreados en Valdivia. Admite filtros por delegación, prioridad, estado activo y búsqueda textual. Requiere rol Administrador.",
+  tags: ["Eventos ATP"],
+  request: {
+    query: ListarPuntosCriticosQuerySchema,
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Colección paginada de puntos críticos obtenida exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarPuntosCriticosResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "No autenticado. Se requiere cabecera de autenticación válida",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador con permiso puntos_criticos:leer",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la solicitud",
+    },
+  },
+});
+
+// 23. GET /api/puntos-criticos/{id} (HU-55)
+registry.registerPath({
+  method: "get",
+  path: "/api/puntos-criticos/{id}",
+  summary: "Obtener detalle de punto crítico para edición",
+  description:
+    "Retorna el detalle completo de un punto crítico específico con su delegación territorial y auditoría para precargar el formulario de edición. Requiere rol Administrador.",
+  tags: ["Eventos ATP"],
+  request: {
+    params: PuntoCriticoIdParamSchema,
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del punto crítico obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: PuntoCriticoDetalleResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de punto crítico inválido",
+    },
+    401: {
+      description: "No autenticado. Se requiere cabecera de autenticación válida",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador",
+    },
+    404: {
+      description: "Punto crítico no encontrado",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la solicitud",
+    },
+  },
+});
+
+// 24. PUT /api/puntos-criticos/{id} (HU-55)
+registry.registerPath({
+  method: "put",
+  path: "/api/puntos-criticos/{id}",
+  summary: "Editar características y ubicación de un punto crítico",
+  description:
+    "Modifica los datos y la ubicación geográfica (PostGIS EPSG:4326) de un punto crítico comunal. El código institucional es inmutable. Permite actualizar la ubicación en cualquier momento y emite notificación reactiva vía Socket.io a la central, supervisores y cuadrillas/patrullas.",
+  tags: ["Eventos ATP"],
+  request: {
+    params: PuntoCriticoIdParamSchema,
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+    body: {
+      description: "Campos actualizables del punto crítico",
+      content: {
+        "application/json": {
+          schema: ActualizarPuntoCriticoBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Punto crítico actualizado exitosamente",
+      content: {
+        "application/json": {
+          schema: PuntoCriticoDetalleResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de edición o formato inválidos",
+    },
+    401: {
+      description: "No autenticado. Se requiere cabecera de autenticación válida",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador con permiso puntos_criticos:editar",
+    },
+    404: {
+      description: "Punto crítico no encontrado",
+    },
+    409: {
+      description: "Conflicto operativo: no es posible editar un punto crítico que se encuentra desactivado del sistema",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la solicitud",
+    },
+  },
+});
+
+// 25. DELETE /api/puntos-criticos/{id} (HU-56)
 registry.registerPath({
   method: "delete",
   path: "/api/puntos-criticos/{id}",
   summary: "Desactivar punto crítico (borrado lógico)",
   description:
     "Aplica un borrado lógico (soft delete) a un punto crítico comunal registrando la fecha, hora y el identificador del usuario Administrador responsable. Impide la eliminación con código 409 Conflict si existen misiones preventivas activas (PLANIFICADA, DESPACHADA, EN_CURSO) o patrullas asignadas. Emite un evento en tiempo real vía Socket.io ('punto_critico:eliminado') para la actualización reactiva del mapa interactivo y la tabla.",
-  tags: ["Eventos ATP / Puntos Críticos"],
+  tags: ["Eventos ATP"],
   request: {
     params: PuntoCriticoIdParamSchema,
     headers: z.object({
@@ -1292,7 +1445,7 @@ registry.registerPath({
       description: "Conflicto operativo: existen misiones preventivas activas en curso o patrullas asignadas en el lugar",
     },
     500: {
-      description: "Error interno del servidor",
+      description: "Error interno del servidor al procesar la solicitud",
     },
   },
 });

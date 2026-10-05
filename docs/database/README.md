@@ -93,7 +93,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Patrulla Verificadora** | `patrulla_verificadora`| Migración 006 | Operaciones | Unidades tácticas de evaluación preliminar. |
 | **Cuadrilla** | `cuadrilla` | Migración 006 | Operaciones | Unidades tácticas operativas de intervención. |
 | *(Asignación Logística)* | `cuadrilla_recurso` | Migración 006 | Recursos | Asignación N:M de recursos a cuadrillas. |
-| **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 / 012 / 015 | Eventos ATP | Puntos críticos, factores de riesgo y borrado lógico (HU-56). |
+| **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 / 012 / 015 / 016 | Eventos ATP | Puntos críticos, factores de riesgo, edición (HU-55) y borrado lógico (HU-56). |
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
 | **Reporte Terreno** | `reporte_terreno` | Migración 011 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
 | **EventoATP** | *`evento_atp`* | Hoja de Ruta (Roadmap) | Eventos ATP | Agrupación macro de incidentes / eventos climáticos mayores. |
