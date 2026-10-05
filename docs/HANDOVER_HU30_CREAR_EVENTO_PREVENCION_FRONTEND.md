@@ -47,8 +47,8 @@
 ### Usuarios de Prueba Sembrados en Base de Datos
 | Rol | Email | Contraseña | Permiso `prevencion:eventos:crear` | Resultado esperado |
 |---|---|---|---|---|
-| **Encargado de Operaciones** | `encargado@valdivia.cl` | `Password123!` | Sí (asignado en migración 015) | **`201 Created`** |
-| **Administrador General** | `admin@valdivia.cl` | `Password123!` | Sí (asignado en migración 015) | **`201 Created`** |
+| **Encargado de Operaciones** | `encargado@valdivia.cl` | `Password123!` | Sí (asignado en migración 017) | **`201 Created`** |
+| **Administrador General** | `admin@valdivia.cl` | `Password123!` | Sí (asignado en migración 017) | **`201 Created`** |
 | **Operador Call Center** | `callcenter@valdivia.cl` | `Password123!` | No | **`403 Forbidden`** |
 
 ---
