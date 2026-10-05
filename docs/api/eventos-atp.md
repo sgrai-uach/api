@@ -1,12 +1,12 @@
-# Módulo: Eventos ATP (Prevención y Puntos Críticos) — Documentación Técnica de API
+# Módulo: Eventos ATP (Prevención, Puntos Críticos y Recuperación) — Documentación Técnica de API
 
-Este documento describe la operativa técnica de los endpoints y reglas de negocio del módulo de **Eventos ATP** (Alerta Temprana Preventiva, Prevención y Puntos Críticos) en el backend monolítico modular `sgrai-api`, dirigido a los desarrolladores de `sgrai-web` (específicamente la interfaz de Monitoreo del Administrador) y `sgrai-pwa`.
+Este documento describe la operativa técnica de los endpoints y reglas de negocio del módulo de **Eventos ATP** (Alerta Temprana Preventiva, Prevención, Puntos Críticos y Recuperación) en el backend monolítico modular `sgrai-api`, dirigido a los desarrolladores de `sgrai-web` (específicamente la interfaz de Monitoreo del Administrador y Centro de Mando) y `sgrai-pwa`.
 
 ---
 
 ## 1. Contexto y Reglas de Negocio Aplicadas
 
-El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulnerabilidad y eventos de mitigación/prevención en la comuna de Valdivia:
+El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulnerabilidad, eventos de mitigación/prevención y recuperación en la comuna de Valdivia:
 
 1. **Monitoreo de Puntos Críticos y Sectores Vulnerables (HU-57):**
    - El sistema almacena y cataloga los sectores geográficos vulnerables recurrentes de Valdivia (ej. humedales, riberas de ríos, laderas de cerros propensas a remoción en masa, zonas bajas propensas a anegamiento).
@@ -23,20 +23,26 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 4. **Geolocalización Espacial (PostGIS):**
    - Todo punto crítico almacena sus coordenadas geográficas en EPSG:4326 (`latitud`, `longitud`) y las indexa con GIST sobre la columna geométrica `ubicacion` (`Point`), permitiendo visualizaciones en mapas interactivos y futuros cálculos de proximidad de recursos.
 5. **Control de Acceso Basado en Roles (RBAC):**
-   - La consulta y visualización de la lista de puntos críticos (`GET /api/puntos-criticos`) está **restringida estrictamente al rol `Administrador`** del sistema.
+   - La consulta y gestión de puntos críticos está restringida al rol `Administrador`.
+   - La creación de eventos de recuperación está habilitada para `Encargado de Operaciones` y `Administrador`.
    - Cualquier petición anónima es rechazada con `401 Unauthorized`.
-   - Cualquier petición proveniente de un usuario con un perfil distinto a `Administrador` es rechazada con `403 Forbidden`.
-   - La autenticación se verifica a través de la cabecera HTTP `X-User-Id: <UUID>` o el token Bearer (`Authorization: Bearer <UUID>`).
+   - La autenticación se verifica a través de la cabecera HTTP `X-User-Id: <UUID>` o el token Bearer (`Authorization: Bearer <token>`).
 6. **Respuesta ante Lista Vacía (Criterio de Aceptación 3):**
-   - Si no existen puntos críticos registrados en la base de datos (o si los filtros aplicados no retornan coincidencias), la API responde `200 OK` con un arreglo vacío `data: []` y `total: 0`. Esto permite al frontend (`sgrai-web`) desplegar de forma limpia su mensaje de estado vacío ("No hay puntos críticos registrados") sin incurrir en excepciones.
-
----
-
-7. **Creación de Eventos de Recuperación y Despacho Directo (HU-29):**
-   - El Encargado puede registrar eventos de recuperación en terreno para entregar insumos y asistencia a sectores o familias damnificadas sin necesidad de un incidente formal previo.
-   - El sistema valida atómicamente la existencia y disponibilidad de la patrulla verificadora seleccionada (`patrulla_verificadora.estado = 'DISPONIBLE'`).
-   - El sistema comprueba mediante bloqueo transaccional (`FOR UPDATE`) que haya stock suficiente en bodega (`cantidad_inventario - cantidad_en_uso >= cantidad_solicitada`).
-   - En la misma transacción atómica de Kysely, se descuentan los recursos del inventario disponible (`cantidad_inventario`), se actualiza la patrulla al estado `'EN_RECUPERACION'`, se genera una misión táctica en estado `'DESPACHADA'` y se emite el evento WebSocket `recuperacion:creada` en tiempo real.
+   - Si no existen puntos críticos registrados en la base de datos (o si los filtros aplicados no retornan coincidencias), la API responde `200 OK` con un arreglo vacío `data: []` y `total: 0`.
+7. **Edición y Reubicación Dinámica con Notificación en Tiempo Real (HU-55):**
+   - El Administrador puede modificar los datos descriptivos y reubicar las coordenadas de un punto crítico en cualquier momento. El backend recalcula la geometría PostGIS y difunde el evento `"punto_critico:actualizado"` vía Socket.io a la central, supervisores y unidades en terreno para su actualización inmediata.
+   - El código institucional es inmutable. No se permite editar puntos inactivos (`409 Conflict`).
+8. **Borrado Lógico y Auditoría (HU-56):**
+   - La desactivación de un punto crítico no destruye físicamente el registro. En su lugar, se actualiza `activo = false`, registrando `eliminado_en` y `eliminado_por_id`.
+9. **Protección de Operaciones Activas en Terreno (HU-56):**
+   - Si el punto crítico se encuentra vinculado a una misión preventiva activa (estados `PLANIFICADA`, `DESPACHADA` o `EN_CURSO`) o tiene una patrulla/cuadrilla asignada, la API **rechaza la solicitud de eliminación con código HTTP `409 Conflict`**.
+10. **Sincronización Reactiva en Tiempo Real (Socket.io):**
+    - Al procesarse la eliminación lógica, la API emite el evento `"punto_critico:eliminado"` a las salas `"encargado"` y `"supervisor"`, así como en difusión global.
+11. **Creación de Eventos de Recuperación y Despacho Directo (HU-29):**
+    - El Encargado puede registrar eventos de recuperación en terreno para entregar insumos y asistencia a sectores o familias damnificadas sin necesidad de un incidente formal previo.
+    - El sistema valida atómicamente la existencia y disponibilidad de la patrulla verificadora seleccionada (`patrulla_verificadora.estado = 'DISPONIBLE'`).
+    - El sistema comprueba mediante bloqueo transaccional (`FOR UPDATE`) que haya stock suficiente en bodega (`cantidad_inventario - cantidad_en_uso >= cantidad_solicitada`).
+    - En la misma transacción atómica de Kysely, se descuentan los recursos del inventario disponible (`cantidad_inventario`), se actualiza la patrulla al estado `'EN_RECUPERACION'`, se genera una misión táctica en estado `'DESPACHADA'` y se emite el evento WebSocket `recuperacion:creada` en tiempo real.
 
 ---
 
@@ -44,7 +50,10 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 
 | Método | Endpoint | Propósito |
 |---|---|---|
-| `GET` | `/api/puntos-criticos` | Listar los puntos críticos y sectores vulnerables monitoreados con paginación, filtros territoriales/prioridad y datos de delegación asociada. |
+| `GET` | `/api/puntos-criticos` | Listar los puntos críticos y sectores vulnerables monitoreados con paginación, filtros territoriales/prioridad y datos de delegación asociada (HU-57). |
+| `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
+| `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
+| `DELETE` | `/api/puntos-criticos/{id}` | Desactivar (borrado lógico) un punto crítico comunal, validando dependencias operativas y notificando vía Socket.io (HU-56). |
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
 
 > Nota: Los contratos OpenAPI 3.0 se autogeneran a partir de los esquemas Zod y están expuestos públicamente en `GET /openapi.json`.
@@ -82,7 +91,7 @@ Retorna una lista paginada de los puntos críticos registrados, incluyendo sus f
       "id": "40000000-0000-4000-8000-000000000001",
       "codigo": "PC-ANG-01",
       "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
-      "descripcion": "Zona baja con riesgo de anegamiento por desborde fluvial",
+      "descripcion": "Zona baja con riesgo recurrente de anegamiento por desborde en temporada invernal",
       "tipoRiesgo": "Inundación y anegamiento",
       "prioridad": "ALTA",
       "activo": true,
@@ -90,8 +99,8 @@ Retorna una lista paginada de los puntos críticos registrados, incluyendo sus f
       "latitud": -39.8456,
       "longitud": -73.2389,
       "delegacion": {
-        "id": "30000000-0000-4000-8000-000000000001",
-        "codigo": "DEL-SUR",
+        "id": "30000000-0000-4000-8000-000000000002",
+        "codigo": "DEL_SUR",
         "nombre": "Delegación Municipal Sur"
       },
       "creadoEn": "2026-06-15T12:00:00.000Z"
@@ -106,39 +115,6 @@ Retorna una lista paginada de los puntos críticos registrados, incluyendo sus f
 }
 ```
 
-#### `200 OK` — Lista vacía (sin registros)
-```json
-{
-  "data": [],
-  "meta": {
-    "total": 0,
-    "pagina": 1,
-    "limite": 10,
-    "totalPaginas": 0
-  }
-}
-```
-
-#### `400 Bad Request` — Parámetros inválidos
-```json
-{
-  "message": "Parámetros de consulta inválidos.",
-  "errors": [
-    {
-      "campo": "pagina",
-      "mensaje": "Number must be greater than or equal to 1"
-    }
-  ]
-}
-```
-
-#### `401 Unauthorized` — Falta cabecera de autenticación
-```json
-{
-  "message": "Cabecera X-User-Id requerida para autenticación."
-}
-```
-
 #### `403 Forbidden` — Acceso denegado (Rol no autorizado)
 ```json
 {
@@ -148,7 +124,200 @@ Retorna una lista paginada de los puntos críticos registrados, incluyendo sus f
 
 ---
 
-## 4. Detalle de Endpoint: `POST /api/eventos-atp/recuperacion` (HU-29)
+## 4. Detalle de Endpoint: `GET /api/puntos-criticos/{id}` (HU-55)
+
+Obtiene el detalle completo de un punto crítico específico para precargar los datos en el formulario de edición en `sgrai-web`.
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `X-User-Id` | `UUID` | Sí | Identificador del usuario con rol `Administrador`. |
+
+### Parámetros de Ruta
+
+| Parámetro | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `id` | `UUID` | Sí | Identificador único del punto crítico. |
+
+### Respuestas HTTP Esperadas
+
+#### `200 OK` — Detalle obtenido exitosamente
+```json
+{
+  "id": "40000000-0000-4000-8000-000000000001",
+  "codigo": "PC-ANG-01",
+  "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
+  "descripcion": "Zona baja con riesgo de anegamiento por desborde fluvial",
+  "tipoRiesgo": "Inundación y anegamiento",
+  "prioridad": "ALTA",
+  "activo": true,
+  "estadoTexto": "Activo",
+  "latitud": -39.8456,
+  "longitud": -73.2389,
+  "delegacion": {
+    "id": "30000000-0000-4000-8000-000000000001",
+    "codigo": "DEL-SUR",
+    "nombre": "Delegación Municipal Sur"
+  },
+  "creadoEn": "2026-06-15T12:00:00.000Z",
+  "actualizadoEn": "2026-10-04T19:00:00.000Z",
+  "actualizadoPorId": "00000000-0000-4000-8000-000000000001"
+}
+```
+
+#### `404 Not Found` — Punto crítico no encontrado
+```json
+{
+  "message": "Punto crítico con ID '40000000-0000-4000-8000-000000000001' no encontrado."
+}
+```
+
+---
+
+## 5. Detalle de Endpoint: `PUT /api/puntos-criticos/{id}` (HU-55)
+
+Permite al Administrador modificar las características, factores de riesgo y ubicación geográfica interactiva de un punto crítico comunal.
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `X-User-Id` | `UUID` | Sí | Identificador del usuario con rol `Administrador` y permiso `puntos_criticos:editar`. |
+| `Content-Type` | `string` | Sí | `application/json` |
+
+### Cuerpo de la Petición (JSON Body)
+
+```json
+{
+  "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
+  "descripcion": "Zona baja con riesgo crítico de anegamiento e ingreso de agua a viviendas",
+  "tipoRiesgo": "Inundación fluvial y anegamiento",
+  "prioridad": "CRITICA",
+  "delegacionId": "30000000-0000-4000-8000-000000000001",
+  "latitud": -39.8465,
+  "longitud": -73.2392
+}
+```
+
+### Respuestas HTTP Esperadas
+
+#### `200 OK` — Actualización exitosa
+Retorna la entidad consolidada con el detalle actualizado y las estampas de auditoría.
+
+#### `400 Bad Request` — Datos de formulario inválidos
+```json
+{
+  "message": "Parámetros de edición de punto crítico inválidos.",
+  "errors": [
+    {
+      "campo": "latitud",
+      "mensaje": "La latitud debe ser menor o igual a 90."
+    }
+  ]
+}
+```
+
+#### `401 Unauthorized` — No autenticado
+```json
+{
+  "message": "No autorizado. Se requiere cabecera de autenticación válida."
+}
+```
+
+#### `403 Forbidden` — Permiso insuficiente
+```json
+{
+  "message": "Acceso denegado. Se requiere perfil de Administrador con permiso puntos_criticos:editar."
+}
+```
+
+#### `404 Not Found` — Punto crítico inexistente
+```json
+{
+  "message": "Punto crítico con ID '40000000-0000-4000-8000-000000000001' no encontrado."
+}
+```
+
+#### `409 Conflict` — Punto crítico inactivo
+```json
+{
+  "message": "No es posible editar el punto crítico 'Sector Humedal Angachilla' porque se encuentra desactivado del sistema."
+}
+```
+
+---
+
+## 6. Detalle de Endpoint: `DELETE /api/puntos-criticos/{id}` (HU-56)
+
+Aplica el **borrado lógico** (*soft delete*) de un punto crítico del catálogo comunal. El registro se desactiva (`activo: false`) y se estampan los metadatos de auditoría `eliminado_en` y `eliminado_por_id`.
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `Authorization` | `string` | No | Token Bearer JWT de sesión. |
+| `X-User-Id` | `UUID` | No | Identificador del usuario con rol `Administrador` y permiso `puntos_criticos:eliminar`. |
+
+### Parámetros de Ruta (Path Params)
+
+| Parámetro | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `id` | `UUID` | Sí | Identificador único del punto crítico a desactivar. |
+
+### Respuestas HTTP Esperadas
+
+#### `200 OK` — Desactivación lógica exitosa
+```json
+{
+  "message": "Punto crítico desactivado exitosamente del sistema.",
+  "id": "40000000-0000-4000-8000-000000000001",
+  "codigo": "PC-ANG-01",
+  "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
+  "activo": false,
+  "eliminadoEn": "2026-10-04T00:30:00.000Z",
+  "eliminadoPorId": "00000000-0000-4000-8000-000000000001"
+}
+```
+
+#### `400 Bad Request` — Identificador UUID inválido
+```json
+{
+  "message": "Identificador de punto crítico inválido."
+}
+```
+
+#### `401 Unauthorized` — Falta cabecera de autenticación
+```json
+{
+  "message": "Cabecera X-User-Id o token Bearer requerido para autenticación."
+}
+```
+
+#### `403 Forbidden` — Acceso denegado
+```json
+{
+  "message": "Acceso denegado. Se requiere el perfil de Administrador con permiso puntos_criticos:eliminar."
+}
+```
+
+#### `404 Not Found` — Punto crítico inexistente
+```json
+{
+  "message": "Punto crítico con ID '40000000-0000-4000-8000-000000000099' no encontrado."
+}
+```
+
+#### `409 Conflict` — Misiones preventivas o patrullas activas en el lugar
+```json
+{
+  "message": "No es posible eliminar el punto crítico 'Sector Humedal Angachilla - Pasaje Los Robles' porque cuenta con 1 misión(es) preventivas activas o patrullas asignadas en terreno (Misiones asociadas: MIS-2026-004)."
+}
+```
+
+---
+
+## 7. Detalle de Endpoint: `POST /api/eventos-atp/recuperacion` (HU-29)
 
 Permite al perfil **Encargado de Operaciones** (o Administrador) crear un evento de recuperación territorial y despachar una patrulla verificadora con insumos y recursos logísticos hacia un sector afectado, de forma atómica y sin requerir un incidente formal.
 
@@ -302,7 +471,52 @@ Permite al perfil **Encargado de Operaciones** (o Administrador) crear un evento
 
 ---
 
-## 5. Eventos en Tiempo Real (Socket.io & Redis Pub/Sub)
+## 8. Eventos de Tiempo Real (Socket.io)
+
+### Evento: `punto_critico:actualizado`
+
+Emitido automáticamente tras una actualización exitosa de características o coordenadas hacia las salas `"encargado"`, `"supervisor"` y `"administrador"`.
+
+* **Payload:**
+```json
+{
+  "id": "40000000-0000-4000-8000-000000000001",
+  "codigo": "PC-ANG-01",
+  "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
+  "descripcion": "Zona baja con riesgo de anegamiento por desborde fluvial",
+  "tipoRiesgo": "Inundación y anegamiento",
+  "prioridad": "ALTA",
+  "activo": true,
+  "estadoTexto": "Activo",
+  "latitud": -39.8456,
+  "longitud": -73.2389,
+  "delegacion": {
+    "id": "30000000-0000-4000-8000-000000000001",
+    "codigo": "DEL-SUR",
+    "nombre": "Delegación Municipal Sur"
+  },
+  "creadoEn": "2026-06-15T12:00:00.000Z",
+  "actualizadoEn": "2026-10-04T19:00:00.000Z",
+  "actualizadoPorId": "00000000-0000-4000-8000-000000000001"
+}
+```
+
+### Evento: `punto_critico:eliminado`
+
+Emitido automáticamente tras un borrado lógico exitoso hacia las salas `"encargado"` y `"supervisor"`, así como por difusión general.
+
+* **Payload:**
+```json
+{
+  "id": "40000000-0000-4000-8000-000000000001",
+  "codigo": "PC-ANG-01",
+  "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
+  "eliminadoPorId": "00000000-0000-4000-8000-000000000001",
+  "eliminadoEn": "2026-10-04T00:30:00.000Z"
+}
+```
+
+### Evento: `recuperacion:creada`
 
 Al completar exitosamente la transacción de creación del evento, el backend emite:
 
