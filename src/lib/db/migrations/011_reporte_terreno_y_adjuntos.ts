@@ -53,52 +53,34 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
   // 3. Permiso RBAC para visualizar detalle de misiones (HU-17)
   await sql`
-    DO $$
-    DECLARE
-      v_permiso_id UUID;
-      v_target_id UUID := '10000000-0000-4000-8000-000000000016';
-    BEGIN
-      SELECT id INTO v_permiso_id FROM permiso WHERE codigo = 'misiones:leer';
+    INSERT INTO permiso (id, codigo, nombre, descripcion, modulo)
+    VALUES (
+      '10000000-0000-4000-8000-000000000013',
+      'misiones:leer',
+      'Visualizar Detalle de Misiones',
+      'Permite consultar el detalle exhaustivo de misiones operativas, incidentes asociados y reportes de terreno',
+      'Misiones'
+    )
+    ON CONFLICT (codigo) DO UPDATE SET
+      nombre = EXCLUDED.nombre,
+      descripcion = EXCLUDED.descripcion,
+      modulo = EXCLUDED.modulo;
+  `.execute(db);
 
-      IF v_permiso_id IS NULL THEN
-        IF EXISTS (SELECT 1 FROM permiso WHERE id = v_target_id) THEN
-          INSERT INTO permiso (codigo, nombre, descripcion, modulo)
-          VALUES (
-            'misiones:leer',
-            'Visualizar Detalle de Misiones',
-            'Permite consultar el detalle exhaustivo de misiones operativas, incidentes asociados y reportes de terreno',
-            'Misiones'
-          )
-          RETURNING id INTO v_permiso_id;
-        ELSE
-          INSERT INTO permiso (id, codigo, nombre, descripcion, modulo)
-          VALUES (
-            v_target_id,
-            'misiones:leer',
-            'Visualizar Detalle de Misiones',
-            'Permite consultar el detalle exhaustivo de misiones operativas, incidentes asociados y reportes de terreno',
-            'Misiones'
-          )
-          RETURNING id INTO v_permiso_id;
-        END IF;
-      END IF;
-
-      -- 4. Asignar permiso 'misiones:leer' a Administrador, Encargado y Supervisor
-      INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
-      VALUES
-        ('20000000-0000-4000-8000-000000000001', v_permiso_id, '00000000-0000-4000-8000-000000000001'),
-        ('20000000-0000-4000-8000-000000000003', v_permiso_id, '00000000-0000-4000-8000-000000000001'),
-        ('20000000-0000-4000-8000-000000000010', v_permiso_id, '00000000-0000-4000-8000-000000000001')
-      ON CONFLICT DO NOTHING;
-    END $$;
+  // 4. Asignar permiso 'misiones:leer' a Administrador, Encargado y Supervisor
+  await sql`
+    INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
+    VALUES
+      ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000013', '00000000-0000-4000-8000-000000000001'),
+      ('20000000-0000-4000-8000-000000000003', '10000000-0000-4000-8000-000000000013', '00000000-0000-4000-8000-000000000001'),
+      ('20000000-0000-4000-8000-000000000010', '10000000-0000-4000-8000-000000000013', '00000000-0000-4000-8000-000000000001')
+    ON CONFLICT DO NOTHING;
   `.execute(db);
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
-  await sql`
-    DELETE FROM rol_permiso WHERE permiso_id IN (SELECT id FROM permiso WHERE codigo = 'misiones:leer');
-    DELETE FROM permiso WHERE codigo = 'misiones:leer';
-  `.execute(db);
+  await sql`DELETE FROM rol_permiso WHERE permiso_id = '10000000-0000-4000-8000-000000000013';`.execute(db);
+  await sql`DELETE FROM permiso WHERE codigo = 'misiones:leer';`.execute(db);
 
   await sql`DROP INDEX IF EXISTS idx_adjunto_reporte_terreno_id;`.execute(db);
   await sql`ALTER TABLE adjunto DROP COLUMN IF EXISTS reporte_terreno_id;`.execute(db);
