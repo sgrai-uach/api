@@ -2,18 +2,30 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   ListarPuntosCriticosQuerySchema,
   PuntoCriticoItemResponseSchema,
+  ActualizarPuntoCriticoBodySchema,
+  PuntoCriticoDetalleResponseSchema,
+  PuntoCriticoIdParamSchema,
 } from "../punto-critico.schema";
 import {
   listarPuntosCriticos,
   mapearFilaPuntoCritico,
+  mapearFilaPuntoCriticoDetalle,
+  obtenerDetallePuntoCritico,
+  editarPuntoCritico,
 } from "../punto-critico.service";
 import * as puntoCriticoRepository from "../punto-critico.repository";
 import { seguridadService } from "@/modules/seguridad/service";
 import {
   UnauthorizedError,
   ForbiddenError,
+  NotFoundError,
+  BadRequestError,
+  ConflictError,
 } from "@/modules/seguridad/errors";
-import { PERMISO_LISTAR_PUNTOS_CRITICOS } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_LISTAR_PUNTOS_CRITICOS,
+  PERMISO_EDITAR_PUNTO_CRITICO,
+} from "@/modules/seguridad/permisos.constants";
 
 describe("Módulo Eventos ATP / Puntos Críticos (HU-57) - Pruebas Unitarias", () => {
   beforeEach(() => {
@@ -249,6 +261,349 @@ describe("Módulo Eventos ATP / Puntos Críticos (HU-57) - Pruebas Unitarias", (
         limite: 10,
         totalPaginas: 1,
       });
+    });
+  });
+
+  describe("4. Edición de Punto Crítico (HU-55) - Esquemas Zod", () => {
+    it("debe validar un cuerpo de edición con datos válidos", () => {
+      const payload = {
+        nombre: "Sector Humedal Angachilla - Editado",
+        descripcion: "Monitoreo reforzado de caudal",
+        tipoRiesgo: "Anegamiento severo",
+        prioridad: "CRITICA",
+        delegacionId: "30000000-0000-4000-8000-000000000001",
+        latitud: -39.8456,
+        longitud: -73.2389,
+      };
+
+      const resultado = ActualizarPuntoCriticoBodySchema.safeParse(payload);
+      expect(resultado.success).toBe(true);
+    });
+
+    it("debe rechazar nombres de menos de 3 caracteres", () => {
+      const payload = {
+        nombre: "ab",
+        prioridad: "MEDIA",
+        latitud: -39.8,
+        longitud: -73.2,
+      };
+
+      const resultado = ActualizarPuntoCriticoBodySchema.safeParse(payload);
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(resultado.error.issues[0].message).toContain("al menos 3 caracteres");
+      }
+    });
+
+    it("debe rechazar coordenadas fuera de rango (latitud > 90 o longitud > 180)", () => {
+      const payloadLatInvalida = {
+        nombre: "Punto Inválido",
+        prioridad: "ALTA",
+        latitud: 95.5,
+        longitud: -73.2,
+      };
+      expect(ActualizarPuntoCriticoBodySchema.safeParse(payloadLatInvalida).success).toBe(false);
+
+      const payloadLngInvalida = {
+        nombre: "Punto Inválido",
+        prioridad: "ALTA",
+        latitud: -39.8,
+        longitud: 185.0,
+      };
+      expect(ActualizarPuntoCriticoBodySchema.safeParse(payloadLngInvalida).success).toBe(false);
+    });
+
+    it("debe validar ID de parámetro UUID correcto", () => {
+      expect(
+        PuntoCriticoIdParamSchema.safeParse({ id: "40000000-0000-4000-8000-000000000001" }).success
+      ).toBe(true);
+      expect(PuntoCriticoIdParamSchema.safeParse({ id: "id-invalido" }).success).toBe(false);
+    });
+
+    it("debe validar el esquema de respuesta de detalle con auditoría", () => {
+      const detalleValido = {
+        id: "40000000-0000-4000-8000-000000000001",
+        codigo: "PC-ANG-01",
+        nombre: "Sector Humedal Angachilla",
+        descripcion: "Zona baja con riesgo de anegamiento",
+        tipoRiesgo: "Inundación fluvial",
+        prioridad: "ALTA",
+        activo: true,
+        estadoTexto: "Activo",
+        latitud: -39.8456,
+        longitud: -73.2389,
+        delegacion: {
+          id: "30000000-0000-4000-8000-000000000001",
+          codigo: "DEL-SUR",
+          nombre: "Delegación Municipal Sur",
+        },
+        creadoEn: "2026-06-15T12:00:00.000Z",
+        actualizadoEn: "2026-10-04T19:00:00.000Z",
+        actualizadoPorId: "00000000-0000-4000-8000-000000000001",
+      };
+
+      const resultado = PuntoCriticoDetalleResponseSchema.safeParse(detalleValido);
+      expect(resultado.success).toBe(true);
+    });
+
+    it("debe verificar que la constante de permiso de edición coincida con el catálogo", () => {
+      expect(PERMISO_EDITAR_PUNTO_CRITICO).toBe("puntos_criticos:editar");
+    });
+
+    it("debe mapear correctamente una fila con auditoría de edición mediante mapearFilaPuntoCriticoDetalle", () => {
+      const fila: puntoCriticoRepository.FilaPuntoCriticoConDelegacion = {
+        id: "40000000-0000-4000-8000-000000000001",
+        codigo: "PC-ANG-01",
+        nombre: "Sector Humedal Angachilla",
+        descripcion: "Zona baja",
+        tipo_riesgo: "Inundación",
+        prioridad: "ALTA",
+        activo: true,
+        latitud: -39.8456,
+        longitud: -73.2389,
+        creado_en: new Date("2026-06-15T12:00:00.000Z"),
+        actualizado_en: new Date("2026-10-04T19:00:00.000Z"),
+        actualizado_por_id: "00000000-0000-4000-8000-000000000001",
+        delegacion_id: "30000000-0000-4000-8000-000000000001",
+        delegacion_codigo: "DEL-SUR",
+        delegacion_nombre: "Delegación Municipal Sur",
+      };
+
+      const dto = mapearFilaPuntoCriticoDetalle(fila);
+      expect(dto.id).toBe(fila.id);
+      expect(dto.actualizadoPorId).toBe(fila.actualizado_por_id);
+      expect(dto.actualizadoEn).toBe(new Date("2026-10-04T19:00:00.000Z").toISOString());
+    });
+  });
+
+  describe("5. Edición de Punto Crítico (HU-55) - Lógica de Servicio", () => {
+    const adminMock = {
+      id: "00000000-0000-4000-8000-000000000001",
+      rut: "11111111-1",
+      nombre: "Admin SGRAI",
+      email: "admin@valdivia.cl",
+      activo: true,
+      rolId: "20000000-0000-4000-8000-000000000001",
+      rolNombre: "Administrador",
+    };
+
+    const puntoExistenteMock: puntoCriticoRepository.FilaPuntoCriticoConDelegacion = {
+      id: "40000000-0000-4000-8000-000000000001",
+      codigo: "PC-ANG-01",
+      nombre: "Sector Humedal Angachilla",
+      descripcion: "Zona baja vulnerable",
+      tipo_riesgo: "Inundación",
+      prioridad: "ALTA",
+      activo: true,
+      latitud: -39.8456,
+      longitud: -73.2389,
+      creado_en: new Date("2026-05-10T14:30:00.000Z"),
+      actualizado_en: null,
+      actualizado_por_id: null,
+      delegacion_id: "30000000-0000-4000-8000-000000000001",
+      delegacion_codigo: "DEL-SUR",
+      delegacion_nombre: "Delegación Municipal Sur",
+    };
+
+    it("debe rechazar edición si el usuario no es Administrador", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValueOnce(
+        new ForbiddenError("Acceso denegado. Se requiere perfil de Administrador.")
+      );
+
+      await expect(
+        editarPuntoCritico(
+          "40000000-0000-4000-8000-000000000001",
+          {
+            nombre: "Nombre nuevo",
+            prioridad: "ALTA",
+            latitud: -39.84,
+            longitud: -73.23,
+          },
+          "no-admin-id"
+        )
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it("debe lanzar NotFoundError si el punto crítico no existe", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminMock);
+      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoDetallePorId").mockResolvedValueOnce(null);
+
+      await expect(
+        editarPuntoCritico(
+          "99999999-9999-4999-8999-999999999999",
+          {
+            nombre: "Punto Inexistente",
+            prioridad: "ALTA",
+            latitud: -39.84,
+            longitud: -73.23,
+          },
+          adminMock.id
+        )
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it("debe lanzar ConflictError si el punto crítico está desactivado (borrado lógico previo)", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminMock);
+      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoDetallePorId").mockResolvedValueOnce({
+        ...puntoExistenteMock,
+        activo: false,
+      });
+
+      await expect(
+        editarPuntoCritico(
+          puntoExistenteMock.id,
+          {
+            nombre: "Intento en Inactivo",
+            prioridad: "MEDIA",
+            latitud: -39.84,
+            longitud: -73.23,
+          },
+          adminMock.id
+        )
+      ).rejects.toThrow(ConflictError);
+    });
+
+    it("debe lanzar BadRequestError si la delegación proporcionada no existe", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminMock);
+      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoDetallePorId").mockResolvedValueOnce(
+        puntoExistenteMock
+      );
+      vi.spyOn(puntoCriticoRepository, "verificarDelegacionExiste").mockResolvedValueOnce(false);
+
+      await expect(
+        editarPuntoCritico(
+          puntoExistenteMock.id,
+          {
+            nombre: "Nombre nuevo",
+            prioridad: "MEDIA",
+            delegacionId: "50000000-0000-4000-8000-000000000001",
+            latitud: -39.8456,
+            longitud: -73.2389,
+          },
+          adminMock.id
+        )
+      ).rejects.toThrow(BadRequestError);
+    });
+
+    it("Regla Opción A: debe permitir reubicar coordenadas aun cuando existan misiones activas en curso", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminMock);
+      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoDetallePorId")
+        .mockResolvedValueOnce(puntoExistenteMock)
+        .mockResolvedValueOnce({
+          ...puntoExistenteMock,
+          nombre: "Sector Trasladado",
+          latitud: -39.8200,
+          longitud: -73.2100,
+          actualizado_en: new Date("2026-10-04T19:00:00.000Z"),
+          actualizado_por_id: adminMock.id,
+        });
+      vi.spyOn(puntoCriticoRepository, "verificarDelegacionExiste").mockResolvedValueOnce(true);
+
+      const actualizarSpy = vi
+        .spyOn(puntoCriticoRepository, "actualizarPuntoCritico")
+        .mockResolvedValueOnce({} as unknown as Awaited<ReturnType<typeof puntoCriticoRepository.actualizarPuntoCritico>>);
+
+      const resultado = await editarPuntoCritico(
+        puntoExistenteMock.id,
+        {
+          nombre: "Sector Trasladado",
+          prioridad: "ALTA",
+          latitud: -39.8200, // Coordenada modificada
+          longitud: -73.2100,
+        },
+        adminMock.id
+      );
+
+      expect(actualizarSpy).toHaveBeenCalledTimes(1);
+      expect(resultado.latitud).toBe(-39.82);
+      expect(resultado.longitud).toBe(-73.21);
+    });
+
+    it("Regla Opción B: debe permitir editar campos descriptivos con misiones activas si las coordenadas no cambian", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminMock);
+      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoDetallePorId")
+        .mockResolvedValueOnce(puntoExistenteMock)
+        .mockResolvedValueOnce({
+          ...puntoExistenteMock,
+          nombre: "Sector Humedal Angachilla - Actualizado",
+          descripcion: "Nueva descripción operativa",
+          prioridad: "CRITICA",
+          actualizado_en: new Date("2026-10-04T19:00:00.000Z"),
+          actualizado_por_id: adminMock.id,
+        });
+
+      const actualizarSpy = vi
+        .spyOn(puntoCriticoRepository, "actualizarPuntoCritico")
+        .mockResolvedValueOnce({} as unknown as Awaited<ReturnType<typeof puntoCriticoRepository.actualizarPuntoCritico>>);
+
+      const resultado = await editarPuntoCritico(
+        puntoExistenteMock.id,
+        {
+          nombre: "Sector Humedal Angachilla - Actualizado",
+          descripcion: "Nueva descripción operativa",
+          prioridad: "CRITICA",
+          latitud: -39.8456, // Misma latitud
+          longitud: -73.2389, // Misma longitud
+        },
+        adminMock.id
+      );
+
+      expect(actualizarSpy).toHaveBeenCalledTimes(1);
+      expect(resultado.nombre).toBe("Sector Humedal Angachilla - Actualizado");
+      expect(resultado.prioridad).toBe("CRITICA");
+      expect(resultado.codigo).toBe("PC-ANG-01"); // Inmutable
+    });
+
+    it("Flujo Feliz: debe actualizar datos y ubicación si no hay misiones activas y retornar auditoría", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminMock);
+      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoDetallePorId")
+        .mockResolvedValueOnce(puntoExistenteMock)
+        .mockResolvedValueOnce({
+          ...puntoExistenteMock,
+          nombre: "Sector Humedal Angachilla - Reubicado",
+          latitud: -39.8500,
+          longitud: -73.2400,
+          actualizado_en: new Date("2026-10-04T19:15:00.000Z"),
+          actualizado_por_id: adminMock.id,
+        });
+
+      vi.spyOn(puntoCriticoRepository, "verificarMisionesActivasPuntoCritico").mockResolvedValueOnce({
+        tieneMisionesActivas: false,
+        totalMisiones: 0,
+        codigos: [],
+      });
+
+      const actualizarSpy = vi
+        .spyOn(puntoCriticoRepository, "actualizarPuntoCritico")
+        .mockResolvedValueOnce({} as unknown as Awaited<ReturnType<typeof puntoCriticoRepository.actualizarPuntoCritico>>);
+
+      const resultado = await editarPuntoCritico(
+        puntoExistenteMock.id,
+        {
+          nombre: "Sector Humedal Angachilla - Reubicado",
+          prioridad: "ALTA",
+          latitud: -39.8500,
+          longitud: -73.2400,
+        },
+        adminMock.id
+      );
+
+      expect(actualizarSpy).toHaveBeenCalledTimes(1);
+      expect(resultado.latitud).toBe(-39.85);
+      expect(resultado.longitud).toBe(-73.24);
+      expect(resultado.actualizadoPorId).toBe(adminMock.id);
+    });
+
+    it("debe retornar detalle de punto crítico para precarga mediante obtenerDetallePuntoCritico", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(adminMock);
+      vi.spyOn(puntoCriticoRepository, "obtenerPuntoCriticoDetallePorId").mockResolvedValueOnce(
+        puntoExistenteMock
+      );
+
+      const detalle = await obtenerDetallePuntoCritico(puntoExistenteMock.id, adminMock.id);
+      expect(detalle.id).toBe(puntoExistenteMock.id);
+      expect(detalle.codigo).toBe(puntoExistenteMock.codigo);
+      expect(detalle.delegacion?.codigo).toBe("DEL-SUR");
     });
   });
 });
