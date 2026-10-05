@@ -94,6 +94,13 @@ import {
   MisionIdParamSchema,
 } from "@/modules/misiones/mision.schema";
 
+import {
+  CrearEventoAsistenciaSocialInputSchema,
+  ListarEventosAsistenciaSocialQuerySchema,
+  EventoAsistenciaSocialResponseSchema,
+  ListarEventosAsistenciaSocialResponseSchema,
+} from "@/modules/eventos-atp/asistencia-social.schema";
+
 extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
@@ -147,12 +154,15 @@ registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema
 registry.register("IncidenteResponse", IncidenteResponseSchema);
 registry.register("IncidentesKpisResponse", IncidentesKpisResponseSchema);
 
-// Registrar esquemas de Eventos ATP (Puntos Críticos)
+// Registrar esquemas de Eventos ATP (Puntos Críticos y Asistencia Social)
 registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
 registry.register("PuntoCriticoItemResponse", PuntoCriticoItemResponseSchema);
 registry.register("ActualizarPuntoCriticoBody", ActualizarPuntoCriticoBodySchema);
 registry.register("PuntoCriticoDetalleResponse", PuntoCriticoDetalleResponseSchema);
 registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSchema);
+registry.register("CrearEventoAsistenciaSocialInput", CrearEventoAsistenciaSocialInputSchema);
+registry.register("EventoAsistenciaSocialResponse", EventoAsistenciaSocialResponseSchema);
+registry.register("ListarEventosAsistenciaSocialResponse", ListarEventosAsistenciaSocialResponseSchema);
 
 // ==========================================
 // RUTAS RECURSOS Y PERSONAL
@@ -1515,6 +1525,96 @@ registry.registerPath({
     500: {
       description: "Error interno del servidor",
     },
+  },
+});
+
+// ==========================================
+// RUTAS ASISTENCIA SOCIAL (H28)
+// ==========================================
+
+// GET /api/eventos-atp/asistencia-social (H28)
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/asistencia-social",
+  description:
+    "Listar eventos de asistencia social para el panel de eventos pendientes para levantamiento de FIBE.",
+  summary: "Listar eventos de asistencia social",
+  tags: ["Eventos ATP - Asistencia Social"],
+  request: {
+    headers: z.object({
+      authorization: z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer del usuario con permiso 'asistencia_social:leer'" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado" }),
+    }),
+    query: ListarEventosAsistenciaSocialQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado paginado de eventos de asistencia social",
+      content: {
+        "application/json": {
+          schema: ListarEventosAsistenciaSocialResponseSchema,
+        },
+      },
+    },
+    400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Se requiere permiso 'asistencia_social:leer'" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// POST /api/eventos-atp/asistencia-social (H28)
+registry.registerPath({
+  method: "post",
+  path: "/api/eventos-atp/asistencia-social",
+  description:
+    "Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente previo.",
+  summary: "Crear evento de asistencia social",
+  tags: ["Eventos ATP - Asistencia Social"],
+  request: {
+    headers: z.object({
+      authorization: z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer del usuario con permiso 'asistencia_social:crear'" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
+    }),
+    body: {
+      description: "Datos del caso excepcional de vulnerabilidad y requerimiento de FIBE",
+      content: {
+        "application/json": {
+          schema: CrearEventoAsistenciaSocialInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Evento de asistencia social registrado exitosamente",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+            data: EventoAsistenciaSocialResponseSchema,
+          }),
+        },
+      },
+    },
+    400: { description: "Datos de entrada inválidos o campos obligatorios faltantes" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Se requiere permiso 'asistencia_social:crear'" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
