@@ -84,6 +84,11 @@ import {
   MisionIdParamSchema,
 } from "@/modules/misiones/mision.schema";
 
+import {
+  CrearEventoPrevencionInputSchema,
+  CrearEventoPrevencionResponseSchema,
+} from "@/modules/eventos-atp/evento-prevencion.schema";
+
 extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
@@ -1235,6 +1240,54 @@ registry.registerPath({
     },
     403: {
       description: "Acceso denegado. Permiso insuficiente",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 24. POST /api/eventos-atp/prevencion (HU-30)
+registry.registerPath({
+  method: "post",
+  path: "/api/eventos-atp/prevencion",
+  summary: "Crear evento de prevención territorial y despachar misión (HU-30)",
+  description:
+    "Registra un nuevo evento preventivo georreferenciado sobre un punto crítico o coordenadas libres en una delegación de Valdivia, asigna recursos opcionales del inventario, despacha una misión operativa a una patrulla verificadora disponible (actualizando su estado a EN_PREVENCION) y emite notificaciones WebSocket en tiempo real.",
+  tags: ["Eventos ATP"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: CrearEventoPrevencionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Evento de prevención creado y patrulla despachada exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearEventoPrevencionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos para el evento de prevención",
+    },
+    401: {
+      description: "No autenticado o token de sesión inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'prevencion:eventos:crear'",
+    },
+    404: {
+      description: "Patrulla, delegación, punto crítico o recurso no encontrado",
+    },
+    409: {
+      description: "Conflicto: la patrulla verificadora no está disponible o stock insuficiente",
     },
     500: {
       description: "Error interno del servidor",
