@@ -36,7 +36,8 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 
 | Método | Endpoint | Propósito |
 |---|---|---|
-| `GET` | `/api/puntos-criticos` | Listar los puntos críticos y sectores vulnerables monitoreados con paginación, filtros territoriales/prioridad y datos de delegación asociada. |
+| `GET` | `/api/puntos-criticos` | Listar los puntos críticos y sectores vulnerables monitoreados con paginación, filtros territoriales/prioridad y datos de delegación asociada (HU-57). |
+| `POST` | `/api/puntos-criticos` | Registrar un nuevo punto crítico con coordenadas PostGIS, código autogenerado y emisión en tiempo real vía Socket.io (HU-58). |
 
 > Nota: Los contratos OpenAPI 3.0 se autogeneran a partir de los esquemas Zod y están expuestos públicamente en `GET /openapi.json`.
 
@@ -134,5 +135,108 @@ Retorna una lista paginada de los puntos críticos registrados, incluyendo sus f
 ```json
 {
   "message": "Acceso denegado. Se requiere el perfil de Administrador para acceder al listado y gestión de permisos."
+}
+```
+
+---
+
+## 4. Detalle de Endpoint: `POST /api/puntos-criticos` (HU-58)
+
+Registra un nuevo punto crítico o sector vulnerable en la base de datos relacional y lo geolocaliza en PostGIS (EPSG:4326). El código institucional se autogenera con el prefijo territorial de la delegación asignada (ej. `PC-SUR-001`, `PC-NOR-001`) o el prefijo general comunal (`PC-VAL-001`).
+
+Al completarse el registro, el sistema emite el evento `"punto_critico:creado"` a través de Socket.io hacia las salas `"administrador"`, `"supervisor"` y `"encargado"` para reflejar en tiempo real la nueva coordenada en sus capas cartográficas.
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `X-User-Id` | `UUID` | Sí | Identificador del usuario con perfil `Administrador` activo. |
+
+### Cuerpo de la Petición (Request Body)
+
+```json
+{
+  "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
+  "descripcion": "Zona baja propensa a anegamiento por desborde en temporada invernal",
+  "tipoRiesgo": "Inundación y anegamiento",
+  "prioridad": "ALTA",
+  "delegacionId": "30000000-0000-4000-8000-000000000001",
+  "latitud": -39.8456,
+  "longitud": -73.2389
+}
+```
+
+#### Parámetros del Body
+
+| Campo | Tipo | Obligatorio | Validación | Descripción |
+|---|---|---|---|---|
+| `nombre` | `string` | Sí | Min 3, Max 150 caracteres | Nombre descriptivo del punto o sector vulnerable. |
+| `descripcion` | `string` | No | Max 1000 caracteres | Detalle situacional y factores de riesgo del sector. |
+| `tipoRiesgo` | `string` | No | Max 100 caracteres | Amenaza recurrente. Opciones sugeridas: `Inundación y anegamiento`, `Deslizamiento / Remoción en masa`, `Desborde de cauce / humedal`, `Incendio forestal / pastizales`, `Colapso estructural / socavón`, `Viento / Voladura de techumbres`, `Otro` (o texto personalizado). |
+| `prioridad` | `string` | No | Default: `"MEDIA"` | Nivel de gravedad: `"BAJA"`, `"MEDIA"`, `"ALTA"`, `"CRITICA"`. |
+| `delegacionId` | `UUID` | No | UUID válido | Identificador de la delegación territorial asignada. |
+| `latitud` | `number` | Sí | [-90, 90] | Coordenada latitud en grados decimales (WGS84 EPSG:4326). |
+| `longitud` | `number` | Sí | [-180, 180] | Coordenada longitud en grados decimales (WGS84 EPSG:4326). |
+
+### Respuestas HTTP Esperadas
+
+#### `201 Created` — Creación exitosa
+```json
+{
+  "id": "40000000-0000-4000-8000-000000000099",
+  "codigo": "PC-SUR-001",
+  "nombre": "Sector Humedal Angachilla - Pasaje Los Robles",
+  "descripcion": "Zona baja propensa a anegamiento por desborde en temporada invernal",
+  "tipoRiesgo": "Inundación y anegamiento",
+  "prioridad": "ALTA",
+  "activo": true,
+  "estadoTexto": "Activo",
+  "latitud": -39.8456,
+  "longitud": -73.2389,
+  "delegacion": {
+    "id": "30000000-0000-4000-8000-000000000001",
+    "codigo": "DEL-SUR",
+    "nombre": "Delegación Municipal Sur"
+  },
+  "creadoEn": "2026-10-05T00:30:00.000Z",
+  "creadoPorId": "00000000-0000-4000-8000-000000000001"
+}
+```
+
+#### `400 Bad Request` — Datos de creación inválidos o delegación inexistente
+```json
+{
+  "message": "Datos de creación de punto crítico inválidos.",
+  "errors": [
+    {
+      "campo": "nombre",
+      "mensaje": "El nombre debe tener al menos 3 caracteres."
+    },
+    {
+      "campo": "latitud",
+      "mensaje": "La latitud debe ser mayor o igual a -90."
+    }
+  ]
+}
+```
+
+#### `401 Unauthorized` — Sin autenticación
+```json
+{
+  "message": "Cabecera X-User-Id requerida para autenticación."
+}
+```
+
+#### `403 Forbidden` — Perfil no autorizado
+```json
+{
+  "message": "Acceso denegado. Se requiere el perfil de Administrador con permiso puntos_criticos:crear."
+}
+```
+
+#### `409 Conflict` — Código institucional duplicado
+```json
+{
+  "message": "El código institucional de punto crítico ya se encuentra registrado."
 }
 ```
