@@ -1,5 +1,5 @@
 import { sql, type Transaction } from "kysely";
-import type { Database } from "@/lib/db/types";
+import type { Database, EstadoOperativoPersonal } from "@/lib/db/types";
 
 export type Trx = Transaction<Database>;
 
@@ -26,7 +26,7 @@ export async function actualizarEstadoPatrulla(
 export async function actualizarEstadoPersonalLider(
   trx: Trx,
   usuarioId: string,
-  estadoOperativo: string
+  estadoOperativo: EstadoOperativoPersonal
 ) {
   return await trx
     .updateTable("personal")
@@ -55,8 +55,9 @@ export async function obtenerRecursosParaBloqueo(trx: Trx, recursoIds: string[])
   if (recursoIds.length === 0) return [];
   return await trx
     .selectFrom("recurso")
-    .select(["id", "nombre", "cantidad_inventario", "cantidad_en_uso", "activo"])
+    .select(["id", "nombre", "cantidad_inventario", "cantidad_en_uso", "eliminado_en"])
     .where("id", "in", recursoIds)
+    .where("eliminado_en", "is", null)
     .execute();
 }
 

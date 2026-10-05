@@ -190,7 +190,7 @@ describe("Route Handlers /api/eventos-atp/prevencion (HU-30)", () => {
       descripcion: payloadValido.descripcion,
       sector: payloadValido.sector,
       direccionTexto: payloadValido.direccionTexto,
-      prioridad: payloadValido.prioridad,
+      prioridad: "MEDIA" as const,
       estado: "PLANIFICADA" as const,
       latitud: payloadValido.latitud,
       longitud: payloadValido.longitud,
