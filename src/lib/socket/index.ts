@@ -355,6 +355,41 @@ export function emitirRecuperacionCreada(payload: unknown): void {
 }
 
 /**
+ * Emite la notificación de nuevo evento de asistencia social creado al panel de eventos pendientes
+ * y a las vistas de Encargado, Asistente Social y Administrador (H28).
+ */
+export function emitirAsistenciaSocialCreada(payload: unknown): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("asistencia_social:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("asistencia_social:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("asistente_social") as any).emit("asistencia_social:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("administrador") as any).emit("asistencia_social:creada", payload);
+    // Difusión general para actualización reactiva del panel de pendientes
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("asistencia_social:creada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "sala:encargados",
+          event: "asistencia_social:creada",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
+/**
  * Emite la notificación de punto crítico actualizado a las vistas de Encargado, Supervisor y Administrador (HU-55).
  * Permite reflejar inmediatamente los cambios geoespaciales y atributos en el módulo cartográfico.
  */

@@ -96,9 +96,10 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 / 012 / 015 / 016 | Eventos ATP | Puntos críticos, factores de riesgo, edición (HU-55) y borrado lógico (HU-56). |
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
 | **Reporte Terreno** | `reporte_terreno` | Migración 011 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
+| **Recuperación** | `recuperacion` | Migración 017 | Eventos ATP / Recuperación | Eventos e intervenciones territoriales de recuperación y entrega de recursos (HU-29). |
+| **Asistencia Social** | `evento_asistencia_social` | Migración 022 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social y requerimientos para levantamiento de ficha FIBE (HU-28). |
 | **EventoATP** | *`evento_atp`* | Hoja de Ruta (Roadmap) | Eventos ATP | Agrupación macro de incidentes / eventos climáticos mayores. |
 | **Log de Misión** | *`log_mision`* | Hoja de Ruta (Roadmap) | Misiones | Bitácora cronológica detallada de hitos de misión. |
-| **Recuperación** | *`recuperacion`* | Hoja de Ruta (Roadmap) | Asistencia Social | Puntos e intervenciones de recuperación post-emergencia. |
 | **Beneficio** | *`beneficio`* | Hoja de Ruta (Roadmap) | Asistencia Social | Ayudas sociales entregadas a damnificados (FIBE / DIDECO). |
 | **Factores de Riesgo (Niveles)**| *`factor_riesgo`* | Hoja de Ruta (Roadmap) | Incidentes | Parámetros de evaluación de riesgo y severidad. |
 | **Notificaciones** | *`notificacion`* | Hoja de Ruta (Roadmap) | Notificaciones | Registro de notificaciones push / WebSocket generadas. |
@@ -507,7 +508,40 @@ Informes técnicos y diagnósticos estructurados levantados por patrullas verifi
 
 ---
 
-### 3.4 Entidades del Modelo Maestro en Hoja de Ruta (Roadmap de Persistencia)
+### 3.4 Módulo: Eventos ATP y Asistencia Social
+
+#### Tabla: `evento_asistencia_social` (Eventos Excepcionales y Requerimientos de FIBE - HU-28 / Migración 022)
+Gestiona el levantamiento de casos excepcionales de vulnerabilidad social y requerimientos para la Ficha Básica de Emergencia (FIBE), permitiendo su registro directo sin requerir la existencia previa de un incidente formal, o bien vinculado opcionalmente a uno.
+
+| Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
+|---|---|---|---|---|
+| `id` | `UUID` | NO | `gen_random_uuid()` | Identificador único del evento de asistencia social. |
+| `codigo` | `VARCHAR(30)` | NO | — | Código institucional correlativo único (ej. `EAS-2026-0001`). Unique. |
+| `descripcion` | `TEXT` | NO | — | Descripción detallada de la situación de vulnerabilidad y afectación del grupo familiar o persona. |
+| `tipo_afectacion` | `VARCHAR(50)` | NO | — | Tipo de afectación prioritaria (`VIVIENDA_DESTRUIDA`, `PERDIDA_ENSERES`, `AISLAMIENTO_FAMILIAR`, `OTRO`). |
+| `personas_afectadas` | `INTEGER` | NO | `0` | Cantidad de personas afectadas (CHECK >= 0). |
+| `familias_afectadas` | `INTEGER` | NO | `0` | Cantidad de familias afectadas (CHECK >= 0). |
+| `direccion_texto` | `VARCHAR(255)` | NO | — | Dirección física o referencia geográfica en la comuna de Valdivia. |
+| `latitud` | `NUMERIC(10, 7)` | NO | — | Coordenada geográfica Y (latitud EPSG:4326). |
+| `longitud` | `NUMERIC(10, 7)` | NO | — | Coordenada geográfica X (longitud EPSG:4326). |
+| `ubicacion` | `GEOMETRY` | NO | — | Geometría PostGIS Point (SRID 4326). Indexada mediante índice GiST (`idx_evento_asistencia_social_ubicacion`). |
+| `contacto_nombre` | `VARCHAR(150)` | SÍ | `NULL` | Nombre de contacto del jefe de hogar o persona afectada. |
+| `contacto_telefono` | `VARCHAR(50)` | SÍ | `NULL` | Teléfono de contacto institucional o personal. |
+| `contacto_rut` | `VARCHAR(20)` | SÍ | `NULL` | RUT de contacto del jefe de hogar o informante. |
+| `prioridad` | `VARCHAR(20)` | NO | `'MEDIA'` | Prioridad o severidad asignada (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
+| `estado` | `VARCHAR(30)` | NO | `'PENDIENTE'` | Estado operativo del caso (`PENDIENTE`, `ASIGNADO`, `EN_EVALUACION_FIBE`, `FINALIZADO`, `DESCARTADO`). |
+| `incidente_id` | `UUID` | SÍ | `NULL` | FK a `incidente.id` (ON DELETE SET NULL). Nullable si es generado de manera autónoma. |
+| `delegacion_id` | `UUID` | SÍ | `NULL` | FK a `delegacion.id` territorial (ON DELETE SET NULL). |
+| `asistente_social_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` (ON DELETE SET NULL). Profesional asistente social asignado al caso. |
+| `creado_por_id` | `UUID` | NO | — | FK a `usuario.id` (ON DELETE RESTRICT). Funcionario que ingresó el registro (Encargado o Administrador). |
+| `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de creación del registro. |
+| `actualizado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de última modificación. |
+| `eliminado_en` | `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal para borrado lógico (soft delete). |
+| `eliminado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` (ON DELETE SET NULL) responsable de la baja lógica. |
+
+---
+
+### 3.5 Entidades del Modelo Maestro en Hoja de Ruta (Roadmap de Persistencia)
 
 Las siguientes entidades forman parte del diseño conceptual inicial del sistema (ver `Diagrama Entidad-Relación - SGRAI.png`) y se proyectan para su incorporación física en base de datos mediante futuras migraciones Kysely a medida que los módulos respectivos se desarrollen:
 
@@ -557,6 +591,7 @@ Las siguientes entidades forman parte del diseño conceptual inicial del sistema
 | **EstadoPatrulla** | `'DISPONIBLE'`, `'EN_VERIFICACION'`, `'NO_DISPONIBLE'` | `src/lib/db/types.ts` |
 | **EstadoCuadrilla** | `'DISPONIBLE'`, `'EN_MISION'`, `'NO_DISPONIBLE'` | `src/lib/db/types.ts` |
 | **EstadoOperativoPersonal** | `'disponible'`, `'en_mision'`, `'en_patrulla'`, `'descanso'`, `'licencia'`, `'inactivo'` | `src/lib/db/types.ts` |
+| **EstadoEventoAsistenciaSocial** | `'PENDIENTE'`, `'ASIGNADO'`, `'EN_EVALUACION_FIBE'`, `'FINALIZADO'`, `'DESCARTADO'` | `src/lib/db/types.ts` |
 
 ---
 
@@ -623,7 +658,7 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 5. **Rechazo Justificado de Misiones:**
    - Si una cuadrilla rechaza una misión (`mision.estado = 'RECHAZADA'`), la columna `mision.justificacion_rechazo` es **estrictamente obligatoria** (no puede ser `NULL` ni string vacío).
 6. **Manejo de Vulnerabilidad Social (FIBE / DIDECO):**
-   - No existe tabla de "Albergues". La vulnerabilidad social se señaliza mediante el booleano `incidente.requiere_asistencia_social = true`. Esto habilita su derivación al equipo de Asistentes Sociales para levantar la Ficha Básica de Emergencia (FIBE).
+   - No existe tabla de "Albergues". La vulnerabilidad social se señaliza mediante el booleano `incidente.requiere_asistencia_social = true` a nivel de incidente o a través del registro autónomo y directo en `evento_asistencia_social` (HU-28), derivando a DIDECO para el levantamiento de la Ficha Básica de Emergencia (FIBE).
 
 ---
 
@@ -633,7 +668,7 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 ```bash
 npm run db:migrate
 ```
-El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `019_indices_filtros_listados.ts`).
+El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `022_eventos_asistencia_social.ts`).
 
 ### 7.2 Sembrar Datos para Tablero Kanban
 ```bash
