@@ -424,6 +424,61 @@ export function emitirPuntoCriticoEliminado(payload: {
   }
 }
 
+/**
+ * Emite la notificación de nuevo evento de prevención creado a las vistas de Encargado,
+ * al mapa interactivo y a la sala específica de la patrulla asignada (HU-30).
+ */
+export function emitirEventoPrevencionCreado(payload: {
+  id: string;
+  codigo: string;
+  nombre: string;
+  patrulla: { id: string; nombre: string; estado: string };
+  [key: string]: unknown;
+}): void {
+  const patrullaRoom = `patrulla:${payload.patrulla.id}`;
+
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("prevencion:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("prevencion:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("mapa") as any).emit("prevencion:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to(patrullaRoom) as any).emit("prevencion:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to(`sala:${patrullaRoom}`) as any).emit("prevencion:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("prevencion:creada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "sala:encargados",
+          event: "prevencion:creada",
+          payload,
+        })
+      )
+      .catch(() => {});
+
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: patrullaRoom,
+          event: "prevencion:creada",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
 export * from "./types";
 
 

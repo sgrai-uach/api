@@ -206,6 +206,7 @@ export interface PrevencionTable {
 export type EstadoPatrulla =
   | "DISPONIBLE"
   | "EN_VERIFICACION"
+  | "EN_PREVENCION"
   | "EN_RECUPERACION"
   | "EN_MISION"
   | "NO_DISPONIBLE";
@@ -307,6 +308,7 @@ export interface MisionTable {
   justificacion_rechazo: string | null;
   incidente_id: string | null;
   prevencion_id: string | null;
+  evento_prevencion_id?: string | null;
   recuperacion_id?: string | null;
   cuadrilla_id: string | null;
   patrulla_id: string | null;
@@ -407,6 +409,33 @@ export interface ReporteTerrenoTable {
   actualizado_en: Generated<Date>;
 }
 
+export interface EventoPrevencionTable {
+  id: Generated<string>;
+  codigo: string;
+  nombre: string;
+  descripcion: string;
+  prioridad: ColumnType<PrioridadIncidente, PrioridadIncidente | undefined, PrioridadIncidente>;
+  estado: ColumnType<string, string | undefined, string>;
+  sector: string | null;
+  direccion_texto: string | null;
+  punto_critico_id: string | null;
+  delegacion_id: string;
+  latitud: ColumnType<number, number | string, number | string>;
+  longitud: ColumnType<number, number | string, number | string>;
+  ubicacion: unknown;
+  creado_por_id: string;
+  creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
+}
+
+export interface EventoPrevencionRecursoTable {
+  id: Generated<string>;
+  evento_prevencion_id: string;
+  recurso_id: string;
+  cantidad_asignada: number;
+  creado_en: Generated<Date>;
+}
+
 export interface Database {
   // Entidades principales (nombres singulares de Kysely)
   recurso: RecursoTable;
@@ -431,6 +460,8 @@ export interface Database {
   reporte_terreno: ReporteTerrenoTable;
   personal: PersonalTable;
   log_cambios_usuarios: LogCambiosUsuariosTable;
+  evento_prevencion: EventoPrevencionTable;
+  evento_prevencion_recurso: EventoPrevencionRecursoTable;
 
   // Aliases plurales para compatibilidad transversal con servicios de H12 y consultas directas
   recursos: RecursoTable;
@@ -448,4 +479,6 @@ export interface Database {
   avisos_incidentes: AvisoIncidenteTable;
   adjuntos: AdjuntoTable;
   reportes_terreno: ReporteTerrenoTable;
+  eventos_prevencion: EventoPrevencionTable;
+  eventos_prevencion_recursos: EventoPrevencionRecursoTable;
 }
