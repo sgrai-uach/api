@@ -184,6 +184,103 @@ export const EliminarPuntoCriticoResponseSchema = z.object({
 export type EliminarPuntoCriticoResponse = z.infer<typeof EliminarPuntoCriticoResponseSchema>;
 
 /**
+ * Opciones canónicas de tipo de riesgo sugeridas para el frontend (HU-58).
+ * Se almacenan como VARCHAR(100) en base de datos para máxima flexibilidad y retrocompatibilidad.
+ */
+export const TIPOS_RIESGO_PUNTO_CRITICO = [
+  "Inundación y anegamiento",
+  "Deslizamiento / Remoción en masa",
+  "Desborde de cauce / humedal",
+  "Incendio forestal / pastizales",
+  "Colapso estructural / socavón",
+  "Viento / Voladura de techumbres",
+  "Otro",
+] as const;
+
+/**
+ * Esquema de validación del cuerpo de petición (Body) para crear un nuevo punto crítico (HU-58).
+ * El código institucional se autogenera en el backend.
+ */
+export const CrearPuntoCriticoBodySchema = z.object({
+  nombre: z
+    .string()
+    .trim()
+    .min(3, "El nombre debe tener al menos 3 caracteres.")
+    .max(150, "El nombre no puede exceder los 150 caracteres.")
+    .openapi({
+      description: "Nombre descriptivo del punto crítico o sector vulnerable",
+      example: "Sector Humedal Angachilla - Pasaje Los Robles",
+    }),
+  descripcion: z
+    .string()
+    .trim()
+    .max(1000, "La descripción no puede exceder los 1000 caracteres.")
+    .nullish()
+    .transform((val) => (val === "" ? null : val))
+    .openapi({
+      description: "Detalle situacional y factores de riesgo del sector",
+      example: "Zona baja propensa a anegamiento por desborde en temporada invernal",
+    }),
+  tipoRiesgo: z
+    .string()
+    .trim()
+    .max(100, "El tipo de riesgo no puede exceder los 100 caracteres.")
+    .nullish()
+    .transform((val) => (val === "" ? null : val))
+    .openapi({
+      description:
+        "Clasificación de la amenaza recurrente (VARCHAR hasta 100 caracteres). Sugerencias: Inundación y anegamiento, Deslizamiento / Remoción en masa, Desborde de cauce / humedal, Incendio forestal / pastizales, Colapso estructural / socavón, Viento / Voladura de techumbres, Otro.",
+      example: "Inundación y anegamiento",
+    }),
+  prioridad: z
+    .string()
+    .optional()
+    .default("MEDIA")
+    .transform((val): PrioridadPuntoCritico => {
+      const upper = (val || "MEDIA").toUpperCase().trim();
+      if (upper.startsWith("CRITIC")) return "CRITICA";
+      if (upper.startsWith("ALT")) return "ALTA";
+      if (upper.startsWith("MED")) return "MEDIA";
+      if (upper.startsWith("BAJ")) return "BAJA";
+      return "MEDIA";
+    })
+    .openapi({
+      description: "Nivel de gravedad o prioridad operativa homologado con incidentes",
+      example: "ALTA",
+    }),
+  delegacionId: z
+    .string()
+    .nullish()
+    .transform((val) => (val === "" || val === "null" ? null : val))
+    .refine((val) => val === null || val === undefined || z.string().uuid().safeParse(val).success, {
+      message: "Identificador UUID de delegación territorial inválido.",
+    })
+    .openapi({
+      description: "UUID de la delegación municipal territorial asignada",
+      example: "30000000-0000-4000-8000-000000000001",
+    }),
+  latitud: z.coerce
+    .number()
+    .min(-90, "La latitud debe ser mayor o igual a -90.")
+    .max(90, "La latitud debe ser menor o igual a 90.")
+    .openapi({
+      description: "Coordenada latitud WGS84 EPSG:4326",
+      example: -39.8456,
+    }),
+  longitud: z.coerce
+    .number()
+    .min(-180, "La longitud debe ser mayor o igual a -180.")
+    .max(180, "La longitud debe ser menor o igual a 180.")
+    .openapi({
+      description: "Coordenada longitud WGS84 EPSG:4326",
+      example: -73.2389,
+    }),
+});
+
+export type CrearPuntoCriticoBody = z.infer<typeof CrearPuntoCriticoBodySchema>;
+export type CrearPuntoCriticoInput = z.input<typeof CrearPuntoCriticoBodySchema>;
+
+/**
  * Esquema de validación del cuerpo de petición (Body) para editar un punto crítico (HU-55).
  * El código institucional y el estado activo son inmutables en este formulario.
  */
@@ -251,7 +348,7 @@ export const ActualizarPuntoCriticoBodySchema = z.object({
 export type ActualizarPuntoCriticoBody = z.infer<typeof ActualizarPuntoCriticoBodySchema>;
 
 /**
- * Esquema de respuesta para el detalle o resultado de edición de un punto crítico (HU-55).
+ * Esquema de respuesta para el detalle o resultado de edición o creación de un punto crítico (HU-55 / HU-58).
  */
 export const PuntoCriticoDetalleResponseSchema = z.object({
   id: z.string().uuid().openapi({
@@ -300,6 +397,10 @@ export const PuntoCriticoDetalleResponseSchema = z.object({
   creadoEn: z.string().openapi({
     description: "Fecha y hora de registro en formato ISO-8601",
     example: "2026-06-15T12:00:00.000Z",
+  }),
+  creadoPorId: z.string().uuid().nullable().optional().openapi({
+    description: "UUID del administrador responsable de la creación del punto crítico",
+    example: "00000000-0000-4000-8000-000000000001",
   }),
   actualizadoEn: z.string().nullable().optional().openapi({
     description: "Fecha y hora de última actualización en formato ISO-8601",

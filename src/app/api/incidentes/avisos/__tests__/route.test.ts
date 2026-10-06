@@ -110,6 +110,8 @@ const TEST_AVISO_IDS = [
   "f3333333-3333-4333-8333-333333333333",
 ];
 
+let idDelegacionNorte: string | null = null;
+
 describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)", () => {
   beforeAll(async () => {
     // 0. Generar token JWT Bearer para el operador de Call Center
@@ -129,6 +131,7 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
       .select("id")
       .where("nombre", "ilike", "%norte%")
       .executeTakeFirst();
+    idDelegacionNorte = delNorte?.id ?? null;
     const delSur = await db
       .selectFrom("delegacion")
       .select("id")
@@ -178,7 +181,7 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
       ) VALUES (
         ${TEST_AVISO_IDS[2]}, '73333333', 'Inundación', 'Av. Balmaceda 180, Collico', -39.8174, -73.2145,
         ST_SetSRID(ST_MakePoint(-73.2145, -39.8174), 4326),
-        'Vecino Collico', '33333333-3', 'TELEFONO', 'VERIFICADO',
+        'Vecino Collico', '33333333-3', 'LLAMADA_TELEFONICA', 'VERIFICADO',
         ${delCalle?.id ?? null},
         CURRENT_TIMESTAMP - interval '10 minutes',
         CURRENT_TIMESTAMP - interval '10 minutes'
@@ -371,6 +374,22 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
     const body = await res.json();
     expect(body.data).toEqual([]);
     expect(body.pagination.total).toBe(0);
+  });
+
+  it("debe filtrar avisos por delegacionId (UUID)", async () => {
+    if (!idDelegacionNorte) return;
+    const req = new NextRequest(
+      `http://localhost:3000/api/incidentes/avisos?delegacionId=${idDelegacionNorte}&estado=TODOS`,
+      { headers: AUTH_HEADER }
+    );
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.data)).toBe(true);
+    expect(body.data.length).toBeGreaterThan(0);
+    body.data.forEach((aviso: { delegacionNombre: string | null }) => {
+      expect(aviso.delegacionNombre).toBe("Norte");
+    });
   });
 });
 

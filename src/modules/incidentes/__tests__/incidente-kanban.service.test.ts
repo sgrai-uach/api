@@ -50,6 +50,14 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
       });
 
       expect(resultado.message).toBe("Listado de incidentes obtenido exitosamente");
+      expect(resultado.meta).toEqual({
+        total: 45,
+        page: 2,
+        limit: 10,
+        totalPages: 5,
+        hasNext: true,
+        hasPrev: true,
+      });
       expect(resultado.paginacion).toEqual({
         total: 45,
         pagina: 2,
@@ -74,9 +82,33 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
         limit: 10,
       });
 
-      expect(resultado.paginacion.totalPaginas).toBe(1);
-      expect(resultado.paginacion.tieneSiguiente).toBe(false);
-      expect(resultado.paginacion.tieneAnterior).toBe(false);
+      expect(resultado.meta.totalPages).toBe(1);
+      expect(resultado.meta.hasNext).toBe(false);
+      expect(resultado.meta.hasPrev).toBe(false);
+      expect(resultado.paginacion?.totalPaginas).toBe(1);
+      expect(resultado.paginacion?.tieneSiguiente).toBe(false);
+      expect(resultado.paginacion?.tieneAnterior).toBe(false);
+    });
+
+    it("debe propagar filtros combinados AND (delegacionId, fuenteOrigen, estado, prioridad) al repositorio", async () => {
+      vi.mocked(repo.listarIncidentesPaginadosRepo).mockResolvedValueOnce({
+        filas: [],
+        total: 0,
+      });
+
+      const filtros = {
+        page: 1,
+        limit: 20,
+        delegacionId: "30000000-0000-4000-8000-000000000001",
+        fuenteOrigen: "LLAMADA_TELEFONICA" as const,
+        estado: "REPORTADO" as const,
+        prioridad: "ALTA" as const,
+        busqueda: "Centro",
+      };
+
+      await listarIncidentesKanbanService(filtros);
+
+      expect(repo.listarIncidentesPaginadosRepo).toHaveBeenCalledWith(filtros);
     });
   });
 

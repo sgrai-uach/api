@@ -97,7 +97,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
 | **Reporte Terreno** | `reporte_terreno` | Migración 011 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
 | **Recuperación** | `recuperacion` | Migración 017 | Eventos ATP / Recuperación | Eventos e intervenciones territoriales de recuperación y entrega de recursos (HU-29). |
-| **Asistencia Social** | `evento_asistencia_social` | Migración 019 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social y requerimientos para levantamiento de ficha FIBE (HU-28). |
+| **Asistencia Social** | `evento_asistencia_social` | Migración 022 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social y requerimientos para levantamiento de ficha FIBE (HU-28). |
 | **EventoATP** | *`evento_atp`* | Hoja de Ruta (Roadmap) | Eventos ATP | Agrupación macro de incidentes / eventos climáticos mayores. |
 | **Log de Misión** | *`log_mision`* | Hoja de Ruta (Roadmap) | Misiones | Bitácora cronológica detallada de hitos de misión. |
 | **Beneficio** | *`beneficio`* | Hoja de Ruta (Roadmap) | Asistencia Social | Ayudas sociales entregadas a damnificados (FIBE / DIDECO). |
@@ -510,7 +510,7 @@ Informes técnicos y diagnósticos estructurados levantados por patrullas verifi
 
 ### 3.4 Módulo: Eventos ATP y Asistencia Social
 
-#### Tabla: `evento_asistencia_social` (Eventos Excepcionales y Requerimientos de FIBE - HU-28 / Migración 019)
+#### Tabla: `evento_asistencia_social` (Eventos Excepcionales y Requerimientos de FIBE - HU-28 / Migración 022)
 Gestiona el levantamiento de casos excepcionales de vulnerabilidad social y requerimientos para la Ficha Básica de Emergencia (FIBE), permitiendo su registro directo sin requerir la existencia previa de un incidente formal, o bien vinculado opcionalmente a uno.
 
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
@@ -668,7 +668,7 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 ```bash
 npm run db:migrate
 ```
-El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `019_eventos_asistencia_social.ts`).
+El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `022_eventos_asistencia_social.ts`).
 
 ### 7.2 Sembrar Datos para Tablero Kanban
 ```bash

@@ -1,6 +1,9 @@
 import { Kysely, PostgresDialect } from "kysely";
 import { Pool } from "pg";
+import { loadEnvConfig } from "@next/env";
 import type { Database } from "./types";
+
+loadEnvConfig(process.cwd());
 
 /**
  * Configuración de Kysely (query builder) para PostgreSQL + PostGIS.

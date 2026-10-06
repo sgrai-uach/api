@@ -9,7 +9,7 @@ describe("Endpoint GET /openapi.json", () => {
     const spec = await res.json();
     expect(spec.openapi).toBe("3.0.0");
     expect(spec.info.title).toContain("SGRAI API");
-    expect(spec.info.version).toBe("0.8.0");
+    expect(spec.info.version).toBe("0.9.0");
 
     // Rutas de Puntos Críticos (Eventos ATP - HU-57 / HU-55 / HU-56)
     expect(spec.paths["/api/puntos-criticos"]).toBeDefined();
@@ -21,7 +21,7 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/eventos-atp/recuperacion"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/recuperacion"].post).toBeDefined();
 
-    // Rutas de Recursos
+    // Rutas de Recursos y Personal
     expect(spec.paths["/api/recursos"]).toBeDefined();
     expect(spec.paths["/api/recursos"].post).toBeDefined();
     expect(spec.paths["/api/recursos"].get).toBeDefined();
@@ -29,6 +29,12 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/recursos/{id}"].get).toBeDefined();
     expect(spec.paths["/api/recursos/{id}"].put).toBeDefined();
     expect(spec.paths["/api/recursos/{id}"].delete).toBeDefined();
+    expect(spec.paths["/api/personal"]).toBeDefined();
+    expect(spec.paths["/api/personal"].get).toBeDefined();
+
+    // Rutas de Misiones
+    expect(spec.paths["/api/misiones"]).toBeDefined();
+    expect(spec.paths["/api/misiones"].get).toBeDefined();
 
     // Rutas de Incidentes
     expect(spec.paths["/api/incidentes/kpis"]).toBeDefined();
@@ -90,6 +96,17 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/personal/{id}"].delete.responses["404"]).toBeDefined();
     expect(spec.paths["/api/personal/{id}"].delete.responses["409"]).toBeDefined();
     expect(spec.paths["/api/personal/{id}"].delete.responses["500"]).toBeDefined();
+
+    // Rutas de Eventos ATP - Prevención (HU-30)
+    expect(spec.paths["/api/eventos-atp/prevencion"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion"].post).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["201"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["400"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["401"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["403"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["404"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["409"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["500"]).toBeDefined();
   });
 });
 

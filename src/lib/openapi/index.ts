@@ -74,9 +74,22 @@ import {
 } from "@/modules/recursos-y-personal/schemas/registrar-empleado.schema";
 
 import {
+  ListarPersonalQuerySchema,
+  ListarPersonalResponseSchema,
+  PersonalItemSchema,
+} from "@/modules/recursos-y-personal/personal-listado.schema";
+
+import {
+  ListarMisionesQuerySchema,
+  ListarMisionesResponseSchema,
+  MisionItemSchema,
+} from "@/modules/misiones/mision-listado.schema";
+
+import {
   ListarPuntosCriticosQuerySchema,
   ListarPuntosCriticosResponseSchema,
   PuntoCriticoItemResponseSchema,
+  CrearPuntoCriticoBodySchema,
   ActualizarPuntoCriticoBodySchema,
   PuntoCriticoDetalleResponseSchema,
   PuntoCriticoIdParamSchema,
@@ -101,6 +114,11 @@ import {
   ListarEventosAsistenciaSocialResponseSchema,
 } from "@/modules/eventos-atp/asistencia-social.schema";
 
+import {
+  CrearEventoPrevencionInputSchema,
+  CrearEventoPrevencionResponseSchema,
+} from "@/modules/eventos-atp/evento-prevencion.schema";
+
 extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
@@ -119,6 +137,10 @@ registry.register("EmpleadoConsolidado", EmpleadoConsolidadoSchema);
 registry.register("ListarEmpleadosResponse", ListarEmpleadosResponseSchema);
 registry.register("ActualizarEmpleadoResponse", ActualizarEmpleadoResponseSchema);
 registry.register("CatalogosResponse", CatalogosResponseSchema);
+registry.register("ListarPersonalResponse", ListarPersonalResponseSchema);
+registry.register("PersonalItem", PersonalItemSchema);
+registry.register("ListarMisionesResponse", ListarMisionesResponseSchema);
+registry.register("MisionItem", MisionItemSchema);
 registry.register("DetalleEmpleadoResponse", DetalleEmpleadoResponseSchema);
 registry.register("EliminarEmpleadoResponse", EliminarEmpleadoResponseSchema);
 
@@ -157,6 +179,7 @@ registry.register("IncidentesKpisResponse", IncidentesKpisResponseSchema);
 // Registrar esquemas de Eventos ATP (Puntos Críticos y Asistencia Social)
 registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
 registry.register("PuntoCriticoItemResponse", PuntoCriticoItemResponseSchema);
+registry.register("CrearPuntoCriticoBody", CrearPuntoCriticoBodySchema);
 registry.register("ActualizarPuntoCriticoBody", ActualizarPuntoCriticoBodySchema);
 registry.register("PuntoCriticoDetalleResponse", PuntoCriticoDetalleResponseSchema);
 registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSchema);
@@ -801,33 +824,27 @@ registry.registerPath({
   },
 });
 
-// 16. GET /api/personal (Listar empleados/personal)
+// 16. GET /api/personal (Listar empleados/personal - H34)
 registry.registerPath({
   method: "get",
   path: "/api/personal",
   description:
-    "Lista y busca empleados y personal operativo del SGRAI con filtros territoriales, de rol y búsqueda textual.",
+    "Lista y busca empleados y personal operativo del SGRAI con filtros territoriales (delegacionId), estado operativo, cargo, especialidad, rol y búsqueda textual, con paginación estándar.",
   summary: "Listar empleados y personal",
   tags: ["Recursos y Personal"],
   request: {
-    query: z.object({
-      q: z.string().optional().describe("Término de búsqueda (RUT, nombres, apellidos o email)"),
-      solo_personal: z.enum(["true", "false"]).optional().describe("Filtrar únicamente personal con ficha de terreno"),
-      delegacion_id: z.string().uuid().optional().describe("Filtrar por delegación municipal"),
-      rol_id: z.string().uuid().optional().describe("Filtrar por rol"),
-      ordenar_por: z.enum(["apellidos", "nombres", "rut"]).optional().describe("Campo de ordenamiento"),
-      orden: z.enum(["asc", "desc"]).optional().describe("Dirección de ordenamiento"),
-    }),
+    query: ListarPersonalQuerySchema,
   },
   responses: {
     200: {
-      description: "Lista de empleados obtenida exitosamente",
+      description: "Lista paginada de empleados y personal obtenida exitosamente",
       content: {
         "application/json": {
-          schema: ListarEmpleadosResponseSchema,
+          schema: ListarPersonalResponseSchema,
         },
       },
     },
+    400: { description: "Parámetros de consulta inválidos" },
     500: { description: "Error interno del servidor" },
   },
 });
@@ -1096,6 +1113,35 @@ registry.registerPath({
   },
 });
 
+// 20. GET /api/misiones (H34: Listado de misiones para Encargado)
+registry.registerPath({
+  method: "get",
+  path: "/api/misiones",
+  summary: "Listar misiones operativas con filtros y paginación",
+  description:
+    "Retorna una lista paginada de misiones operativas del SGRAI para el Encargado. Admite filtros combinados por estado, tipo táctico, prioridad, delegación territorial (vía incidente o patrulla/cuadrilla) y búsqueda textual libre.",
+  tags: ["Misiones"],
+  request: {
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión"),
+    }),
+    query: ListarMisionesQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado de misiones y metadatos de paginación obtenidos exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarMisionesResponseSchema,
+        },
+      },
+    },
+    400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "No autenticado o token ausente/inválido" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
 // 21. DELETE /api/recursos/{id} (HU-9)
 registry.registerPath({
   method: "delete",
@@ -1223,8 +1269,9 @@ registry.registerPath({
   },
 });
 
+
 // ==========================================
-// RUTAS EVENTOS ATP (PUNTOS CRÍTICOS)
+// RUTAS EVENTOS ATP (PUNTOS CRÍTICOS Y PREVENCIÓN)
 // ==========================================
 registry.register("PuntoCriticoItem", PuntoCriticoItemResponseSchema);
 registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
@@ -1271,7 +1318,58 @@ registry.registerPath({
   },
 });
 
-// 23. GET /api/puntos-criticos/{id} (HU-55)
+// 23. POST /api/puntos-criticos (HU-58)
+registry.registerPath({
+  method: "post",
+  path: "/api/puntos-criticos",
+  summary: "Crear nuevo punto crítico o sector vulnerable",
+  description:
+    "Registra un nuevo punto crítico o sector vulnerable con coordenadas PostGIS (EPSG:4326), autogenera su código correlativo institucional y emite notificación en tiempo real vía Socket.io. Requiere rol Administrador con permiso puntos_criticos:crear.",
+  tags: ["Eventos ATP"],
+  request: {
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .openapi({ description: "UUID del usuario administrador autenticado" }),
+    }),
+    body: {
+      description: "Datos requeridos para la creación del punto crítico",
+      content: {
+        "application/json": {
+          schema: CrearPuntoCriticoBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Punto crítico creado exitosamente",
+      content: {
+        "application/json": {
+          schema: PuntoCriticoDetalleResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de creación inválidos o delegación no encontrada",
+    },
+    401: {
+      description: "No autenticado. Se requiere cabecera de autenticación válida",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil de Administrador con permiso puntos_criticos:crear",
+    },
+    409: {
+      description: "Conflicto por código duplicado",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la solicitud",
+    },
+  },
+});
+
+// 24. GET /api/puntos-criticos/{id} (HU-55)
 registry.registerPath({
   method: "get",
   path: "/api/puntos-criticos/{id}",
@@ -1423,7 +1521,7 @@ registry.registerPath({
 });
 
 // ==========================================
-// RUTAS EVENTOS ATP (RECUPERACIÓN)
+// RUTAS EVENTOS ATP (RECUPERACIÓN Y PREVENCIÓN)
 // ==========================================
 
 // 26. POST /api/eventos-atp/recuperacion (HU-29)
@@ -1574,13 +1672,68 @@ registry.registerPath({
   },
 });
 
+// ==========================================
+// RUTAS PREVENCIÓN (HU-30)
+// ==========================================
+
+// 27. POST /api/eventos-atp/prevencion (HU-30)
+registry.register("CrearEventoPrevencionInput", CrearEventoPrevencionInputSchema);
+registry.register("CrearEventoPrevencionResponse", CrearEventoPrevencionResponseSchema);
+
+registry.registerPath({
+  method: "post",
+  path: "/api/eventos-atp/prevencion",
+  summary: "Crear evento de prevención territorial y despachar misión (HU-30)",
+  description:
+    "Registra un nuevo evento preventivo georreferenciado sobre un punto crítico o coordenadas libres en una delegación de Valdivia, asigna recursos opcionales del inventario, despacha una misión operativa a una patrulla verificadora disponible (actualizando su estado a EN_PREVENCION) y emite notificaciones WebSocket en tiempo real.",
+  tags: ["Eventos ATP"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: CrearEventoPrevencionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Evento de prevención creado y patrulla despachada exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearEventoPrevencionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos para el evento de prevención",
+    },
+    401: {
+      description: "No autenticado o token de sesión inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'prevencion:eventos:crear'",
+    },
+    404: {
+      description: "Patrulla, delegación, punto crítico o recurso no encontrado",
+    },
+    409: {
+      description: "Conflicto: la patrulla verificadora no está disponible o stock insuficiente",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
 export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.8.0",
+      version: "0.9.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",

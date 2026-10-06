@@ -213,6 +213,11 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
         pagina: 1,
         limite: 10,
         totalPaginas: 0,
+        page: 1,
+        limit: 10,
+        totalPages: 0,
+        hasNext: false,
+        hasPrev: false,
       });
     });
 
@@ -269,6 +274,22 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
       });
       expect(respuesta.meta.total).toBe(1);
       expect(respuesta.meta.totalPaginas).toBe(1);
+      expect(respuesta.meta.page).toBe(1);
+      expect(respuesta.meta.limit).toBe(10);
+      expect(respuesta.meta.totalPages).toBe(1);
+    });
+
+    it("debe aceptar parámetros estándar page y limit (H34)", async () => {
+      vi.spyOn(recursoRepository, "listarRecursosPaginados").mockResolvedValueOnce([]);
+      vi.spyOn(recursoRepository, "contarRecursos").mockResolvedValueOnce(0);
+
+      const respuesta = await listarRecursos({ page: 2, limit: 20 }, adminId);
+
+      expect(respuesta.meta.page).toBe(2);
+      expect(respuesta.meta.limit).toBe(20);
+      expect(respuesta.meta.totalPages).toBe(0);
+      expect(respuesta.meta.hasNext).toBe(false);
+      expect(respuesta.meta.hasPrev).toBe(true);
     });
   });
 
