@@ -75,48 +75,76 @@ export async function generarSiguienteCodigoPrevencion(trx: Trx): Promise<string
   const anio = new Date().getFullYear();
   const prefijo = `PREV-${anio}-`;
 
-  const resultado = await trx
+  const eventos = await trx
     .selectFrom("evento_prevencion")
     .select("codigo")
     .where("codigo", "like", `${prefijo}%`)
-    .orderBy("creado_en", "desc")
-    .limit(1)
-    .executeTakeFirst();
+    .execute();
 
-  let correlativo = 1;
-  if (resultado && resultado.codigo) {
-    const partes = resultado.codigo.split("-");
-    const ultimoNumero = parseInt(partes[2], 10);
-    if (!isNaN(ultimoNumero)) {
-      correlativo = ultimoNumero + 1;
+  let maxCorrelativo = 0;
+  for (const ev of eventos) {
+    if (ev.codigo) {
+      const partes = ev.codigo.split("-");
+      const num = parseInt(partes[partes.length - 1], 10);
+      if (!isNaN(num) && num > maxCorrelativo) {
+        maxCorrelativo = num;
+      }
     }
   }
 
-  return `${prefijo}${String(correlativo).padStart(4, "0")}`;
+  let correlativo = maxCorrelativo + 1;
+  let codigoCandidato = `${prefijo}${String(correlativo).padStart(4, "0")}`;
+
+  while (
+    await trx
+      .selectFrom("evento_prevencion")
+      .select("id")
+      .where("codigo", "=", codigoCandidato)
+      .executeTakeFirst()
+  ) {
+    correlativo++;
+    codigoCandidato = `${prefijo}${String(correlativo).padStart(4, "0")}`;
+  }
+
+  return codigoCandidato;
 }
 
 export async function generarSiguienteCodigoMision(trx: Trx): Promise<string> {
   const anio = new Date().getFullYear();
   const prefijo = `MIS-${anio}-`;
 
-  const resultado = await trx
+  const misiones = await trx
     .selectFrom("mision")
     .select("codigo")
     .where("codigo", "like", `${prefijo}%`)
-    .orderBy("creado_en", "desc")
-    .limit(1)
-    .executeTakeFirst();
+    .execute();
 
-  let correlativo = 1;
-  if (resultado && resultado.codigo) {
-    const partes = resultado.codigo.split("-");
-    const ultimoNumero = parseInt(partes[2], 10);
-    if (!isNaN(ultimoNumero)) {
-      correlativo = ultimoNumero + 1;
+  let maxCorrelativo = 0;
+  for (const m of misiones) {
+    if (m.codigo) {
+      const partes = m.codigo.split("-");
+      const num = parseInt(partes[partes.length - 1], 10);
+      if (!isNaN(num) && num > maxCorrelativo) {
+        maxCorrelativo = num;
+      }
     }
   }
 
-  return `${prefijo}${String(correlativo).padStart(4, "0")}`;
+  let correlativo = maxCorrelativo + 1;
+  let codigoCandidato = `${prefijo}${String(correlativo).padStart(4, "0")}`;
+
+  while (
+    await trx
+      .selectFrom("mision")
+      .select("id")
+      .where("codigo", "=", codigoCandidato)
+      .executeTakeFirst()
+  ) {
+    correlativo++;
+    codigoCandidato = `${prefijo}${String(correlativo).padStart(4, "0")}`;
+  }
+
+  return codigoCandidato;
 }
 
 export interface InsertarEventoPrevencionData {
