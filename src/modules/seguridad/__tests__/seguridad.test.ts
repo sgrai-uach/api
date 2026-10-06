@@ -1534,7 +1534,7 @@ describe("Módulo de Seguridad — Especificación OpenAPI", () => {
     const spec = generarOpenApiSpec();
 
     expect(spec.openapi).toBe("3.0.0");
-    expect(spec.info.version).toBe("0.8.0");
+    expect(spec.info.version).toBe("0.9.0");
     expect(spec.paths).toBeDefined();
 
     // Ruta de Login

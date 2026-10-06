@@ -154,8 +154,7 @@ export type OrigenReporte =
   | "CHATBOT"
   | "LLAMADA_TELEFONICA"
   | "FUNCIONARIO_TERRENO"
-  | "WEB"
-  | "TELEFONO";
+  | "WEB";
 
 export interface InformanteTable {
   id: Generated<string>;
@@ -197,13 +196,63 @@ export interface PrevencionTable {
   delegacion_id: string | null;
   activo: ColumnType<boolean, boolean | undefined, boolean>;
   creado_en: Generated<Date>;
+  creado_por_id?: string | null;
   actualizado_en?: ColumnType<Date | null, Date | null | undefined, Date | null>;
   actualizado_por_id?: string | null;
   eliminado_en?: Date | null;
   eliminado_por_id?: string | null;
 }
 
-export type EstadoPatrulla = "DISPONIBLE" | "EN_VERIFICACION" | "EN_PREVENCION" | "NO_DISPONIBLE";
+export type EstadoPatrulla =
+  | "DISPONIBLE"
+  | "EN_VERIFICACION"
+  | "EN_PREVENCION"
+  | "EN_RECUPERACION"
+  | "EN_MISION"
+  | "NO_DISPONIBLE";
+
+export type EstadoRecuperacion =
+  | "PLANIFICADA"
+  | "EN_EJECUCION"
+  | "COMPLETADA"
+  | "CANCELADA";
+
+export interface RecuperacionTable {
+  id: Generated<string>;
+  codigo: string;
+  nombre: string;
+  descripcion: string | null;
+  sector: string;
+  direccion_texto: string | null;
+  prioridad: ColumnType<
+    PrioridadIncidente,
+    PrioridadIncidente | undefined,
+    PrioridadIncidente
+  >;
+  contacto_nombre: string | null;
+  contacto_telefono: string | null;
+  latitud: number;
+  longitud: number;
+  ubicacion: ColumnType<unknown, unknown, unknown>;
+  estado: ColumnType<
+    EstadoRecuperacion,
+    EstadoRecuperacion | undefined,
+    EstadoRecuperacion
+  >;
+  familias_afectadas: ColumnType<number, number | undefined, number>;
+  delegacion_id: string | null;
+  creado_por_id: string;
+  creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
+}
+
+export interface RecuperacionRecursoTable {
+  id: Generated<string>;
+  recuperacion_id: string;
+  recurso_id: string;
+  cantidad_asignada: number;
+  creado_en: Generated<Date>;
+}
 
 export interface PatrullaVerificadoraTable {
   id: Generated<string>;
@@ -259,7 +308,8 @@ export interface MisionTable {
   justificacion_rechazo: string | null;
   incidente_id: string | null;
   prevencion_id: string | null;
-  evento_prevencion_id: string | null;
+  evento_prevencion_id?: string | null;
+  recuperacion_id?: string | null;
   cuadrilla_id: string | null;
   patrulla_id: string | null;
   encargado_id: string | null;
@@ -312,9 +362,9 @@ export interface AvisoIncidenteTable {
   informante_rut: string;
   informante_telefono: string | null;
   origen_reporte: ColumnType<
-    "WEB" | "CHATBOT" | "TELEFONO",
-    "WEB" | "CHATBOT" | "TELEFONO" | string | undefined,
-    "WEB" | "CHATBOT" | "TELEFONO"
+    "WEB" | "CHATBOT" | "LLAMADA_TELEFONICA",
+    "WEB" | "CHATBOT" | "LLAMADA_TELEFONICA" | string | undefined,
+    "WEB" | "CHATBOT" | "LLAMADA_TELEFONICA"
   >;
   estado: ColumnType<
     "PENDIENTE_VERIFICACION" | "NO_VERIFICADO" | "VERIFICADO" | "DESCARTADO",
@@ -399,6 +449,8 @@ export interface Database {
   tipo_incidente: TipoIncidenteTable;
   fuente_incidente: FuenteIncidenteTable;
   prevencion: PrevencionTable;
+  recuperacion: RecuperacionTable;
+  recuperacion_recurso: RecuperacionRecursoTable;
   patrulla_verificadora: PatrullaVerificadoraTable;
   cuadrilla: CuadrillaTable;
   cuadrilla_recurso: CuadrillaRecursoTable;
@@ -422,6 +474,8 @@ export interface Database {
   delegaciones: DelegacionTable;
   tipos_incidentes: TipoIncidenteTable;
   misiones: MisionTable;
+  recuperaciones: RecuperacionTable;
+  recuperacion_recursos: RecuperacionRecursoTable;
   avisos_incidentes: AvisoIncidenteTable;
   adjuntos: AdjuntoTable;
   reportes_terreno: ReporteTerrenoTable;

@@ -1,6 +1,7 @@
 import { seguridadService } from "@/modules/seguridad/service";
 import {
   PERMISO_LISTAR_PUNTOS_CRITICOS,
+  PERMISO_CREAR_PUNTO_CRITICO,
   PERMISO_EDITAR_PUNTO_CRITICO,
   PERMISO_ELIMINAR_PUNTO_CRITICO,
 } from "@/modules/seguridad/permisos.constants";
@@ -10,6 +11,7 @@ import {
   ConflictError,
 } from "@/modules/seguridad/errors";
 import {
+  emitirPuntoCriticoCreado,
   emitirPuntoCriticoActualizado,
   emitirPuntoCriticoEliminado,
 } from "@/lib/socket";
@@ -18,18 +20,25 @@ import {
   contarPuntosCriticos,
   obtenerPuntoCriticoPorId,
   obtenerPuntoCriticoDetallePorId,
+  obtenerDelegacionPorId,
+  determinarPrefijoPuntoCritico,
+  generarSiguienteCodigoPuntoCritico,
+  insertarPuntoCritico,
   verificarDelegacionExiste,
   verificarMisionesActivasPuntoCritico,
   marcarPuntoCriticoEliminado,
   actualizarPuntoCritico,
   type FiltrosListarPuntosCriticos,
   type FilaPuntoCriticoConDelegacion,
+  type DatosCrearPuntoCritico,
   type DatosActualizarPuntoCritico,
 } from "./punto-critico.repository";
-import type {
+import {
   ListarPuntosCriticosInput,
   ListarPuntosCriticosResponse,
   PuntoCriticoItemResponse,
+  CrearPuntoCriticoInput,
+  CrearPuntoCriticoBodySchema,
   ActualizarPuntoCriticoBody,
   PuntoCriticoDetalleResponse,
   EliminarPuntoCriticoResponse,
@@ -78,6 +87,7 @@ export function mapearFilaPuntoCriticoDetalle(
 
   return {
     ...base,
+    creadoPorId: fila.creado_por_id ?? null,
     actualizadoEn: fila.actualizado_en
       ? fila.actualizado_en instanceof Date
         ? fila.actualizado_en.toISOString()
@@ -137,6 +147,62 @@ export async function listarPuntosCriticos(
       totalPaginas,
     },
   };
+}
+
+/**
+ * Registra un nuevo punto crítico o sector vulnerable en el sistema (HU-58).
+ * - Restringido exclusivamente al perfil Administrador con permiso puntos_criticos:crear.
+ * - Genera automáticamente el código correlativo según la delegación territorial o general (PC-VAL-001, etc.).
+ * - Persiste las coordenadas geográficas con PostGIS (EPSG:4326) y registra la auditoría del creador.
+ * - Emite notificación reactiva vía Socket.io para actualización inmediata en mapas interactivos y salas operativas.
+ */
+export async function crearPuntoCritico(
+  input: CrearPuntoCriticoInput,
+  usuarioId?: string | null
+): Promise<PuntoCriticoDetalleResponse> {
+  // 1. Control de Acceso RBAC: Requiere rol Administrador con permiso puntos_criticos:crear
+  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [
+    PERMISO_CREAR_PUNTO_CRITICO,
+    "eventos_atp:crear",
+  ]);
+
+  // Validar y normalizar datos de entrada con el esquema Zod
+  const datosValidados = CrearPuntoCriticoBodySchema.parse(input);
+
+  // 2. Validar existencia de la delegación territorial si se proporciona y obtener su código
+  let prefijo = "PC-VAL";
+  if (datosValidados.delegacionId) {
+    const delegacion = await obtenerDelegacionPorId(datosValidados.delegacionId);
+    if (!delegacion) {
+      throw new BadRequestError(
+        `La delegación territorial con ID '${datosValidados.delegacionId}' no existe en el sistema.`
+      );
+    }
+    prefijo = determinarPrefijoPuntoCritico(delegacion.codigo);
+  }
+
+  // 3. Generar automáticamente código institucional único
+  const codigo = await generarSiguienteCodigoPuntoCritico(prefijo);
+
+  // 4. Preparar datos y persistir con PostGIS y auditoría
+  const datosParaInsertar: DatosCrearPuntoCritico = {
+    codigo,
+    nombre: datosValidados.nombre,
+    descripcion: datosValidados.descripcion,
+    tipoRiesgo: datosValidados.tipoRiesgo,
+    prioridad: datosValidados.prioridad,
+    delegacionId: datosValidados.delegacionId,
+    latitud: Number(datosValidados.latitud),
+    longitud: Number(datosValidados.longitud),
+  };
+
+  const filaGuardada = await insertarPuntoCritico(datosParaInsertar, usuario.id);
+  const respuesta = mapearFilaPuntoCriticoDetalle(filaGuardada);
+
+  // 5. Notificar en tiempo real vía Socket.io al módulo cartográfico y salas operativas
+  emitirPuntoCriticoCreado(respuesta as unknown as Record<string, unknown>);
+
+  return respuesta;
 }
 
 /**

@@ -204,16 +204,21 @@ export const RecursoDetalleResponseSchema = z.object({
 export type RecursoDetalleResponse = z.infer<typeof RecursoDetalleResponseSchema>;
 
 
-/**
- * Parámetros de consulta (Query Params) para el listado paginado de inventario.
- */
 export const ListarRecursosQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().openapi({
+    description: "Número de página para paginación (estándar SGRAI, inicia en 1)",
+    example: 1,
+  }),
+  limit: z.coerce.number().int().min(1).max(100).optional().openapi({
+    description: "Cantidad de elementos por página (estándar SGRAI, máximo 100)",
+    example: 10,
+  }),
   pagina: z.coerce.number().int().min(1).default(1).openapi({
-    description: "Número de página para paginación (inicia en 1)",
+    description: "Alias legado de 'page' (retrocompatibilidad, inicia en 1)",
     example: 1,
   }),
   limite: z.coerce.number().int().min(1).max(100).default(10).openapi({
-    description: "Cantidad de elementos por página (máximo 100)",
+    description: "Alias legado de 'limit' (retrocompatibilidad, máximo 100)",
     example: 10,
   }),
   delegacionId: z.string().uuid().optional().openapi({
@@ -238,6 +243,16 @@ export const ListarRecursosQuerySchema = z.object({
     description: "Búsqueda textual por nombre o descripción del recurso",
     example: "Camioneta",
   }),
+  soloLectura: z
+    .preprocess((val) => {
+      if (val === "true" || val === true) return true;
+      if (val === "false" || val === false) return false;
+      return undefined;
+    }, z.boolean().optional())
+    .openapi({
+      description: "Parámetro indicador de modo solo lectura para perfiles como Supervisor (HU-50)",
+      example: true,
+    }),
 });
 
 export type ListarRecursosQuery = z.infer<typeof ListarRecursosQuerySchema>;
@@ -291,9 +306,14 @@ export const ListarRecursosPaginadosResponseSchema = z.object({
   }),
   meta: z.object({
     total: z.number().int().openapi({ description: "Total general de registros coincidentes" }),
-    pagina: z.number().int().openapi({ description: "Página actual" }),
-    limite: z.number().int().openapi({ description: "Límite de elementos por página" }),
-    totalPaginas: z.number().int().openapi({ description: "Cantidad total de páginas disponibles" }),
+    page: z.number().int().optional().openapi({ description: "Página actual (estándar SGRAI)" }),
+    limit: z.number().int().optional().openapi({ description: "Límite de elementos por página (estándar SGRAI)" }),
+    totalPages: z.number().int().optional().openapi({ description: "Cantidad total de páginas disponibles (estándar SGRAI)" }),
+    hasNext: z.boolean().optional().openapi({ description: "¿Existe página siguiente?" }),
+    hasPrev: z.boolean().optional().openapi({ description: "¿Existe página anterior?" }),
+    pagina: z.number().int().optional().openapi({ description: "Alias legado de 'page'" }),
+    limite: z.number().int().optional().openapi({ description: "Alias legado de 'limit'" }),
+    totalPaginas: z.number().int().optional().openapi({ description: "Alias legado de 'totalPages'" }),
   }),
 });
 

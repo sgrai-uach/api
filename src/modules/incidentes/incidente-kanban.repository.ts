@@ -72,6 +72,11 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
     consultaBase = consultaBase.where("incidente.delegacion_id", "=", filtros.delegacionId);
   }
 
+  // Filtro por Fuente de Origen
+  if (filtros.fuenteOrigen) {
+    consultaBase = consultaBase.where("incidente.fuente_origen", "=", filtros.fuenteOrigen);
+  }
+
   // Filtro Temporal por Fecha o soloHoy (Zona horaria Chile)
   if (filtros.fecha) {
     consultaBase = consultaBase
