@@ -141,17 +141,15 @@ export const RegistrarEmpleadoSchema = z
     estado_operativo: z
       .enum(["disponible", "en_mision", "en_patrulla", "descanso", "licencia", "inactivo"])
       .optional()
-      .default("disponible")
       .openapi({
-        description: "Estado operativo inicial para personal de terreno (por defecto disponible)",
+        description: "Estado operativo inicial para personal de terreno (por defecto disponible si es rol de terreno)",
         example: "disponible",
       }),
     disponible_terreno: z
       .boolean()
       .optional()
-      .default(true)
       .openapi({
-        description: "Disponibilidad activa para despliegue en emergencias",
+        description: "Disponibilidad activa para despliegue en emergencias (por defecto true si es rol de terreno)",
         example: true,
       }),
     observaciones: z

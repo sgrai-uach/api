@@ -257,4 +257,69 @@ describe("Módulo Recursos y Personal — Servicio registrarEmpleado", () => {
     expect(resultado.es_personal).toBe(true);
     expect(resultado.personal_id).toBe("nuevo-personal-uuid");
   });
+
+  it("debe omitir inserción en personal si el funcionario es administrativo y no posee atributos de terreno (BUG-H10-API-01)", async () => {
+    const dtoAdministrativo = {
+      rut: "12.345.678-5",
+      nombres: "Beatriz",
+      apellidos: "Riquelme",
+      email: "beatriz.riquelme@valdivia.cl",
+      telefono: "+56977889900",
+      password: "Password2026",
+      rol_id: "20000000-0000-4000-8000-000000000002",
+      delegacion_id: "30000000-0000-4000-8000-000000000001",
+      activo: true,
+    };
+
+    let selectCallCount = 0;
+    const mockTrx = createBaseMockTrx();
+
+    mockTrx.execute.mockResolvedValue([{ id: "nuevo-usuario-uuid" }]);
+    mockTrx.executeTakeFirst.mockImplementation(async () => {
+      selectCallCount++;
+      if (selectCallCount === 1) return null; // RUT libre
+      if (selectCallCount === 2) return null; // Email libre
+      if (selectCallCount === 3) return { id: "rol-id", codigo: "CALL_CENTER", nombre: "Call Center" };
+      if (selectCallCount === 4) return { id: "del-id", codigo: "DEL_NORTE", nombre: "Delegación Municipal Norte" };
+      return null;
+    });
+    mockTrx.executeTakeFirstOrThrow.mockResolvedValue({
+      usuario_id: "nuevo-usuario-uuid",
+      rut: "12345678-5",
+      nombres: "Beatriz",
+      apellidos: "Riquelme",
+      email: "beatriz.riquelme@valdivia.cl",
+      telefono: "+56977889900",
+      usuario_activo: true,
+      fecha_ingreso: "2026-10-01",
+      fecha_salida: null,
+      rol_id: "rol-id",
+      rol_codigo: "CALL_CENTER",
+      rol_nombre: "Call Center",
+      delegacion_id: "del-id",
+      delegacion_codigo: "DEL_NORTE",
+      delegacion_nombre: "Delegación Municipal Norte",
+      personal_id: null,
+      especialidad: null,
+      cargo: null,
+      estado_operativo: null,
+      disponible_terreno: null,
+      observaciones: null,
+      personal_updated_at: null,
+    });
+
+    vi.spyOn(db, "transaction").mockReturnValue({
+      execute: vi.fn().mockImplementation(async (callback: (trx: TrxParameter) => Promise<unknown>) => {
+        return await callback(mockTrx as unknown as TrxParameter);
+      }),
+    } as unknown as ReturnType<typeof db.transaction>);
+
+    const resultado = await registrarEmpleado(dtoAdministrativo, "admin-uuid");
+
+    expect(mockTrx.insertInto).toHaveBeenCalledWith("usuario");
+    expect(mockTrx.insertInto).not.toHaveBeenCalledWith("personal");
+    expect(mockTrx.insertInto).toHaveBeenCalledWith("log_cambios_usuarios");
+    expect(resultado.es_personal).toBe(false);
+    expect(resultado.personal_id).toBeNull();
+  });
 });
