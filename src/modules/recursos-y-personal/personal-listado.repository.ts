@@ -2,6 +2,13 @@ import { db } from "@/lib/db";
 import { sql } from "kysely";
 import type { ListarPersonalQuery } from "./personal-listado.schema";
 
+/**
+ * Repositorio del listado de personal (H11).
+ *
+ * La disponibilidad (estado operativo) reside en `usuario.estado_operativo`, por lo que
+ * el filtro se aplica sobre la tabla canónica `usuario`. `personal` se une para exponer
+ * la ficha opcional de terreno (cargo, especialidad, disponible_terreno).
+ */
 export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
   const delegacionId = filtros.delegacionId ?? filtros.delegacion_id;
   const rolId = filtros.rolId ?? filtros.rol_id;
@@ -15,10 +22,10 @@ export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
   const offset = (page - 1) * limit;
 
   let query = db
-    .selectFrom("usuarios")
-    .leftJoin("roles", "roles.id", "usuarios.rol_id")
-    .leftJoin("delegaciones", "delegaciones.id", "usuarios.delegacion_id")
-    .leftJoin("personal", "personal.usuario_id", "usuarios.id");
+    .selectFrom("usuario")
+    .leftJoin("rol", "rol.id", "usuario.rol_id")
+    .leftJoin("delegacion", "delegacion.id", "usuario.delegacion_id")
+    .leftJoin("personal", "personal.usuario_id", "usuario.id");
 
   const estado = filtros.estado?.toLowerCase();
   const incluirInactivos =
@@ -27,25 +34,26 @@ export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
     (estado === "todos" || estado === "inactivo");
 
   if (estado === "inactivo") {
-    query = query.where("usuarios.activo", "=", false);
+    query = query.where("usuario.activo", "=", false);
   } else if (!incluirInactivos) {
-    query = query.where("usuarios.activo", "=", true);
+    query = query.where("usuario.activo", "=", true);
   }
 
+  // `soloPersonal` conserva su semántica original: usuarios que poseen ficha de terreno
   if (soloPersonal) {
     query = query.where("personal.id", "is not", null);
   }
 
   if (delegacionId) {
-    query = query.where("usuarios.delegacion_id", "=", delegacionId);
+    query = query.where("usuario.delegacion_id", "=", delegacionId);
   }
 
   if (rolId) {
-    query = query.where("usuarios.rol_id", "=", rolId);
+    query = query.where("usuario.rol_id", "=", rolId);
   }
 
   if (estadoOperativo) {
-    query = query.where("personal.estado_operativo", "=", estadoOperativo);
+    query = query.where("usuario.estado_operativo", "=", estadoOperativo);
   }
 
   if (filtros.cargo && filtros.cargo.trim() !== "") {
@@ -60,51 +68,51 @@ export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
     const term = `%${busqueda}%`;
     query = query.where((eb) =>
       eb.or([
-        eb("usuarios.rut", "ilike", term),
-        eb("usuarios.nombres", "ilike", term),
-        eb("usuarios.apellidos", "ilike", term),
-        eb("usuarios.email", "ilike", term),
+        eb("usuario.rut", "ilike", term),
+        eb("usuario.nombres", "ilike", term),
+        eb("usuario.apellidos", "ilike", term),
+        eb("usuario.email", "ilike", term),
       ])
     );
   }
 
   // Conteo total para metadatos de paginación
   const countResult = await query
-    .select(sql<number>`count(usuarios.id)::int`.as("total"))
+    .select(sql<number>`count(usuario.id)::int`.as("total"))
     .executeTakeFirst();
   const total = Number(countResult?.total ?? 0);
 
   // Ordenamiento
   if (ordenarPor === "rut") {
-    query = query.orderBy("usuarios.rut", orden);
+    query = query.orderBy("usuario.rut", orden);
   } else if (ordenarPor === "nombres") {
-    query = query.orderBy("usuarios.nombres", orden).orderBy("usuarios.apellidos", orden);
+    query = query.orderBy("usuario.nombres", orden).orderBy("usuario.apellidos", orden);
   } else {
-    query = query.orderBy("usuarios.apellidos", orden).orderBy("usuarios.nombres", orden);
+    query = query.orderBy("usuario.apellidos", orden).orderBy("usuario.nombres", orden);
   }
 
   // Filas paginadas
   const filas = await query
     .select([
-      "usuarios.id as usuario_id",
-      "usuarios.rut",
-      "usuarios.nombres",
-      "usuarios.apellidos",
-      "usuarios.email",
-      "usuarios.telefono",
-      "usuarios.activo as usuario_activo",
-      "usuarios.fecha_ingreso",
-      "usuarios.fecha_salida",
-      "roles.id as rol_id",
-      "roles.codigo as rol_codigo",
-      "roles.nombre as rol_nombre",
-      "delegaciones.id as delegacion_id",
-      "delegaciones.codigo as delegacion_codigo",
-      "delegaciones.nombre as delegacion_nombre",
+      "usuario.id as usuario_id",
+      "usuario.rut",
+      "usuario.nombres",
+      "usuario.apellidos",
+      "usuario.email",
+      "usuario.telefono",
+      "usuario.activo as usuario_activo",
+      "usuario.estado_operativo",
+      "usuario.fecha_ingreso",
+      "usuario.fecha_salida",
+      "rol.id as rol_id",
+      "rol.codigo as rol_codigo",
+      "rol.nombre as rol_nombre",
+      "delegacion.id as delegacion_id",
+      "delegacion.codigo as delegacion_codigo",
+      "delegacion.nombre as delegacion_nombre",
       "personal.id as personal_id",
       "personal.especialidad",
       "personal.cargo",
-      "personal.estado_operativo",
       "personal.disponible_terreno",
       "personal.observaciones",
       "personal.updated_at as personal_updated_at",

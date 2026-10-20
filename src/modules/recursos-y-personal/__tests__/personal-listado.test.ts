@@ -157,5 +157,89 @@ describe("Módulo Recursos y Personal - Listado de Personal (H34)", () => {
 
       expect(repo.listarPersonalPaginadoRepo).toHaveBeenCalledWith(filtros);
     });
+
+    it("H11: debe devolver el estado operativo no nulo y disponible_terreno null para usuarios sin ficha de terreno", async () => {
+      vi.mocked(repo.listarPersonalPaginadoRepo).mockResolvedValueOnce({
+        filas: [
+          {
+            usuario_id: "00000000-0000-4000-8000-000000000002",
+            rut: "22222222-2",
+            nombres: "María",
+            apellidos: "González",
+            email: "maria@valdivia.cl",
+            telefono: null,
+            usuario_activo: true,
+            fecha_ingreso: "2026-01-01",
+            fecha_salida: null,
+            rol_id: "10000000-0000-4000-8000-000000000001",
+            rol_codigo: "CALL_CENTER",
+            rol_nombre: "Call Center",
+            delegacion_id: "30000000-0000-4000-8000-000000000001",
+            delegacion_codigo: "NORTE",
+            delegacion_nombre: "Norte",
+            personal_id: null,
+            especialidad: null,
+            cargo: null,
+            estado_operativo: "descanso",
+            disponible_terreno: null,
+            observaciones: null,
+            personal_updated_at: null,
+          },
+        ] as repo.FilaPersonalPaginada[],
+        total: 1,
+      });
+
+      const resultado = await listarPersonalService({
+        page: 1,
+        limit: 20,
+        ordenarPor: "apellidos",
+        orden: "asc",
+      });
+
+      expect(resultado.data[0].estado_operativo).toBe("descanso");
+      expect(resultado.data[0].disponible_terreno).toBeNull();
+      expect(resultado.data[0].es_personal).toBe(false);
+    });
+
+    it("H11: debe normalizar a 'disponible' cualquier estado operativo nulo heredado", async () => {
+      vi.mocked(repo.listarPersonalPaginadoRepo).mockResolvedValueOnce({
+        filas: [
+          {
+            usuario_id: "00000000-0000-4000-8000-000000000003",
+            rut: "33333333-3",
+            nombres: "Carlos",
+            apellidos: "Miranda",
+            email: "carlos@valdivia.cl",
+            telefono: null,
+            usuario_activo: true,
+            fecha_ingreso: "2026-01-01",
+            fecha_salida: null,
+            rol_id: "10000000-0000-4000-8000-000000000001",
+            rol_codigo: "ADMIN",
+            rol_nombre: "Administrador",
+            delegacion_id: "30000000-0000-4000-8000-000000000001",
+            delegacion_codigo: "NORTE",
+            delegacion_nombre: "Norte",
+            personal_id: null,
+            especialidad: null,
+            cargo: null,
+            estado_operativo: null,
+            disponible_terreno: null,
+            observaciones: null,
+            personal_updated_at: null,
+          },
+        ] as unknown as repo.FilaPersonalPaginada[],
+        total: 1,
+      });
+
+      const resultado = await listarPersonalService({
+        page: 1,
+        limit: 20,
+        ordenarPor: "apellidos",
+        orden: "asc",
+      });
+
+      expect(resultado.data[0].estado_operativo).toBe("disponible");
+    });
   });
 });
