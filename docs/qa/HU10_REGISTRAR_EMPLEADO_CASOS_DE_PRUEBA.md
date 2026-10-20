@@ -404,3 +404,25 @@ CP-H10-API-14	Registro exitoso de personal de terreno con ficha técnica vincula
 CP-H10-API-15	Cifrado criptográfico con bcrypt (costo >= 10) y persistencia inmutable en usuario.password_hash	Seguridad / Crypto	Servicio / BD	Crítica	Funcionario dado de alta con clave "Valdivia2026!"	Verificar registro en base de datos PostgreSQL	usuario.password_hash contiene digest bcrypt $2b$10$... verificable con bcrypt.compare	Contraseña almacenada estrictamente hasheada; texto plano nunca expuesto	APROBADO	01/10/2026 17:57	-	feat(personal): implementar servicio registrarEmpleado con transaccion kysely hash bcrypt y log de auditoria
 CP-H10-API-16	Transaccionalidad atómica Kysely, inserción en log_cambios_usuarios y login inmediato	Integración / E2E	Flujo Transaccional	Crítica	Funcionario registrado mediante POST /api/personal	Consultar log_cambios_usuarios y POST /api/seguridad/login	Log persistido con modificado_por_id; login responde 200 OK emitiendo JWT válido	Transacción atómica completada; usuario inmediatamente autenticable en /api/seguridad/login	APROBADO	01/10/2026 18:00	-	feat(personal): implementar servicio registrarEmpleado con transaccion kysely hash bcrypt y log de auditoria
 ```
+
+---
+
+## 6. Actualización H11 — Traslado del estado operativo a `usuario` (Octubre 2026)
+
+Con motivo de la **HU-11 (Visualizar Disponibilidad del Personal)** el estado operativo
+(`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`) fue traslado
+desde `personal.estado_operativo` a **`usuario.estado_operativo`**, dado que la disponibilidad
+es un atributo de todas las cuentas y no sólo del personal con ficha de terreno.
+
+**Impacto sobre los casos de HU-10:**
+
+| Caso | Impacto | Nuevo resultado esperado |
+|---|---|---|
+| `CP-H10-API-13` (Alta de administrativo) | El estado se persiste en `usuario` | `usuario.estado_operativo = 'disponible'` y **sin** creación de ficha en `personal` (se mantiene la decisión de H10 de no crear ficha a administrativos). |
+| `CP-H10-API-14` (Alta de terreno) | La ficha conserva sólo la capacidad | Se crea `personal` con `disponible_terreno = true` (sin columna de estado) y el estado queda en `usuario.estado_operativo`. |
+| Nuevos casos `CP-H11-API-08/09` | Cobertura del alta con el modelo normalizado | Ver `HU11_VISUALIZAR_DISPONIBILIDAD_PERSONAL_CASOS_DE_PRUEBA.md`. |
+
+**Reglas adicionales vigentes (H11):**
+- Una cuenta creada con `activo = false` se persiste con `estado_operativo = 'inactivo'`.
+- Los estados `en_mision` y `en_patrulla` sólo se admiten para perfiles de terreno.
+- El enum `estado_operativo_personal` fue renombrado a `estado_operativo` (migración 023).
