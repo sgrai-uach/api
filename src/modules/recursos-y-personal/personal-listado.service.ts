@@ -25,6 +25,7 @@ export async function listarPersonalService(
     delegacion_nombre: e.delegacion_nombre ?? null,
     observaciones: e.observaciones ?? null,
     es_personal: e.personal_id !== null,
+    casos_fibe_asignados: Number(e.casos_fibe_asignados ?? 0),
   }));
 
   return {
