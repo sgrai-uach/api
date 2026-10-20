@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { BadRequestError } from "../errors";
 import {
   RecuperacionContrasenaService,
   MENSAJE_RECUPERACION_GENERICO,
