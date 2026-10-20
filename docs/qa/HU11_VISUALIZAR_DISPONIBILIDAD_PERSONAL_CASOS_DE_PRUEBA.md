@@ -30,7 +30,7 @@
 | **Suite Automatizada de Pruebas (Vitest)** | **521/521 tests aprobados (47 archivos)** |
 | **Chequeo de Tipos Estáticos (TypeScript)** | **0 errores (`npx tsc --noEmit`)** |
 | **Análisis Estático de Código (ESLint)** | **0 errores (`npm run lint`)** |
-| **Migraciones Kysely** | **023 (`023_disponibilidad_usuario`) y 024 (`024_permisos_personal`) ejecutadas correctamente** |
+| **Migraciones Kysely** | **025 (`025_disponibilidad_usuario`) y 026 (`026_permisos_personal`) ejecutadas correctamente** |
 | **Contrato OpenAPI 3.0 Centralizado** | **100% sincronizado con 401 y 403 documentados en `GET /api/personal` y `GET /api/personal/{id}`** |
 
 ---
@@ -52,6 +52,24 @@ La ejecución del plan normalizó el modelo a **`usuario.estado_operativo`** por
 
 Esta decisión queda explícita en `api/docs/database/README.md` y en
 `api/docs/api/recursos-y-personal.md`.
+
+### 2.1 Renumeración de migraciones (reserva de correlativos del equipo)
+
+Las migraciones de H11 se renumeraron de `023`/`024` a **`025_disponibilidad_usuario`** y
+**`026_permisos_personal`** porque los correlativos `023` y `024` quedaron reservados para
+otras historias del equipo. La renumeración se realizó con `git mv` (sin pérdida de
+historial) y no altera el contenido de los scripts.
+
+Consecuencias operativas para los ambientes donde ya se habían aplicado:
+
+```sql
+UPDATE kysely_migration SET name = '025_disponibilidad_usuario' WHERE name = '023_disponibilidad_usuario';
+UPDATE kysely_migration SET name = '026_permisos_personal'     WHERE name = '024_permisos_personal';
+```
+
+No debe borrarse la fila para forzar la re-ejecución: la migración 025 no es re-ejecutable
+de forma idempotente, ya que su paso 3 lee `personal.estado_operativo`, columna que la
+propia migración elimina en el paso 5.
 
 ---
 
@@ -75,8 +93,8 @@ Esta decisión queda explícita en `api/docs/database/README.md` y en
 | `CP-H11-API-14` | Denegación HTTP 401 sin token de sesión | Seguridad (RBAC) | API / Guard | Crítica | Servidor API en ejecución | `GET /api/personal` sin cabecera `Authorization` | HTTP 401 Unauthorized | HTTP 401 Unauthorized con mensaje institucional | APROBADO | 20/10/2026 21:00 | - | feat(seguridad): proteger listado de personal con RBAC |
 | `CP-H11-API-15` | Denegación HTTP 403 sin permisos de personal | Seguridad (RBAC) | API / Guard | Crítica | Usuario autenticado sin `personal:leer`, `personal:gestionar` ni `personal:crear` | `GET /api/personal` con token válido | HTTP 403 Forbidden | HTTP 403 Forbidden con mensaje indicando los permisos requeridos | APROBADO | 20/10/2026 21:02 | - | feat(seguridad): proteger listado de personal con RBAC |
 | `CP-H11-API-16` | Acceso HTTP 200 con permiso `personal:leer` | Seguridad (RBAC) | API / Guard | Alta | Rol `Encargado` con permiso `personal:leer` | `GET /api/personal` con token de Encargado | HTTP 200 OK con listado paginado | HTTP 200 OK con `data` y `meta` estandarizados | APROBADO | 20/10/2026 21:04 | - | feat(seguridad): proteger listado de personal con RBAC |
-| `CP-H11-API-17` | Migración 023: copia del estado histórico y default para usuarios sin ficha | Migración / BD | PostgreSQL / Kysely | Crítica | Base de datos con `personal.estado_operativo` poblada | `npm run db:migrate` (migración 023) | Copia el estado a `usuario`, fuerza `inactivo` en `activo=false` y elimina la columna duplicada | Enum renombrado, columna agregada, valores copiados, columna `personal.estado_operativo` eliminada e índice creado | APROBADO | 20/10/2026 21:10 | - | feat(db): mover estado operativo a usuario y preservar ficha de terreno |
-| `CP-H11-API-18` | Migración 024: permisos del módulo de personal | Migración / BD | PostgreSQL / RBAC | Alta | Roles `ADMIN` y `ENCARGADO` existentes | `npm run db:migrate` (migración 024) | Crea `personal:leer`, `personal:crear`, `personal:editar`, `personal:gestionar`; ADMIN con los cuatro y ENCARGADO con `personal:leer` | Permisos creados y asignados correctamente | APROBADO | 20/10/2026 21:11 | - | feat(db): mover estado operativo a usuario y preservar ficha de terreno |
+| `CP-H11-API-17` | Migración 025: copia del estado histórico y default para usuarios sin ficha | Migración / BD | PostgreSQL / Kysely | Crítica | Base de datos con `personal.estado_operativo` poblada | `npm run db:migrate` (migración 025) | Copia el estado a `usuario`, fuerza `inactivo` en `activo=false` y elimina la columna duplicada | Enum renombrado, columna agregada, valores copiados, columna `personal.estado_operativo` eliminada e índice creado | APROBADO | 20/10/2026 21:10 | - | feat(db): mover estado operativo a usuario y preservar ficha de terreno |
+| `CP-H11-API-18` | Migración 026: permisos del módulo de personal | Migración / BD | PostgreSQL / RBAC | Alta | Roles `ADMIN` y `ENCARGADO` existentes | `npm run db:migrate` (migración 026) | Crea `personal:leer`, `personal:crear`, `personal:editar`, `personal:gestionar`; ADMIN con los cuatro y ENCARGADO con `personal:leer` | Permisos creados y asignados correctamente | APROBADO | 20/10/2026 21:11 | - | feat(db): mover estado operativo a usuario y preservar ficha de terreno |
 
 ---
 
@@ -100,8 +118,8 @@ CP-H11-API-13	Deshabilitar la cuenta fuerza el estado inactivo	Regla de Negocio	
 CP-H11-API-14	Denegación HTTP 401 sin token de sesión	Seguridad (RBAC)	API / Guard	Crítica	Servidor API en ejecución	GET /api/personal sin cabecera Authorization	HTTP 401 Unauthorized	HTTP 401 Unauthorized con mensaje institucional	APROBADO	20/10/2026 21:00	-	feat(seguridad): proteger listado de personal con RBAC
 CP-H11-API-15	Denegación HTTP 403 sin permisos de personal	Seguridad (RBAC)	API / Guard	Crítica	Usuario autenticado sin personal:leer, personal:gestionar ni personal:crear	GET /api/personal con token válido	HTTP 403 Forbidden	HTTP 403 Forbidden con mensaje indicando los permisos requeridos	APROBADO	20/10/2026 21:02	-	feat(seguridad): proteger listado de personal con RBAC
 CP-H11-API-16	Acceso HTTP 200 con permiso personal:leer	Seguridad (RBAC)	API / Guard	Alta	Rol Encargado con permiso personal:leer	GET /api/personal con token de Encargado	HTTP 200 OK con listado paginado	HTTP 200 OK con data y meta estandarizados	APROBADO	20/10/2026 21:04	-	feat(seguridad): proteger listado de personal con RBAC
-CP-H11-API-17	Migración 023: copia del estado histórico y default para usuarios sin ficha	Migración / BD	PostgreSQL / Kysely	Crítica	Base de datos con personal.estado_operativo poblada	npm run db:migrate (migración 023)	Copia el estado a usuario, fuerza inactivo en activo=false y elimina la columna duplicada	Enum renombrado, columna agregada, valores copiados, columna personal.estado_operativo eliminada e índice creado	APROBADO	20/10/2026 21:10	-	feat(db): mover estado operativo a usuario y preservar ficha de terreno
-CP-H11-API-18	Migración 024: permisos del módulo de personal	Migración / BD	PostgreSQL / RBAC	Alta	Roles ADMIN y ENCARGADO existentes	npm run db:migrate (migración 024)	Crea personal:leer, personal:crear, personal:editar, personal:gestionar; ADMIN con los cuatro y ENCARGADO con personal:leer	Permisos creados y asignados correctamente	APROBADO	20/10/2026 21:11	-	feat(db): mover estado operativo a usuario y preservar ficha de terreno
+CP-H11-API-17	Migración 025: copia del estado histórico y default para usuarios sin ficha	Migración / BD	PostgreSQL / Kysely	Crítica	Base de datos con personal.estado_operativo poblada	npm run db:migrate (migración 025)	Copia el estado a usuario, fuerza inactivo en activo=false y elimina la columna duplicada	Enum renombrado, columna agregada, valores copiados, columna personal.estado_operativo eliminada e índice creado	APROBADO	20/10/2026 21:10	-	feat(db): mover estado operativo a usuario y preservar ficha de terreno
+CP-H11-API-18	Migración 026: permisos del módulo de personal	Migración / BD	PostgreSQL / RBAC	Alta	Roles ADMIN y ENCARGADO existentes	npm run db:migrate (migración 026)	Crea personal:leer, personal:crear, personal:editar, personal:gestionar; ADMIN con los cuatro y ENCARGADO con personal:leer	Permisos creados y asignados correctamente	APROBADO	20/10/2026 21:11	-	feat(db): mover estado operativo a usuario y preservar ficha de terreno
 ```
 
 ---
@@ -117,7 +135,7 @@ CP-H11-API-18	Migración 024: permisos del módulo de personal	Migración / BD	P
 | `src/modules/recursos-y-personal/__tests__/eliminar-empleado.test.ts` | Baja con `usuario.estado_operativo = inactivo` y `personal.disponible_terreno = false`. |
 | `src/app/api/personal/__tests__/route.test.ts` | RBAC del listado: 401, 403 y 200 con permiso. |
 | `src/app/api/personal/[id]/__tests__/route.test.ts` | RBAC del detalle: 400 por UUID inválido, 401 y 403. |
-| `src/lib/db/migrations/__tests__/023_disponibilidad_usuario.test.ts` | Verificación del SQL emitido por la migración 023 (renombre de enum, copia de estado, eliminación de columna duplicada y reversión). |
+| `src/lib/db/migrations/__tests__/025_disponibilidad_usuario.test.ts` | Verificación del SQL emitido por la migración 025 (renombre de enum, copia de estado, eliminación de columna duplicada y reversión). |
 
 ---
 

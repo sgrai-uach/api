@@ -425,4 +425,4 @@ es un atributo de todas las cuentas y no sólo del personal con ficha de terreno
 **Reglas adicionales vigentes (H11):**
 - Una cuenta creada con `activo = false` se persiste con `estado_operativo = 'inactivo'`.
 - Los estados `en_mision` y `en_patrulla` sólo se admiten para perfiles de terreno.
-- El enum `estado_operativo_personal` fue renombrado a `estado_operativo` (migración 023).
+- El enum `estado_operativo_personal` fue renombrado a `estado_operativo` (migración 025).

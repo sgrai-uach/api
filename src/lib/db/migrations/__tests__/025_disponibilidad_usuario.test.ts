@@ -10,7 +10,7 @@ import {
   type Driver,
   type QueryResult,
 } from "kysely";
-import { up, down } from "../023_disponibilidad_usuario";
+import { up, down } from "../025_disponibilidad_usuario";
 
 /**
  * Driver de pruebas que captura el SQL emitido por la migración sin tocar una base real.
@@ -61,7 +61,7 @@ function crearDbDePruebas() {
   return { db, sql: () => driver.queries.map((q) => q.sql).join("\n") };
 }
 
-describe("Migración 023 - Disponibilidad operacional en usuario (H11)", () => {
+describe("Migración 025 - Disponibilidad operacional en usuario (H11)", () => {
   it("debe renombrar el enum, agregar la columna, copiar el estado desde personal y eliminar la columna duplicada", async () => {
     const { db, sql } = crearDbDePruebas();
 
