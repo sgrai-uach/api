@@ -21,7 +21,10 @@ import {
   ListarRolesResponseSchema,
   LoginRequestSchema,
   LoginResponseSchema,
+  MensajeGenericoResponseSchema,
   PermisoCatalogoItemSchema,
+  RecuperarContrasenaRequestSchema,
+  RestablecerContrasenaRequestSchema,
   RolDetalleResponseSchema,
   UsuarioActivoResponseSchema,
 } from "@/modules/seguridad/schema";
@@ -294,6 +297,68 @@ registry.registerPath({
     401: { description: "Credenciales inválidas. Identificador o contraseña errónea" },
     403: { description: "Cuenta deshabilitada o temporalmente bloqueada por múltiples intentos fallidos" },
     500: { description: "Error interno del servidor al procesar el inicio de sesión" },
+  },
+});
+
+// POST /api/seguridad/recuperar-contrasena
+registry.registerPath({
+  method: "post",
+  path: "/api/seguridad/recuperar-contrasena",
+  summary: "Solicitar recuperación de contraseña",
+  description:
+    "Inicia el flujo de recuperación de credenciales mediante correo institucional (@valdivia.cl) o RUT chileno. Aplica protección estricta contra enumeración de cuentas respondiendo siempre 200 OK con un mensaje genérico.",
+  tags: ["Seguridad / Autenticación"],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: RecuperarContrasenaRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Respuesta genérica que previene la enumeración de cuentas en el sistema",
+      content: {
+        "application/json": {
+          schema: MensajeGenericoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Cuerpo de solicitud mal formado o identificador inválido" },
+    500: { description: "Error interno del servidor al procesar la solicitud" },
+  },
+});
+
+// POST /api/seguridad/restablecer-contrasena
+registry.registerPath({
+  method: "post",
+  path: "/api/seguridad/restablecer-contrasena",
+  summary: "Restablecer contraseña con token de recuperación",
+  description:
+    "Valida el token criptográfico efímero, actualiza la contraseña con hash seguro bcrypt (factor 10), invalida el token consumido y reinicia atómicamente los contadores de bloqueo (intentos_fallidos = 0, bloqueado_hasta = NULL).",
+  tags: ["Seguridad / Autenticación"],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: RestablecerContrasenaRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Contraseña actualizada exitosamente y cuenta desbloqueada",
+      content: {
+        "application/json": {
+          schema: MensajeGenericoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Token inválido, expirado, ya consumido o contraseña no cumple con políticas de seguridad" },
+    500: { description: "Error interno del servidor al procesar el restablecimiento" },
   },
 });
 
