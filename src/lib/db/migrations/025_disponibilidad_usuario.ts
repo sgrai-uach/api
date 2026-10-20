@@ -82,6 +82,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
+  // 0. Retirar la vista de compatibilidad `usuarios` (depende de `usuario.estado_operativo`)
+  await sql`DROP VIEW IF EXISTS usuarios;`.execute(db);
+
   // 1. Restaurar `personal.estado_operativo`
   await sql`
     ALTER TABLE personal

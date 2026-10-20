@@ -101,5 +101,13 @@ describe("Migración 025 - Disponibilidad operacional en usuario (H11)", () => {
     expect(sqlEjecutado).toContain("SET estado_operativo = u.estado_operativo");
     expect(sqlEjecutado).toContain("ALTER TABLE usuario DROP COLUMN IF EXISTS estado_operativo");
     expect(sqlEjecutado).toContain("ALTER TYPE estado_operativo RENAME TO estado_operativo_personal");
+
+    // La vista `usuarios` depende de `usuario.estado_operativo`: debe retirarse antes
+    const posicionDropView = sqlEjecutado.indexOf("DROP VIEW IF EXISTS usuarios");
+    const posicionDropColumn = sqlEjecutado.indexOf(
+      "ALTER TABLE usuario DROP COLUMN IF EXISTS estado_operativo"
+    );
+    expect(posicionDropView).toBeGreaterThanOrEqual(0);
+    expect(posicionDropView).toBeLessThan(posicionDropColumn);
   });
 });
