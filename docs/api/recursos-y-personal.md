@@ -60,6 +60,9 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `PATCH` | `/api/personal/:id` | Modificar datos de un empleado actualizando concurrentemente `usuarios` y `personal` en una transacción atómica. |
 | `DELETE` | `/api/personal/:id` | Dar de baja lógica a un funcionario preservando trazabilidad histórica (H13). |
 | `GET` | `/api/catalogos` | Entregar catálogos de referencia (roles, delegaciones activas, especialidades y cargos) para selectores. |
+| `GET` | `/api/patrullas` | Listar patrullas verificadoras con paginación estricta, filtros por delegación/estado, líder, integrantes y misión activa (HU-16). |
+| `GET` | `/api/patrullas/{id}` | Consultar detalle completo de una patrulla verificadora. |
+| `PATCH` | `/api/patrullas/{id}` | Actualizar estado operativo canónico y/o geolocalización de una patrulla con emisión en tiempo real vía WebSocket. |
 
 
 ---
@@ -352,6 +355,144 @@ Aplica un **borrado lógico (soft delete)** sobre un recurso existente en el sis
   "eliminadoPorId": "00000000-0000-4000-8000-000000000001"
 }
 ```
+
+### 3.8. `GET /api/patrullas` y `PATCH /api/patrullas/{id}` (HU-16: Patrullas Verificadoras y Estado Operativo)
+
+Permite al **Encargado de Operaciones** visualizar en el Centro de Mando la dotación inmediata de equipos de evaluación rápida (patrullas verificadoras) y su estado operativo en tiempo real para asignarlos oportunamente a la verificación de incidentes reportados.
+
+#### 3.8.1 Estados Canónicos en Base de Datos
+La columna `patrulla_verificadora.estado` maneja estrictamente los siguientes valores canónicos (en mayúsculas):
+- `DISPONIBLE`: Patrulla libre en base territorial, apta para asignación y despacho inmediato.
+- `EN_VERIFICACION`: Patrulla despachada a terreno realizando el triage y evaluación preliminar de un incidente formal.
+- `EN_PREVENCION`: Patrulla desplegada en patrullaje preventivo o mitigación en punto crítico (Evento ATP Preventivo).
+- `EN_RECUPERACION`: Patrulla ejecutando labores operativas post-emergencia (Evento ATP de Recuperación).
+- `EN_MISION`: Patrulla participando en otra misión táctica asignada.
+- `NO_DISPONIBLE`: Patrulla fuera de servicio, sin vehículo o inhabilitada administrativamente.
+
+*(Nota: Queda estrictamente prohibido el uso de valores no canónicos como `'Ocupada'`, `'LIBRE'` o emojis en backend o frontend).*
+
+#### 3.8.2 Control de Acceso (RBAC Estricto)
+- **Autenticación:** Requiere `Authorization: Bearer <token_jwt>`.
+- **Permiso requerido:** `misiones:leer` (asignado a roles `Encargado`, `Administrador` y `Supervisor`).
+
+#### 3.8.3 Parámetros de Consulta para `GET /api/patrullas`
+- `page` (`number`, default `1`): Número de página (1-indexed).
+- `limit` (`number`, default `20`, máx `100`): Cantidad de registros por página.
+- `delegacionId` (`UUID`, opcional): Filtra por delegación territorial asignada (`delegacion.id`).
+- `estado` (`string`, opcional): Filtro por estado operativo canónico (`DISPONIBLE`, `EN_VERIFICACION`, etc.).
+- `busqueda` (`string`, opcional): Búsqueda parcial insensible a mayúsculas sobre nombre de patrulla o líder.
+
+#### 3.8.4 Estructura del Contrato de Respuesta (`GET /api/patrullas`)
+```json
+{
+  "message": "Listado de patrullas verificadoras obtenido exitosamente.",
+  "data": [
+    {
+      "id": "f1000000-0000-4000-8000-000000000001",
+      "nombre": "Patrulla Rápida Costa-1",
+      "estado": "EN_VERIFICACION",
+      "latitud": -39.86523,
+      "longitud": -73.39841,
+      "ultimaActualizacionUbicacion": "2026-10-20T22:00:00.000Z",
+      "delegacion": {
+        "id": "30000000-0000-4000-8000-000000000003",
+        "nombre": "Delegación Municipal Costa",
+        "codigo": "DEL_COSTA"
+      },
+      "lider": {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "nombre": "Encargado de Operaciones",
+        "email": "encargado@valdivia.cl",
+        "telefono": "+56911112222",
+        "rut": "33333333-3"
+      },
+      "integrantes": [
+        {
+          "id": "b1000000-0000-4000-8000-000000000001",
+          "usuarioId": "c1000000-0000-4000-8000-000000000001",
+          "nombre": "Juan Brigadista",
+          "email": "juan@valdivia.cl",
+          "telefono": "+56999998888",
+          "rut": "18111222-3",
+          "cargo": "Evaluador Rápido",
+          "especialidad": "Riesgos Geológicos",
+          "rolEnPatrulla": "OPERATIVO",
+          "estadoOperativo": "en_patrulla"
+        }
+      ],
+      "misionActiva": {
+        "id": "d1000000-0000-4000-8000-000000000001",
+        "codigo": "MIS-2026-0001",
+        "titulo": "Evaluación preliminar de riesgo de derrumbe en ruta T-350",
+        "tipoMision": "VERIFICACION",
+        "estado": "EN_CURSO",
+        "prioridad": "CRITICA",
+        "incidenteId": "a1000000-0000-4000-8000-000000000003",
+        "incidenteCodigo": "INC-2026-0003",
+        "incidenteFolio": "FOL-2026-0003",
+        "incidenteTipoAfectacion": "Deslizamiento de Tierra",
+        "incidenteDireccion": "Ruta T-350 km 12, Valdivia"
+      },
+      "creadoEn": "2026-10-20T10:00:00.000Z",
+      "actualizadoEn": "2026-10-20T22:30:00.000Z"
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "page": 1,
+    "limit": 20,
+    "totalPages": 1,
+    "hasNext": false,
+    "hasPrev": false
+  }
+}
+```
+
+#### 3.8.5 Mutación de Estado (`PATCH /api/patrullas/{id}`)
+Permite modificar el estado operativo de una patrulla y/o sus coordenadas geográficas.
+- **Body JSON:**
+  ```json
+  {
+    "estado": "DISPONIBLE",
+    "motivo": "Verificación finalizada y patrulla retornada a base",
+    "latitud": -39.819588,
+    "longitud": -73.245209
+  }
+  ```
+- **Respuesta (`200 OK`):** Retorna `{ message, data }` con la patrulla actualizada.
+
+#### 3.8.6 Eventos en Tiempo Real (Socket.io)
+Ante cualquier cambio de estado o asignación de patrulla, el backend emite:
+1. `patrulla:actualizada`:
+   - **Salas destino:** `"encargado"`, `"supervisor"`, `"mapa"`, `"patrulla:{patrullaId}"`.
+   - **Payload:**
+     ```json
+     {
+       "patrullaId": "f1000000-0000-4000-8000-000000000001",
+       "nombre": "Patrulla Rápida Costa-1",
+       "estado": "EN_VERIFICACION",
+       "delegacionId": "30000000-0000-4000-8000-000000000003",
+       "usuarioLiderId": "00000000-0000-4000-8000-000000000003",
+       "misionActivaId": "d1000000-0000-4000-8000-000000000001",
+       "incidenteId": "a1000000-0000-4000-8000-000000000003",
+       "actualizadoEn": "2026-10-20T22:30:00.000Z"
+     }
+     ```
+2. `mision:asignada`:
+   - **Salas destino:** `"encargado"`, `"supervisor"`.
+   - **Payload:**
+     ```json
+     {
+       "misionId": "d1000000-0000-4000-8000-000000000001",
+       "codigo": "MIS-2026-0001",
+       "tipoMision": "VERIFICACION",
+       "patrullaId": "f1000000-0000-4000-8000-000000000001",
+       "incidenteId": "a1000000-0000-4000-8000-000000000003",
+       "asignadoEn": "2026-10-20T22:00:00.000Z"
+     }
+     ```
+
+---
 
 ---
 
