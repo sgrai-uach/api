@@ -19,6 +19,25 @@ export interface ServerToClientEvents {
         eliminadoEn: string;
     }) => void;
     "punto_critico:actualizado": (payload: unknown) => void;
+    "patrulla:actualizada": (payload: {
+        patrullaId: string;
+        nombre: string;
+        estado: string;
+        delegacionId: string | null;
+        usuarioLiderId: string | null;
+        misionActivaId?: string | null;
+        incidenteId?: string | null;
+        actualizadoEn: string;
+    }) => void;
+    "mision:asignada": (payload: {
+        misionId: string;
+        codigo: string;
+        tipoMision: string;
+        patrullaId?: string | null;
+        cuadrillaId?: string | null;
+        incidenteId?: string | null;
+        asignadoEn: string;
+    }) => void;
 }
 
 export interface ClientToServerEvents {
