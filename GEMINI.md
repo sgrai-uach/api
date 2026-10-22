@@ -69,14 +69,13 @@ La arquitectura de datos de SGRAI se fundamenta en un **Modelo Entidad-Relación
 - **Organización y Seguridad:** `delegacion` (Norte, Sur, Costa, Calle Calle), `usuario`, `personal`, `rol`, `permiso`, `rol_permiso`, `log_cambios_usuarios`.
 - **Comunicaciones y Alertas:** `notificaciones` (Alertas a usuarios y personal operativo).
 
-### Estado actual de persistencia en Kysely (Migraciones 001 a 006):
+### Estado actual de persistencia en Kysely (Migraciones 001 a 022):
 
-Las siguientes tablas ya se encuentran implementadas físicamente en la base de datos relacional:
+Las tablas del modelo se encuentran implementadas físicamente en la base de datos relacional a través de 22 migraciones Kysely (`001_initial_schema.ts` a `022_asistencia_social_casos.ts`):
 - **Seguridad y Organización:** `rol`, `permiso`, `rol_permiso`, `delegacion`, `usuario`, `personal`, `log_cambios_usuarios`.
 - **Incidentes y Evidencia:** `informante`, `fuente_incidente`, `tipo_incidente`, `aviso_incidente`, `incidente`, `adjunto`.
-- **Operaciones y Logística:** `recurso`, `patrulla_verificadora`, `cuadrilla`, `cuadrilla_recurso`, `prevencion`, `mision`.
-
-Las entidades restantes del modelo conceptual maestro (`evento_atp`, `log_mision`, `reporte_terreno`, `recuperacion`, `beneficio`, etc.) forman parte de la hoja de ruta y se incorporan mediante migraciones Kysely a medida que se implementan sus respectivos módulos de dominio.
+- **Operaciones, Terreno y Logística:** `recurso`, `patrulla_verificadora`, `cuadrilla`, `cuadrilla_recurso`, `mision`, `mision_hito`, `reporte_terreno`, `prevencion`, `evento_prevencion`, `evento_prevencion_recurso`, `evento_recuperacion`, `evento_recuperacion_recurso`.
+- **Eventos ATP y Asistencia Social:** `evento_atp`, `evento_asistencia_social`.
 
 
 ## 6. Reglas de negocio críticas a respetar en la lógica de dominio
@@ -86,7 +85,9 @@ Las entidades restantes del modelo conceptual maestro (`evento_atp`, `log_mision
 - La evaluación primaria de un incidente la hace una **patrulla verificadora**. Al escalar y despachar una cuadrilla u otro recurso, la patrulla verificadora debe quedar **liberada** en el sistema (disponible para nueva asignación).
 - Las cuadrillas pueden **rechazar** una misión, pero deben ingresar una justificación obligatoria.
 - Se pueden despachar misiones de **prevención** o **recuperación** ("puntos críticos") **sin necesidad de un incidente formal previo** — no fuerces esa relación como obligatoria en el modelo.
+- **Alerta Temprana Preventiva (ATP)**: Instrumento preventivo oficial que agrupa incidentes, operativos de prevención y mitigación en puntos críticos, eventos de recuperación post-desastre y casos de asistencia social bajo una misma contingencia climática o de emergencia comunal.
 - No existe módulo de "Albergues". La vulnerabilidad social se maneja con un indicador `requiere_asistencia_social` a nivel de incidente, que deriva a un registro propio de Asistencia Social para levantar la **Ficha Básica de Emergencia (FIBE)**.
+- **Exclusión de DIDECO**: DIDECO está completamente fuera de alcance del proyecto. La gestión social corresponde exclusivamente al levantamiento de la Ficha Básica de Emergencia (FIBE) y seguimiento de vulnerabilidad por la Asistente Social de la Dirección de Gestión del Riesgo de Desastres (DGRD).
 - Reportería debe poder generar los formatos requeridos por **SENAPRED** (ej. Informe Alfa 37G).
 
 ## 7. Contrato con los frontends
