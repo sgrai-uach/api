@@ -297,9 +297,11 @@ export interface EventoAsistenciaSocialTable {
 
 export interface PatrullaVerificadoraTable {
   id: Generated<string>;
+  codigo: string;
   nombre: string;
   estado: ColumnType<EstadoPatrulla, EstadoPatrulla | undefined, EstadoPatrulla>;
   delegacion_id: string | null;
+  vehiculo_id: string | null;
   usuario_lider_id: string | null;
   latitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
   longitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
