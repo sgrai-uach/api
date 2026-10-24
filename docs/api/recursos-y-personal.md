@@ -61,6 +61,7 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `DELETE` | `/api/personal/:id` | Dar de baja lógica a un funcionario preservando trazabilidad histórica (H13). |
 | `GET` | `/api/catalogos` | Entregar catálogos de referencia (roles, delegaciones activas, especialidades y cargos) para selectores. |
 | `GET` | `/api/patrullas` | Listar patrullas verificadoras con paginación estricta, filtros por delegación/estado, líder, integrantes y misión activa (HU-16). |
+| `POST` | `/api/patrullas` | Registrar una nueva patrulla verificadora en estado canónico DISPONIBLE con código, dotación y vehículo (HU-83). |
 | `GET` | `/api/patrullas/{id}` | Consultar detalle completo de una patrulla verificadora. |
 | `PATCH` | `/api/patrullas/{id}` | Actualizar estado operativo canónico y/o geolocalización de una patrulla con emisión en tiempo real vía WebSocket. |
 
@@ -461,36 +462,76 @@ Permite modificar el estado operativo de una patrulla y/o sus coordenadas geogr�
   ```
 - **Respuesta (`200 OK`):** Retorna `{ message, data }` con la patrulla actualizada.
 
-#### 3.8.6 Eventos en Tiempo Real (Socket.io)
-Ante cualquier cambio de estado o asignación de patrulla, el backend emite:
-1. `patrulla:actualizada`:
+#### 3.8.6 Alta de Patrulla Verificadora (`POST /api/patrullas`) (HU-83)
+Permite al Administrador dar de alta una nueva patrulla verificadora para labores de triage y evaluación preliminar en terreno:
+- **Autenticación requerida:** `Authorization: Bearer <jwt>` (o `X-User-Id` para retrocompatibilidad).
+- **Autorización RBAC:** Requiere rol `Administrador` o poseer el permiso `recursos:crear`.
+- **Reglas de Negocio:**
+  - El `codigo` debe ser único e inmutable en el sistema (ej. `PV-NORTE-01`). Ante duplicados se responde con `HTTP 409 Conflict`.
+  - El registro nace obligatoriamente con estado inicial canónico `DISPONIBLE`.
+  - El vehículo institucional asignado (`vehiculoId`) debe existir, ser un recurso individual (`es_individual: true`) y encontrarse en estado `DISPONIBLE`. Al registrarse la patrulla, el vehículo pasa atómicamente a estado `ASIGNADO` con `cantidad_en_uso = 1`.
+  - Los funcionarios asignados en `personalIds` deben tener cuenta activa y rol `PATRULLA_VERIFICADORA`. Sus estados pasan a `en_patrulla`.
+  - Se emite de inmediato el evento WebSocket `patrulla:creada` hacia la sala de encargados y mapa del Centro de Mando.
+
+- **Body JSON:**
+  ```json
+  {
+    "codigo": "PV-NORTE-01",
+    "nombre": "Patrulla Rápida Norte 1",
+    "delegacionId": "30000000-0000-4000-8000-000000000001",
+    "vehiculoId": "e1000000-0000-4000-8000-000000000002",
+    "personalIds": [
+      "b1000000-0000-4000-8000-000000000001",
+      "b1000000-0000-4000-8000-000000000002"
+    ],
+    "usuarioLiderId": "c1000000-0000-4000-8000-000000000001"
+  }
+  ```
+
+- **Respuesta (`201 Created`):**
+  ```json
+  {
+    "message": "Patrulla verificadora registrada exitosamente.",
+    "data": {
+      "id": "f1000000-0000-4000-8000-000000000099",
+      "codigo": "PV-NORTE-01",
+      "nombre": "Patrulla Rápida Norte 1",
+      "estado": "DISPONIBLE",
+      "delegacion": {
+        "id": "30000000-0000-4000-8000-000000000001",
+        "nombre": "Delegación Municipal Norte",
+        "codigo": "DEL_NORTE"
+      },
+      "vehiculo": {
+        "id": "e1000000-0000-4000-8000-000000000002",
+        "nombre": "Camioneta 4x4 Navara",
+        "detalles": { "patente": "CD-FG-23" },
+        "estado": "ASIGNADO"
+      },
+      "lider": {
+        "id": "c1000000-0000-4000-8000-000000000001",
+        "nombre": "Juan Líder",
+        "email": "juan@valdivia.cl"
+      },
+      "integrantes": [...],
+      "misionActiva": null,
+      "creadoEn": "2026-10-24T18:00:00.000Z",
+      "actualizadoEn": "2026-10-24T18:00:00.000Z"
+    }
+  }
+  ```
+
+#### 3.8.7 Eventos en Tiempo Real (Socket.io)
+Ante cambios de estado, asignación o alta de patrulla, el backend emite:
+1. `patrulla:creada`:
+   - **Salas destino:** `"encargado"`, `"supervisor"`, `"mapa"`, `"sala:encargados"`.
+   - **Payload:** `{ patrullaId, codigo, nombre, estado, delegacionId, vehiculoId, usuarioLiderId, creadoEn }`.
+2. `patrulla:actualizada`:
    - **Salas destino:** `"encargado"`, `"supervisor"`, `"mapa"`, `"patrulla:{patrullaId}"`.
-   - **Payload:**
-     ```json
-     {
-       "patrullaId": "f1000000-0000-4000-8000-000000000001",
-       "nombre": "Patrulla Rápida Costa-1",
-       "estado": "EN_VERIFICACION",
-       "delegacionId": "30000000-0000-4000-8000-000000000003",
-       "usuarioLiderId": "00000000-0000-4000-8000-000000000003",
-       "misionActivaId": "d1000000-0000-4000-8000-000000000001",
-       "incidenteId": "a1000000-0000-4000-8000-000000000003",
-       "actualizadoEn": "2026-10-20T22:30:00.000Z"
-     }
-     ```
-2. `mision:asignada`:
+   - **Payload:** `{ patrullaId, nombre, estado, delegacionId, usuarioLiderId, misionActivaId, incidenteId, actualizadoEn }`.
+3. `mision:asignada`:
    - **Salas destino:** `"encargado"`, `"supervisor"`.
-   - **Payload:**
-     ```json
-     {
-       "misionId": "d1000000-0000-4000-8000-000000000001",
-       "codigo": "MIS-2026-0001",
-       "tipoMision": "VERIFICACION",
-       "patrullaId": "f1000000-0000-4000-8000-000000000001",
-       "incidenteId": "a1000000-0000-4000-8000-000000000003",
-       "asignadoEn": "2026-10-20T22:00:00.000Z"
-     }
-     ```
+   - **Payload:** `{ misionId, codigo, tipoMision, patrullaId, incidenteId, asignadoEn }`.
 
 ---
 
