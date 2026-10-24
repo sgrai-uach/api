@@ -312,7 +312,12 @@ export interface CuadrillaTable {
   estado: ColumnType<EstadoCuadrilla, EstadoCuadrilla | undefined, EstadoCuadrilla>;
   delegacion_id: string | null;
   usuario_delegado_id: string | null;
+  creado_por_id?: string | null;
+  actualizado_por_id?: string | null;
   creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
+  eliminado_en?: Date | null;
+  eliminado_por_id?: string | null;
 }
 
 export interface CuadrillaRecursoTable {
