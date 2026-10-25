@@ -256,7 +256,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
         email: "juan@valdivia.cl",
         activo: true,
         rol_codigo: "PATRULLA_VERIFICADORA",
-        estado_operativo: "disponible",
+        estado_operativo: "disponible" as const,
       },
     ];
 
@@ -264,7 +264,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
       id: "e1000000-0000-4000-8000-000000000002",
       nombre: "Camioneta 4x4 Navara",
       es_individual: true,
-      estado: "DISPONIBLE",
+      estado: "DISPONIBLE" as const,
       cantidad_inventario: 1,
       cantidad_en_uso: 0,
       latitud: -39.8142,
@@ -272,15 +272,18 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
       detalles: { patente: "CD-FG-23" },
     };
 
+    const mockAdminUsuario = {
+      id: adminUserId,
+      rut: "11111111-1",
+      email: "admin@valdivia.cl",
+      nombre: "Administrador",
+      rolId: "rol-admin",
+      rolNombre: "Administrador",
+      activo: true,
+    };
+
     it("debe registrar exitosamente una patrulla verificadora en estado DISPONIBLE y emitir WebSocket", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
-        id: adminUserId,
-        email: "admin@valdivia.cl",
-        nombre: "Administrador",
-        rolId: "rol-admin",
-        rolNombre: "Administrador",
-        activo: true,
-      });
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
 
       vi.spyOn(patrullaRepo, "buscarPatrullaPorCodigoRepo").mockResolvedValueOnce(undefined);
       vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce({
@@ -333,14 +336,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe rechazar con ConflictError si el código ya existe en una patrulla activa", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
-        id: adminUserId,
-        email: "admin@valdivia.cl",
-        nombre: "Admin",
-        rolId: "rol-id",
-        rolNombre: "Administrador",
-        activo: true,
-      });
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
 
       vi.spyOn(patrullaRepo, "buscarPatrullaPorCodigoRepo").mockResolvedValueOnce({
         id: "otra-patrulla-id",
@@ -353,14 +349,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe rechazar con NotFoundError si la delegación base no existe", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
-        id: adminUserId,
-        email: "admin@valdivia.cl",
-        nombre: "Admin",
-        rolId: "rol-id",
-        rolNombre: "Administrador",
-        activo: true,
-      });
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
 
       vi.spyOn(patrullaRepo, "buscarPatrullaPorCodigoRepo").mockResolvedValueOnce(undefined);
       vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce(undefined);
@@ -369,14 +358,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe rechazar con BadRequestError si el vehículo no es individual", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
-        id: adminUserId,
-        email: "admin@valdivia.cl",
-        nombre: "Admin",
-        rolId: "rol-id",
-        rolNombre: "Administrador",
-        activo: true,
-      });
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
 
       vi.spyOn(patrullaRepo, "buscarPatrullaPorCodigoRepo").mockResolvedValueOnce(undefined);
       vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce({
@@ -393,14 +375,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe rechazar con ConflictError si el vehículo está ocupado o ASIGNADO", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
-        id: adminUserId,
-        email: "admin@valdivia.cl",
-        nombre: "Admin",
-        rolId: "rol-id",
-        rolNombre: "Administrador",
-        activo: true,
-      });
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
 
       vi.spyOn(patrullaRepo, "buscarPatrullaPorCodigoRepo").mockResolvedValueOnce(undefined);
       vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce({
@@ -410,7 +385,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
       });
       vi.spyOn(patrullaRepo, "obtenerVehiculoPorIdRepo").mockResolvedValueOnce({
         ...mockVehiculoValido,
-        estado: "ASIGNADO",
+        estado: "ASIGNADO" as const,
         cantidad_en_uso: 1,
       });
 
@@ -418,14 +393,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe rechazar con BadRequestError si algún funcionario no tiene rol PATRULLA_VERIFICADORA", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
-        id: adminUserId,
-        email: "admin@valdivia.cl",
-        nombre: "Admin",
-        rolId: "rol-id",
-        rolNombre: "Administrador",
-        activo: true,
-      });
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
 
       vi.spyOn(patrullaRepo, "buscarPatrullaPorCodigoRepo").mockResolvedValueOnce(undefined);
       vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce({

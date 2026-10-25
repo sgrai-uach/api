@@ -104,7 +104,7 @@ export type MisionActivaPatrullaDTO = z.infer<typeof MisionActivaPatrullaSchema>
 export const VehiculoPatrullaSchema = z.object({
   id: z.string().uuid().openapi({ description: "UUID del recurso vehicular asignado" }),
   nombre: z.string().openapi({ description: "Nombre o descripción del vehículo" }),
-  detalles: z.record(z.unknown()).optional().openapi({ description: "Metadatos técnicos como patente" }),
+  detalles: z.record(z.string(), z.unknown()).optional().openapi({ description: "Metadatos técnicos como patente" }),
   estado: z.string().openapi({ description: "Estado de disponibilidad del vehículo" }),
 });
 
@@ -221,9 +221,7 @@ export type ActualizarEstadoPatrullaResponseDTO = z.infer<
  */
 export const CrearPatrullaInputSchema = z.object({
   codigo: z
-    .string({
-      required_error: "El código identificador es obligatorio.",
-    })
+    .string()
     .trim()
     .min(3, "El código identificador debe tener al menos 3 caracteres.")
     .max(50, "El código identificador no puede exceder 50 caracteres.")
@@ -243,9 +241,7 @@ export const CrearPatrullaInputSchema = z.object({
       example: "Patrulla Norte 01",
     }),
   delegacionId: z
-    .string({
-      required_error: "La delegación base es obligatoria.",
-    })
+    .string()
     .uuid("El parámetro delegacionId debe ser un UUID válido.")
     .openapi({
       description: "UUID de la delegación municipal base",
