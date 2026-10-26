@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { PUT } from "../route";
+import { GET, PUT } from "../route";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import * as cuadrillaService from "@/modules/recursos-y-personal/cuadrilla.service";
 import {
@@ -10,7 +10,7 @@ import {
   ConflictError,
 } from "@/modules/seguridad/errors";
 
-describe("Endpoint PUT /api/cuadrillas/[id] (H81)", () => {
+describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
   const usuarioAdminId = "00000000-0000-4000-8000-000000000001";
   const cuadrillaIdValido = "50000000-0000-4000-8000-000000000001";
   const contextValido = { params: Promise.resolve({ id: cuadrillaIdValido }) };
@@ -42,7 +42,7 @@ describe("Endpoint PUT /api/cuadrillas/[id] (H81)", () => {
     },
     delegado: {
       id: "00000000-0000-4000-8000-000000000005",
-      nombre: "Carlos Operativo",
+      nombre: "Carlos Delegado",
       email: "carlos@valdivia.cl",
       rut: "15.123.456-7",
     },
@@ -77,161 +77,218 @@ describe("Endpoint PUT /api/cuadrillas/[id] (H81)", () => {
     vi.restoreAllMocks();
   });
 
-  it("debe retornar 400 Bad Request si el parámetro de ruta no es un UUID válido", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
-    const contextInvalido = { params: Promise.resolve({ id: "id-no-valido" }) };
+  describe("GET /api/cuadrillas/[id]", () => {
+    it("debe retornar 200 OK con el detalle unitario consolidado", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      vi.spyOn(cuadrillaService, "obtenerCuadrillaPorId").mockResolvedValue(cuadrillaRespuestaMock);
 
-    const req = new NextRequest("http://localhost:3000/api/cuadrillas/id-no-valido", {
-      method: "PUT",
-      body: JSON.stringify(payloadValido),
-      headers: { "content-type": "application/json" },
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`);
+      const res = await GET(req, contextValido);
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.message).toBe("Detalle de cuadrilla operativa obtenido exitosamente");
+      expect(data.data.id).toBe(cuadrillaIdValido);
+      expect(data.data.recursos).toHaveLength(1);
+      expect(data.data.trabajadores).toHaveLength(1);
     });
 
-    const res = await PUT(req, contextInvalido);
-    expect(res.status).toBe(400);
-    const data = await res.json();
-    expect(data.message).toContain("Identificador de cuadrilla inválido");
+    it("debe retornar 400 Bad Request si el id no es UUID", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      const contextInvalido = { params: Promise.resolve({ id: "no-es-uuid" }) };
+
+      const req = new NextRequest("http://localhost:3000/api/cuadrillas/no-es-uuid");
+      const res = await GET(req, contextInvalido);
+
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toContain("Identificador de cuadrilla inválido");
+    });
+
+    it("debe retornar 404 Not Found si la cuadrilla no existe", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      vi.spyOn(cuadrillaService, "obtenerCuadrillaPorId").mockRejectedValue(
+        new NotFoundError("La cuadrilla operativa especificada no existe.")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`);
+      const res = await GET(req, contextValido);
+
+      expect(res.status).toBe(404);
+      const data = await res.json();
+      expect(data.message).toContain("no existe");
+    });
+
+    it("debe retornar 403 Forbidden si el usuario no tiene permisos", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue("user-sin-permisos");
+      vi.spyOn(cuadrillaService, "obtenerCuadrillaPorId").mockRejectedValue(
+        new ForbiddenError("Acceso denegado")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`);
+      const res = await GET(req, contextValido);
+
+      expect(res.status).toBe(403);
+    });
   });
 
-  it("debe retornar 400 Bad Request si el cuerpo no es un JSON válido", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+  describe("PUT /api/cuadrillas/[id]", () => {
+    it("debe retornar 400 Bad Request si el parámetro de ruta no es un UUID válido", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      const contextInvalido = { params: Promise.resolve({ id: "id-no-valido" }) };
 
-    const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
-      method: "PUT",
-      body: "este cuerpo no es json",
-      headers: { "content-type": "application/json" },
+      const req = new NextRequest("http://localhost:3000/api/cuadrillas/id-no-valido", {
+        method: "PUT",
+        body: JSON.stringify(payloadValido),
+        headers: { "content-type": "application/json" },
+      });
+
+      const res = await PUT(req, contextInvalido);
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toContain("Identificador de cuadrilla inválido");
     });
 
-    const res = await PUT(req, contextValido);
-    expect(res.status).toBe(400);
-    const data = await res.json();
-    expect(data.message).toBe("El cuerpo de la solicitud debe ser un JSON válido.");
-  });
+    it("debe retornar 400 Bad Request si el cuerpo no es un JSON válido", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
 
-  it("debe retornar 400 Bad Request si faltan campos obligatorios en el esquema Zod", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "PUT",
+        body: "este cuerpo no es json",
+        headers: { "content-type": "application/json" },
+      });
 
-    const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
-      method: "PUT",
-      body: JSON.stringify({ nombre: "No" }), // Menor a 3 caracteres y faltan campos
-      headers: { "content-type": "application/json" },
+      const res = await PUT(req, contextValido);
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toBe("El cuerpo de la solicitud debe ser un JSON válido.");
     });
 
-    const res = await PUT(req, contextValido);
-    expect(res.status).toBe(400);
-    const data = await res.json();
-    expect(data.message).toBe("Datos de entrada inválidos.");
-    expect(data.errors).toBeDefined();
-  });
+    it("debe retornar 400 Bad Request si faltan campos obligatorios en el esquema Zod", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
 
-  it("debe retornar 401 Unauthorized si la autenticación falla", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValue(
-      new UnauthorizedError("Token de sesión ausente o expirado.")
-    );
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "PUT",
+        body: JSON.stringify({ nombre: "No" }),
+        headers: { "content-type": "application/json" },
+      });
 
-    const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
-      method: "PUT",
-      body: JSON.stringify(payloadValido),
-      headers: { "content-type": "application/json" },
+      const res = await PUT(req, contextValido);
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toBe("Datos de entrada inválidos.");
+      expect(data.errors).toBeDefined();
     });
 
-    const res = await PUT(req, contextValido);
-    expect(res.status).toBe(401);
-    const data = await res.json();
-    expect(data.message).toContain("Token de sesión ausente");
-  });
+    it("debe retornar 401 Unauthorized si la autenticación falla", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValue(
+        new UnauthorizedError("Token de sesión ausente o expirado.")
+      );
 
-  it("debe retornar 403 Forbidden si el usuario no posee el permiso recursos:editar", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue("usuario-sin-permisos");
-    vi.spyOn(cuadrillaService, "editarCuadrilla").mockRejectedValue(
-      new ForbiddenError("Acceso denegado. Se requiere el permiso 'recursos:editar'.")
-    );
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "PUT",
+        body: JSON.stringify(payloadValido),
+        headers: { "content-type": "application/json" },
+      });
 
-    const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
-      method: "PUT",
-      body: JSON.stringify(payloadValido),
-      headers: { "content-type": "application/json" },
+      const res = await PUT(req, contextValido);
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.message).toContain("Token de sesión ausente");
     });
 
-    const res = await PUT(req, contextValido);
-    expect(res.status).toBe(403);
-    const data = await res.json();
-    expect(data.message).toContain("recursos:editar");
-  });
+    it("debe retornar 403 Forbidden si el usuario no posee el permiso recursos:editar", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue("usuario-sin-permisos");
+      vi.spyOn(cuadrillaService, "editarCuadrilla").mockRejectedValue(
+        new ForbiddenError("Acceso denegado. Se requiere el permiso 'recursos:editar'.")
+      );
 
-  it("debe retornar 404 Not Found si la cuadrilla no existe", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
-    vi.spyOn(cuadrillaService, "editarCuadrilla").mockRejectedValue(
-      new NotFoundError("La cuadrilla operativa especificada no existe.")
-    );
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "PUT",
+        body: JSON.stringify(payloadValido),
+        headers: { "content-type": "application/json" },
+      });
 
-    const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
-      method: "PUT",
-      body: JSON.stringify(payloadValido),
-      headers: { "content-type": "application/json" },
+      const res = await PUT(req, contextValido);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.message).toContain("recursos:editar");
     });
 
-    const res = await PUT(req, contextValido);
-    expect(res.status).toBe(404);
-    const data = await res.json();
-    expect(data.message).toContain("no existe");
-  });
+    it("debe retornar 404 Not Found si la cuadrilla no existe", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      vi.spyOn(cuadrillaService, "editarCuadrilla").mockRejectedValue(
+        new NotFoundError("La cuadrilla operativa especificada no existe.")
+      );
 
-  it("debe retornar 409 Conflict si la cuadrilla se encuentra EN_MISION", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
-    vi.spyOn(cuadrillaService, "editarCuadrilla").mockRejectedValue(
-      new ConflictError(
-        "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa."
-      )
-    );
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "PUT",
+        body: JSON.stringify(payloadValido),
+        headers: { "content-type": "application/json" },
+      });
 
-    const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
-      method: "PUT",
-      body: JSON.stringify(payloadValido),
-      headers: { "content-type": "application/json" },
+      const res = await PUT(req, contextValido);
+      expect(res.status).toBe(404);
+      const data = await res.json();
+      expect(data.message).toContain("no existe");
     });
 
-    const res = await PUT(req, contextValido);
-    expect(res.status).toBe(409);
-    const data = await res.json();
-    expect(data.message).toContain("misión activa");
-  });
+    it("debe retornar 409 Conflict si la cuadrilla se encuentra EN_MISION", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      vi.spyOn(cuadrillaService, "editarCuadrilla").mockRejectedValue(
+        new ConflictError(
+          "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa."
+        )
+      );
 
-  it("debe retornar 409 Conflict si el nombre ya pertenece a otra cuadrilla activa", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
-    vi.spyOn(cuadrillaService, "editarCuadrilla").mockRejectedValue(
-      new ConflictError("Ya existe otra cuadrilla operativa con el nombre ingresado.")
-    );
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "PUT",
+        body: JSON.stringify(payloadValido),
+        headers: { "content-type": "application/json" },
+      });
 
-    const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
-      method: "PUT",
-      body: JSON.stringify(payloadValido),
-      headers: { "content-type": "application/json" },
+      const res = await PUT(req, contextValido);
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.message).toContain("misión activa");
     });
 
-    const res = await PUT(req, contextValido);
-    expect(res.status).toBe(409);
-    const data = await res.json();
-    expect(data.message).toContain("Ya existe otra cuadrilla");
-  });
+    it("debe retornar 409 Conflict si el nombre ya pertenece a otra cuadrilla activa", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      vi.spyOn(cuadrillaService, "editarCuadrilla").mockRejectedValue(
+        new ConflictError("Ya existe otra cuadrilla operativa con el nombre ingresado.")
+      );
 
-  it("debe retornar 200 OK con los datos y dotación actualizada ante actualización exitosa", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
-    vi.spyOn(cuadrillaService, "editarCuadrilla").mockResolvedValue(cuadrillaRespuestaMock);
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "PUT",
+        body: JSON.stringify(payloadValido),
+        headers: { "content-type": "application/json" },
+      });
 
-    const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
-      method: "PUT",
-      body: JSON.stringify(payloadValido),
-      headers: { "content-type": "application/json" },
+      const res = await PUT(req, contextValido);
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.message).toContain("Ya existe otra cuadrilla");
     });
 
-    const res = await PUT(req, contextValido);
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.message).toBe("Cuadrilla operativa actualizada exitosamente");
-    expect(data.data.id).toBe(cuadrillaIdValido);
-    expect(data.data.recursos).toHaveLength(1);
-    expect(data.data.trabajadores).toHaveLength(1);
-    expect(data.data.actualizadoEn).toBeDefined();
+    it("debe retornar 200 OK con los datos y dotación actualizada ante actualización exitosa", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      vi.spyOn(cuadrillaService, "editarCuadrilla").mockResolvedValue(cuadrillaRespuestaMock);
+
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "PUT",
+        body: JSON.stringify(payloadValido),
+        headers: { "content-type": "application/json" },
+      });
+
+      const res = await PUT(req, contextValido);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.message).toBe("Cuadrilla operativa actualizada exitosamente");
+      expect(data.data.id).toBe(cuadrillaIdValido);
+      expect(data.data.recursos).toHaveLength(1);
+      expect(data.data.trabajadores).toHaveLength(1);
+      expect(data.data.actualizadoEn).toBeDefined();
+    });
   });
 });

@@ -41,6 +41,15 @@ export interface FilaCuadrillaDetalleConsolidado {
     especialidad: string | null;
     asignado_en: Date;
   }>;
+  totalRecursos?: number;
+  totalTrabajadores?: number;
+}
+
+export interface DatosCrearCuadrilla {
+  nombre: string;
+  delegacionId: string;
+  usuarioDelegadoId: string;
+  creadoPorId: string;
 }
 
 export interface DatosActualizarCuadrilla {
@@ -52,6 +61,27 @@ export interface DatosActualizarCuadrilla {
   actualizadoPorId: string;
   recursos: Array<{ recursoId: string; cantidad: number }>;
   trabajadores: Array<{ personalId: string }>;
+}
+
+export interface FiltrosListarCuadrillas {
+  pagina: number;
+  limite: number;
+  busqueda?: string;
+  delegacionId?: string;
+  estado?: "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE";
+}
+
+/**
+ * Busca si existe una cuadrilla activa con el mismo nombre (insensible a mayúsculas y espacios).
+ */
+export async function buscarCuadrillaPorNombre(nombre: string) {
+  const nombreLimpio = nombre.trim().toLowerCase();
+  return await db
+    .selectFrom("cuadrilla")
+    .select(["id", "nombre"])
+    .where(sql`LOWER(TRIM(nombre))`, "=", nombreLimpio)
+    .where("eliminado_en", "is", null)
+    .executeTakeFirst();
 }
 
 /**
@@ -73,6 +103,367 @@ export async function obtenerCuadrillaPorIdParaEdicion(
     .where("id", "=", id)
     .where("eliminado_en", "is", null)
     .executeTakeFirst();
+}
+
+/**
+ * Consulta el detalle unitario consolidado de una cuadrilla con sus recursos y trabajadores asignados.
+ */
+export async function obtenerCuadrillaDetalleUnitario(
+  id: string
+): Promise<FilaCuadrillaDetalleConsolidado | undefined> {
+  const cuadrillaFila = await db
+    .selectFrom("cuadrilla")
+    .innerJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
+    .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
+    .select([
+      "cuadrilla.id as id",
+      "cuadrilla.nombre as nombre",
+      "cuadrilla.estado as estado",
+      "cuadrilla.creado_en as creado_en",
+      "cuadrilla.actualizado_en as actualizado_en",
+      "cuadrilla.creado_por_id as creado_por_id",
+      "cuadrilla.actualizado_por_id as actualizado_por_id",
+      "delegacion.id as delegacion_id",
+      "delegacion.nombre as delegacion_nombre",
+      "usuario.id as delegado_id",
+      "usuario.nombre as delegado_nombre",
+      "usuario.email as delegado_email",
+      "usuario.rut as delegado_rut",
+    ])
+    .where("cuadrilla.id", "=", id)
+    .where("cuadrilla.eliminado_en", "is", null)
+    .executeTakeFirst();
+
+  if (!cuadrillaFila) return undefined;
+
+  // Consultar recursos asignados
+  const recursos = await db
+    .selectFrom("cuadrilla_recurso")
+    .innerJoin("recurso", "recurso.id", "cuadrilla_recurso.recurso_id")
+    .select([
+      "cuadrilla_recurso.id as id",
+      "cuadrilla_recurso.recurso_id as recurso_id",
+      "recurso.nombre as nombre",
+      "cuadrilla_recurso.cantidad_asignada as cantidad_asignada",
+      "recurso.es_individual as es_individual",
+    ])
+    .where("cuadrilla_recurso.cuadrilla_id", "=", id)
+    .execute();
+
+  // Consultar trabajadores asignados
+  const trabajadores = await db
+    .selectFrom("cuadrilla_personal")
+    .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+    .innerJoin("usuario", "usuario.id", "personal.usuario_id")
+    .select([
+      "cuadrilla_personal.id as id",
+      "cuadrilla_personal.personal_id as personal_id",
+      "usuario.id as usuario_id",
+      "usuario.nombre as nombre",
+      "usuario.rut as rut",
+      "personal.cargo as cargo",
+      "personal.especialidad as especialidad",
+      "cuadrilla_personal.asignado_en as asignado_en",
+    ])
+    .where("cuadrilla_personal.cuadrilla_id", "=", id)
+    .execute();
+
+  return {
+    id: cuadrillaFila.id,
+    nombre: cuadrillaFila.nombre,
+    estado: cuadrillaFila.estado as "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE",
+    creado_en: cuadrillaFila.creado_en,
+    actualizado_en: cuadrillaFila.actualizado_en ?? null,
+    creado_por_id: cuadrillaFila.creado_por_id ?? null,
+    actualizado_por_id: cuadrillaFila.actualizado_por_id ?? null,
+    delegacion_id: cuadrillaFila.delegacion_id,
+    delegacion_nombre: cuadrillaFila.delegacion_nombre,
+    delegado_id: cuadrillaFila.delegado_id,
+    delegado_nombre: cuadrillaFila.delegado_nombre,
+    delegado_email: cuadrillaFila.delegado_email,
+    delegado_rut: cuadrillaFila.delegado_rut,
+    recursos: recursos.map((r) => ({
+      id: r.id,
+      recurso_id: r.recurso_id,
+      nombre: r.nombre,
+      cantidad_asignada: Number(r.cantidad_asignada),
+      es_individual: Boolean(r.es_individual),
+    })),
+    trabajadores: trabajadores.map((t) => ({
+      id: t.id,
+      personal_id: t.personal_id,
+      usuario_id: t.usuario_id,
+      nombre: t.nombre,
+      rut: t.rut,
+      cargo: t.cargo,
+      especialidad: t.especialidad,
+      asignado_en: t.asignado_en,
+    })),
+  };
+}
+
+/**
+ * Consulta el listado paginado de cuadrillas con filtros territoriales, de estado y búsqueda parcial.
+ */
+export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas): Promise<{
+  cuadrillas: FilaCuadrillaDetalleConsolidado[];
+  total: number;
+}> {
+  let consultaBase = db
+    .selectFrom("cuadrilla")
+    .innerJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
+    .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
+    .where("cuadrilla.eliminado_en", "is", null);
+
+  if (filtros.delegacionId) {
+    consultaBase = consultaBase.where("cuadrilla.delegacion_id", "=", filtros.delegacionId);
+  }
+
+  if (filtros.estado) {
+    consultaBase = consultaBase.where("cuadrilla.estado", "=", filtros.estado);
+  }
+
+  if (filtros.busqueda && filtros.busqueda.trim() !== "") {
+    const termino = `%${filtros.busqueda.trim()}%`;
+    consultaBase = consultaBase.where((eb) =>
+      eb.or([
+        eb("cuadrilla.nombre", "ilike", termino),
+        eb("usuario.nombre", "ilike", termino),
+        eb("usuario.rut", "ilike", termino),
+      ])
+    );
+  }
+
+  // 1. Obtener conteo total
+  const conteoFila = await consultaBase
+    .select((eb) => eb.fn.count("cuadrilla.id").as("total"))
+    .executeTakeFirst();
+
+  const total = Number(conteoFila?.total ?? 0);
+  if (total === 0) {
+    return { cuadrillas: [], total: 0 };
+  }
+
+  // 2. Obtener cuadrillas del lote paginado
+  const offset = (filtros.pagina - 1) * filtros.limite;
+  const cuadrillasLote = await consultaBase
+    .select([
+      "cuadrilla.id as id",
+      "cuadrilla.nombre as nombre",
+      "cuadrilla.estado as estado",
+      "cuadrilla.creado_en as creado_en",
+      "cuadrilla.actualizado_en as actualizado_en",
+      "cuadrilla.creado_por_id as creado_por_id",
+      "cuadrilla.actualizado_por_id as actualizado_por_id",
+      "delegacion.id as delegacion_id",
+      "delegacion.nombre as delegacion_nombre",
+      "usuario.id as delegado_id",
+      "usuario.nombre as delegado_nombre",
+      "usuario.email as delegado_email",
+      "usuario.rut as delegado_rut",
+    ])
+    .orderBy("cuadrilla.creado_en", "desc")
+    .limit(filtros.limite)
+    .offset(offset)
+    .execute();
+
+  const cuadrillaIds = cuadrillasLote.map((c) => c.id);
+
+  // 3. Obtener recursos y trabajadores asignados para el lote
+  const recursosLote = await db
+    .selectFrom("cuadrilla_recurso")
+    .innerJoin("recurso", "recurso.id", "cuadrilla_recurso.recurso_id")
+    .select([
+      "cuadrilla_recurso.id as id",
+      "cuadrilla_recurso.cuadrilla_id as cuadrilla_id",
+      "cuadrilla_recurso.recurso_id as recurso_id",
+      "recurso.nombre as nombre",
+      "cuadrilla_recurso.cantidad_asignada as cantidad_asignada",
+      "recurso.es_individual as es_individual",
+    ])
+    .where("cuadrilla_recurso.cuadrilla_id", "in", cuadrillaIds)
+    .execute();
+
+  const trabajadoresLote = await db
+    .selectFrom("cuadrilla_personal")
+    .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+    .innerJoin("usuario", "usuario.id", "personal.usuario_id")
+    .select([
+      "cuadrilla_personal.id as id",
+      "cuadrilla_personal.cuadrilla_id as cuadrilla_id",
+      "cuadrilla_personal.personal_id as personal_id",
+      "usuario.id as usuario_id",
+      "usuario.nombre as nombre",
+      "usuario.rut as rut",
+      "personal.cargo as cargo",
+      "personal.especialidad as especialidad",
+      "cuadrilla_personal.asignado_en as asignado_en",
+    ])
+    .where("cuadrilla_personal.cuadrilla_id", "in", cuadrillaIds)
+    .execute();
+
+  // Agrupar por cuadrilla_id
+  const recursosPorCuadrilla = new Map<string, Array<{
+    id: string;
+    recurso_id: string;
+    nombre: string;
+    cantidad_asignada: number;
+    es_individual: boolean;
+  }>>();
+
+  for (const r of recursosLote) {
+    const arr = recursosPorCuadrilla.get(r.cuadrilla_id) ?? [];
+    arr.push({
+      id: r.id,
+      recurso_id: r.recurso_id,
+      nombre: r.nombre,
+      cantidad_asignada: Number(r.cantidad_asignada),
+      es_individual: Boolean(r.es_individual),
+    });
+    recursosPorCuadrilla.set(r.cuadrilla_id, arr);
+  }
+
+  const trabajadoresPorCuadrilla = new Map<string, Array<{
+    id: string;
+    personal_id: string;
+    usuario_id: string;
+    nombre: string;
+    rut: string | null;
+    cargo: string | null;
+    especialidad: string | null;
+    asignado_en: Date;
+  }>>();
+
+  for (const t of trabajadoresLote) {
+    const arr = trabajadoresPorCuadrilla.get(t.cuadrilla_id) ?? [];
+    arr.push({
+      id: t.id,
+      personal_id: t.personal_id,
+      usuario_id: t.usuario_id,
+      nombre: t.nombre,
+      rut: t.rut,
+      cargo: t.cargo,
+      especialidad: t.especialidad,
+      asignado_en: t.asignado_en,
+    });
+    trabajadoresPorCuadrilla.set(t.cuadrilla_id, arr);
+  }
+
+  const cuadrillasConsolidadas: FilaCuadrillaDetalleConsolidado[] = cuadrillasLote.map((c) => {
+    const recs = recursosPorCuadrilla.get(c.id) ?? [];
+    const trabs = trabajadoresPorCuadrilla.get(c.id) ?? [];
+    return {
+      id: c.id,
+      nombre: c.nombre,
+      estado: c.estado as "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE",
+      creado_en: c.creado_en,
+      actualizado_en: c.actualizado_en ?? null,
+      creado_por_id: c.creado_por_id ?? null,
+      actualizado_por_id: c.actualizado_por_id ?? null,
+      delegacion_id: c.delegacion_id,
+      delegacion_nombre: c.delegacion_nombre,
+      delegado_id: c.delegado_id,
+      delegado_nombre: c.delegado_nombre,
+      delegado_email: c.delegado_email,
+      delegado_rut: c.delegado_rut,
+      recursos: recs,
+      trabajadores: trabs,
+      totalRecursos: recs.length,
+      totalTrabajadores: trabs.length,
+    };
+  });
+
+  return {
+    cuadrillas: cuadrillasConsolidadas,
+    total,
+  };
+}
+
+/**
+ * Inserta la nueva cuadrilla y promueve al usuario a 'DELEGADO_CUADRILLA' si aún no lo es (H79).
+ */
+export async function insertarCuadrillaConDelegado(
+  datos: DatosCrearCuadrilla,
+  rolDelegadoId: string,
+  usuarioActualRolCodigo?: string
+): Promise<FilaCuadrillaDetalleConsolidado> {
+  return await db.transaction().execute(async (trx) => {
+    // 1. Insertar la cuadrilla en estado inicial DISPONIBLE
+    const cuadrillaInsertada = await trx
+      .insertInto("cuadrilla")
+      .values({
+        nombre: datos.nombre.trim(),
+        estado: "DISPONIBLE",
+        delegacion_id: datos.delegacionId,
+        usuario_delegado_id: datos.usuarioDelegadoId,
+        creado_por_id: datos.creadoPorId,
+      })
+      .returning(["id", "nombre", "estado", "creado_en", "creado_por_id", "delegacion_id", "usuario_delegado_id"])
+      .executeTakeFirstOrThrow();
+
+    // 2. Si el usuario no tiene el rol DELEGADO_CUADRILLA, promoverlo y registrar en auditoría
+    if (usuarioActualRolCodigo !== "DELEGADO_CUADRILLA") {
+      await trx
+        .updateTable("usuario")
+        .set({ rol_id: rolDelegadoId })
+        .where("id", "=", datos.usuarioDelegadoId)
+        .execute();
+
+      await trx
+        .insertInto("log_cambios_usuarios")
+        .values({
+          usuario_modificado_id: datos.usuarioDelegadoId,
+          modificado_por_id: datos.creadoPorId,
+          campos_modificados: JSON.stringify({
+            rol_id: rolDelegadoId,
+            rol_codigo: "DELEGADO_CUADRILLA",
+            motivo: `Promoción automática al designar líder de la cuadrilla ${datos.nombre.trim()}`,
+          }),
+        })
+        .execute();
+    }
+
+    // 3. Consultar datos consolidados para la respuesta
+    const filaConsolidada = await trx
+      .selectFrom("cuadrilla")
+      .innerJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
+      .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
+      .select([
+        "cuadrilla.id as id",
+        "cuadrilla.nombre as nombre",
+        "cuadrilla.estado as estado",
+        "cuadrilla.creado_en as creado_en",
+        "cuadrilla.creado_por_id as creado_por_id",
+        "delegacion.id as delegacion_id",
+        "delegacion.nombre as delegacion_nombre",
+        "usuario.id as delegado_id",
+        "usuario.nombre as delegado_nombre",
+        "usuario.email as delegado_email",
+        "usuario.rut as delegado_rut",
+      ])
+      .where("cuadrilla.id", "=", cuadrillaInsertada.id)
+      .executeTakeFirstOrThrow();
+
+    return {
+      id: filaConsolidada.id,
+      nombre: filaConsolidada.nombre,
+      estado: filaConsolidada.estado as "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE",
+      creado_en: filaConsolidada.creado_en,
+      actualizado_en: null,
+      creado_por_id: filaConsolidada.creado_por_id ?? null,
+      actualizado_por_id: null,
+      delegacion_id: filaConsolidada.delegacion_id,
+      delegacion_nombre: filaConsolidada.delegacion_nombre,
+      delegado_id: filaConsolidada.delegado_id,
+      delegado_nombre: filaConsolidada.delegado_nombre,
+      delegado_email: filaConsolidada.delegado_email,
+      delegado_rut: filaConsolidada.delegado_rut,
+      recursos: [],
+      trabajadores: [],
+      totalRecursos: 0,
+      totalTrabajadores: 0,
+    };
+  });
 }
 
 /**
@@ -448,6 +839,8 @@ export async function actualizarCuadrillaConDotacionTransaccional(
         especialidad: t.especialidad,
         asignado_en: t.asignado_en,
       })),
+      totalRecursos: recursosAsignados.length,
+      totalTrabajadores: trabajadoresAsignados.length,
     };
   });
 }

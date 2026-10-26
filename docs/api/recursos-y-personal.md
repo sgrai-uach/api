@@ -55,6 +55,9 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `GET` | `/api/recursos/{id}` | Obtener detalle completo de un recurso para precargar el formulario de edición. |
 | `PUT` | `/api/recursos/{id}` | Modificar características, inventario físico, especificaciones técnicas y estado de un recurso. |
 | `DELETE` | `/api/recursos/{id}` | Eliminar un recurso del inventario mediante borrado lógico (soft delete) y trazabilidad completa. |
+| `GET` | `/api/cuadrillas` | Listar cuadrillas operativas con paginación, filtros territoriales, de estado y búsqueda (H81/H79). |
+| `POST` | `/api/cuadrillas` | Registrar y dar de alta una nueva cuadrilla operativa en el sistema con líder delegado (H79). |
+| `GET` | `/api/cuadrillas/{id}` | Obtener detalle unitario consolidado de una cuadrilla con sus recursos y trabajadores asignados. |
 | `PUT` | `/api/cuadrillas/{id}` | Modificar datos, reasignar delegado y dotación de trabajadores/recursos de una cuadrilla (H81). |
 | `GET` | `/api/personal` | Listar y buscar empleados/usuarios para selectores con soporte de búsqueda textual y filtro de activos/terreno. |
 | `POST` | `/api/personal` | Registrar a un nuevo funcionario municipal con credenciales y ficha de terreno condicional (HU-10). |
@@ -361,7 +364,43 @@ Aplica un **borrado lógico (soft delete)** sobre un recurso existente en el sis
 
 ---
 
-### 3.8. `PUT /api/cuadrillas/{id}` (H81: Modificar Cuadrilla Operativa y Dotación)
+### 3.8. `GET /api/cuadrillas` (Listado Paginado de Cuadrillas con Filtros - H81 / H79)
+Retorna la nómina paginada de cuadrillas operativas municipales con sus respectivos delegados, recursos asignados y dotación de trabajadores.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
+- **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:leer`, `recursos:gestionar` o rol `ADMIN`.
+- **Parámetros de Consulta (Query Params):**
+  - `pagina` / `page` (`number`, default `1`): Número de página.
+  - `limite` / `limit` (`number`, default `10`, max `100`): Cantidad de registros por página.
+  - `q` / `busqueda` (`string`): Búsqueda parcial insensible a mayúsculas sobre nombre de cuadrilla, o nombre o RUT del delegado.
+  - `delegacionId` (`UUID`): Filtra por delegación municipal adscrita.
+  - `estado` (`string`): Filtra por estado operativo (`DISPONIBLE`, `EN_MISION`, `NO_DISPONIBLE`).
+
+---
+
+### 3.9. `POST /api/cuadrillas` (Alta de Cuadrilla Operativa - H79)
+Permite dar de alta una nueva cuadrilla táctica municipal en estado inicial `DISPONIBLE`, adscribiéndola a una delegación base y designando a su líder delegado.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id`).
+- **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:crear` o rol `ADMIN`.
+- **Reglas de Negocio:**
+  - Valida nombre único insensible a mayúsculas y espacios.
+  - Si el usuario seleccionado no posee el rol `DELEGADO_CUADRILLA`, lo promueve automáticamente y registra en `log_cambios_usuarios`.
+  - Emite evento Socket.io `cuadrilla:creada`.
+
+---
+
+### 3.10. `GET /api/cuadrillas/{id}` (Detalle Unitario de Cuadrilla - H81 / H79)
+Retorna el detalle completo y consolidado de una cuadrilla operativa específica por su identificador UUID.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id`).
+- **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:leer`, `recursos:gestionar` o rol `ADMIN`.
+- **Respuesta:** Detalle consolidado con su delegación, delegado, lista de recursos materiales (`cuadrilla_recurso`) y trabajadores operativos (`cuadrilla_personal`).
+- **Error 404:** Si la cuadrilla no existe o se encuentra eliminada lógicamente.
+
+---
+
+### 3.11. `PUT /api/cuadrillas/{id}` (H81: Modificar Cuadrilla Operativa y Dotación)
 Permite modificar el nombre, delegación municipal adscrita, delegado responsable y ajustar los trabajadores y recursos logísticos (vehículos, herramientas, maquinarias) que conforman la dotación real de la cuadrilla ante rotaciones de turno o traslados.
 
 - **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
