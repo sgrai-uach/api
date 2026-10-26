@@ -133,6 +133,15 @@ export interface LogCambiosUsuariosTable {
   created_at: Generated<Date>;
 }
 
+export interface TokenRecuperacionContrasenaTable {
+  id: Generated<string>;
+  usuario_id: string;
+  token_hash: string;
+  expira_en: Date;
+  usado_en?: Date | null;
+  creado_en: Generated<Date>;
+}
+
 export type EstadoIncidente =
   | "REPORTADO"
   | "VERIFICANDO"
@@ -519,6 +528,7 @@ export interface Database {
   log_cambios_usuarios: LogCambiosUsuariosTable;
   evento_prevencion: EventoPrevencionTable;
   evento_prevencion_recurso: EventoPrevencionRecursoTable;
+  token_recuperacion_contrasena: TokenRecuperacionContrasenaTable;
 
   // Aliases plurales para compatibilidad transversal con servicios de H12 y consultas directas
   recursos: RecursoTable;
@@ -539,4 +549,5 @@ export interface Database {
   reportes_terreno: ReporteTerrenoTable;
   eventos_prevencion: EventoPrevencionTable;
   eventos_prevencion_recursos: EventoPrevencionRecursoTable;
+  tokens_recuperacion_contrasena: TokenRecuperacionContrasenaTable;
 }
