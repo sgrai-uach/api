@@ -156,6 +156,7 @@ export type EditarCuadrillaInput = z.infer<typeof EditarCuadrillaInputSchema>;
 export const CuadrillaDelegacionSchema = z.object({
   id: z.string().uuid(),
   nombre: z.string(),
+  codigo: z.string().nullable().optional(),
 });
 
 export const CuadrillaDelegadoSchema = z.object({
@@ -196,6 +197,8 @@ export const CuadrillaResponseSchema = z
     delegado: CuadrillaDelegadoSchema,
     recursos: z.array(CuadrillaRecursoDetalleSchema).default([]),
     trabajadores: z.array(CuadrillaTrabajadorDetalleSchema).default([]),
+    totalRecursos: z.number().optional(),
+    totalTrabajadores: z.number().optional(),
     creadoEn: z.string(),
     actualizadoEn: z.string().nullable().optional(),
     actualizadoPorId: z.string().uuid().nullable().optional(),

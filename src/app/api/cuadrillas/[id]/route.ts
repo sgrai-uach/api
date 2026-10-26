@@ -37,6 +37,8 @@ export async function GET(req: NextRequest, context: RouteContext) {
     if (!validacionId.success) {
       return NextResponse.json(
         {
+          statusCode: 400,
+          error: "Bad Request",
           message: "Identificador de cuadrilla inválido.",
           errors: validacionId.error.issues.map((issue) => ({
             campo: issue.path.join("."),
@@ -59,24 +61,40 @@ export async function GET(req: NextRequest, context: RouteContext) {
     );
   } catch (error) {
     if (error instanceof UnauthorizedError) {
-      return NextResponse.json({ message: error.message }, { status: 401 });
+      return NextResponse.json(
+        { statusCode: 401, error: "Unauthorized", message: error.message },
+        { status: 401 }
+      );
     }
 
     if (error instanceof ForbiddenError) {
-      return NextResponse.json({ message: error.message }, { status: 403 });
+      return NextResponse.json(
+        { statusCode: 403, error: "Forbidden", message: error.message },
+        { status: 403 }
+      );
     }
 
     if (error instanceof NotFoundError) {
-      return NextResponse.json({ message: error.message }, { status: 404 });
+      return NextResponse.json(
+        { statusCode: 404, error: "Not Found", message: error.message },
+        { status: 404 }
+      );
     }
 
     if (error instanceof BadRequestError) {
-      return NextResponse.json({ message: error.message }, { status: 400 });
+      return NextResponse.json(
+        { statusCode: 400, error: "Bad Request", message: error.message },
+        { status: 400 }
+      );
     }
 
     console.error("Error al obtener detalle de cuadrilla operativa:", error);
     return NextResponse.json(
-      { message: "Error interno del servidor al procesar la solicitud." },
+      {
+        statusCode: 500,
+        error: "Internal Server Error",
+        message: "Error interno del servidor al procesar la solicitud.",
+      },
       { status: 500 }
     );
   }
@@ -100,6 +118,8 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     if (!validacionId.success) {
       return NextResponse.json(
         {
+          statusCode: 400,
+          error: "Bad Request",
           message: "Identificador de cuadrilla inválido.",
           errors: validacionId.error.issues.map((issue) => ({
             campo: issue.path.join("."),
@@ -116,7 +136,11 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       body = await req.json();
     } catch {
       return NextResponse.json(
-        { message: "El cuerpo de la solicitud debe ser un JSON válido." },
+        {
+          statusCode: 400,
+          error: "Bad Request",
+          message: "El cuerpo de la solicitud debe ser un JSON válido.",
+        },
         { status: 400 }
       );
     }
@@ -126,6 +150,8 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     if (!validacionBody.success) {
       return NextResponse.json(
         {
+          statusCode: 400,
+          error: "Bad Request",
           message: "Datos de entrada inválidos.",
           errors: validacionBody.error.issues.map((issue) => ({
             campo: issue.path.join("."),
@@ -152,28 +178,47 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     );
   } catch (error) {
     if (error instanceof UnauthorizedError) {
-      return NextResponse.json({ message: error.message }, { status: 401 });
+      return NextResponse.json(
+        { statusCode: 401, error: "Unauthorized", message: error.message },
+        { status: 401 }
+      );
     }
 
     if (error instanceof ForbiddenError) {
-      return NextResponse.json({ message: error.message }, { status: 403 });
+      return NextResponse.json(
+        { statusCode: 403, error: "Forbidden", message: error.message },
+        { status: 403 }
+      );
     }
 
     if (error instanceof ConflictError) {
-      return NextResponse.json({ message: error.message }, { status: 409 });
+      return NextResponse.json(
+        { statusCode: 409, error: "Conflict", message: error.message },
+        { status: 409 }
+      );
     }
 
     if (error instanceof NotFoundError) {
-      return NextResponse.json({ message: error.message }, { status: 404 });
+      return NextResponse.json(
+        { statusCode: 404, error: "Not Found", message: error.message },
+        { status: 404 }
+      );
     }
 
     if (error instanceof BadRequestError) {
-      return NextResponse.json({ message: error.message }, { status: 400 });
+      return NextResponse.json(
+        { statusCode: 400, error: "Bad Request", message: error.message },
+        { status: 400 }
+      );
     }
 
     console.error("Error al actualizar cuadrilla operativa:", error);
     return NextResponse.json(
-      { message: "Error interno del servidor al procesar la solicitud." },
+      {
+        statusCode: 500,
+        error: "Internal Server Error",
+        message: "Error interno del servidor al procesar la solicitud.",
+      },
       { status: 500 }
     );
   }

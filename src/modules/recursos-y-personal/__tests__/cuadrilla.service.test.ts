@@ -258,7 +258,27 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
       });
 
       await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
-        ConflictError
+        "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
+      );
+    });
+
+    it("debe bloquear con ConflictError (409) si la cuadrilla está en estado EN_TRANSITO o EN_OPERACION", async () => {
+      vi.spyOn(repo, "obtenerCuadrillaPorIdParaEdicion").mockResolvedValue({
+        ...cuadrillaActualMock,
+        estado: "EN_TRANSITO" as unknown as repo.FilaCuadrillaParaEdicion["estado"],
+      });
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
+      );
+
+      vi.spyOn(repo, "obtenerCuadrillaPorIdParaEdicion").mockResolvedValue({
+        ...cuadrillaActualMock,
+        estado: "EN_OPERACION" as unknown as repo.FilaCuadrillaParaEdicion["estado"],
+      });
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
       );
     });
 
@@ -266,7 +286,7 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
       vi.spyOn(repo, "verificarMisionesActivasCuadrilla").mockResolvedValue(true);
 
       await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
-        ConflictError
+        "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
       );
     });
 
@@ -337,7 +357,7 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
       ]);
 
       await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
-        ConflictError
+        "El recurso individual ya se encuentra asignado a otra cuadrilla operativa."
       );
     });
 

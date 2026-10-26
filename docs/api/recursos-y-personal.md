@@ -406,7 +406,32 @@ Permite modificar el nombre, delegación municipal adscrita, delegado responsabl
 - **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
 - **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:editar` o rol `ADMIN`.
 - **Integridad Operativa Crítica (Bloqueo `409 Conflict`):**
-  - Si la cuadrilla se encuentra en estado `EN_MISION`, o posee misiones asociadas en curso (`PLANIFICADA`, `DESPACHADA`, `EN_CURSO`), el backend **bloquea inmediatamente la modificación** respondiendo `HTTP 409 Conflict` para no alterar operaciones ni dotaciones desplegadas en terreno.
+  - Si la cuadrilla se encuentra en estado `EN_MISION`, `EN_TRANSITO` o `EN_OPERACION`, o posee misiones asociadas en curso (`PLANIFICADA`, `DESPACHADA`, `EN_CURSO`), el backend **bloquea inmediatamente la modificación** respondiendo `HTTP 409 Conflict` con:
+    ```json
+    {
+      "statusCode": 409,
+      "error": "Conflict",
+      "message": "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
+    }
+    ```
+- **Control de Unicidad de Nombre (`409 Conflict`):**
+  - Si ya existe otra cuadrilla activa con el mismo nombre ingresado en la comuna:
+    ```json
+    {
+      "statusCode": 409,
+      "error": "Conflict",
+      "message": "Ya existe otra cuadrilla operativa con el nombre ingresado."
+    }
+    ```
+- **Control de Recurso Individual en Uso (`409 Conflict`):**
+  - Si un recurso de tipo individual (`esIndividual: true`, ej. camioneta o camión) ya está asignado a otra cuadrilla activa:
+    ```json
+    {
+      "statusCode": 409,
+      "error": "Conflict",
+      "message": "El recurso individual ya se encuentra asignado a otra cuadrilla operativa."
+    }
+    ```
 - **Gestión Dinámica de Delegados:**
   - Si se reasigna el delegado, el nuevo usuario es promovido a `DELEGADO_CUADRILLA` si aún no lo es (con auditoría en `log_cambios_usuarios`).
   - Si el delegado anterior ya no lidera ninguna otra cuadrilla activa, su rol es revertido automáticamente al rol base operativo (`BRIGADISTA`).
@@ -422,13 +447,13 @@ Permite modificar el nombre, delegación municipal adscrita, delegado responsabl
 #### Cuerpo de la Solicitud (`PUT /api/cuadrillas/{id}`)
 ```json
 {
-  "nombre": "Cuadrilla Vías y Despeje Urbano",
-  "delegacionId": "30000000-0000-4000-8000-000000000001",
-  "usuarioDelegadoId": "00000000-0000-4000-8000-000000000005",
+  "nombre": "Cuadrilla Drenaje y Aguas Lluvias Sur",
+  "delegacionId": "30000000-0000-4000-8000-000000000002",
+  "usuarioDelegadoId": "00000000-0000-4000-8000-000000000012",
   "recursos": [
     {
-      "recursoId": "e1000000-0000-4000-8000-000000000001",
-      "cantidad": 1
+      "recursoId": "e1000000-0000-4000-8000-000000000004",
+      "cantidad": 2
     }
   ],
   "trabajadores": [
@@ -444,44 +469,45 @@ Permite modificar el nombre, delegación municipal adscrita, delegado responsabl
 {
   "message": "Cuadrilla operativa actualizada exitosamente",
   "data": {
-    "id": "50000000-0000-4000-8000-000000000001",
-    "nombre": "Cuadrilla Vías y Despeje Urbano",
+    "id": "50000000-0000-4000-8000-000000000003",
+    "nombre": "Cuadrilla Drenaje y Aguas Lluvias Sur",
     "estado": "DISPONIBLE",
     "delegacion": {
-      "id": "30000000-0000-4000-8000-000000000001",
-      "nombre": "Delegación Municipal Norte"
+      "id": "30000000-0000-4000-8000-000000000002",
+      "nombre": "Sur",
+      "codigo": "DEL_SUR"
     },
     "delegado": {
-      "id": "00000000-0000-4000-8000-000000000005",
-      "nombre": "Carlos Delegado",
-      "email": "carlos@valdivia.cl",
-      "rut": "15.111.222-3"
+      "id": "00000000-0000-4000-8000-000000000012",
+      "nombre": "Sebastián Alarcón Toledo",
+      "email": "sebastian.alarcon@valdivia.cl",
+      "rut": "15.987.654-2"
     },
     "recursos": [
       {
-        "id": "cd100000-0000-4000-8000-000000000001",
-        "recursoId": "e1000000-0000-4000-8000-000000000001",
-        "nombre": "Camioneta de Rescate 4x4",
-        "cantidadAsignada": 1,
-        "esIndividual": true
+        "id": "cd300000-0000-4000-8000-000000000001",
+        "recursoId": "e1000000-0000-4000-8000-000000000004",
+        "nombre": "Motobomba de Achique 3\"",
+        "cantidadAsignada": 2,
+        "esIndividual": false
       }
     ],
     "trabajadores": [
       {
-        "id": "cp100000-0000-4000-8000-000000000001",
+        "id": "cp300000-0000-4000-8000-000000000001",
         "personalId": "40000000-0000-4000-8000-000000000001",
         "usuarioId": "00000000-0000-4000-8000-000000000009",
         "nombre": "Pedro Obrero",
         "rut": "16.222.333-4",
         "cargo": "Motosierrista",
         "especialidad": "Poda de Altura",
-        "asignadoEn": "2026-10-26T01:30:00.000Z"
+        "asignadoEn": "2026-10-26T10:30:00.000Z"
       }
     ],
-    "creadoEn": "2026-10-24T12:00:00.000Z",
-    "actualizadoEn": "2026-10-26T01:30:00.000Z",
-    "actualizadoPorId": "00000000-0000-4000-8000-000000000001",
-    "creadoPorId": "00000000-0000-4000-8000-000000000001"
+    "totalRecursos": 1,
+    "totalTrabajadores": 1,
+    "creadoEn": "2026-10-23T10:00:00.000Z",
+    "actualizadoEn": "2026-10-26T10:30:00.000Z"
   }
 }
 ```

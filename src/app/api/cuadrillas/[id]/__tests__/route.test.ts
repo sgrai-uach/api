@@ -39,6 +39,7 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
     delegacion: {
       id: "30000000-0000-4000-8000-000000000001",
       nombre: "Delegación Municipal Norte",
+      codigo: "DEL_NORTE",
     },
     delegado: {
       id: "00000000-0000-4000-8000-000000000005",
@@ -67,6 +68,8 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
         asignadoEn: "2026-10-26T01:00:00.000Z",
       },
     ],
+    totalRecursos: 1,
+    totalTrabajadores: 1,
     creadoEn: "2026-10-24T12:00:00.000Z",
     actualizadoEn: "2026-10-26T01:00:00.000Z",
     actualizadoPorId: usuarioAdminId,
@@ -237,7 +240,7 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
       vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
       vi.spyOn(cuadrillaService, "editarCuadrilla").mockRejectedValue(
         new ConflictError(
-          "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa."
+          "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
         )
       );
 
@@ -250,7 +253,11 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
       const res = await PUT(req, contextValido);
       expect(res.status).toBe(409);
       const data = await res.json();
-      expect(data.message).toContain("misión activa");
+      expect(data.statusCode).toBe(409);
+      expect(data.error).toBe("Conflict");
+      expect(data.message).toBe(
+        "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
+      );
     });
 
     it("debe retornar 409 Conflict si el nombre ya pertenece a otra cuadrilla activa", async () => {
@@ -268,7 +275,29 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
       const res = await PUT(req, contextValido);
       expect(res.status).toBe(409);
       const data = await res.json();
-      expect(data.message).toContain("Ya existe otra cuadrilla");
+      expect(data.statusCode).toBe(409);
+      expect(data.error).toBe("Conflict");
+      expect(data.message).toBe("Ya existe otra cuadrilla operativa con el nombre ingresado.");
+    });
+
+    it("debe retornar 409 Conflict si un recurso individual ya está asignado a otra cuadrilla activa", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      vi.spyOn(cuadrillaService, "editarCuadrilla").mockRejectedValue(
+        new ConflictError("El recurso individual ya se encuentra asignado a otra cuadrilla operativa.")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "PUT",
+        body: JSON.stringify(payloadValido),
+        headers: { "content-type": "application/json" },
+      });
+
+      const res = await PUT(req, contextValido);
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.statusCode).toBe(409);
+      expect(data.error).toBe("Conflict");
+      expect(data.message).toBe("El recurso individual ya se encuentra asignado a otra cuadrilla operativa.");
     });
 
     it("debe retornar 200 OK con los datos y dotación actualizada ante actualización exitosa", async () => {

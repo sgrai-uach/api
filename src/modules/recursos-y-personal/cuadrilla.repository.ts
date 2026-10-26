@@ -20,6 +20,7 @@ export interface FilaCuadrillaDetalleConsolidado {
   actualizado_por_id: string | null;
   delegacion_id: string;
   delegacion_nombre: string;
+  delegacion_codigo?: string | null;
   delegado_id: string;
   delegado_nombre: string;
   delegado_email: string;
@@ -125,6 +126,7 @@ export async function obtenerCuadrillaDetalleUnitario(
       "cuadrilla.actualizado_por_id as actualizado_por_id",
       "delegacion.id as delegacion_id",
       "delegacion.nombre as delegacion_nombre",
+      "delegacion.codigo as delegacion_codigo",
       "usuario.id as delegado_id",
       "usuario.nombre as delegado_nombre",
       "usuario.email as delegado_email",
@@ -178,6 +180,7 @@ export async function obtenerCuadrillaDetalleUnitario(
     actualizado_por_id: cuadrillaFila.actualizado_por_id ?? null,
     delegacion_id: cuadrillaFila.delegacion_id,
     delegacion_nombre: cuadrillaFila.delegacion_nombre,
+    delegacion_codigo: cuadrillaFila.delegacion_codigo ?? null,
     delegado_id: cuadrillaFila.delegado_id,
     delegado_nombre: cuadrillaFila.delegado_nombre,
     delegado_email: cuadrillaFila.delegado_email,
@@ -257,6 +260,7 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
       "cuadrilla.actualizado_por_id as actualizado_por_id",
       "delegacion.id as delegacion_id",
       "delegacion.nombre as delegacion_nombre",
+      "delegacion.codigo as delegacion_codigo",
       "usuario.id as delegado_id",
       "usuario.nombre as delegado_nombre",
       "usuario.email as delegado_email",
@@ -362,6 +366,7 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
       actualizado_por_id: c.actualizado_por_id ?? null,
       delegacion_id: c.delegacion_id,
       delegacion_nombre: c.delegacion_nombre,
+      delegacion_codigo: c.delegacion_codigo ?? null,
       delegado_id: c.delegado_id,
       delegado_nombre: c.delegado_nombre,
       delegado_email: c.delegado_email,
@@ -436,6 +441,7 @@ export async function insertarCuadrillaConDelegado(
         "cuadrilla.creado_por_id as creado_por_id",
         "delegacion.id as delegacion_id",
         "delegacion.nombre as delegacion_nombre",
+        "delegacion.codigo as delegacion_codigo",
         "usuario.id as delegado_id",
         "usuario.nombre as delegado_nombre",
         "usuario.email as delegado_email",
@@ -454,6 +460,7 @@ export async function insertarCuadrillaConDelegado(
       actualizado_por_id: null,
       delegacion_id: filaConsolidada.delegacion_id,
       delegacion_nombre: filaConsolidada.delegacion_nombre,
+      delegacion_codigo: filaConsolidada.delegacion_codigo ?? null,
       delegado_id: filaConsolidada.delegado_id,
       delegado_nombre: filaConsolidada.delegado_nombre,
       delegado_email: filaConsolidada.delegado_email,
@@ -768,6 +775,7 @@ export async function actualizarCuadrillaConDotacionTransaccional(
         "cuadrilla.actualizado_por_id as actualizado_por_id",
         "delegacion.id as delegacion_id",
         "delegacion.nombre as delegacion_nombre",
+        "delegacion.codigo as delegacion_codigo",
         "usuario.id as delegado_id",
         "usuario.nombre as delegado_nombre",
         "usuario.email as delegado_email",
@@ -818,6 +826,7 @@ export async function actualizarCuadrillaConDotacionTransaccional(
       actualizado_por_id: cuadrillaFila.actualizado_por_id ?? null,
       delegacion_id: cuadrillaFila.delegacion_id,
       delegacion_nombre: cuadrillaFila.delegacion_nombre,
+      delegacion_codigo: cuadrillaFila.delegacion_codigo ?? null,
       delegado_id: cuadrillaFila.delegado_id,
       delegado_nombre: cuadrillaFila.delegado_nombre,
       delegado_email: cuadrillaFila.delegado_email,

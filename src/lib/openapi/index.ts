@@ -157,6 +157,14 @@ registry.register("MisionItem", MisionItemSchema);
 registry.register("DetalleEmpleadoResponse", DetalleEmpleadoResponseSchema);
 registry.register("EliminarEmpleadoResponse", EliminarEmpleadoResponseSchema);
 
+// Registrar esquemas de Cuadrillas Operativas (H79 / H81)
+registry.register("CrearCuadrillaInput", CrearCuadrillaInputSchema);
+registry.register("CrearCuadrillaResponse", CrearCuadrillaResponseSchema);
+registry.register("EditarCuadrillaInput", EditarCuadrillaInputSchema);
+registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
+registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
+registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
+
 
 // Registrar esquemas de Seguridad
 registry.register("ListarRolesResponse", ListarRolesResponseSchema);

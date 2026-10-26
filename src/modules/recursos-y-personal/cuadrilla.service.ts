@@ -75,6 +75,7 @@ export async function listarCuadrillas(
     delegacion: {
       id: c.delegacion_id,
       nombre: c.delegacion_nombre,
+      codigo: c.delegacion_codigo ?? null,
     },
     delegado: {
       id: c.delegado_id,
@@ -150,6 +151,7 @@ export async function obtenerCuadrillaPorId(
     delegacion: {
       id: cuadrilla.delegacion_id,
       nombre: cuadrilla.delegacion_nombre,
+      codigo: cuadrilla.delegacion_codigo ?? null,
     },
     delegado: {
       id: cuadrilla.delegado_id,
@@ -177,6 +179,8 @@ export async function obtenerCuadrillaPorId(
           ? t.asignado_en.toISOString()
           : String(t.asignado_en),
     })),
+    totalRecursos: cuadrilla.recursos.length,
+    totalTrabajadores: cuadrilla.trabajadores.length,
     creadoEn:
       cuadrilla.creado_en instanceof Date
         ? cuadrilla.creado_en.toISOString()
@@ -255,6 +259,7 @@ export async function crearCuadrilla(
     delegacion: {
       id: resultado.delegacion_id,
       nombre: resultado.delegacion_nombre,
+      codigo: resultado.delegacion_codigo ?? null,
     },
     delegado: {
       id: resultado.delegado_id,
@@ -264,6 +269,8 @@ export async function crearCuadrilla(
     },
     recursos: [],
     trabajadores: [],
+    totalRecursos: 0,
+    totalTrabajadores: 0,
     creadoEn:
       resultado.creado_en instanceof Date
         ? resultado.creado_en.toISOString()
@@ -303,10 +310,15 @@ export async function editarCuadrilla(
     throw new NotFoundError("La cuadrilla operativa especificada no existe.");
   }
 
-  // 3. Regla de negocio crítica: Bloquear modificación si se encuentra EN_MISION (409 Conflict)
-  if (cuadrillaActual.estado === "EN_MISION") {
+  // 3. Regla de negocio crítica: Bloquear modificación si se encuentra EN_MISION, EN_TRANSITO o EN_OPERACION (409 Conflict)
+  const estadoCuadrilla = String(cuadrillaActual.estado);
+  if (
+    estadoCuadrilla === "EN_MISION" ||
+    estadoCuadrilla === "EN_TRANSITO" ||
+    estadoCuadrilla === "EN_OPERACION"
+  ) {
     throw new ConflictError(
-      "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa."
+      "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
     );
   }
 
@@ -314,7 +326,7 @@ export async function editarCuadrilla(
   const tieneMisionesActivas = await verificarMisionesActivasCuadrilla(id);
   if (tieneMisionesActivas) {
     throw new ConflictError(
-      "No es posible modificar la dotación de una cuadrilla con misiones operativas activas en terreno."
+      "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
     );
   }
 
@@ -428,9 +440,8 @@ export async function editarCuadrilla(
     );
 
     if (colisionesIndividuales.length > 0) {
-      const colision = colisionesIndividuales[0];
       throw new ConflictError(
-        `El recurso individual '${colision.recurso_nombre}' ya se encuentra asignado a la cuadrilla activa '${colision.cuadrilla_nombre}'.`
+        "El recurso individual ya se encuentra asignado a otra cuadrilla operativa."
       );
     }
   }
@@ -464,6 +475,7 @@ export async function editarCuadrilla(
     delegacion: {
       id: resultado.delegacion_id,
       nombre: resultado.delegacion_nombre,
+      codigo: resultado.delegacion_codigo ?? null,
     },
     delegado: {
       id: resultado.delegado_id,
@@ -491,6 +503,8 @@ export async function editarCuadrilla(
           ? t.asignado_en.toISOString()
           : String(t.asignado_en),
     })),
+    totalRecursos: resultado.recursos.length,
+    totalTrabajadores: resultado.trabajadores.length,
     creadoEn:
       resultado.creado_en instanceof Date
         ? resultado.creado_en.toISOString()
