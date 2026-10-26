@@ -59,6 +59,7 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `POST` | `/api/cuadrillas` | Registrar y dar de alta una nueva cuadrilla operativa en el sistema con líder delegado (H79). |
 | `GET` | `/api/cuadrillas/{id}` | Obtener detalle unitario consolidado de una cuadrilla con sus recursos y trabajadores asignados. |
 | `PUT` | `/api/cuadrillas/{id}` | Modificar datos, reasignar delegado y dotación de trabajadores/recursos de una cuadrilla (H81). |
+| `DELETE` | `/api/cuadrillas/{id}` | Desactivar mediante baja lógica una cuadrilla operativa disuelta o retirada, liberando dotación (H82). |
 | `GET` | `/api/personal` | Listar y buscar empleados/usuarios para selectores con soporte de búsqueda textual y filtro de activos/terreno. |
 | `POST` | `/api/personal` | Registrar a un nuevo funcionario municipal con credenciales y ficha de terreno condicional (HU-10). |
 | `PATCH` | `/api/personal/:id` | Modificar datos de un empleado actualizando concurrentemente `usuarios` y `personal` en una transacción atómica. |
@@ -508,6 +509,45 @@ Permite modificar el nombre, delegación municipal adscrita, delegado responsabl
     "totalTrabajadores": 1,
     "creadoEn": "2026-10-23T10:00:00.000Z",
     "actualizadoEn": "2026-10-26T10:30:00.000Z"
+  }
+}
+```
+
+### 3.8. `DELETE /api/cuadrillas/{id}` (HU-82: Desactivar Cuadrilla Operativa)
+Desactiva mediante baja lógica una cuadrilla operativa que haya sido disuelta o retirada de servicio, evitando su asignación a nuevos incidentes y preservando el historial completo de misiones e intervenciones pasadas.
+
+#### Reglas de Negocio y Seguridad
+- **Permisos y Control de Acceso (RBAC):** Requiere token válido y permiso granular **`cuadrillas:eliminar`** o pertenecer al rol **`Administrador`**. Cualquier otro usuario sin este permiso recibirá `403 Forbidden`.
+- **Integridad Operativa ICS (Bloqueo `409 Conflict`):**
+  - Si la cuadrilla posee misiones asociadas en estado **`PLANIFICADA`**, **`DESPACHADA`** o **`EN_CURSO`**, la solicitud es rechazada inmediatamente con código `409 Conflict`.
+  - Si la cuadrilla se encuentra en estado operativo **`EN_MISION`**, **`EN_TRANSITO`** o **`EN_OPERACION`**, es rechazada con `409 Conflict`.
+- **Baja Lógica y Auditoría Inmutable:**
+  - Aplica estrictamente `cuadrilla.activo = false`, `cuadrilla.estado = 'NO_DISPONIBLE'`, `cuadrilla.eliminado_en = CURRENT_TIMESTAMP` y estampa `cuadrilla.eliminado_por_id` con el UUID del usuario responsable.
+- **Trazabilidad Histórica y Liberación de Dotación:**
+  - **Recursos (`cuadrilla_recurso`):** No se borran físicamente los registros para mantener la auditoría; se actualiza `activo = false` y `desvinculado_en = CURRENT_TIMESTAMP`, liberando inmediatamente los recursos para el inventario central.
+  - **Personal Operativo (`cuadrilla_personal`):** Se actualiza `activo = false` y `desvinculado_en = CURRENT_TIMESTAMP`, preservando el registro de qué trabajadores integraron la cuadrilla y en qué período, dejando a los brigadistas disponibles para conformar nuevas dotaciones.
+- **Reversión de Rol del Delegado:**
+  - Si el usuario que ejercía como Delegado (`usuario_delegado_id`) no lidera ninguna otra cuadrilla activa en el sistema, su rol institucional en `usuario` se revierte automáticamente a **`BRIGADISTA`**, registrando el diff en la tabla de auditoría `log_cambios_usuarios`.
+- **Sincronización en Tiempo Real:**
+  - Tras el éxito de la transacción, el servidor emite el evento WebSocket **`cuadrilla:desactivada`** a las salas `"operaciones"`, `"encargado"` y `"supervisor"`.
+
+#### Parámetros de Ruta
+- `id` (`UUID`, obligatorio): Identificador único de la cuadrilla operativa.
+
+#### Ejemplo de Respuesta Exitosa (`200 OK`)
+```json
+{
+  "message": "Cuadrilla operativa desactivada exitosamente",
+  "data": {
+    "id": "50000000-0000-4000-8000-000000000003",
+    "nombre": "Cuadrilla Drenaje y Aguas Lluvias Sur",
+    "activo": false,
+    "estado": "NO_DISPONIBLE",
+    "recursosDesvinculados": 2,
+    "trabajadoresDesvinculados": 4,
+    "delegadoRevertido": true,
+    "eliminadoEn": "2026-10-26T12:00:00.000Z",
+    "eliminadoPorId": "00000000-0000-4000-8000-000000000001"
   }
 }
 ```
