@@ -532,6 +532,15 @@ export function emitirCuadrillaActualizada(payload: unknown): void {
   emitirEvento("supervisor", "cuadrilla:actualizada", payload);
 }
 
+/**
+ * Emite la notificación de cuadrilla desactivada (baja lógica) a las salas operativas (H82).
+ */
+export function emitirCuadrillaDesactivada(payload: unknown): void {
+  emitirEvento("operaciones", "cuadrilla:desactivada", payload);
+  emitirEvento("encargado", "cuadrilla:desactivada", payload);
+  emitirEvento("supervisor", "cuadrilla:desactivada", payload);
+}
+
 export * from "./types";
 
 

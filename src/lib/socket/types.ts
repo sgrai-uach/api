@@ -21,6 +21,7 @@ export interface ServerToClientEvents {
     "punto_critico:actualizado": (payload: unknown) => void;
     "cuadrilla:creada": (payload: unknown) => void;
     "cuadrilla:actualizada": (payload: unknown) => void;
+    "cuadrilla:desactivada": (payload: unknown) => void;
 }
 
 export interface ClientToServerEvents {

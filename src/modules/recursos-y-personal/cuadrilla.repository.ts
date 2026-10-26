@@ -138,7 +138,7 @@ export async function obtenerCuadrillaDetalleUnitario(
 
   if (!cuadrillaFila) return undefined;
 
-  // Consultar recursos asignados
+  // Consultar recursos asignados activos
   const recursos = await db
     .selectFrom("cuadrilla_recurso")
     .innerJoin("recurso", "recurso.id", "cuadrilla_recurso.recurso_id")
@@ -150,9 +150,10 @@ export async function obtenerCuadrillaDetalleUnitario(
       "recurso.es_individual as es_individual",
     ])
     .where("cuadrilla_recurso.cuadrilla_id", "=", id)
+    .where("cuadrilla_recurso.desvinculado_en", "is", null)
     .execute();
 
-  // Consultar trabajadores asignados
+  // Consultar trabajadores asignados activos
   const trabajadores = await db
     .selectFrom("cuadrilla_personal")
     .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
@@ -168,6 +169,7 @@ export async function obtenerCuadrillaDetalleUnitario(
       "cuadrilla_personal.asignado_en as asignado_en",
     ])
     .where("cuadrilla_personal.cuadrilla_id", "=", id)
+    .where("cuadrilla_personal.desvinculado_en", "is", null)
     .execute();
 
   return {
@@ -273,7 +275,7 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
 
   const cuadrillaIds = cuadrillasLote.map((c) => c.id);
 
-  // 3. Obtener recursos y trabajadores asignados para el lote
+  // 3. Obtener recursos y trabajadores asignados activos para el lote
   const recursosLote = await db
     .selectFrom("cuadrilla_recurso")
     .innerJoin("recurso", "recurso.id", "cuadrilla_recurso.recurso_id")
@@ -286,6 +288,7 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
       "recurso.es_individual as es_individual",
     ])
     .where("cuadrilla_recurso.cuadrilla_id", "in", cuadrillaIds)
+    .where("cuadrilla_recurso.desvinculado_en", "is", null)
     .execute();
 
   const trabajadoresLote = await db
@@ -304,6 +307,7 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
       "cuadrilla_personal.asignado_en as asignado_en",
     ])
     .where("cuadrilla_personal.cuadrilla_id", "in", cuadrillaIds)
+    .where("cuadrilla_personal.desvinculado_en", "is", null)
     .execute();
 
   // Agrupar por cuadrilla_id
@@ -633,6 +637,7 @@ export async function obtenerRecursosIndividualesAsignadosAOtrasCuadrillas(
     .where("recurso.es_individual", "=", true)
     .where("cuadrilla.id", "!=", excluirCuadrillaId)
     .where("cuadrilla.eliminado_en", "is", null)
+    .where("cuadrilla_recurso.desvinculado_en", "is", null)
     .execute();
 }
 
@@ -853,3 +858,142 @@ export async function actualizarCuadrillaConDotacionTransaccional(
     };
   });
 }
+
+export interface ResultadoDesactivarCuadrilla {
+  id: string;
+  nombre: string;
+  activo: boolean;
+  estado: string;
+  recursosDesvinculados: number;
+  trabajadoresDesvinculados: number;
+  delegadoRevertido: boolean;
+  eliminadoEn: Date;
+  eliminadoPorId: string;
+}
+
+/**
+ * Desactiva mediante baja lógica una cuadrilla operativa de forma atómica:
+ * - Aplica activo = false, estado = 'NO_DISPONIBLE' y estampa eliminado_en / eliminado_por_id.
+ * - Desvincula recursos activos estampando activo = false y desvinculado_en.
+ * - Desvincula dotación de trabajadores estampando activo = false y desvinculado_en.
+ * - Si el delegado saliente no lidera otra cuadrilla activa, revierte su rol a BRIGADISTA.
+ */
+export async function desactivarCuadrillaTransaccional(
+  cuadrillaId: string,
+  usuarioId: string,
+  rolBrigadistaId: string | null
+): Promise<ResultadoDesactivarCuadrilla> {
+  return await db.transaction().execute(async (trx) => {
+    // 1. Obtener datos de la cuadrilla antes de modificarla
+    const cuadrillaActual = await trx
+      .selectFrom("cuadrilla")
+      .select(["id", "nombre", "usuario_delegado_id", "eliminado_en"])
+      .where("id", "=", cuadrillaId)
+      .executeTakeFirstOrThrow();
+
+    const fechaEliminado = new Date();
+
+    // 2. Aplicar baja lógica a la cuadrilla
+    await trx
+      .updateTable("cuadrilla")
+      .set({
+        activo: false,
+        estado: "NO_DISPONIBLE",
+        eliminado_en: fechaEliminado,
+        eliminado_por_id: usuarioId,
+        actualizado_en: fechaEliminado,
+        actualizado_por_id: usuarioId,
+      })
+      .where("id", "=", cuadrillaId)
+      .execute();
+
+    // 3. Desvincular recursos activos en cuadrilla_recurso preservando histórico
+    const recursosActivos = await trx
+      .selectFrom("cuadrilla_recurso")
+      .select(["id"])
+      .where("cuadrilla_id", "=", cuadrillaId)
+      .where("desvinculado_en", "is", null)
+      .execute();
+
+    if (recursosActivos.length > 0) {
+      await trx
+        .updateTable("cuadrilla_recurso")
+        .set({
+          activo: false,
+          desvinculado_en: fechaEliminado,
+        })
+        .where("cuadrilla_id", "=", cuadrillaId)
+        .where("desvinculado_en", "is", null)
+        .execute();
+    }
+
+    // 4. Desvincular dotación humana activa en cuadrilla_personal preservando histórico
+    const trabajadoresActivos = await trx
+      .selectFrom("cuadrilla_personal")
+      .select(["id"])
+      .where("cuadrilla_id", "=", cuadrillaId)
+      .where("desvinculado_en", "is", null)
+      .execute();
+
+    if (trabajadoresActivos.length > 0) {
+      await trx
+        .updateTable("cuadrilla_personal")
+        .set({
+          activo: false,
+          desvinculado_en: fechaEliminado,
+        })
+        .where("cuadrilla_id", "=", cuadrillaId)
+        .where("desvinculado_en", "is", null)
+        .execute();
+    }
+
+    // 5. Reversión de rol del delegado si no lidera otra cuadrilla activa
+    let delegadoRevertido = false;
+    if (cuadrillaActual.usuario_delegado_id && rolBrigadistaId) {
+      const otrasCuadrillas = await trx
+        .selectFrom("cuadrilla")
+        .select((eb) => eb.fn.count("id").as("total"))
+        .where("usuario_delegado_id", "=", cuadrillaActual.usuario_delegado_id)
+        .where("id", "!=", cuadrillaId)
+        .where("eliminado_en", "is", null)
+        .executeTakeFirst();
+
+      const tieneOtras = Number(otrasCuadrillas?.total ?? 0) > 0;
+      if (!tieneOtras) {
+        await trx
+          .updateTable("usuario")
+          .set({ rol_id: rolBrigadistaId })
+          .where("id", "=", cuadrillaActual.usuario_delegado_id)
+          .execute();
+
+        await trx
+          .insertInto("log_cambios_usuarios")
+          .values({
+            usuario_modificado_id: cuadrillaActual.usuario_delegado_id,
+            modificado_por_id: usuarioId,
+            campos_modificados: JSON.stringify({
+              rol_id: rolBrigadistaId,
+              rol_codigo: "BRIGADISTA",
+              motivo: `Reversión automática de rol al desactivar cuadrilla ${cuadrillaActual.nombre.trim()}`,
+            }),
+          })
+          .execute();
+
+        delegadoRevertido = true;
+      }
+    }
+
+    return {
+      id: cuadrillaActual.id,
+      nombre: cuadrillaActual.nombre,
+      activo: false,
+      estado: "NO_DISPONIBLE",
+      recursosDesvinculados: recursosActivos.length,
+      trabajadoresDesvinculados: trabajadoresActivos.length,
+      delegadoRevertido,
+      eliminadoEn: fechaEliminado,
+      eliminadoPorId: usuarioId,
+    };
+  });
+}
+
