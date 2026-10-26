@@ -163,7 +163,7 @@ export async function listarPatrullasRepo(filtros: ListarPatrullasQuery) {
           "p.cargo",
           "p.especialidad",
           "pp.rol_en_patrulla",
-          "p.estado_operativo",
+          "pu.estado_operativo",
         ])
         .execute();
 
@@ -259,7 +259,7 @@ export async function obtenerPatrullaPorIdRepo(id: string) {
         "p.cargo",
         "p.especialidad",
         "pp.rol_en_patrulla",
-        "p.estado_operativo",
+        "pu.estado_operativo",
       ])
       .execute()) as FilaIntegranteConsulta[];
   } catch {
@@ -325,7 +325,7 @@ export async function obtenerPersonalParaPatrullaRepo(personalIds: string[]) {
       "u.email",
       "u.activo",
       "r.codigo as rol_codigo",
-      "p.estado_operativo",
+      "u.estado_operativo",
     ])
     .execute();
 }
@@ -398,11 +398,18 @@ export async function crearPatrullaTransaccionalRepo(datos: DatosCrearPatrullaRe
         .execute();
 
       await trx
-        .updateTable("personal")
+        .updateTable("usuario")
         .set({
           estado_operativo: "en_patrulla",
         })
-        .where("id", "=", personalId)
+        .where(
+          "id",
+          "in",
+          trx
+            .selectFrom("personal")
+            .select("usuario_id")
+            .where("id", "=", personalId)
+        )
         .execute();
     }
 
@@ -567,9 +574,16 @@ export async function modificarPatrullaTransaccionalRepo(
     const salientes = idsPrevios.filter((id) => !idsNuevos.includes(id));
     if (salientes.length > 0) {
       await trx
-        .updateTable("personal")
+        .updateTable("usuario")
         .set({ estado_operativo: "disponible" })
-        .where("id", "in", salientes)
+        .where(
+          "id",
+          "in",
+          trx
+            .selectFrom("personal")
+            .select("usuario_id")
+            .where("id", "in", salientes)
+        )
         .execute();
     }
 
@@ -598,9 +612,16 @@ export async function modificarPatrullaTransaccionalRepo(
     // Marcar nuevos integrantes como en_patrulla
     if (idsNuevos.length > 0) {
       await trx
-        .updateTable("personal")
+        .updateTable("usuario")
         .set({ estado_operativo: "en_patrulla" })
-        .where("id", "in", idsNuevos)
+        .where(
+          "id",
+          "in",
+          trx
+            .selectFrom("personal")
+            .select("usuario_id")
+            .where("id", "in", idsNuevos)
+        )
         .execute();
     }
   });
@@ -680,11 +701,18 @@ export async function desactivarPatrullaTransaccionalRepo(
 
     if (personalLiberadoIds.length > 0) {
       await trx
-        .updateTable("personal")
+        .updateTable("usuario")
         .set({
           estado_operativo: "disponible",
         })
-        .where("id", "in", personalLiberadoIds)
+        .where(
+          "id",
+          "in",
+          trx
+            .selectFrom("personal")
+            .select("usuario_id")
+            .where("id", "in", personalLiberadoIds)
+        )
         .execute();
     }
 

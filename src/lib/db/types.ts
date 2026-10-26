@@ -29,13 +29,24 @@ export interface RecursoTable {
   eliminado_en: Date | null;
 }
 
-export type EstadoOperativoPersonal =
+/**
+ * Estado operativo de un usuario (disponibilidad actual).
+ * En H11 se normalizó desde `personal.estado_operativo` a `usuario.estado_operativo`,
+ * ya que la disponibilidad es un atributo de todas las cuentas del sistema.
+ */
+export type EstadoOperativo =
   | "disponible"
   | "en_mision"
   | "en_patrulla"
   | "descanso"
   | "licencia"
   | "inactivo";
+
+/**
+ * @deprecated Alias de retrocompatibilidad. Utilizar `EstadoOperativo`.
+ * Se mantiene para no romper imports históricos de los módulos de terreno.
+ */
+export type EstadoOperativoPersonal = EstadoOperativo;
 
 export interface DelegacionTable {
   id: Generated<string>;
@@ -95,6 +106,11 @@ export interface UsuarioTable {
   rol_id: string;
   delegacion_id?: string | null;
   activo: ColumnType<boolean, boolean | undefined, boolean>;
+  estado_operativo: ColumnType<
+    EstadoOperativo,
+    EstadoOperativo | undefined,
+    EstadoOperativo
+  >;
   intentos_fallidos?: ColumnType<number, number | undefined, number>;
   bloqueado_hasta?: Date | null;
   ultimo_acceso?: Date | null;
@@ -112,11 +128,9 @@ export interface PersonalTable {
   delegacion_id: string;
   especialidad: string | null;
   cargo: string | null;
-  estado_operativo: ColumnType<
-    EstadoOperativoPersonal,
-    EstadoOperativoPersonal | undefined,
-    EstadoOperativoPersonal
-  >;
+  /**
+   * Capacidad/aptitud para salir a terreno. El estado operativo vive en `usuario.estado_operativo`.
+   */
   disponible_terreno: ColumnType<boolean, boolean | undefined, boolean>;
   ultima_ubicacion?: string | null;
   ultima_actualizacion_ubicacion?: Date | null;
@@ -131,6 +145,15 @@ export interface LogCambiosUsuariosTable {
   modificado_por_id: string | null;
   campos_modificados: string;
   created_at: Generated<Date>;
+}
+
+export interface TokenRecuperacionContrasenaTable {
+  id: Generated<string>;
+  usuario_id: string;
+  token_hash: string;
+  expira_en: Date;
+  usado_en?: Date | null;
+  creado_en: Generated<Date>;
 }
 
 export type EstadoIncidente =
@@ -523,6 +546,7 @@ export interface Database {
   log_cambios_usuarios: LogCambiosUsuariosTable;
   evento_prevencion: EventoPrevencionTable;
   evento_prevencion_recurso: EventoPrevencionRecursoTable;
+  token_recuperacion_contrasena: TokenRecuperacionContrasenaTable;
 
   // Aliases plurales para compatibilidad transversal con servicios de H12 y consultas directas
   recursos: RecursoTable;
@@ -543,4 +567,5 @@ export interface Database {
   reportes_terreno: ReporteTerrenoTable;
   eventos_prevencion: EventoPrevencionTable;
   eventos_prevencion_recursos: EventoPrevencionRecursoTable;
+  tokens_recuperacion_contrasena: TokenRecuperacionContrasenaTable;
 }

@@ -21,7 +21,10 @@ import {
   ListarRolesResponseSchema,
   LoginRequestSchema,
   LoginResponseSchema,
+  MensajeGenericoResponseSchema,
   PermisoCatalogoItemSchema,
+  RecuperarContrasenaRequestSchema,
+  RestablecerContrasenaRequestSchema,
   RolDetalleResponseSchema,
   UsuarioActivoResponseSchema,
 } from "@/modules/seguridad/schema";
@@ -308,6 +311,68 @@ registry.registerPath({
     401: { description: "Credenciales inválidas. Identificador o contraseña errónea" },
     403: { description: "Cuenta deshabilitada o temporalmente bloqueada por múltiples intentos fallidos" },
     500: { description: "Error interno del servidor al procesar el inicio de sesión" },
+  },
+});
+
+// POST /api/seguridad/recuperar-contrasena
+registry.registerPath({
+  method: "post",
+  path: "/api/seguridad/recuperar-contrasena",
+  summary: "Solicitar recuperación de contraseña",
+  description:
+    "Inicia el flujo de recuperación de credenciales mediante correo institucional (@valdivia.cl) o RUT chileno. Aplica protección estricta contra enumeración de cuentas respondiendo siempre 200 OK con un mensaje genérico.",
+  tags: ["Seguridad / Autenticación"],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: RecuperarContrasenaRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Respuesta genérica que previene la enumeración de cuentas en el sistema",
+      content: {
+        "application/json": {
+          schema: MensajeGenericoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Cuerpo de solicitud mal formado o identificador inválido" },
+    500: { description: "Error interno del servidor al procesar la solicitud" },
+  },
+});
+
+// POST /api/seguridad/restablecer-contrasena
+registry.registerPath({
+  method: "post",
+  path: "/api/seguridad/restablecer-contrasena",
+  summary: "Restablecer contraseña con token de recuperación",
+  description:
+    "Valida el token criptográfico efímero, actualiza la contraseña con hash seguro bcrypt (factor 10), invalida el token consumido y reinicia atómicamente los contadores de bloqueo (intentos_fallidos = 0, bloqueado_hasta = NULL).",
+  tags: ["Seguridad / Autenticación"],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: RestablecerContrasenaRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Contraseña actualizada exitosamente y cuenta desbloqueada",
+      content: {
+        "application/json": {
+          schema: MensajeGenericoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Token inválido, expirado, ya consumido o contraseña no cumple con políticas de seguridad" },
+    500: { description: "Error interno del servidor al procesar el restablecimiento" },
   },
 });
 
@@ -838,15 +903,18 @@ registry.registerPath({
   },
 });
 
-// 16. GET /api/personal (Listar empleados/personal - H34)
+// 16. GET /api/personal (Listar empleados/personal - H34 / H11 / H26)
 registry.registerPath({
   method: "get",
   path: "/api/personal",
   description:
-    "Lista y busca empleados y personal operativo del SGRAI con filtros territoriales (delegacionId), estado operativo, cargo, especialidad, rol y búsqueda textual, con paginación estándar.",
+    "Lista y busca empleados y personal del SGRAI con filtros territoriales (delegacionId), estado operativo (disponibilidad actual), cargo, especialidad, rol (rolId o rolCodigo, ej. ASISTENTE_SOCIAL) y búsqueda textual, con paginación estándar y cómputo de casos FIBE asignados (H26). La disponibilidad se expone siempre presente (reside en `usuario.estado_operativo`); `disponible_terreno` es `null` cuando el usuario no possui ficha de terreno.",
   summary: "Listar empleados y personal",
   tags: ["Recursos y Personal"],
   request: {
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión con permiso personal:leer, personal:gestionar o personal:crear"),
+    }),
     query: ListarPersonalQuerySchema,
   },
   responses: {
@@ -859,6 +927,11 @@ registry.registerPath({
       },
     },
     400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "No autenticado: token de sesión ausente o expirado" },
+    403: {
+      description:
+        "Acceso denegado: requiere personal:leer, personal:gestionar o personal:crear; al consultar rol ASISTENTE_SOCIAL también requiere asistencia_social:leer",
+    },
     500: { description: "Error interno del servidor" },
   },
 });
@@ -868,7 +941,7 @@ registry.registerPath({
   method: "post",
   path: "/api/personal",
   description:
-    "Registra a un nuevo funcionario o empleado municipal en el sistema SGRAI, aprovisionando su cuenta institucional y opcionalmente su ficha de terreno si su rol o funciones lo requieren.",
+    "Registra a un nuevo funcionario o empleado municipal en el sistema SGRAI, aprovisionando su cuenta institucional con su disponibilidad inicial (`usuario.estado_operativo`) y opcionalmente su ficha de terreno si su rol o funciones lo requieren.",
   summary: "Registrar nuevo funcionario",
   tags: ["Recursos y Personal"],
   request: {
@@ -948,10 +1021,13 @@ registry.registerPath({
   method: "get",
   path: "/api/personal/{id}",
   description:
-    "Consulta los datos detallados de un empleado por ID (usuario_id o personal_id).",
+    "Consulta los datos detallados de un empleado por ID (usuario_id o personal_id). La disponibilidad (estado operativo) se obtiene de `usuario.estado_operativo`.",
   summary: "Obtener detalle de empleado",
   tags: ["Recursos y Personal"],
   request: {
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión con permiso personal:leer, personal:gestionar o personal:crear"),
+    }),
     params: z.object({
       id: z.string().uuid().describe("UUID del usuario o de la ficha de personal"),
     }),
@@ -966,8 +1042,8 @@ registry.registerPath({
       },
     },
     400: { description: "Identificador inválido (debe ser un UUID válido)" },
-    401: { description: "No autenticado" },
-    403: { description: "Acceso denegado" },
+    401: { description: "No autenticado: token de sesión ausente o expirado" },
+    403: { description: "Acceso denegado: requiere personal:leer, personal:gestionar o personal:crear" },
     404: { description: "Empleado no encontrado" },
     409: { description: "Conflicto con el recurso" },
     500: { description: "Error interno del servidor" },
