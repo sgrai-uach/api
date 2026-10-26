@@ -7,7 +7,7 @@ export interface FilaCuadrillaParaEdicion {
   estado: "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE";
   delegacion_id: string | null;
   usuario_delegado_id: string | null;
-  eliminado_en: Date | null;
+  eliminado_en?: Date | null;
 }
 
 export interface FilaCuadrillaDetalleConsolidado {

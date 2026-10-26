@@ -56,7 +56,7 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
       id: recursoId,
       nombre: "Camioneta 4x4",
       es_individual: true,
-      estado: "DISPONIBLE",
+      estado: "DISPONIBLE" as const,
       cantidad_inventario: 1,
       cantidad_en_uso: 0,
     },
@@ -103,10 +103,12 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
     vi.restoreAllMocks();
     vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue({
       id: usuarioAdminId,
+      rut: "11111111-1",
       nombre: "Admin",
       email: "admin@valdivia.cl",
       rolId: "rol-admin",
-      rolCodigo: "ADMIN",
+      rolNombre: "Administrador",
+      activo: true,
     });
     vi.spyOn(socketModule, "emitirCuadrillaCreada").mockImplementation(() => {});
     vi.spyOn(socketModule, "emitirCuadrillaActualizada").mockImplementation(() => {});
