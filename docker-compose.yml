@@ -57,6 +57,16 @@ services:
     networks:
       - red_taller_software
 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: grupo1_mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    networks:
+      - red_taller_software
+
 volumes:
   pgdata:
   redisdata:

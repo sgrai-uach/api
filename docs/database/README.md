@@ -83,6 +83,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Delegación** | `delegacion` | Migración 001 | Organización | 4 delegaciones comunales de Valdivia. |
 | **Personal** | `personal` | Migración 002 | Operaciones | Ficha operativa 1:1 con usuario. |
 | *(Auditoría)* | `log_cambios_usuarios` | Migración 002 | Seguridad | Traza histórica de cambios a usuarios. |
+| *(Recuperación Contraseña)* | `token_recuperacion_contrasena` | Migración 023 | Seguridad | Tokens efímeros (SHA-256) de un solo uso para restablecimiento autónomo (HU-65). |
 | **Informante** | `informante` | Migración 003 | Incidentes | Ciudadanos que reportan incidentes. |
 | **Fuente del incidente** | `fuente_incidente` | Migración 003 | Incidentes | Canales de ingreso estandarizados. |
 | **Tipo Incidente** | `tipo_incidente` | Migración 003 | Incidentes | Catálogo de tipos de emergencia. |
@@ -271,6 +272,22 @@ Auditoría estricta de cambios sobre las cuentas de usuario.
 | `modificado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` que ejecutó la modificación. |
 | `campos_modificados` | `TEXT` | NO | — | Resumen o payload serializado de las diferencias. |
 | `created_at` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Momento exacto del cambio. |
+
+#### Tabla: `token_recuperacion_contrasena`
+Tokens criptográficos efímeros de un solo uso para la recuperación autónoma de contraseñas de funcionarios (HU-65 / Migración 023).
+
+| Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
+|---|---|---|---|---|
+| `id` | `UUID` | NO | `gen_random_uuid()` | Identificador único del token. |
+| `usuario_id` | `UUID` | NO | — | FK a `usuario.id` (ON DELETE CASCADE). |
+| `token_hash` | `VARCHAR(64)` | NO | — | Hash SHA-256 en formato hexadecimal del token efímero (Unique). Nunca se almacena el token en claro. |
+| `expira_en` | `TIMESTAMPTZ` | NO | — | Momento límite de vigencia del token (máximo 30 minutos desde la emisión). Restricción `CHECK (expira_en > creado_en)`. |
+| `usado_en` | `TIMESTAMPTZ` | SÍ | `NULL` | Momento en que el token fue consumido exitosamente o invalidado por una nueva solicitud. |
+| `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de generación de la solicitud de recuperación. |
+
+*Índices:*
+- `idx_token_rec_usuario_creado`: `(usuario_id, creado_en DESC)` para control de tasa (rate limiting) e invalidación atómica.
+- `idx_token_rec_expira_en`: `(expira_en)` para optimización de depuración temporal y chequeos de vigencia.
 
 ---
 
