@@ -324,7 +324,21 @@ export interface PatrullaVerificadoraTable {
   estado: ColumnType<EstadoPatrulla, EstadoPatrulla | undefined, EstadoPatrulla>;
   delegacion_id: string | null;
   usuario_lider_id: string | null;
+  latitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
+  longitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
+  ubicacion: ColumnType<unknown, unknown, unknown>;
+  ultima_actualizacion_ubicacion: Date | null;
   creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
+  eliminado_en: Date | null;
+}
+
+export interface PatrullaPersonalTable {
+  id: Generated<string>;
+  patrulla_id: string;
+  personal_id: string;
+  rol_en_patrulla: ColumnType<string, string | undefined, string>;
+  asignado_en: Generated<Date>;
 }
 
 export type EstadoCuadrilla = "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE";
@@ -517,6 +531,7 @@ export interface Database {
   recuperacion_recurso: RecuperacionRecursoTable;
   evento_asistencia_social: EventoAsistenciaSocialTable;
   patrulla_verificadora: PatrullaVerificadoraTable;
+  patrulla_personal: PatrullaPersonalTable;
   cuadrilla: CuadrillaTable;
   cuadrilla_recurso: CuadrillaRecursoTable;
   mision: MisionTable;
