@@ -81,7 +81,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Permisos** | `permiso` | Migración 001 | Seguridad | Facultades y permisos granulares. |
 | **RolPermiso** | `rol_permiso` | Migración 001 | Seguridad | Pivote N:M entre roles y permisos. |
 | **Delegación** | `delegacion` | Migración 001 | Organización | 4 delegaciones comunales de Valdivia. |
-| **Personal** | `personal` | Migración 002 / 023 | Operaciones | Ficha **opcional** de perfil de terreno (1:0..1 con usuario). La disponibilidad vive en `usuario.estado_operativo` (H11). |
+| **Personal** | `personal` | Migración 002 / 025 | Operaciones | Ficha **opcional** de perfil de terreno (1:0..1 con usuario). La disponibilidad vive en `usuario.estado_operativo` (H11). |
 | *(Auditoría)* | `log_cambios_usuarios` | Migración 002 | Seguridad | Traza histórica de cambios a usuarios. |
 | **Informante** | `informante` | Migración 003 | Incidentes | Ciudadanos que reportan incidentes. |
 | **Fuente del incidente** | `fuente_incidente` | Migración 003 | Incidentes | Canales de ingreso estandarizados. |
@@ -98,8 +98,8 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Reporte Terreno** | `reporte_terreno` | Migración 011 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
 | **Recuperación** | `recuperacion` | Migración 017 | Eventos ATP / Recuperación | Eventos e intervenciones territoriales de recuperación y entrega de recursos (HU-29). |
 | **Asistencia Social** | `evento_asistencia_social` | Migración 022 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social y requerimientos para levantamiento de ficha FIBE (HU-28). |
-| **Disponibilidad (enum)** | `estado_operativo` | Migración 002 / 023 | Operaciones | Enum de disponibilidad del funcionario (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`), normalizado a `usuario.estado_operativo` (H11). |
-| **Permisos de Personal** | `permiso` / `rol_permiso` | Migración 026 | Seguridad | `personal:leer`, `personal:crear`, `personal:editar` y `personal:gestionar` (H11). |
+| **Disponibilidad (enum)** | `estado_operativo` | Migración 002 / 025 | Operaciones | Enum de disponibilidad del funcionario (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`), normalizado a `usuario.estado_operativo` (H11). |
+| **Permisos de Personal** | `permiso` / `rol_permiso` | Migración 030 | Seguridad | `personal:leer`, `personal:crear`, `personal:editar` y `personal:gestionar` (H11). |
 | **EventoATP** | *`evento_atp`* | Hoja de Ruta (Roadmap) | Eventos ATP | Agrupación macro de incidentes / eventos climáticos mayores. |
 | **Log de Misión** | *`log_mision`* | Hoja de Ruta (Roadmap) | Misiones | Bitácora cronológica detallada de hitos de misión. |
 | **Beneficio** | *`beneficio`* | Hoja de Ruta (Roadmap) | Asistencia Social | Ayudas sociales entregadas a damnificados (FIBE / DIDECO). |
@@ -679,7 +679,7 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 ```bash
 npm run db:migrate
 ```
-El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `022_eventos_asistencia_social.ts`).
+El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `030_permisos_personal.ts`; los correlativos intermedios pueden estar reservados por otras historias del equipo).
 
 ### 7.2 Sembrar Datos para Tablero Kanban
 ```bash

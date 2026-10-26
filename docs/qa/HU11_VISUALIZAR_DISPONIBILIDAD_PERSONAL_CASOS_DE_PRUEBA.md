@@ -32,7 +32,7 @@
 | **Suite Automatizada de Pruebas (Vitest)** | **521/521 tests aprobados (47 archivos)** |
 | **Chequeo de Tipos Estáticos (TypeScript)** | **0 errores (`npx tsc --noEmit`)** |
 | **Análisis Estático de Código (ESLint)** | **0 errores (`npm run lint`)** |
-| **Migraciones Kysely** | **025 (`025_disponibilidad_usuario`) y 026 (`026_permisos_personal`) ejecutadas correctamente** |
+| **Migraciones Kysely** | **025 (`025_disponibilidad_usuario`) y 030 (`030_permisos_personal`) ejecutadas correctamente** |
 | **Contrato OpenAPI 3.0 Centralizado** | **100% sincronizado con 401 y 403 documentados en `GET /api/personal` y `GET /api/personal/{id}`** |
 
 ---
@@ -58,7 +58,8 @@ Esta decisión queda explícita en `api/docs/database/README.md` y en
 ### 2.1 Renumeración de migraciones (reserva de correlativos del equipo)
 
 Las migraciones de H11 se renumeraron de `023`/`024` a **`025_disponibilidad_usuario`** y
-**`026_permisos_personal`** porque los correlativos `023` y `024` quedaron reservados para
+**`030_permisos_personal`**. El correlativo **025** corresponde a la primera migración de H11 y
+el **030** a la segunda; los correlativos `023`, `024` y `026`–`029` quedaron reservados para
 otras historias del equipo. La renumeración se realizó con `git mv` (sin pérdida de
 historial) y no altera el contenido de los scripts.
 
@@ -66,7 +67,7 @@ Consecuencias operativas para los ambientes donde ya se habían aplicado:
 
 ```sql
 UPDATE kysely_migration SET name = '025_disponibilidad_usuario' WHERE name = '023_disponibilidad_usuario';
-UPDATE kysely_migration SET name = '026_permisos_personal'     WHERE name = '024_permisos_personal';
+UPDATE kysely_migration SET name = '030_permisos_personal'     WHERE name IN ('024_permisos_personal', '026_permisos_personal');
 ```
 
 No debe borrarse la fila para forzar la re-ejecución: la migración 025 no es re-ejecutable
@@ -96,8 +97,8 @@ propia migración elimina en el paso 5.
 | `CP-H11-API-15` | Denegación HTTP 403 sin permisos de personal | Seguridad (RBAC) | API / Guard | Crítica | Usuario autenticado sin `personal:leer`, `personal:gestionar` ni `personal:crear` | `GET /api/personal` con token válido | HTTP 403 Forbidden | HTTP 403 Forbidden con mensaje indicando los permisos requeridos | APROBADO | 20/10/2026 21:02 | - | feat(seguridad): proteger listado de personal con RBAC |
 | `CP-H11-API-16` | Acceso HTTP 200 con permiso `personal:leer` | Seguridad (RBAC) | API / Guard | Alta | Rol `Encargado` con permiso `personal:leer` | `GET /api/personal` con token de Encargado | HTTP 200 OK con listado paginado | HTTP 200 OK con `data` y `meta` estandarizados | APROBADO | 20/10/2026 21:04 | - | feat(seguridad): proteger listado de personal con RBAC |
 | `CP-H11-API-17` | Migración 025: copia del estado histórico y default para usuarios sin ficha | Migración / BD | PostgreSQL / Kysely | Crítica | Base de datos con `personal.estado_operativo` poblada | `npm run db:migrate` (migración 025) | Copia el estado a `usuario`, fuerza `inactivo` en `activo=false` y elimina la columna duplicada | Enum renombrado, columna agregada, valores copiados, columna `personal.estado_operativo` eliminada e índice creado | APROBADO | 20/10/2026 21:10 | - | feat(db): mover estado operativo a usuario y preservar ficha de terreno |
-| `CP-H11-API-18` | Migración 026: permisos del módulo de personal | Migración / BD | PostgreSQL / RBAC | Alta | Roles `ADMIN` y `ENCARGADO` existentes | `npm run db:migrate` (migración 026) | Crea `personal:leer`, `personal:crear`, `personal:editar`, `personal:gestionar`; ADMIN con los cuatro y ENCARGADO con `personal:leer` | Permisos creados y asignados correctamente | APROBADO | 20/10/2026 21:11 | - | feat(db): mover estado operativo a usuario y preservar ficha de terreno |
-| `CP-H11-API-19` | Reversión de las migraciones 025 y 026 (`down` → `up`) | Migración / BD | PostgreSQL / Kysely | Crítica | Base de datos migrada con `025` y `026` aplicadas | Ejecución de `down` y posterior `up` de 025 y 026 sobre base de datos de prueba | `down` elimina `usuario.estado_operativo`, restaura `personal.estado_operativo` y el enum original; `up` restituye el modelo normalizado | Ciclo completo ejecutado sin error: `usuario.estado_operativo` presente, 4 permisos `personal:*` y enum `estado_operativo` | APROBADO | 20/10/2026 21:25 | - | fix(db): corregir reversión de la migración 025 |
+| `CP-H11-API-18` | Migración 030: permisos del módulo de personal | Migración / BD | PostgreSQL / RBAC | Alta | Roles `ADMIN` y `ENCARGADO` existentes | `npm run db:migrate` (migración 030) | Crea `personal:leer`, `personal:crear`, `personal:editar`, `personal:gestionar`; ADMIN con los cuatro y ENCARGADO con `personal:leer` | Permisos creados y asignados correctamente | APROBADO | 20/10/2026 21:11 | - | feat(db): mover estado operativo a usuario y preservar ficha de terreno |
+| `CP-H11-API-19` | Reversión de las migraciones 025 y 030 (`down` → `up`) | Migración / BD | PostgreSQL / Kysely | Crítica | Base de datos migrada con `025` y `030` aplicadas | Ejecución de `down` y posterior `up` de 025 y 030 sobre base de datos de prueba | `down` elimina `usuario.estado_operativo`, restaura `personal.estado_operativo` y el enum original; `up` restituye el modelo normalizado | Ciclo completo ejecutado sin error: `usuario.estado_operativo` presente, 4 permisos `personal:*` y enum `estado_operativo` | APROBADO | 20/10/2026 21:25 | - | fix(db): corregir reversión de la migración 025 |
 
 ---
 
@@ -122,8 +123,8 @@ CP-H11-API-14	Denegación HTTP 401 sin token de sesión	Seguridad (RBAC)	API / G
 CP-H11-API-15	Denegación HTTP 403 sin permisos de personal	Seguridad (RBAC)	API / Guard	Crítica	Usuario autenticado sin personal:leer, personal:gestionar ni personal:crear	GET /api/personal con token válido	HTTP 403 Forbidden	HTTP 403 Forbidden con mensaje indicando los permisos requeridos	APROBADO	20/10/2026 21:02	-	feat(seguridad): proteger listado de personal con RBAC
 CP-H11-API-16	Acceso HTTP 200 con permiso personal:leer	Seguridad (RBAC)	API / Guard	Alta	Rol Encargado con permiso personal:leer	GET /api/personal con token de Encargado	HTTP 200 OK con listado paginado	HTTP 200 OK con data y meta estandarizados	APROBADO	20/10/2026 21:04	-	feat(seguridad): proteger listado de personal con RBAC
 CP-H11-API-17	Migración 025: copia del estado histórico y default para usuarios sin ficha	Migración / BD	PostgreSQL / Kysely	Crítica	Base de datos con personal.estado_operativo poblada	npm run db:migrate (migración 025)	Copia el estado a usuario, fuerza inactivo en activo=false y elimina la columna duplicada	Enum renombrado, columna agregada, valores copiados, columna personal.estado_operativo eliminada e índice creado	APROBADO	20/10/2026 21:10	-	feat(db): mover estado operativo a usuario y preservar ficha de terreno
-CP-H11-API-18	Migración 026: permisos del módulo de personal	Migración / BD	PostgreSQL / RBAC	Alta	Roles ADMIN y ENCARGADO existentes	npm run db:migrate (migración 026)	Crea personal:leer, personal:crear, personal:editar, personal:gestionar; ADMIN con los cuatro y ENCARGADO con personal:leer	Permisos creados y asignados correctamente	APROBADO	20/10/2026 21:11	-	feat(db): mover estado operativo a usuario y preservar ficha de terreno
-CP-H11-API-19	Reversión de las migraciones 025 y 026 (down → up)	Migración / BD	PostgreSQL / Kysely	Crítica	Base de datos migrada con 025 y 026 aplicadas	Ejecución de down y posterior up de 025 y 026 sobre base de datos de prueba	down elimina usuario.estado_operativo, restaura personal.estado_operativo y el enum original; up restituye el modelo normalizado	Ciclo completo ejecutado sin error: usuario.estado_operativo presente, 4 permisos personal:* y enum estado_operativo	APROBADO	20/10/2026 21:25	-	fix(db): corregir reversión de la migración 025
+CP-H11-API-18	Migración 030: permisos del módulo de personal	Migración / BD	PostgreSQL / RBAC	Alta	Roles ADMIN y ENCARGADO existentes	npm run db:migrate (migración 030)	Crea personal:leer, personal:crear, personal:editar, personal:gestionar; ADMIN con los cuatro y ENCARGADO con personal:leer	Permisos creados y asignados correctamente	APROBADO	20/10/2026 21:11	-	feat(db): mover estado operativo a usuario y preservar ficha de terreno
+CP-H11-API-19	Reversión de las migraciones 025 y 030 (down → up)	Migración / BD	PostgreSQL / Kysely	Crítica	Base de datos migrada con 025 y 030 aplicadas	Ejecución de down y posterior up de 025 y 030 sobre base de datos de prueba	down elimina usuario.estado_operativo, restaura personal.estado_operativo y el enum original; up restituye el modelo normalizado	Ciclo completo ejecutado sin error: usuario.estado_operativo presente, 4 permisos personal:* y enum estado_operativo	APROBADO	20/10/2026 21:25	-	fix(db): corregir reversión de la migración 025
 ```
 
 ---
