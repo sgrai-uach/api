@@ -103,17 +103,19 @@ Retorna una lista paginada de los recursos registrados en el inventario, incluye
 ### 3.2. `POST /api/recursos` (HU-6: Crear Recurso)
 Registra un nuevo recurso individual o a granel en el inventario municipal calculando automáticamente su estado inicial.
 
-### 3.3. `GET /api/personal` (H34: Listado de Personal / H11: Disponibilidad)
-Lista y busca empleados/usuarios para los selectores del frontend, tablas de administración y la gestión operativa del Encargado, con paginación estándar transversal SGRAI y soporte multicriterio.
+### 3.3. `GET /api/personal` (H34: Listado de Personal / H11: Disponibilidad / H26: Asistentes Sociales y Casos FIBE)
+Lista y busca empleados/usuarios para los selectores del frontend, tablas de administración y la gestión operativa del Encargado (incluyendo la nómina de Asistentes Sociales para el levantamiento de fichas FIBE - HU-26), con paginación estándar transversal SGRAI y soporte multicriterio.
 
 - **Autenticación requerida:** `Authorization: Bearer <token_jwt>`.
 - **Permisos aceptados (RBAC H11):** `personal:leer`, `personal:gestionar` o `personal:crear` (el rol `Administrador` accede por ser propietario de los permisos).
+- **Permiso adicional (H26):** Si se consulta la nómina de asistentes sociales (`rolCodigo=ASISTENTE_SOCIAL`), se exige además el permiso `asistencia_social:leer`.
 - **Errores de control de acceso:**
   - **`401 Unauthorized`**: Token ausente, inválido o expirado.
-  - **`403 Forbidden`**: El rol no posee ninguno de los permisos accepted para el módulo de Personal.
+  - **`403 Forbidden`**: El rol no posee ninguno de los permisos aceptados para el módulo de Personal, o no cuenta con `asistencia_social:leer` al consultar asistentes sociales.
 - **Parámetros de consulta (Query Params):**
 - `page` / `pagina` (`number`, default `1`): Número de página (inicia en 1).
 - `limit` / `limite` (`number`, default `20`, máx `100`): Cantidad de registros por página.
+- `rolCodigo` / `rol_codigo` (`string`, opcional): Filtro por código canónico de rol institucional (ej. `ASISTENTE_SOCIAL`).
 - `delegacionId` / `delegacion_id` (`UUID`): Filtro por delegación territorial.
 - `rolId` / `rol_id` (`UUID`): Filtro por rol institucional.
 - `estadoOperativo` / `estado_operativo`: Filtro por estado operativo (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`). Se aplica sobre `usuario.estado_operativo`.
@@ -126,7 +128,11 @@ Lista y busca empleados/usuarios para los selectores del frontend, tablas de adm
 - `ordenarPor` / `ordenar_por`: `apellidos` (default) | `nombres` | `rut`.
 - `orden`: `asc` (default) | `desc`.
 
-**Respuesta:** Retorna `{ data: PersonalItem[], meta: PaginationMeta }` conforme al estándar transversal H34.
+#### Reglas de Negocio y Seguridad RBAC (HU-26)
+- **Cómputo de Casos FIBE Asignados:** Cada registro retornado incluye `casos_fibe_asignados` (entero no negativo). Para asistentes sociales, calcula en tiempo real mediante subconsulta optimizada los eventos de asistencia social (`evento_asistencia_social`) en estados `'ASIGNADO'` o `'EN_EVALUACION_FIBE'` que no han sido dados de baja (`eliminado_en IS NULL`).
+- **Control de Acceso RBAC:** Toda consulta exige autenticación y posesión de los permisos de personal (`personal:leer`, `personal:gestionar` o `personal:crear`). Adicionalmente, si la consulta solicita la nómina de asistentes sociales (`rolCodigo=ASISTENTE_SOCIAL`), el endpoint exige el permiso `asistencia_social:leer` (asignado a los roles Encargado, Administrador y Asistente Social). Si la llamada carece de sesión responde `HTTP 401 Unauthorized`, y si el perfil no posee los permisos requeridos responde `HTTP 403 Forbidden`.
+
+**Respuesta:** Retorna `{ data: PersonalItem[], meta: PaginationMeta }` con el arreglo de funcionarios y el objeto `meta` de paginación. Cada ítem incluye el campo `casos_fibe_asignados: number`.
 
 **Campos de disponibilidad (H11):**
 - `estado_operativo`: **siempre presente** (enum no nulable) con la disponibilidad actual del funcionario.

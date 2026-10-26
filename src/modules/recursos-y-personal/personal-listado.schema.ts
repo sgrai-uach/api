@@ -35,6 +35,11 @@ export const ListarPersonalQuerySchema = PaginationQuerySchema.extend({
     description: "Filtrar por UUID de rol",
   }),
   rol_id: z.string().uuid().optional(),
+  rolCodigo: z.string().trim().optional().openapi({
+    description: "Filtrar por código de rol canónico (ej. ASISTENTE_SOCIAL)",
+    example: "ASISTENTE_SOCIAL",
+  }),
+  rol_codigo: z.string().trim().optional(),
   estadoOperativo: EstadoOperativoEnum.optional().openapi({
     description: "Filtrar por estado operativo (disponibilidad actual) del funcionario",
     example: "disponible",
@@ -131,6 +136,10 @@ export const PersonalItemSchema = z.object({
   observaciones: z.string().nullable(),
   personal_updated_at: z.date().nullable().optional(),
   es_personal: z.boolean(),
+  casos_fibe_asignados: z.number().int().nonnegative().default(0).openapi({
+    description: "Cantidad de casos FIBE activos asignados al asistente social",
+    example: 2,
+  }),
 });
 
 export type PersonalItem = z.infer<typeof PersonalItemSchema>;

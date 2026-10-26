@@ -11,7 +11,9 @@ import {
 import { EstadoOperativoInvalidoError } from "@/modules/recursos-y-personal/estado-operativo";
 import { ListarPersonalQuerySchema } from "@/modules/recursos-y-personal/personal-listado.schema";
 import { listarPersonalService } from "@/modules/recursos-y-personal/personal-listado.service";
-import { verificarAdministrador, verificarAccesoPersonal } from "@/modules/seguridad/auth.guard";
+import { extraerUsuarioId, verificarAdministrador, verificarAccesoPersonal } from "@/modules/seguridad/auth.guard";
+import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { PERMISO_LEER_ASISTENCIA_SOCIAL } from "@/modules/seguridad/permisos.constants";
 import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
 
 /**
@@ -19,6 +21,7 @@ import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
  *
  * Lista y busca empleados/usuarios para los selectores del frontend.
  * Soporta paginación estándar (page, limit) y filtros:
+ * - rolCodigo / rol_codigo: código canónico del rol (ej. ASISTENTE_SOCIAL)
  * - q / busqueda: término de búsqueda (RUT, nombres, apellidos, email)
  * - solo_personal / soloPersonal: 'true' si solo se buscan usuarios con ficha operativa en 'personal'
  * - delegacion_id / delegacionId: UUID de delegación territorial
@@ -30,6 +33,9 @@ import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
  *
  * Requiere sesión autenticada con permiso 'personal:leer', 'personal:gestionar' o
  * 'personal:crear' (o rol Administrador).
+ *
+ * Si se consulta por rol ASISTENTE_SOCIAL, además valida el permiso
+ * 'asistencia_social:leer' (H26).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -50,6 +56,23 @@ export async function GET(request: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    const rolCodigo = validacion.data.rolCodigo ?? validacion.data.rol_codigo;
+    if (rolCodigo?.toUpperCase() === "ASISTENTE_SOCIAL") {
+      const usuarioId =
+        (await extraerUsuarioId(request)) ||
+        request.headers.get("x-user-id")?.trim() ||
+        null;
+
+      if (!usuarioId) {
+        return NextResponse.json(
+          { message: "Se requiere cabecera de autenticación Authorization: Bearer <token> o X-User-Id." },
+          { status: 401 }
+        );
+      }
+
+      await verificarPermiso(usuarioId, PERMISO_LEER_ASISTENCIA_SOCIAL);
     }
 
     const resultado = await listarPersonalService(validacion.data);

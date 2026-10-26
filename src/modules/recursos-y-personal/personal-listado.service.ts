@@ -40,6 +40,7 @@ export async function listarPersonalService(
     // `null` significa "no es personal de terreno / no aplica"
     disponible_terreno: e.personal_id ? (e.disponible_terreno ?? null) : null,
     es_personal: e.personal_id !== null,
+    casos_fibe_asignados: Number(e.casos_fibe_asignados ?? 0),
   }));
 
   return {

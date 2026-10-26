@@ -90,6 +90,7 @@ describe("H11: Listado de personal con RBAC (GET /api/personal)", () => {
           observaciones: null,
           personal_updated_at: null,
           es_personal: false,
+          casos_fibe_asignados: 0,
         },
       ],
       meta: {

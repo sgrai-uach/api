@@ -52,6 +52,11 @@ export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
     query = query.where("usuario.rol_id", "=", rolId);
   }
 
+  const rolCodigo = (filtros.rolCodigo ?? filtros.rol_codigo)?.trim();
+  if (rolCodigo && rolCodigo !== "") {
+    query = query.where("rol.codigo", "=", rolCodigo.toUpperCase());
+  }
+
   if (estadoOperativo) {
     query = query.where("usuario.estado_operativo", "=", estadoOperativo);
   }
@@ -116,6 +121,13 @@ export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
       "personal.disponible_terreno",
       "personal.observaciones",
       "personal.updated_at as personal_updated_at",
+      sql<number>`COALESCE((
+        SELECT count(*)::int
+        FROM evento_asistencia_social
+        WHERE evento_asistencia_social.asistente_social_id = usuarios.id
+          AND evento_asistencia_social.estado IN ('ASIGNADO', 'EN_EVALUACION_FIBE')
+          AND evento_asistencia_social.eliminado_en IS NULL
+      ), 0)`.as("casos_fibe_asignados"),
     ])
     .limit(limit)
     .offset(offset)
