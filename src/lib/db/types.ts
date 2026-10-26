@@ -321,6 +321,7 @@ export interface CuadrillaTable {
   estado: ColumnType<EstadoCuadrilla, EstadoCuadrilla | undefined, EstadoCuadrilla>;
   delegacion_id: string | null;
   usuario_delegado_id: string | null;
+  activo: ColumnType<boolean, boolean | undefined, boolean>;
   creado_por_id?: string | null;
   actualizado_por_id?: string | null;
   creado_en: Generated<Date>;
@@ -335,6 +336,8 @@ export interface CuadrillaRecursoTable {
   recurso_id: string;
   cantidad_asignada: number;
   asignado_en: Generated<Date>;
+  activo?: ColumnType<boolean, boolean | undefined, boolean>;
+  desvinculado_en?: Date | null;
 }
 
 export interface CuadrillaPersonalTable {
@@ -342,6 +345,8 @@ export interface CuadrillaPersonalTable {
   cuadrilla_id: string;
   personal_id: string;
   asignado_en: Generated<Date>;
+  activo?: ColumnType<boolean, boolean | undefined, boolean>;
+  desvinculado_en?: Date | null;
 }
 
 export type TipoMision =
