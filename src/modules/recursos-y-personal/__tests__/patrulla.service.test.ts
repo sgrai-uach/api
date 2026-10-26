@@ -7,6 +7,7 @@ import {
   obtenerDetallePatrullaService,
   actualizarEstadoPatrullaService,
   crearPatrullaService,
+  desactivarPatrullaService,
 } from "../patrulla.service";
 import { seguridadService } from "@/modules/seguridad/service";
 import {
@@ -19,6 +20,16 @@ import {
 describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", () => {
   const adminUserId = "00000000-0000-4000-8000-000000000001";
   const patrullaId = "f1000000-0000-4000-8000-000000000001";
+
+  const mockAdminUsuario = {
+    id: adminUserId,
+    rut: "11111111-1",
+    email: "admin@valdivia.cl",
+    nombre: "Administrador",
+    rolId: "20000000-0000-4000-8000-000000000001",
+    rolNombre: "Administrador",
+    activo: true,
+  };
 
   const mockFila: patrullaRepo.FilaPatrullaConsulta = {
     patrulla_id: patrullaId,
@@ -412,4 +423,129 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
       await expect(crearPatrullaService(inputCrear, adminUserId)).rejects.toThrow(BadRequestError);
     });
   });
+
+  describe("desactivarPatrullaService (HU-85)", () => {
+    const mockPatrullaDisponible: {
+      fila: patrullaRepo.FilaPatrullaConsulta;
+      integrantes: patrullaRepo.FilaIntegranteConsulta[];
+    } = {
+      fila: {
+        ...mockFila,
+        patrulla_estado: "DISPONIBLE",
+        mision_id: null,
+      },
+      integrantes: [mockIntegrante],
+    };
+
+    it("debe lanzar ForbiddenError si el usuario no tiene permiso de administrador o recursos:eliminar", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValueOnce(
+        new ForbiddenError("Acceso denegado. Se requiere el perfil de Administrador.")
+      );
+
+      await expect(
+        desactivarPatrullaService(patrullaId, "usuario-sin-permisos")
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it("debe lanzar NotFoundError si la patrulla no existe o ya fue dada de baja", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce(null);
+
+      await expect(
+        desactivarPatrullaService(patrullaId, adminUserId)
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it("debe rechazar con ConflictError si la patrulla se encuentra en estado EN_VERIFICACION", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
+        fila: {
+          ...mockFila,
+          patrulla_estado: "EN_VERIFICACION",
+        },
+        integrantes: [mockIntegrante],
+      });
+
+      await expect(
+        desactivarPatrullaService(patrullaId, adminUserId)
+      ).rejects.toThrow(ConflictError);
+    });
+
+    it("debe rechazar con ConflictError si la patrulla cuenta con misiones tácticas activas", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
+        fila: {
+          ...mockFila,
+          patrulla_estado: "DISPONIBLE",
+          mision_id: "mision-activa-1",
+        },
+        integrantes: [mockIntegrante],
+      });
+
+      vi.spyOn(patrullaRepo, "verificarMisionesActivasPatrullaRepo").mockResolvedValueOnce([
+        {
+          id: "mision-activa-1",
+          codigo: "MIS-2026-0001",
+          titulo: "Verificación de desborde",
+          estado: "EN_CURSO",
+        },
+      ]);
+
+      await expect(
+        desactivarPatrullaService(patrullaId, adminUserId)
+      ).rejects.toThrow(ConflictError);
+    });
+
+    it("debe desactivar exitosamente la patrulla, liberar personal/vehículo y emitir eventos socket", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce(mockPatrullaDisponible);
+      vi.spyOn(patrullaRepo, "verificarMisionesActivasPatrullaRepo").mockResolvedValueOnce([]);
+
+      const mockResultadoRepo: patrullaRepo.ResultadoDesactivacionPatrullaRepo = {
+        id: patrullaId,
+        codigo: "PV-COSTA-01",
+        nombre: "Patrulla Rápida Costa-1",
+        estado: "NO_DISPONIBLE",
+        activo: false,
+        eliminadoEn: "2026-10-26T15:00:00.000Z",
+        eliminadoPorId: adminUserId,
+        vehiculoLiberadoId: "e1000000-0000-4000-8000-000000000002",
+        personalLiberadoIds: ["b1000000-0000-4000-8000-000000000001"],
+      };
+
+      vi.spyOn(patrullaRepo, "desactivarPatrullaTransaccionalRepo").mockResolvedValueOnce(mockResultadoRepo);
+      const spySocketDesactivada = vi.spyOn(socketModule, "notificarPatrullaDesactivada").mockImplementation(() => {});
+      const spySocketActualizada = vi.spyOn(socketModule, "notificarPatrullaActualizada").mockImplementation(() => {});
+      const spySocketRecurso = vi.spyOn(socketModule, "emitirRecursoActualizado").mockImplementation(() => {});
+
+      const respuesta = await desactivarPatrullaService(patrullaId, adminUserId);
+
+      expect(respuesta.message).toContain("desactivada exitosamente");
+      expect(respuesta.data.activo).toBe(false);
+      expect(respuesta.data.estado).toBe("NO_DISPONIBLE");
+      expect(respuesta.data.vehiculoLiberadoId).toBe("e1000000-0000-4000-8000-000000000002");
+      expect(respuesta.data.personalLiberadoIds).toHaveLength(1);
+
+      expect(spySocketDesactivada).toHaveBeenCalledWith(
+        expect.objectContaining({
+          patrullaId,
+          nombre: "Patrulla Rápida Costa-1",
+          eliminadoPorId: adminUserId,
+        })
+      );
+      expect(spySocketActualizada).toHaveBeenCalled();
+      expect(spySocketRecurso).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "e1000000-0000-4000-8000-000000000002",
+          estado: "DISPONIBLE",
+          cantidadEnUso: 0,
+        })
+      );
+    });
+  });
 });
+

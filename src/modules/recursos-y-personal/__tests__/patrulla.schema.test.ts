@@ -7,6 +7,7 @@ import {
   PatrullaItemResponseSchema,
   CrearPatrullaInputSchema,
   CrearPatrullaResponseSchema,
+  DesactivarPatrullaResponseSchema,
 } from "../patrulla.schema";
 
 describe("Módulo Recursos y Personal - Patrullas Verificadoras Schemas", () => {
@@ -271,6 +272,47 @@ describe("Módulo Recursos y Personal - Patrullas Verificadoras Schemas", () => 
       };
       const res = CrearPatrullaResponseSchema.safeParse(dummyRes);
       expect(res.success).toBe(true);
+    });
+  });
+
+  describe("DesactivarPatrullaResponseSchema (HU-85)", () => {
+    it("debe validar correctamente la estructura de respuesta tras la baja lógica", () => {
+      const payloadBaja = {
+        message: "Patrulla verificadora desactivada exitosamente.",
+        data: {
+          id: "f1000000-0000-4000-8000-000000000001",
+          codigo: "PV-COSTA-01",
+          nombre: "Patrulla Costa 01",
+          estado: "NO_DISPONIBLE",
+          activo: false,
+          eliminadoEn: "2026-10-26T15:00:00.000Z",
+          eliminadoPorId: "00000000-0000-4000-8000-000000000001",
+          vehiculoLiberadoId: "e1000000-0000-4000-8000-000000000002",
+          personalLiberadoIds: [
+            "b1000000-0000-4000-8000-000000000001",
+            "b1000000-0000-4000-8000-000000000002",
+          ],
+        },
+      };
+
+      const res = DesactivarPatrullaResponseSchema.safeParse(payloadBaja);
+      expect(res.success).toBe(true);
+    });
+
+    it("debe rechazar si falta el campo activo o no es booleano", () => {
+      const payloadInvalido = {
+        message: "Patrulla verificadora desactivada exitosamente.",
+        data: {
+          id: "f1000000-0000-4000-8000-000000000001",
+          nombre: "Patrulla Costa 01",
+          estado: "NO_DISPONIBLE",
+          eliminadoEn: "2026-10-26T15:00:00.000Z",
+          personalLiberadoIds: [],
+        },
+      };
+
+      const res = DesactivarPatrullaResponseSchema.safeParse(payloadInvalido);
+      expect(res.success).toBe(false);
     });
   });
 });

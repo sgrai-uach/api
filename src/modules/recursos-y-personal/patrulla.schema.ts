@@ -345,3 +345,37 @@ export const ModificarPatrullaResponseSchema = z.object({
 
 export type ModificarPatrullaResponseDTO = z.infer<typeof ModificarPatrullaResponseSchema>;
 
+/**
+ * Respuesta tras desactivar (baja lógica) una patrulla verificadora (DELETE /api/patrullas/:id, HU-85).
+ */
+export const DesactivarPatrullaResponseSchema = z.object({
+  message: z.string().openapi({ description: "Mensaje descriptivo del resultado" }),
+  data: z
+    .object({
+      id: z.string().uuid().openapi({ description: "UUID de la patrulla verificadora desactivada" }),
+      codigo: z.string().nullable().optional().openapi({ description: "Código identificador de la patrulla" }),
+      nombre: z.string().openapi({ description: "Nombre de la patrulla" }),
+      estado: EstadoPatrullaEnum.openapi({ description: "Estado de la patrulla tras la baja (NO_DISPONIBLE)" }),
+      activo: z.boolean().openapi({ description: "Indicador de baja lógica (false)" }),
+      eliminadoEn: z.string().openapi({ description: "Fecha y hora ISO de la baja lógica" }),
+      eliminadoPorId: z
+        .string()
+        .uuid()
+        .nullable()
+        .optional()
+        .openapi({ description: "UUID del usuario responsable de la baja" }),
+      vehiculoLiberadoId: z
+        .string()
+        .uuid()
+        .nullable()
+        .optional()
+        .openapi({ description: "UUID del vehículo que fue liberado al inventario" }),
+      personalLiberadoIds: z
+        .array(z.string().uuid())
+        .openapi({ description: "UUIDs de los funcionarios de terreno liberados a estado disponible" }),
+    })
+    .openapi({ description: "Detalle de la patrulla desactivada y recursos liberados" }),
+});
+
+export type DesactivarPatrullaResponseDTO = z.infer<typeof DesactivarPatrullaResponseSchema>;
+

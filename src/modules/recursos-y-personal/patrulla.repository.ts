@@ -605,3 +605,130 @@ export async function modificarPatrullaTransaccionalRepo(
     }
   });
 }
+
+/**
+ * Verifica si una patrulla verificadora cuenta con misiones activas en terreno o planificadas.
+ */
+export async function verificarMisionesActivasPatrullaRepo(id: string) {
+  return await db
+    .selectFrom("mision")
+    .where("patrulla_id", "=", id)
+    .where("estado", "in", ["PLANIFICADA", "DESPACHADA", "EN_CURSO"])
+    .select(["id", "codigo", "titulo", "estado"])
+    .execute();
+}
+
+export interface ResultadoDesactivacionPatrullaRepo {
+  id: string;
+  codigo: string | null;
+  nombre: string;
+  estado: EstadoPatrullaType;
+  activo: boolean;
+  eliminadoEn: string;
+  eliminadoPorId: string | null;
+  vehiculoLiberadoId: string | null;
+  personalLiberadoIds: string[];
+}
+
+/**
+ * Desactiva mediante baja lógica una patrulla verificadora de forma atómica (HU-85):
+ * - Marca patrulla_verificadora como activo = false, eliminado_en = CURRENT_TIMESTAMP, estado = 'NO_DISPONIBLE', eliminado_por_id = usuarioId.
+ * - Si posee vehículo asignado, lo libera en recurso (estado = 'DISPONIBLE', cantidad_en_uso = 0).
+ * - Libera la dotación de funcionarios en personal (estado_operativo = 'disponible').
+ * - Preserva la auditoría histórica de registros en patrulla_personal y misiones pasadas.
+ */
+export async function desactivarPatrullaTransaccionalRepo(
+  id: string,
+  usuarioId?: string | null
+): Promise<ResultadoDesactivacionPatrullaRepo> {
+  return await db.transaction().execute(async (trx) => {
+    // 1. Obtener la patrulla actual para recuperar vehiculo_id, código y nombre
+    const patrullaActual = await trx
+      .selectFrom("patrulla_verificadora")
+      .where("id", "=", id)
+      .where("eliminado_en", "is", null)
+      .select(["id", "codigo", "nombre", "vehiculo_id"])
+      .executeTakeFirst();
+
+    if (!patrullaActual) {
+      throw new Error("Patrulla verificadora no encontrada para dar de baja.");
+    }
+
+    const vehiculoLiberadoId = patrullaActual.vehiculo_id;
+
+    // 2. Liberar vehículo asignado si existe
+    if (vehiculoLiberadoId) {
+      await trx
+        .updateTable("recurso")
+        .set({
+          estado: "DISPONIBLE",
+          cantidad_en_uso: 0,
+          actualizado_en: sql`CURRENT_TIMESTAMP`,
+        })
+        .where("id", "=", vehiculoLiberadoId)
+        .execute();
+    }
+
+    // 3. Obtener los integrantes de la dotación y liberarlos en personal
+    const integrantes = await trx
+      .selectFrom("patrulla_personal")
+      .where("patrulla_id", "=", id)
+      .select("personal_id")
+      .execute();
+
+    const personalLiberadoIds = integrantes.map((i) => i.personal_id);
+
+    if (personalLiberadoIds.length > 0) {
+      await trx
+        .updateTable("personal")
+        .set({
+          estado_operativo: "disponible",
+        })
+        .where("id", "in", personalLiberadoIds)
+        .execute();
+    }
+
+    // 4. Actualizar patrulla_verificadora aplicando baja lógica y marcándola como NO_DISPONIBLE
+    const patrullaActualizada = await trx
+      .updateTable("patrulla_verificadora")
+      .set({
+        activo: false,
+        estado: "NO_DISPONIBLE",
+        vehiculo_id: null,
+        eliminado_en: sql`CURRENT_TIMESTAMP`,
+        eliminado_por_id: usuarioId ?? null,
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", id)
+      .returning([
+        "id",
+        "codigo",
+        "nombre",
+        "estado",
+        "activo",
+        "eliminado_en",
+        "eliminado_por_id",
+      ])
+      .executeTakeFirstOrThrow();
+
+    const eliminadoEnStr =
+      patrullaActualizada.eliminado_en instanceof Date
+        ? patrullaActualizada.eliminado_en.toISOString()
+        : typeof patrullaActualizada.eliminado_en === "string"
+        ? patrullaActualizada.eliminado_en
+        : new Date().toISOString();
+
+    return {
+      id: patrullaActualizada.id,
+      codigo: patrullaActualizada.codigo,
+      nombre: patrullaActualizada.nombre,
+      estado: patrullaActualizada.estado,
+      activo: patrullaActualizada.activo,
+      eliminadoEn: eliminadoEnStr,
+      eliminadoPorId: patrullaActualizada.eliminado_por_id,
+      vehiculoLiberadoId,
+      personalLiberadoIds,
+    };
+  });
+}
+

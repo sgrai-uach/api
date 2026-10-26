@@ -16,6 +16,7 @@ import {
   obtenerDetallePatrullaService,
   actualizarEstadoPatrullaService,
   modificarPatrullaService,
+  desactivarPatrullaService,
 } from "@/modules/recursos-y-personal/patrulla.service";
 
 interface RouteContext {
@@ -233,3 +234,61 @@ export async function PUT(req: NextRequest, props: RouteContext) {
     );
   }
 }
+
+/**
+ * DELETE /api/patrullas/[id]
+ *
+ * Desactiva mediante baja lógica una patrulla verificadora que ya no prestará servicios (HU-85).
+ * - Marca activo = false y eliminado_en = CURRENT_TIMESTAMP.
+ * - Libera vehículo y dotación de personal a disponibilidad en el inventario comunal.
+ * - Bloquea la baja con 409 Conflict si la patrulla se encuentra en estado EN_VERIFICACION o posee misiones activas.
+ * - Preserva íntegramente la auditoría de misiones y reportes técnicos previos.
+ * Requiere autorización RBAC: permiso 'recursos:eliminar' o perfil Administrador.
+ */
+export async function DELETE(req: NextRequest, props: RouteContext) {
+  try {
+    const usuarioId = await extraerUsuarioId(req);
+    const { id } = await props.params;
+
+    const validacionId = PatrullaIdParamSchema.safeParse(id);
+    if (!validacionId.success) {
+      return NextResponse.json(
+        {
+          message: "Identificador de patrulla inválido.",
+          errors: validacionId.error.issues.map((i) => ({
+            campo: "id",
+            mensaje: i.message,
+          })),
+        },
+        { status: 400 }
+      );
+    }
+
+    const resultado = await desactivarPatrullaService(validacionId.data, usuarioId);
+
+    return NextResponse.json(resultado, { status: 200 });
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ message: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ message: error.message }, { status: 403 });
+    }
+    if (error instanceof ConflictError) {
+      return NextResponse.json({ message: error.message }, { status: 409 });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ message: error.message }, { status: 404 });
+    }
+    if (error instanceof BadRequestError) {
+      return NextResponse.json({ message: error.message }, { status: 400 });
+    }
+
+    console.error("Error en DELETE /api/patrullas/[id]:", error);
+    return NextResponse.json(
+      { message: "Error interno del servidor al desactivar la patrulla verificadora." },
+      { status: 500 }
+    );
+  }
+}
+
