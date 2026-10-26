@@ -1,5 +1,5 @@
 import { sql, type Transaction } from "kysely";
-import type { Database, EstadoOperativoPersonal } from "@/lib/db/types";
+import type { Database, EstadoOperativo } from "@/lib/db/types";
 
 export type Trx = Transaction<Database>;
 
@@ -26,12 +26,13 @@ export async function actualizarEstadoPatrulla(
 export async function actualizarEstadoPersonalLider(
   trx: Trx,
   usuarioId: string,
-  estadoOperativo: EstadoOperativoPersonal
+  estadoOperativo: EstadoOperativo
 ) {
+  // H11: la disponibilidad reside en `usuario.estado_operativo`
   return await trx
-    .updateTable("personal")
+    .updateTable("usuario")
     .set({ estado_operativo: estadoOperativo })
-    .where("usuario_id", "=", usuarioId)
+    .where("id", "=", usuarioId)
     .execute();
 }
 
