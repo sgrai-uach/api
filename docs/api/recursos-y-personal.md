@@ -90,10 +90,11 @@ Retorna una lista paginada de los recursos registrados en el inventario, incluye
 ### 3.2. `POST /api/recursos` (HU-6: Crear Recurso)
 Registra un nuevo recurso individual o a granel en el inventario municipal calculando automáticamente su estado inicial.
 
-### 3.3. `GET /api/personal` (H34: Listado de Personal con Filtros y Paginación Estándar)
-Lista y busca empleados/usuarios para los selectores del frontend, tablas de administración y la gestión operativa del Encargado, con paginación estándar transversal SGRAI y soporte multicriterio.
+### 3.3. `GET /api/personal` (H34, H26: Listado de Personal, Asistentes Sociales y Casos FIBE)
+Lista y busca empleados/usuarios para los selectores del frontend, tablas de administración y la gestión operativa del Encargado (incluyendo la nómina de Asistentes Sociales para el levantamiento de fichas FIBE - HU-26), con paginación estándar transversal SGRAI y soporte multicriterio.
 - `page` / `pagina` (`number`, default `1`): Número de página (inicia en 1).
 - `limit` / `limite` (`number`, default `20`, máx `100`): Cantidad de registros por página.
+- `rolCodigo` / `rol_codigo` (`string`, opcional): Filtro por código canónico de rol institucional (ej. `ASISTENTE_SOCIAL`).
 - `delegacionId` / `delegacion_id` (`UUID`): Filtro por delegación territorial.
 - `rolId` / `rol_id` (`UUID`): Filtro por rol institucional.
 - `estadoOperativo` / `estado_operativo`: Filtro por estado operativo (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`).
@@ -106,7 +107,11 @@ Lista y busca empleados/usuarios para los selectores del frontend, tablas de adm
 - `ordenarPor` / `ordenar_por`: `apellidos` (default) | `nombres` | `rut`.
 - `orden`: `asc` (default) | `desc`.
 
-**Respuesta:** Retorna `{ data: PersonalItem[], meta: PaginationMeta }` conforme al estándar transversal H34.
+#### Reglas de Negocio y Seguridad RBAC (HU-26)
+- **Cómputo de Casos FIBE Asignados:** Cada registro retornado incluye `casos_fibe_asignados` (entero no negativo). Para asistentes sociales, calcula en tiempo real mediante subconsulta optimizada los eventos de asistencia social (`evento_asistencia_social`) en estados `'ASIGNADO'` o `'EN_EVALUACION_FIBE'` que no han sido dados de baja (`eliminado_en IS NULL`).
+- **Control de Acceso RBAC:** Si la consulta solicita la nómina de asistentes sociales (`rolCodigo=ASISTENTE_SOCIAL`), el endpoint exige autenticación obligatoria y posesión del permiso `asistencia_social:leer` (asignado a los roles Encargado, Administrador y Asistente Social). Si la llamada carece de sesión responde `HTTP 401 Unauthorized`, y si el perfil no posee el permiso responde `HTTP 403 Forbidden`. Las consultas genéricas de personal para selectores continúan operando de forma abierta.
+
+**Respuesta:** Retorna `{ data: PersonalItem[], meta: PaginationMeta }` con el arreglo de funcionarios y el objeto `meta` de paginación. Cada ítem incluye el campo `casos_fibe_asignados: number`.
 
 ### 3.4. `POST /api/personal` (HU-10: Registrar Nuevo Funcionario)
 Registra un nuevo funcionario municipal en el sistema SGRAI, aprovisionando su cuenta en `usuario` y su ficha operativa en `personal` si el rol es de terreno o se proveen atributos de campo.

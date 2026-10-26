@@ -889,12 +889,12 @@ registry.registerPath({
   },
 });
 
-// 16. GET /api/personal (Listar empleados/personal - H34)
+// 16. GET /api/personal (Listar empleados/personal - H34, H26)
 registry.registerPath({
   method: "get",
   path: "/api/personal",
   description:
-    "Lista y busca empleados y personal operativo del SGRAI con filtros territoriales (delegacionId), estado operativo, cargo, especialidad, rol y búsqueda textual, con paginación estándar.",
+    "Lista y busca empleados y personal operativo del SGRAI con filtros territoriales (delegacionId), estado operativo, cargo, especialidad, rol (rolId, rolCodigo como ASISTENTE_SOCIAL) y búsqueda textual, con paginación estándar y cómputo de casos FIBE asignados (H26).",
   summary: "Listar empleados y personal",
   tags: ["Recursos y Personal"],
   request: {
@@ -910,6 +910,8 @@ registry.registerPath({
       },
     },
     400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "No autenticado o token inválido (al consultar rol ASISTENTE_SOCIAL)" },
+    403: { description: "Acceso denegado. Se requiere permiso 'asistencia_social:leer'" },
     500: { description: "Error interno del servidor" },
   },
 });

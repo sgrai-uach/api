@@ -81,6 +81,26 @@ describe("Módulo Recursos y Personal - Listado de Personal (H34)", () => {
       });
       expect(res.success).toBe(false);
     });
+
+    it("debe validar rolCodigo canónico y su alias rol_codigo (H26)", () => {
+      const input1 = {
+        rolCodigo: "ASISTENTE_SOCIAL",
+      };
+      const res1 = ListarPersonalQuerySchema.safeParse(input1);
+      expect(res1.success).toBe(true);
+      if (res1.success) {
+        expect(res1.data.rolCodigo).toBe("ASISTENTE_SOCIAL");
+      }
+
+      const input2 = {
+        rol_codigo: "ASISTENTE_SOCIAL",
+      };
+      const res2 = ListarPersonalQuerySchema.safeParse(input2);
+      expect(res2.success).toBe(true);
+      if (res2.success) {
+        expect(res2.data.rol_codigo).toBe("ASISTENTE_SOCIAL");
+      }
+    });
   });
 
   describe("listarPersonalService", () => {
@@ -110,6 +130,7 @@ describe("Módulo Recursos y Personal - Listado de Personal (H34)", () => {
             disponible_terreno: true,
             observaciones: null,
             personal_updated_at: new Date(),
+            casos_fibe_asignados: 3,
           },
         ] as repo.FilaPersonalPaginada[],
         total: 25,
@@ -133,9 +154,10 @@ describe("Módulo Recursos y Personal - Listado de Personal (H34)", () => {
       expect(resultado.data).toHaveLength(1);
       expect(resultado.data[0].es_personal).toBe(true);
       expect(resultado.data[0].rut).toBe("11111111-1");
+      expect(resultado.data[0].casos_fibe_asignados).toBe(3);
     });
 
-    it("debe propagar múltiples filtros combinados AND (delegacionId, estadoOperativo, cargo, especialidad) al repositorio", async () => {
+    it("debe propagar rolCodigo y múltiples filtros combinados al repositorio (H26)", async () => {
       vi.mocked(repo.listarPersonalPaginadoRepo).mockResolvedValueOnce({
         filas: [],
         total: 0,
@@ -144,6 +166,7 @@ describe("Módulo Recursos y Personal - Listado de Personal (H34)", () => {
       const filtros = {
         page: 1,
         limit: 10,
+        rolCodigo: "ASISTENTE_SOCIAL",
         delegacionId: "30000000-0000-4000-8000-000000000001",
         estadoOperativo: "disponible" as const,
         cargo: "Conductor",
