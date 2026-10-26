@@ -41,6 +41,12 @@ import {
 } from "@/modules/recursos-y-personal/recurso.schema";
 
 import {
+  EditarCuadrillaInputSchema,
+  EditarCuadrillaResponseSchema,
+  CuadrillaIdParamSchema,
+} from "@/modules/recursos-y-personal/cuadrilla.schema";
+
+import {
   CrearAvisoIncidenteInputSchema,
   AvisoIncidenteResponseSchema,
   ConsultaSeguimientoResponseSchema,
@@ -1787,6 +1793,56 @@ registry.registerPath({
     },
     409: {
       description: "Conflicto: la patrulla verificadora no está disponible o stock insuficiente",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// H81: Editar Cuadrilla Operativa y Dotación
+registry.registerPath({
+  method: "put",
+  path: "/api/cuadrillas/{id}",
+  summary: "Modificar datos de una cuadrilla, reasignar delegado y ajustar dotación (H81)",
+  description:
+    "Permite modificar el nombre, delegación municipal, delegado responsable y ajustar los trabajadores y recursos asignados a la cuadrilla. Bloquea con 409 Conflict si la cuadrilla está EN_MISION.",
+  tags: ["Cuadrillas", "Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: CuadrillaIdParamSchema,
+    body: {
+      description: "Datos actualizados de la cuadrilla y dotación logística",
+      content: {
+        "application/json": {
+          schema: EditarCuadrillaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Cuadrilla operativa actualizada exitosamente con su dotación",
+      content: {
+        "application/json": {
+          schema: EditarCuadrillaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros o datos de entrada inválidos",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recursos:editar' o rol Administrador",
+    },
+    404: {
+      description: "Cuadrilla, delegación, delegado, personal o recurso no encontrado",
+    },
+    409: {
+      description: "Conflicto: cuadrilla en misión activa o nombre duplicado",
     },
     500: {
       description: "Error interno del servidor",

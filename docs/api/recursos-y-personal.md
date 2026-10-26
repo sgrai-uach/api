@@ -55,6 +55,7 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `GET` | `/api/recursos/{id}` | Obtener detalle completo de un recurso para precargar el formulario de edición. |
 | `PUT` | `/api/recursos/{id}` | Modificar características, inventario físico, especificaciones técnicas y estado de un recurso. |
 | `DELETE` | `/api/recursos/{id}` | Eliminar un recurso del inventario mediante borrado lógico (soft delete) y trazabilidad completa. |
+| `PUT` | `/api/cuadrillas/{id}` | Modificar datos, reasignar delegado y dotación de trabajadores/recursos de una cuadrilla (H81). |
 | `GET` | `/api/personal` | Listar y buscar empleados/usuarios para selectores con soporte de búsqueda textual y filtro de activos/terreno. |
 | `POST` | `/api/personal` | Registrar a un nuevo funcionario municipal con credenciales y ficha de terreno condicional (HU-10). |
 | `PATCH` | `/api/personal/:id` | Modificar datos de un empleado actualizando concurrentemente `usuarios` y `personal` en una transacción atómica. |
@@ -355,6 +356,94 @@ Aplica un **borrado lógico (soft delete)** sobre un recurso existente en el sis
   "nombre": "Pala Cuadrada",
   "eliminadoEn": "2026-09-30T19:30:00.000Z",
   "eliminadoPorId": "00000000-0000-4000-8000-000000000001"
+}
+```
+
+---
+
+### 3.8. `PUT /api/cuadrillas/{id}` (H81: Modificar Cuadrilla Operativa y Dotación)
+Permite modificar el nombre, delegación municipal adscrita, delegado responsable y ajustar los trabajadores y recursos logísticos (vehículos, herramientas, maquinarias) que conforman la dotación real de la cuadrilla ante rotaciones de turno o traslados.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
+- **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:editar` o rol `ADMIN`.
+- **Integridad Operativa Crítica (Bloqueo `409 Conflict`):**
+  - Si la cuadrilla se encuentra en estado `EN_MISION`, o posee misiones asociadas en curso (`PLANIFICADA`, `DESPACHADA`, `EN_CURSO`), el backend **bloquea inmediatamente la modificación** respondiendo `HTTP 409 Conflict` para no alterar operaciones ni dotaciones desplegadas en terreno.
+- **Gestión Dinámica de Delegados:**
+  - Si se reasigna el delegado, el nuevo usuario es promovido a `DELEGADO_CUADRILLA` si aún no lo es (con auditoría en `log_cambios_usuarios`).
+  - Si el delegado anterior ya no lidera ninguna otra cuadrilla activa, su rol es revertido automáticamente al rol base operativo (`BRIGADISTA`).
+- **Validación de Dotación Humana (`cuadrilla_personal`):**
+  - Cada funcionario asignado debe existir, tener `usuario_activo === true`, `disponible_terreno === true` y su `estado_operativo === 'disponible'` (no se puede asignar personal con licencia o en descanso).
+- **Validación de Dotación Material (`cuadrilla_recurso`):**
+  - Los recursos individuales (`es_individual === true`, ej. camionetas 4x4) solo admiten cantidad 1 y no pueden estar asignados concurrentemente a otra cuadrilla activa (`409 Conflict`).
+- **Auditoría:**
+  - Registra automáticamente `actualizado_por_id` y `actualizado_en` (marca de tiempo actual).
+- **Tiempo Real:**
+  - Emite el evento WebSocket `cuadrilla:actualizada` a las salas `operaciones`, `encargado` y `supervisor`.
+
+#### Cuerpo de la Solicitud (`PUT /api/cuadrillas/{id}`)
+```json
+{
+  "nombre": "Cuadrilla Vías y Despeje Urbano",
+  "delegacionId": "30000000-0000-4000-8000-000000000001",
+  "usuarioDelegadoId": "00000000-0000-4000-8000-000000000005",
+  "recursos": [
+    {
+      "recursoId": "e1000000-0000-4000-8000-000000000001",
+      "cantidad": 1
+    }
+  ],
+  "trabajadores": [
+    {
+      "personalId": "40000000-0000-4000-8000-000000000001"
+    }
+  ]
+}
+```
+
+#### Ejemplo de Respuesta Exitosa (`200 OK`)
+```json
+{
+  "message": "Cuadrilla operativa actualizada exitosamente",
+  "data": {
+    "id": "50000000-0000-4000-8000-000000000001",
+    "nombre": "Cuadrilla Vías y Despeje Urbano",
+    "estado": "DISPONIBLE",
+    "delegacion": {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "nombre": "Delegación Municipal Norte"
+    },
+    "delegado": {
+      "id": "00000000-0000-4000-8000-000000000005",
+      "nombre": "Carlos Delegado",
+      "email": "carlos@valdivia.cl",
+      "rut": "15.111.222-3"
+    },
+    "recursos": [
+      {
+        "id": "cd100000-0000-4000-8000-000000000001",
+        "recursoId": "e1000000-0000-4000-8000-000000000001",
+        "nombre": "Camioneta de Rescate 4x4",
+        "cantidadAsignada": 1,
+        "esIndividual": true
+      }
+    ],
+    "trabajadores": [
+      {
+        "id": "cp100000-0000-4000-8000-000000000001",
+        "personalId": "40000000-0000-4000-8000-000000000001",
+        "usuarioId": "00000000-0000-4000-8000-000000000009",
+        "nombre": "Pedro Obrero",
+        "rut": "16.222.333-4",
+        "cargo": "Motosierrista",
+        "especialidad": "Poda de Altura",
+        "asignadoEn": "2026-10-26T01:30:00.000Z"
+      }
+    ],
+    "creadoEn": "2026-10-24T12:00:00.000Z",
+    "actualizadoEn": "2026-10-26T01:30:00.000Z",
+    "actualizadoPorId": "00000000-0000-4000-8000-000000000001",
+    "creadoPorId": "00000000-0000-4000-8000-000000000001"
+  }
 }
 ```
 
