@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { GET, PUT } from "../route";
+import { GET, PUT, DELETE } from "../route";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import * as cuadrillaService from "@/modules/recursos-y-personal/cuadrilla.service";
 import {
@@ -10,7 +10,7 @@ import {
   ConflictError,
 } from "@/modules/seguridad/errors";
 
-describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
+describe("Endpoint /api/cuadrillas/[id] (GET / PUT / DELETE)", () => {
   const usuarioAdminId = "00000000-0000-4000-8000-000000000001";
   const cuadrillaIdValido = "50000000-0000-4000-8000-000000000001";
   const contextValido = { params: Promise.resolve({ id: cuadrillaIdValido }) };
@@ -318,6 +318,113 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
       expect(data.data.recursos).toHaveLength(1);
       expect(data.data.trabajadores).toHaveLength(1);
       expect(data.data.actualizadoEn).toBeDefined();
+    });
+  });
+
+  describe("DELETE /api/cuadrillas/[id] (H82)", () => {
+    it("debe retornar 400 Bad Request si el UUID de ruta es inválido", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      const req = new NextRequest("http://localhost:3000/api/cuadrillas/id-invalido", {
+        method: "DELETE",
+      });
+
+      const res = await DELETE(req, { params: Promise.resolve({ id: "id-invalido" }) });
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toBe("Identificador de cuadrilla inválido.");
+    });
+
+    it("debe retornar 401 Unauthorized si el usuario no está autenticado", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValue(
+        new UnauthorizedError("No autenticado")
+      );
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "DELETE",
+      });
+
+      const res = await DELETE(req, contextValido);
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.message).toBe("No autenticado");
+    });
+
+    it("debe retornar 403 Forbidden si el usuario no tiene permisos", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue("usuario-no-admin");
+      vi.spyOn(cuadrillaService, "desactivarCuadrilla").mockRejectedValue(
+        new ForbiddenError("Acceso denegado")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "DELETE",
+      });
+
+      const res = await DELETE(req, contextValido);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.message).toBe("Acceso denegado");
+    });
+
+    it("debe retornar 404 Not Found si la cuadrilla no existe o ya fue desactivada", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      vi.spyOn(cuadrillaService, "desactivarCuadrilla").mockRejectedValue(
+        new NotFoundError("La cuadrilla operativa especificada no existe o ya fue desactivada.")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "DELETE",
+      });
+
+      const res = await DELETE(req, contextValido);
+      expect(res.status).toBe(404);
+      const data = await res.json();
+      expect(data.message).toBe("La cuadrilla operativa especificada no existe o ya fue desactivada.");
+    });
+
+    it("debe retornar 409 Conflict si la cuadrilla posee misiones activas en curso", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      vi.spyOn(cuadrillaService, "desactivarCuadrilla").mockRejectedValue(
+        new ConflictError("No es posible desactivar la cuadrilla porque posee misiones activas en curso (PLANIFICADA, DESPACHADA o EN_CURSO).")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "DELETE",
+      });
+
+      const res = await DELETE(req, contextValido);
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.message).toContain("posee misiones activas en curso");
+    });
+
+    it("debe retornar 200 OK tras desactivar la cuadrilla exitosamente", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      vi.spyOn(cuadrillaService, "desactivarCuadrilla").mockResolvedValue({
+        message: "Cuadrilla operativa desactivada exitosamente",
+        data: {
+          id: cuadrillaIdValido,
+          nombre: "Cuadrilla Vías y Despeje Urbano",
+          activo: false,
+          estado: "NO_DISPONIBLE",
+          recursosDesvinculados: 1,
+          trabajadoresDesvinculados: 1,
+          delegadoRevertido: true,
+          eliminadoEn: "2026-10-26T12:00:00.000Z",
+          eliminadoPorId: usuarioAdminId,
+        },
+      });
+
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
+        method: "DELETE",
+      });
+
+      const res = await DELETE(req, contextValido);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.message).toBe("Cuadrilla operativa desactivada exitosamente");
+      expect(data.data.id).toBe(cuadrillaIdValido);
+      expect(data.data.activo).toBe(false);
+      expect(data.data.estado).toBe("NO_DISPONIBLE");
+      expect(data.data.recursosDesvinculados).toBe(1);
     });
   });
 });

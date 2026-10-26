@@ -4,6 +4,7 @@ import {
   obtenerCuadrillaPorId,
   crearCuadrilla,
   editarCuadrilla,
+  desactivarCuadrilla,
 } from "../cuadrilla.service";
 import * as repo from "../cuadrilla.repository";
 import { seguridadService } from "@/modules/seguridad/service";
@@ -372,6 +373,103 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
 
       expect(repo.actualizarCuadrillaConDotacionTransaccional).toHaveBeenCalledTimes(1);
       expect(socketModule.emitirCuadrillaActualizada).toHaveBeenCalledWith(resultado);
+    });
+  });
+
+  describe("4. Servicio de Desactivación de Cuadrilla (desactivarCuadrilla - H82)", () => {
+    const cuadrillaParaDesactivar = {
+      id: cuadrillaId,
+      nombre: "Cuadrilla Alfa",
+      estado: "DISPONIBLE" as const,
+      delegacion_id: delegacionId,
+      usuario_delegado_id: delegadoId,
+      eliminado_en: null,
+    };
+
+    beforeEach(() => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue({
+        id: usuarioAdminId,
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "rol-admin",
+        rolNombre: "Administrador",
+        activo: true,
+      });
+      vi.spyOn(repo, "obtenerCuadrillaPorIdParaEdicion").mockResolvedValue(cuadrillaParaDesactivar);
+      vi.spyOn(repo, "verificarMisionesActivasCuadrilla").mockResolvedValue(false);
+      vi.spyOn(repo, "obtenerRolPorCodigo").mockResolvedValue(rolBrigadistaMock);
+      vi.spyOn(repo, "desactivarCuadrillaTransaccional").mockResolvedValue({
+        id: cuadrillaId,
+        nombre: "Cuadrilla Alfa",
+        activo: false,
+        estado: "NO_DISPONIBLE",
+        recursosDesvinculados: 2,
+        trabajadoresDesvinculados: 3,
+        delegadoRevertido: true,
+        eliminadoEn: new Date("2026-10-26T12:00:00Z"),
+        eliminadoPorId: usuarioAdminId,
+      });
+      vi.spyOn(socketModule, "emitirCuadrillaDesactivada").mockImplementation(() => {});
+    });
+
+    it("debe rechazar si el usuario no tiene permisos RBAC suficientes", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValue(
+        new ForbiddenError("Acceso denegado")
+      );
+
+      await expect(desactivarCuadrilla(cuadrillaId, "usuario-no-autorizado")).rejects.toThrow(
+        ForbiddenError
+      );
+    });
+
+    it("debe lanzar NotFoundError si la cuadrilla no existe o ya fue desactivada", async () => {
+      vi.spyOn(repo, "obtenerCuadrillaPorIdParaEdicion").mockResolvedValue(undefined);
+
+      await expect(desactivarCuadrilla(cuadrillaId, usuarioAdminId)).rejects.toThrow(
+        NotFoundError
+      );
+    });
+
+    it("debe lanzar ConflictError si la cuadrilla posee misiones activas (PLANIFICADA, DESPACHADA, EN_CURSO)", async () => {
+      vi.spyOn(repo, "verificarMisionesActivasCuadrilla").mockResolvedValue(true);
+
+      await expect(desactivarCuadrilla(cuadrillaId, usuarioAdminId)).rejects.toThrow(
+        ConflictError
+      );
+      await expect(desactivarCuadrilla(cuadrillaId, usuarioAdminId)).rejects.toThrow(
+        "No es posible desactivar la cuadrilla porque posee misiones activas en curso (PLANIFICADA, DESPACHADA o EN_CURSO)."
+      );
+    });
+
+    it("debe lanzar ConflictError si la cuadrilla se encuentra en estado EN_MISION", async () => {
+      vi.spyOn(repo, "obtenerCuadrillaPorIdParaEdicion").mockResolvedValue({
+        ...cuadrillaParaDesactivar,
+        estado: "EN_MISION",
+      });
+
+      await expect(desactivarCuadrilla(cuadrillaId, usuarioAdminId)).rejects.toThrow(
+        ConflictError
+      );
+    });
+
+    it("debe ejecutar la desactivación transaccional, emitir socket y retornar respuesta de dominio", async () => {
+      const resultado = await desactivarCuadrilla(cuadrillaId, usuarioAdminId);
+
+      expect(resultado.message).toBe("Cuadrilla operativa desactivada exitosamente");
+      expect(resultado.data.id).toBe(cuadrillaId);
+      expect(resultado.data.activo).toBe(false);
+      expect(resultado.data.estado).toBe("NO_DISPONIBLE");
+      expect(resultado.data.recursosDesvinculados).toBe(2);
+      expect(resultado.data.trabajadoresDesvinculados).toBe(3);
+      expect(resultado.data.delegadoRevertido).toBe(true);
+
+      expect(repo.desactivarCuadrillaTransaccional).toHaveBeenCalledWith(
+        cuadrillaId,
+        usuarioAdminId,
+        rolBrigadistaMock.id
+      );
+      expect(socketModule.emitirCuadrillaDesactivada).toHaveBeenCalledWith(resultado.data);
     });
   });
 });
