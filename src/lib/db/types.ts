@@ -335,7 +335,13 @@ export interface CuadrillaTable {
   estado: ColumnType<EstadoCuadrilla, EstadoCuadrilla | undefined, EstadoCuadrilla>;
   delegacion_id: string | null;
   usuario_delegado_id: string | null;
+  activo: ColumnType<boolean, boolean | undefined, boolean>;
+  creado_por_id?: string | null;
+  actualizado_por_id?: string | null;
   creado_en: Generated<Date>;
+  actualizado_en?: Generated<Date>;
+  eliminado_en?: Date | null;
+  eliminado_por_id?: string | null;
 }
 
 export interface CuadrillaRecursoTable {
@@ -344,6 +350,17 @@ export interface CuadrillaRecursoTable {
   recurso_id: string;
   cantidad_asignada: number;
   asignado_en: Generated<Date>;
+  activo?: ColumnType<boolean, boolean | undefined, boolean>;
+  desvinculado_en?: Date | null;
+}
+
+export interface CuadrillaPersonalTable {
+  id: Generated<string>;
+  cuadrilla_id: string;
+  personal_id: string;
+  asignado_en: Generated<Date>;
+  activo?: ColumnType<boolean, boolean | undefined, boolean>;
+  desvinculado_en?: Date | null;
 }
 
 export type TipoMision =
@@ -519,6 +536,7 @@ export interface Database {
   patrulla_verificadora: PatrullaVerificadoraTable;
   cuadrilla: CuadrillaTable;
   cuadrilla_recurso: CuadrillaRecursoTable;
+  cuadrilla_personal: CuadrillaPersonalTable;
   mision: MisionTable;
   aviso_incidente: AvisoIncidenteTable;
   adjunto: AdjuntoTable;

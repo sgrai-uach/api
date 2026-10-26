@@ -514,6 +514,33 @@ export function emitirEventoPrevencionCreado(payload: {
   }
 }
 
+/**
+ * Emite la notificación de creación de cuadrilla en tiempo real a las salas operativas (H79).
+ */
+export function emitirCuadrillaCreada(payload: unknown): void {
+  emitirEvento("operaciones", "cuadrilla:creada", payload);
+  emitirEvento("encargado", "cuadrilla:creada", payload);
+  emitirEvento("supervisor", "cuadrilla:creada", payload);
+}
+
+/**
+ * Emite la notificación de cuadrilla actualizada con nueva dotación a las salas operativas (H81).
+ */
+export function emitirCuadrillaActualizada(payload: unknown): void {
+  emitirEvento("operaciones", "cuadrilla:actualizada", payload);
+  emitirEvento("encargado", "cuadrilla:actualizada", payload);
+  emitirEvento("supervisor", "cuadrilla:actualizada", payload);
+}
+
+/**
+ * Emite la notificación de cuadrilla desactivada (baja lógica) a las salas operativas (H82).
+ */
+export function emitirCuadrillaDesactivada(payload: unknown): void {
+  emitirEvento("operaciones", "cuadrilla:desactivada", payload);
+  emitirEvento("encargado", "cuadrilla:desactivada", payload);
+  emitirEvento("supervisor", "cuadrilla:desactivada", payload);
+}
+
 export * from "./types";
 
 
