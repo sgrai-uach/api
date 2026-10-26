@@ -47,6 +47,8 @@ import {
   ActualizarEstadoPatrullaResponseSchema,
   CrearPatrullaInputSchema,
   CrearPatrullaResponseSchema,
+  ModificarPatrullaInputSchema,
+  ModificarPatrullaResponseSchema,
 } from "@/modules/recursos-y-personal/patrulla.schema";
 
 import {
@@ -1910,6 +1912,57 @@ registry.registerPath({
     },
     404: {
       description: "Patrulla verificadora no encontrada",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+registry.registerPath({
+  method: "put",
+  path: "/api/patrullas/{id}",
+  summary: "Modificar patrulla verificadora registrada (HU-84)",
+  description:
+    "Modifica la delegación municipal base, vehículo institucional asignado y dotación de personal operativo adscrito a una patrulla verificadora. Bloquea con HTTP 409 Conflict si la patrulla se encuentra en estado EN_VERIFICACION o cuenta con una misión táctica activa en terreno.",
+  tags: ["Recursos y Personal"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: PatrullaIdParamSchema,
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: ModificarPatrullaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Patrulla verificadora modificada exitosamente",
+      content: {
+        "application/json": {
+          schema: ModificarPatrullaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos o funcionarios sin rol 'PATRULLA_VERIFICADORA'",
+    },
+    401: {
+      description: "No autenticado o token ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recursos:editar'",
+    },
+    404: {
+      description: "Patrulla, delegación o vehículo no encontrado",
+    },
+    409: {
+      description:
+        "Conflicto operativo: la patrulla está en estado EN_VERIFICACION o en misión activa, o el vehículo ya se encuentra asignado",
     },
     500: {
       description: "Error interno del servidor",

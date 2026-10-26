@@ -64,6 +64,7 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `POST` | `/api/patrullas` | Registrar una nueva patrulla verificadora en estado canónico DISPONIBLE con código, dotación y vehículo (HU-83). |
 | `GET` | `/api/patrullas/{id}` | Consultar detalle completo de una patrulla verificadora. |
 | `PATCH` | `/api/patrullas/{id}` | Actualizar estado operativo canónico y/o geolocalización de una patrulla con emisión en tiempo real vía WebSocket. |
+| `PUT` | `/api/patrullas/{id}` | Modificar delegación base, vehículo asignado y dotación de personal de una patrulla verificadora (HU-84). |
 
 
 ---
@@ -521,8 +522,70 @@ Permite al Administrador dar de alta una nueva patrulla verificadora para labore
   }
   ```
 
-#### 3.8.7 Eventos en Tiempo Real (Socket.io)
-Ante cambios de estado, asignación o alta de patrulla, el backend emite:
+#### 3.8.7 Modificación de Patrulla Verificadora (`PUT /api/patrullas/{id}`) (HU-84)
+Permite al Administrador adecuar la composición del equipo verificador ante rotaciones o mantenimiento vehicular, reasignando su vehículo, delegación municipal base y dotación de funcionarios asociados:
+- **Autenticación requerida:** `Authorization: Bearer <jwt>` (o `X-User-Id` para retrocompatibilidad).
+- **Autorización RBAC:** Requiere rol `Administrador` o poseer el permiso `recursos:editar`.
+- **Reglas de Negocio:**
+  - **Bloqueo Operativo Estricto:** Si la patrulla se encuentra en estado `EN_VERIFICACION` o cuenta con una misión táctica activa en terreno (`PLANIFICADA`, `DESPACHADA` o `EN_CURSO`), el backend rechaza la modificación con código `HTTP 409 Conflict`.
+  - **Reasignación Vehicular Atómica:** 
+    - Si se desasigna el vehículo previo (`vehiculoId: null`) o se reemplaza por otro, el vehículo anterior se libera automáticamente (`estado = 'DISPONIBLE'`, `cantidad_en_uso = 0`).
+    - Si se especifica un nuevo vehículo, este debe existir, ser un recurso individual (`es_individual: true`) y encontrarse disponible (`estado === 'DISPONIBLE'`). Al asignarse, pasa a estado `ASIGNADO` con `cantidad_en_uso = 1`.
+  - **Dotación de Personal:**
+    - Los funcionarios desvinculados de la patrulla retornan a `estado_operativo = 'disponible'` en la tabla `personal`.
+    - Los nuevos funcionarios asignados deben contar con rol `PATRULLA_VERIFICADORA` y pasan a `estado_operativo = 'en_patrulla'`.
+  - **Auditoría:** Cada modificación registra la fecha y hora de actualización en la columna `actualizado_en = CURRENT_TIMESTAMP`.
+  - **Sincronización en Tiempo Real:** Emite el evento WebSocket `patrulla:actualizada` a las salas `"encargado"`, `"supervisor"`, `"mapa"` y `"patrulla:{patrullaId}"`.
+
+- **Body JSON:**
+  ```json
+  {
+    "nombre": "Patrulla Costa 01 - Reforzada",
+    "delegacionId": "30000000-0000-4000-8000-000000000003",
+    "vehiculoId": "e1000000-0000-4000-8000-000000000005",
+    "personalIds": [
+      "b1000000-0000-4000-8000-000000000001",
+      "b1000000-0000-4000-8000-000000000002"
+    ],
+    "usuarioLiderId": "c1000000-0000-4000-8000-000000000001"
+  }
+  ```
+
+- **Respuesta (`200 OK`):**
+  ```json
+  {
+    "message": "Patrulla verificadora modificada exitosamente.",
+    "data": {
+      "id": "f1000000-0000-4000-8000-000000000001",
+      "codigo": "PV-COSTA-01",
+      "nombre": "Patrulla Costa 01 - Reforzada",
+      "estado": "DISPONIBLE",
+      "delegacion": {
+        "id": "30000000-0000-4000-8000-000000000003",
+        "nombre": "Delegación Costa",
+        "codigo": "DEL_COSTA"
+      },
+      "vehiculo": {
+        "id": "e1000000-0000-4000-8000-000000000005",
+        "nombre": "Camioneta 4x4 Hilux",
+        "detalles": { "patente": "GH-JK-89" },
+        "estado": "ASIGNADO"
+      },
+      "lider": {
+        "id": "c1000000-0000-4000-8000-000000000001",
+        "nombre": "Juan Líder",
+        "email": "juan@valdivia.cl"
+      },
+      "integrantes": [...],
+      "misionActiva": null,
+      "creadoEn": "2026-10-20T10:00:00.000Z",
+      "actualizadoEn": "2026-10-26T12:00:00.000Z"
+    }
+  }
+  ```
+
+#### 3.8.8 Eventos en Tiempo Real (Socket.io)
+Ante cambios de estado, asignación, alta o modificación de patrulla, el backend emite:
 1. `patrulla:creada`:
    - **Salas destino:** `"encargado"`, `"supervisor"`, `"mapa"`, `"sala:encargados"`.
    - **Payload:** `{ patrullaId, codigo, nombre, estado, delegacionId, vehiculoId, usuarioLiderId, creadoEn }`.
@@ -546,11 +609,15 @@ Ante cambios de estado, asignación o alta de patrulla, el backend emite:
   - Intento de reducir la cantidad de inventario por debajo de las unidades actualmente en uso en terreno (`cantidadInventario < cantidadEnUso`).
   - Intento de asignar estado de mantenimiento (`enMantencion: true`) a un recurso o material a granel (`esIndividual === false`).
   - Identificadores de rol/delegación inexistentes o inválidos.
+  - Funcionarios asignados a patrulla sin rol operativo `PATRULLA_VERIFICADORA`.
 - **`401 Unauthorized`:** Cabecera `X-User-Id` (o `Authorization: Bearer`) ausente, vacía o usuario no autenticado.
-- **`403 Forbidden`:** Usuario no cuenta con permisos suficientes (requiere rol Administrador o permiso explícito).
-- **`404 Not Found`:** Recurso o empleado no encontrado en el sistema, o recurso ya dado de baja previamente.
+- **`403 Forbidden`:** Usuario no cuenta con permisos suficientes (requiere rol Administrador o permiso explícito como `recursos:editar`).
+- **`404 Not Found`:** Recurso, patrulla o empleado no encontrado en el sistema, o recurso ya dado de baja previamente.
 - **`409 Conflict`:**
   - El recurso no se puede eliminar porque actualmente tiene unidades en uso en terreno o se encuentra asignado a cuadrillas en misión activa.
+  - La patrulla verificadora no se puede modificar porque se encuentra en estado `EN_VERIFICACION` o con una misión táctica activa en curso (HU-84).
+  - El vehículo institucional a asignar ya se encuentra en uso o asignado a otra dotación activa.
+  - Código identificador de patrulla ya registrado en otra patrulla activa.
   - Correo electrónico o RUT duplicado en otro usuario.
 - **`422 Unprocessable Entity`:** Formato o tipo de datos inválido según validación Zod.
 - **`500 Internal Server Error`:** Falla de conexión a base de datos PostgreSQL o error de servidor no controlado.

@@ -285,3 +285,63 @@ export const CrearPatrullaResponseSchema = z.object({
 
 export type CrearPatrullaResponseDTO = z.infer<typeof CrearPatrullaResponseSchema>;
 
+/**
+ * Entrada para modificar una patrulla verificadora registrada (PUT /api/patrullas/:id).
+ * Permite reasignar delegación base, vehículo institucional y dotación de funcionarios.
+ */
+export const ModificarPatrullaInputSchema = z.object({
+  nombre: z
+    .string()
+    .trim()
+    .min(3, "El nombre de la patrulla debe tener al menos 3 caracteres.")
+    .max(100, "El nombre de la patrulla no puede exceder 100 caracteres.")
+    .optional()
+    .openapi({
+      description: "Nombre descriptivo de la patrulla verificadora",
+      example: "Patrulla Norte 01",
+    }),
+  delegacionId: z
+    .string()
+    .uuid("El parámetro delegacionId debe ser un UUID válido.")
+    .openapi({
+      description: "UUID de la delegación municipal base adscrita",
+      example: "30000000-0000-4000-8000-000000000001",
+    }),
+  vehiculoId: z
+    .string()
+    .uuid("El identificador del vehículo debe ser un UUID válido.")
+    .nullable()
+    .optional()
+    .openapi({
+      description: "UUID del vehículo institucional asignado (recurso individualizado o null para desasignar)",
+      example: "e1000000-0000-4000-8000-000000000002",
+    }),
+  personalIds: z
+    .array(z.string().uuid("Cada integrante debe ser un UUID válido."))
+    .min(1, "Debe asignar al menos un funcionario a la dotación de la patrulla.")
+    .openapi({
+      description: "Lista de UUIDs de personal asignado a la dotación de la patrulla",
+      example: ["b1000000-0000-4000-8000-000000000001"],
+    }),
+  usuarioLiderId: z
+    .string()
+    .uuid("El usuarioLiderId debe ser un UUID válido.")
+    .nullable()
+    .optional()
+    .openapi({
+      description: "UUID del usuario líder de la patrulla (opcional; si se omite, se asigna al primer integrante)",
+    }),
+});
+
+export type ModificarPatrullaInputDTO = z.infer<typeof ModificarPatrullaInputSchema>;
+
+/**
+ * Respuesta tras modificar exitosamente una patrulla verificadora.
+ */
+export const ModificarPatrullaResponseSchema = z.object({
+  message: z.string().openapi({ description: "Mensaje descriptivo del resultado" }),
+  data: PatrullaItemResponseSchema.openapi({ description: "Patrulla verificadora modificada exitosamente" }),
+});
+
+export type ModificarPatrullaResponseDTO = z.infer<typeof ModificarPatrullaResponseSchema>;
+

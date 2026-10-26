@@ -453,3 +453,155 @@ export async function actualizarEstadoPatrullaRepo(
   const result = await updateQuery.executeTakeFirst();
   return Number(result.numUpdatedRows) > 0;
 }
+
+export interface DatosModificarPatrullaRepo {
+  id: string;
+  nombre?: string;
+  delegacionId: string;
+  vehiculoId: string | null;
+  usuarioLiderId: string | null;
+  latitud?: number | null;
+  longitud?: number | null;
+  personalIds: string[];
+}
+
+/**
+ * Modifica de forma transaccional una patrulla verificadora:
+ * - Actualiza delegación, vehículo, líder y auditoría (actualizado_en).
+ * - Libera el vehículo previo si cambió o se desasignó, y reserva el nuevo si aplica.
+ * - Sincroniza la dotación en patrulla_personal y actualiza el estado operativo en personal.
+ */
+export async function modificarPatrullaTransaccionalRepo(
+  datos: DatosModificarPatrullaRepo
+): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    // 1. Obtener la patrulla actual para conocer vehiculo_id previo
+    const patrullaActual = await trx
+      .selectFrom("patrulla_verificadora")
+      .where("id", "=", datos.id)
+      .where("eliminado_en", "is", null)
+      .select(["id", "vehiculo_id"])
+      .executeTakeFirst();
+
+    if (!patrullaActual) {
+      throw new Error("Patrulla verificadora no encontrada.");
+    }
+
+    const vehiculoAnteriorId = patrullaActual.vehiculo_id;
+    const vehiculoNuevoId = datos.vehiculoId;
+
+    // 2. Gestionar cambio de vehículo si aplica
+    if (vehiculoAnteriorId !== vehiculoNuevoId) {
+      // Liberar vehículo anterior
+      if (vehiculoAnteriorId) {
+        await trx
+          .updateTable("recurso")
+          .set({
+            estado: "DISPONIBLE",
+            cantidad_en_uso: 0,
+            actualizado_en: sql`CURRENT_TIMESTAMP`,
+          })
+          .where("id", "=", vehiculoAnteriorId)
+          .execute();
+      }
+
+      // Asignar nuevo vehículo
+      if (vehiculoNuevoId) {
+        await trx
+          .updateTable("recurso")
+          .set({
+            estado: "ASIGNADO",
+            cantidad_en_uso: 1,
+            actualizado_en: sql`CURRENT_TIMESTAMP`,
+          })
+          .where("id", "=", vehiculoNuevoId)
+          .execute();
+      }
+    }
+
+    // 3. Actualizar la tabla patrulla_verificadora
+    let updateBuilder = trx
+      .updateTable("patrulla_verificadora")
+      .set({
+        delegacion_id: datos.delegacionId,
+        vehiculo_id: datos.vehiculoId,
+        usuario_lider_id: datos.usuarioLiderId,
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", datos.id);
+
+    if (datos.nombre && datos.nombre.trim() !== "") {
+      updateBuilder = updateBuilder.set({ nombre: datos.nombre.trim() });
+    }
+
+    if (datos.latitud !== undefined && datos.longitud !== undefined) {
+      if (datos.latitud !== null && datos.longitud !== null) {
+        updateBuilder = updateBuilder.set({
+          latitud: datos.latitud,
+          longitud: datos.longitud,
+          ubicacion: sql`ST_SetSRID(ST_MakePoint(${datos.longitud}, ${datos.latitud}), 4326)`,
+          ultima_actualizacion_ubicacion: sql`CURRENT_TIMESTAMP`,
+        });
+      } else {
+        updateBuilder = updateBuilder.set({
+          latitud: null,
+          longitud: null,
+          ubicacion: null,
+        });
+      }
+    }
+
+    await updateBuilder.execute();
+
+    // 4. Sincronizar dotación de personal
+    const integrantesPrevios = await trx
+      .selectFrom("patrulla_personal")
+      .where("patrulla_id", "=", datos.id)
+      .select("personal_id")
+      .execute();
+
+    const idsPrevios = integrantesPrevios.map((i) => i.personal_id);
+    const idsNuevos = datos.personalIds;
+
+    // Personal saliente
+    const salientes = idsPrevios.filter((id) => !idsNuevos.includes(id));
+    if (salientes.length > 0) {
+      await trx
+        .updateTable("personal")
+        .set({ estado_operativo: "disponible" })
+        .where("id", "in", salientes)
+        .execute();
+    }
+
+    // Limpiar tabla intermedia patrulla_personal para esta patrulla
+    await trx
+      .deleteFrom("patrulla_personal")
+      .where("patrulla_id", "=", datos.id)
+      .execute();
+
+    // Reinsertar nuevos integrantes
+    for (let i = 0; i < idsNuevos.length; i++) {
+      const personalId = idsNuevos[i];
+      const esLider = i === 0;
+
+      await trx
+        .insertInto("patrulla_personal")
+        .values({
+          patrulla_id: datos.id,
+          personal_id: personalId,
+          rol_en_patrulla: esLider ? "LIDER" : "OPERATIVO",
+          asignado_en: sql`CURRENT_TIMESTAMP`,
+        })
+        .execute();
+    }
+
+    // Marcar nuevos integrantes como en_patrulla
+    if (idsNuevos.length > 0) {
+      await trx
+        .updateTable("personal")
+        .set({ estado_operativo: "en_patrulla" })
+        .where("id", "in", idsNuevos)
+        .execute();
+    }
+  });
+}
