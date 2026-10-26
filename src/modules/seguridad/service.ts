@@ -32,7 +32,8 @@ export class SeguridadService {
     permisosRequeridos: string[] = [
       PERMISO_LEER_ROLES,
       PERMISO_GESTIONAR_ROLES,
-    ]
+    ],
+    mensajeError?: string
   ): Promise<UsuarioAutenticado> {
     if (!usuarioId || usuarioId.trim() === "") {
       throw new UnauthorizedError(
@@ -69,7 +70,8 @@ export class SeguridadService {
 
     if (!tienePermiso) {
       throw new ForbiddenError(
-        "Acceso denegado. Se requiere el perfil de Administrador o permisos de gestión de roles para acceder."
+        mensajeError ??
+          "Acceso denegado. Se requiere el perfil de Administrador o permisos de gestión de roles para acceder."
       );
     }
 

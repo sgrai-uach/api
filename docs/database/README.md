@@ -81,7 +81,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Permisos** | `permiso` | Migración 001 | Seguridad | Facultades y permisos granulares. |
 | **RolPermiso** | `rol_permiso` | Migración 001 | Seguridad | Pivote N:M entre roles y permisos. |
 | **Delegación** | `delegacion` | Migración 001 | Organización | 4 delegaciones comunales de Valdivia. |
-| **Personal** | `personal` | Migración 002 | Operaciones | Ficha operativa 1:1 con usuario. |
+| **Personal** | `personal` | Migración 002 / 025 | Operaciones | Ficha **opcional** de perfil de terreno (1:0..1 con usuario). La disponibilidad vive en `usuario.estado_operativo` (H11). |
 | *(Auditoría)* | `log_cambios_usuarios` | Migración 002 | Seguridad | Traza histórica de cambios a usuarios. |
 | *(Recuperación Contraseña)* | `token_recuperacion_contrasena` | Migración 023 | Seguridad | Tokens efímeros (SHA-256) de un solo uso para restablecimiento autónomo (HU-65). |
 | **Informante** | `informante` | Migración 003 | Incidentes | Ciudadanos que reportan incidentes. |
@@ -99,6 +99,8 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Reporte Terreno** | `reporte_terreno` | Migración 011 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
 | **Recuperación** | `recuperacion` | Migración 017 | Eventos ATP / Recuperación | Eventos e intervenciones territoriales de recuperación y entrega de recursos (HU-29). |
 | **Asistencia Social** | `evento_asistencia_social` | Migración 022 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social y requerimientos para levantamiento de ficha FIBE (HU-28). |
+| **Disponibilidad (enum)** | `estado_operativo` | Migración 002 / 025 | Operaciones | Enum de disponibilidad del funcionario (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`), normalizado a `usuario.estado_operativo` (H11). |
+| **Permisos de Personal** | `permiso` / `rol_permiso` | Migración 030 | Seguridad | `personal:leer`, `personal:crear`, `personal:editar` y `personal:gestionar` (H11). |
 | **EventoATP** | *`evento_atp`* | Hoja de Ruta (Roadmap) | Eventos ATP | Agrupación macro de incidentes / eventos climáticos mayores. |
 | **Log de Misión** | *`log_mision`* | Hoja de Ruta (Roadmap) | Misiones | Bitácora cronológica detallada de hitos de misión. |
 | **Beneficio** | *`beneficio`* | Hoja de Ruta (Roadmap) | Asistencia Social | Ayudas sociales entregadas a damnificados (FIBE / DIDECO). |
@@ -124,7 +126,7 @@ erDiagram
     PERMISO ||--o{ ROL_PERMISO : "es_otorgado"
     USUARIO ||--o{ ROL_PERMISO : "asignado_por"
 
-    USUARIO ||--|| PERSONAL : "perfil_humano"
+    USUARIO ||--o| PERSONAL : "perfil_terreno_opcional"
     USUARIO ||--o{ LOG_CAMBIOS_USUARIOS : "usuario_modificado"
     USUARIO ||--o{ LOG_CAMBIOS_USUARIOS : "modificado_por"
     USUARIO ||--o{ CUADRILLA : "usuario_delegado"
@@ -223,6 +225,11 @@ Representa las cuatro delegaciones territoriales de la Municipalidad de Valdivia
 #### Tabla: `usuario`
 Cuentas de usuario de funcionarios y operadores municipales.
 
+> **H11 — Disponibilidad operacional:** `usuario.estado_operativo` es la **fuente única de verdad**
+> de la disponibilidad actual del funcionario y aplica a **todas** las cuentas del sistema
+> (administrativos, call center, encargados y personal de terreno). `usuario.activo` modela la
+> pertenencia y el acceso (baja lógica), y es un concepto distinto del estado operativo.
+
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
 |---|---|---|---|---|
 | `id` | `UUID` | NO | `gen_random_uuid()` | Identificador único del usuario. |
@@ -237,7 +244,8 @@ Cuentas de usuario de funcionarios y operadores municipales.
 | `bloqueado_hasta`| `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal de inhabilitación temporal tras 5 intentos fallidos (bloqueo por 15 minutos). |
 | `rol_id` | `UUID` | NO | — | FK a `rol.id` (ON DELETE RESTRICT). |
 | `delegacion_id`| `UUID` | SÍ | `NULL` | FK a `delegacion.id` (ON DELETE SET NULL). |
-| `activo` | `BOOLEAN` | NO | `true` | Habilitación de acceso al sistema. |
+| `activo` | `BOOLEAN` | NO | `true` | Habilitación de acceso al sistema (baja lógica). **No es un estado operativo.** |
+| `estado_operativo`| `estado_operativo` (ENUM) | NO | `'disponible'` | **Disponibilidad actual** (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`). Índice `idx_usuario_estado_operativo`. |
 | `ultimo_acceso`| `TIMESTAMPTZ` | SÍ | `NULL` | Fecha y hora del último login exitoso. |
 | `fecha_ingreso`| `DATE` | SÍ | `NULL` | Fecha de inicio de funciones. |
 | `fecha_salida` | `DATE` | SÍ | `NULL` | Fecha de desvinculación o cese de funciones. |
@@ -245,17 +253,20 @@ Cuentas de usuario de funcionarios y operadores municipales.
 | `actualizado_en`| `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de última actualización. |
 
 #### Tabla: `personal`
-Ficha técnica operativa del personal de terreno (vinculada 1:1 al usuario).
+Ficha técnica **opcional** del perfil de terreno (1:0..1 con `usuario`). Un funcionario
+administrativo **no** posee ficha de terreno.
+
+> **H11 — Separación de conceptos:** el estado operativo **no** reside en `personal`.
+> `personal.disponible_terreno` es la **capacidad/aptitud** para salir a terreno, no un estado.
 
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
 |---|---|---|---|---|
 | `id` | `UUID` | NO | `gen_random_uuid()` | Identificador de la ficha de personal. |
-| `usuario_id` | `UUID` | NO | — | FK a `usuario.id` (ON DELETE CASCADE). Unique 1:1. |
+| `usuario_id` | `UUID` | NO | — | FK a `usuario.id` (ON DELETE CASCADE). Unique 1:0..1. |
 | `delegacion_id`| `UUID` | NO | — | FK a `delegacion.id` (ON DELETE RESTRICT). |
 | `especialidad` | `VARCHAR(100)`| SÍ | `NULL` | Oficio/especialidad (motosierrista, electricista, etc.). |
 | `cargo` | `VARCHAR(100)`| SÍ | `NULL` | Cargo funcional en la cuadrilla o delegación. |
-| `estado_operativo`| `VARCHAR(50)`| NO | `'disponible'` | Estado (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`). |
-| `disponible_terreno`| `BOOLEAN`| NO | `true` | Aptitud médica/técnica para salir a emergencias. |
+| `disponible_terreno`| `BOOLEAN`| NO | `true` | **Capacidad/aptitud** para salir a emergencias. `NULL` en la API cuando el usuario no posee ficha de terreno. |
 | `ultima_ubicacion` | `TEXT` | SÍ | `NULL` | Última referencia geográfica reportada. |
 | `ultima_actualizacion_ubicacion`| `TIMESTAMPTZ` | SÍ | `NULL` | Timestamp del último reporte GPS. |
 | `observaciones`| `TEXT` | SÍ | `NULL` | Notas operativas o de salud ocupacional. |
@@ -685,7 +696,7 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
 ```bash
 npm run db:migrate
 ```
-El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `022_eventos_asistencia_social.ts`).
+El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `030_permisos_personal.ts`; los correlativos intermedios pueden estar reservados por otras historias del equipo).
 
 ### 7.2 Sembrar Datos para Tablero Kanban
 ```bash

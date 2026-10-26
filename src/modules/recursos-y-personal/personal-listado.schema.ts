@@ -17,6 +17,12 @@ export const EstadoOperativoPersonalEnum = z.enum([
 ]);
 
 /**
+ * En H11 la disponibilidad se normalizó a `usuario.estado_operativo`.
+ * Se mantiene el alias histórico para no romper imports de otros módulos.
+ */
+export const EstadoOperativoEnum = EstadoOperativoPersonalEnum;
+
+/**
  * Esquema de consulta para listar personal/empleados con paginación y filtros.
  */
 export const ListarPersonalQuerySchema = PaginationQuerySchema.extend({
@@ -34,11 +40,11 @@ export const ListarPersonalQuerySchema = PaginationQuerySchema.extend({
     example: "ASISTENTE_SOCIAL",
   }),
   rol_codigo: z.string().trim().optional(),
-  estadoOperativo: EstadoOperativoPersonalEnum.optional().openapi({
-    description: "Filtrar por estado operativo de personal en terreno",
+  estadoOperativo: EstadoOperativoEnum.optional().openapi({
+    description: "Filtrar por estado operativo (disponibilidad actual) del funcionario",
     example: "disponible",
   }),
-  estado_operativo: EstadoOperativoPersonalEnum.optional(),
+  estado_operativo: EstadoOperativoEnum.optional(),
   cargo: z.string().trim().optional().openapi({
     description: "Filtrar por cargo funcional de personal",
     example: "Conductor",
@@ -114,8 +120,19 @@ export const PersonalItemSchema = z.object({
   personal_id: z.string().uuid().nullable(),
   especialidad: z.string().nullable(),
   cargo: z.string().nullable(),
-  estado_operativo: z.string().nullable(),
-  disponible_terreno: z.boolean().nullable(),
+  estado_operativo: EstadoOperativoEnum.openapi({
+    description:
+      "Disponibilidad actual del funcionario. Siempre presente: reside en `usuario.estado_operativo`.",
+    example: "disponible",
+  }),
+  disponible_terreno: z
+    .boolean()
+    .nullable()
+    .openapi({
+      description:
+        "Capacidad/aptitud para salir a terreno. `null` indica que el usuario no possui ficha de terreno (no aplica).",
+      example: true,
+    }),
   observaciones: z.string().nullable(),
   personal_updated_at: z.date().nullable().optional(),
   es_personal: z.boolean(),
