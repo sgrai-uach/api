@@ -55,6 +55,11 @@ import {
 } from "@/modules/recursos-y-personal/patrulla.schema";
 
 import {
+  CrearMisionVerificacionSchema,
+  CrearMisionResponseSchema,
+} from "@/modules/misiones/mision.schema";
+
+import {
   CrearAvisoIncidenteInputSchema,
   AvisoIncidenteResponseSchema,
   ConsultaSeguimientoResponseSchema,
@@ -2042,6 +2047,55 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor",
+    },
+  },
+});
+
+// POST /api/misiones (HU-20: Asignar y despachar patrulla verificadora)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones",
+  summary: "Asignar y despachar patrulla verificadora a un incidente (HU-20)",
+  description:
+    "Despacha una patrulla verificadora disponible a un incidente formal en estado REPORTADO. Ejecuta una transacción atómica que: (1) crea la misión con tipo VERIFICACION y estado DESPACHADA, (2) actualiza el incidente a estado VERIFICANDO, (3) actualiza la patrulla a estado EN_VERIFICACION, y (4) registra el hito inicial en mision_hito. Emite eventos WebSocket a las salas 'patrulla:{id}', 'encargado' y 'mapa'. Requiere permiso 'misiones:asignar'.",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: CrearMisionVerificacionSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Misión de verificación creada y patrulla despachada exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearMisionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos o formato JSON malformado",
+    },
+    401: {
+      description: "No autenticado o token ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:asignar'",
+    },
+    404: {
+      description: "Incidente o patrulla no encontrado",
+    },
+    409: {
+      description:
+        "Conflicto: la patrulla seleccionada ya no se encuentra DISPONIBLE o el incidente no está en estado REPORTADO",
+    },
+    500: {
+      description: "Error interno del servidor al crear y despachar la misión",
     },
   },
 });
