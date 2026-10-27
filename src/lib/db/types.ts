@@ -518,6 +518,17 @@ export interface EventoPrevencionRecursoTable {
   creado_en: Generated<Date>;
 }
 
+export interface MisionHitoTable {
+  id: Generated<string>;
+  mision_id: string;
+  hito: string;
+  descripcion: string;
+  registrado_por_id: string | null;
+  latitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
+  longitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
+  creado_en: Generated<Date>;
+}
+
 export interface Database {
   // Entidades principales (nombres singulares de Kysely)
   recurso: RecursoTable;
@@ -539,6 +550,7 @@ export interface Database {
   cuadrilla: CuadrillaTable;
   cuadrilla_recurso: CuadrillaRecursoTable;
   mision: MisionTable;
+  mision_hito: MisionHitoTable;
   aviso_incidente: AvisoIncidenteTable;
   adjunto: AdjuntoTable;
   reporte_terreno: ReporteTerrenoTable;
@@ -559,6 +571,7 @@ export interface Database {
   delegaciones: DelegacionTable;
   tipos_incidentes: TipoIncidenteTable;
   misiones: MisionTable;
+  misiones_hitos: MisionHitoTable;
   recuperaciones: RecuperacionTable;
   recuperacion_recursos: RecuperacionRecursoTable;
   eventos_asistencia_social: EventoAsistenciaSocialTable;
@@ -569,3 +582,4 @@ export interface Database {
   eventos_prevencion_recursos: EventoPrevencionRecursoTable;
   tokens_recuperacion_contrasena: TokenRecuperacionContrasenaTable;
 }
+
