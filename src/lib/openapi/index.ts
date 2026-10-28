@@ -41,6 +41,11 @@ import {
 } from "@/modules/recursos-y-personal/recurso.schema";
 
 import {
+  CrearCuadrillaInputSchema,
+  CrearCuadrillaResponseSchema,
+} from "@/modules/recursos-y-personal/cuadrilla.schema";
+
+import {
   ListarPatrullasQuerySchema,
   ListarPatrullasResponseSchema,
   PatrullaItemResponseSchema,
@@ -269,6 +274,44 @@ registry.registerPath({
     400: { description: "Parámetros de consulta inválidos" },
     401: { description: "No autenticado / token o cabecera de autenticación ausente" },
     403: { description: "Acceso denegado. Se requiere permiso recursos:leer o perfil Administrador" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 3. POST /api/cuadrillas (H79)
+registry.registerPath({
+  method: "post",
+  path: "/api/cuadrillas",
+  summary: "Registrar una nueva cuadrilla operativa municipal",
+  description:
+    "Crea una nueva cuadrilla táctica municipal en estado inicial DISPONIBLE vinculando su delegación base y asignando al delegado responsable. Promueve atómicamente al usuario al rol DELEGADO_CUADRILLA si no lo posee y valida la unicidad del nombre. Requiere permiso recursos:crear o rol Administrador.",
+  tags: ["Recursos y Personal"],
+  request: {
+    headers: z.object({
+      "x-user-id": z.string().uuid().optional().describe("UUID del usuario autenticado (opcional si se envía Authorization: Bearer <token>)"),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: CrearCuadrillaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Cuadrilla operativa creada exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearCuadrillaResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada inválidos o entidades asociadas inactivas" },
+    401: { description: "No autenticado / token o cabecera de autenticación ausente" },
+    403: { description: "Acceso denegado. Se requiere permiso recursos:crear o perfil Administrador" },
+    404: { description: "Delegación base o usuario delegado no encontrado" },
+    409: { description: "Conflicto: Ya existe una cuadrilla con el nombre ingresado" },
     500: { description: "Error interno del servidor" },
   },
 });

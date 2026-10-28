@@ -515,6 +515,49 @@ export function emitirEventoPrevencionCreado(payload: {
 }
 
 /**
+ * Emite la notificación de nueva cuadrilla operativa conformada
+ * hacia las salas de administración, despacho y supervisión (H79).
+ */
+export function emitirCuadrillaCreada(payload: unknown): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("operaciones") as any).emit("cuadrilla:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("cuadrilla:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("cuadrilla:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("cuadrilla:creada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "operaciones",
+          event: "cuadrilla:creada",
+          payload,
+        })
+      )
+      .catch(() => {});
+
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "encargado",
+          event: "cuadrilla:creada",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
+/**
  * Emite una notificación en tiempo real a las salas de 'encargado', 'supervisor' y mapa
  * cuando se actualiza el estado o información de una patrulla verificadora.
  */

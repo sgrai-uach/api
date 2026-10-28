@@ -57,6 +57,16 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
   - **`personal:gestionar`**: Autoriza la baja lógica de funcionarios (`DELETE /api/personal/[id]`).
   - El rol `Administrador` posee los cuatro permisos; el rol `Encargado` posee `personal:leer`.
 
+### 1.3 Gestión de Cuadrillas Operativas (ICS Sección de Operaciones - H79)
+- **Unidad Táctica de Intervención Pesada:** Las cuadrillas representan brigadas municipales desplegables para mitigación, despeje y atención de emergencias.
+- **Estructura Base Obligatoria:** Toda cuadrilla debe contar con:
+  - Un **nombre identificador único** a nivel comunal (case-insensitive y normalizado con `trim()`).
+  - Una **delegación municipal base** activa (`delegacion_id`), que determina su adscripción territorial.
+  - Un **delegado responsable** (`usuario_delegado_id`), quien actúa como enlace con el Encargado de Operaciones y recibe las misiones en la aplicación móvil (PWA).
+- **Promoción Dinámica de Delegados:** Si el usuario seleccionado no posee previamente el rol `DELEGADO_CUADRILLA`, el backend promueve automáticamente su perfil a dicho rol dentro de una transacción atómica y registra el evento en `log_cambios_usuarios`.
+- **Estado Inicial Operativo:** Toda nueva cuadrilla nace con el estado `DISPONIBLE`, indicando que está lista para ser despachada a misiones tácticas en terreno.
+- **Sincronización en Tiempo Real:** El alta de la cuadrilla emite el evento WebSocket `cuadrilla:creada` a las salas `operaciones`, `encargado` y `supervisor`.
+
 ---
 
 ## 2. Endpoints del Módulo
@@ -68,6 +78,7 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `GET` | `/api/recursos/{id}` | Obtener detalle completo de un recurso para precargar el formulario de edición. |
 | `PUT` | `/api/recursos/{id}` | Modificar características, inventario físico, especificaciones técnicas y estado de un recurso. |
 | `DELETE` | `/api/recursos/{id}` | Eliminar un recurso del inventario mediante borrado lógico (soft delete) y trazabilidad completa. |
+| `POST` | `/api/cuadrillas` | Registrar una nueva cuadrilla operativa en el sistema indicando nombre, delegación y delegado (H79). |
 | `GET` | `/api/personal` | Listar y buscar empleados/usuarios para selectores con soporte de búsqueda textual y filtro de activos/terreno. |
 | `POST` | `/api/personal` | Registrar a un nuevo funcionario municipal con credenciales y ficha de terreno condicional (HU-10). |
 | `PATCH` | `/api/personal/:id` | Modificar datos de un empleado actualizando concurrentemente `usuarios` y `personal` en una transacción atómica. |
@@ -425,11 +436,64 @@ Aplica un **borrado lógico (soft delete)** sobre un recurso existente en el sis
 }
 ```
 
-### 3.8. `GET /api/patrullas` y `PATCH /api/patrullas/{id}` (HU-16: Patrullas Verificadoras y Estado Operativo)
+### 3.8. `POST /api/cuadrillas` (H79: Registrar Cuadrilla Operativa)
+Permite al Administrador registrar una nueva cuadrilla operativa en el sistema indicando su nombre, delegación municipal base y asignando al delegado responsable.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
+- **Perfiles autorizados:** `Administrador` o cualquier usuario con permiso `recursos:crear`.
+
+#### Reglas de Negocio
+1. **Unicidad de Nombre:** El nombre de la cuadrilla debe ser único a nivel comunal (insensible a mayúsculas/minúsculas y espacios superfluos). Si ya existe una cuadrilla activa con el mismo nombre, el endpoint rechaza con **`409 Conflict`**.
+2. **Mando Único ICS (Exclusividad de Liderazgo):** Un funcionario no puede liderar simultáneamente más de una cuadrilla activa (`eliminado_en IS NULL` y `estado != 'NO_DISPONIBLE'`). Si el delegado ya lidera una cuadrilla activa, se rechaza con **`409 Conflict`** (*"El funcionario seleccionado ya se encuentra asignado como delegado de la cuadrilla activa '{nombre_cuadrilla}'"*).
+3. **Restricción de Perfiles Jerárquicos:** No se permite asignar funcionarios con roles administrativos (`ADMIN`, `SUPERVISOR`, `ENCARGADO`) como delegados de cuadrilla de terreno; de intentarse, el endpoint rechaza con **`400 Bad Request`** (*"No se puede asignar a un funcionario con perfil administrativo como delegado de cuadrilla"*).
+4. **Validación Territorial y de Personal:**
+   - La delegación municipal (`delegacionId`) debe existir y estar activa (`activo = true`).
+   - El usuario designado como delegado (`usuarioDelegadoId`) debe existir y estar activo en el sistema.
+5. **Promoción Atómica y Sincronización Territorial:** 
+   - Si el usuario seleccionado no posee el rol `DELEGADO_CUADRILLA`, el sistema actualiza su `rol_id` de forma atómica en la transacción.
+   - Sincroniza automáticamente la adscripción territorial del funcionario (`usuario.delegacion_id` y `personal.delegacion_id`) con la delegación base de la cuadrilla.
+   - Deja registro inmutable de auditoría en `log_cambios_usuarios` con el diff JSONB.
+6. **Estado Inicial:** Toda cuadrilla se crea con estado `DISPONIBLE`.
+7. **Sincronización WebSocket:** Al completarse la inserción, emite el evento `"cuadrilla:creada"` con los datos de la cuadrilla, delegado y delegación hacia las salas `operaciones`, `encargado` y `supervisor`.
+
+#### Cuerpo de la Solicitud (`POST` Body)
+```json
+{
+  "nombre": "Cuadrilla Vías y Calles",
+  "delegacionId": "30000000-0000-4000-8000-000000000001",
+  "usuarioDelegadoId": "00000000-0000-4000-8000-000000000005"
+}
+```
+
+#### Ejemplo de Respuesta Exitosa (`201 Created`)
+```json
+{
+  "message": "Cuadrilla operativa creada exitosamente",
+  "data": {
+    "id": "50000000-0000-4000-8000-000000000001",
+    "nombre": "Cuadrilla Vías y Calles",
+    "estado": "DISPONIBLE",
+    "delegacion": {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "nombre": "Delegación Municipal Calle Calle"
+    },
+    "delegado": {
+      "id": "00000000-0000-4000-8000-000000000005",
+      "nombre": "Carlos Operativo",
+      "email": "carlos@valdivia.cl",
+      "rut": "15.123.456-7"
+    },
+    "creadoEn": "2026-10-24T12:00:00.000Z",
+    "creadoPorId": "00000000-0000-4000-8000-000000000001"
+  }
+}
+```
+
+### 3.9. `GET /api/patrullas` y `PATCH /api/patrullas/{id}` (HU-16: Patrullas Verificadoras y Estado Operativo)
 
 Permite al **Encargado de Operaciones** visualizar en el Centro de Mando la dotación inmediata de equipos de evaluación rápida (patrullas verificadoras) y su estado operativo en tiempo real para asignarlos oportunamente a la verificación de incidentes reportados.
 
-#### 3.8.1 Estados Canónicos en Base de Datos
+#### 3.9.1 Estados Canónicos en Base de Datos
 La columna `patrulla_verificadora.estado` maneja estrictamente los siguientes valores canónicos (en mayúsculas):
 - `DISPONIBLE`: Patrulla libre en base territorial, apta para asignación y despacho inmediato.
 - `EN_VERIFICACION`: Patrulla despachada a terreno realizando el triage y evaluación preliminar de un incidente formal.
@@ -440,18 +504,18 @@ La columna `patrulla_verificadora.estado` maneja estrictamente los siguientes va
 
 *(Nota: Queda estrictamente prohibido el uso de valores no canónicos como `'Ocupada'`, `'LIBRE'` o emojis en backend o frontend).*
 
-#### 3.8.2 Control de Acceso (RBAC Estricto)
+#### 3.9.2 Control de Acceso (RBAC Estricto)
 - **Autenticación:** Requiere `Authorization: Bearer <token_jwt>`.
 - **Permiso requerido:** `misiones:leer` (asignado a roles `Encargado`, `Administrador` y `Supervisor`).
 
-#### 3.8.3 Parámetros de Consulta para `GET /api/patrullas`
+#### 3.9.3 Parámetros de Consulta para `GET /api/patrullas`
 - `page` (`number`, default `1`): Número de página (1-indexed).
 - `limit` (`number`, default `20`, máx `100`): Cantidad de registros por página.
 - `delegacionId` (`UUID`, opcional): Filtra por delegación territorial asignada (`delegacion.id`).
 - `estado` (`string`, opcional): Filtro por estado operativo canónico (`DISPONIBLE`, `EN_VERIFICACION`, etc.).
 - `busqueda` (`string`, opcional): Búsqueda parcial insensible a mayúsculas sobre nombre de patrulla o líder.
 
-#### 3.8.4 Estructura del Contrato de Respuesta (`GET /api/patrullas`)
+#### 3.9.4 Estructura del Contrato de Respuesta (`GET /api/patrullas`)
 ```json
 {
   "message": "Listado de patrullas verificadoras obtenido exitosamente.",
@@ -517,7 +581,7 @@ La columna `patrulla_verificadora.estado` maneja estrictamente los siguientes va
 }
 ```
 
-#### 3.8.5 Mutación de Estado (`PATCH /api/patrullas/{id}`)
+#### 3.9.5 Mutación de Estado (`PATCH /api/patrullas/{id}`)
 Permite modificar el estado operativo de una patrulla y/o sus coordenadas geográficas.
 - **Body JSON:**
   ```json
@@ -530,7 +594,7 @@ Permite modificar el estado operativo de una patrulla y/o sus coordenadas geogr�
   ```
 - **Respuesta (`200 OK`):** Retorna `{ message, data }` con la patrulla actualizada.
 
-#### 3.8.6 Eventos en Tiempo Real (Socket.io)
+#### 3.9.6 Eventos en Tiempo Real (Socket.io)
 Ante cualquier cambio de estado o asignación de patrulla, el backend emite:
 1. `patrulla:actualizada`:
    - **Salas destino:** `"encargado"`, `"supervisor"`, `"mapa"`, `"patrulla:{patrullaId}"`.
@@ -560,24 +624,25 @@ Ante cualquier cambio de estado o asignación de patrulla, el backend emite:
        "asignadoEn": "2026-10-20T22:00:00.000Z"
      }
      ```
-
----
-
 ---
 
 ## 4. Códigos de Estado y Errores Esperables
 
 - **`200 OK`:** Solicitud procesada correctamente / Consulta, actualización o eliminación lógica realizada con éxito.
-- **`201 Created`:** Recurso validado, geolocalizado e insertado exitosamente.
+- **`201 Created`:** Recurso o cuadrilla operativa validada e insertada exitosamente en estado inicial `DISPONIBLE`.
 - **`400 Bad Request`:**
   - Parámetros de consulta o cuerpo JSON inválidos según esquema Zod (ej. `nombre` menor a 3 caracteres, cantidad negativa).
+  - Intento de asignar a un funcionario con perfil administrativo (`ADMIN`, `SUPERVISOR`, `ENCARGADO`) como delegado de cuadrilla.
   - Intento de reducir la cantidad de inventario por debajo de las unidades actualmente en uso en terreno (`cantidadInventario < cantidadEnUso`).
   - Intento de asignar estado de mantenimiento (`enMantencion: true`) a un recurso o material a granel (`esIndividual === false`).
+  - Delegación municipal base o usuario delegado inactivo en el sistema.
   - Identificadores de rol/delegación inexistentes o inválidos.
-- **`401 Unauthorized`:** Cabecera `X-User-Id` (o `Authorization: Bearer`) ausente, vacía o usuario no autenticado.
-- **`403 Forbidden`:** Usuario no cuenta con permisos suficientes (requiere rol Administrador o permiso explícito).
-- **`404 Not Found`:** Recurso o empleado no encontrado en el sistema, o recurso ya dado de baja previamente.
+- **`401 Unauthorized`:** Cabecera `Authorization: Bearer` o `x-user-id` ausente, inválida o usuario no autenticado.
+- **`403 Forbidden`:** Usuario no cuenta con permisos suficientes (requiere rol Administrador o permiso `recursos:crear`).
+- **`404 Not Found`:** Recurso, delegación municipal o usuario delegado no encontrado en el sistema.
 - **`409 Conflict`:**
+  - Ya existe una cuadrilla operativa activa con el nombre ingresado (insensible a mayúsculas/minúsculas).
+  - El funcionario seleccionado ya se encuentra asignado como delegado de otra cuadrilla activa (regla de mando único ICS).
   - El recurso no se puede eliminar porque actualmente tiene unidades en uso en terreno o se encuentra asignado a cuadrillas en misión activa.
   - Correo electrónico o RUT duplicado en otro usuario.
 - **`422 Unprocessable Entity`:** Formato o tipo de datos inválido según validación Zod.
