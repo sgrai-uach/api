@@ -13,6 +13,15 @@ describe("HU-26: Listado de Asistentes Sociales y Disponibilidad (GET /api/perso
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(authGuard, "verificarAccesoPersonal").mockResolvedValue({
+      id: usuarioEncargadoId,
+      rut: "12.345.678-9",
+      nombre: "Encargado Municipal",
+      email: "encargado@valdivia.cl",
+      rolId: "20000000-0000-4000-8000-000000000003",
+      rolNombre: "Encargado",
+      activo: true,
+    });
   });
 
   const mockRespuestaAsistentes: ListarPersonalResponse = {
@@ -130,7 +139,8 @@ describe("HU-26: Listado de Asistentes Sociales y Disponibilidad (GET /api/perso
     expect(body.message).toContain("asistencia_social:leer");
   });
 
-  it("debe permitir consultas de personal general sin exigir permiso de asistencia social", async () => {
+  it("debe permitir consultas de personal general con permiso de personal sin exigir permiso de asistencia social", async () => {
+    const spyAccesoPersonal = vi.mocked(authGuard.verificarAccesoPersonal);
     const spyPermiso = vi.spyOn(authService, "verificarPermiso");
     vi.spyOn(personalListadoService, "listarPersonalService").mockResolvedValueOnce({
       data: [],
@@ -150,6 +160,7 @@ describe("HU-26: Listado de Asistentes Sociales y Disponibilidad (GET /api/perso
 
     const res = await GET(req);
     expect(res.status).toBe(200);
+    expect(spyAccesoPersonal).toHaveBeenCalled();
     expect(spyPermiso).not.toHaveBeenCalled();
   });
 

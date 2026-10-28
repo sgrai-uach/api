@@ -515,3 +515,25 @@ Verificación estática de tipos de TypeScript:
 $ npx tsc --noEmit
 # Salida limpia (código de salida 0, sin errores)
 ```
+
+---
+
+## 7. Actualización H11 — Traslado del estado operativo a `usuario` (Octubre 2026)
+
+La **HU-11** normalizó el estado operativo a **`usuario.estado_operativo`**, dejando `personal`
+como ficha opcional de terreno (relación 1:0..1) cuya única capacidad persistida es
+`disponible_terreno`.
+
+**Impacto sobre los casos de HU-12:**
+
+| Caso | Impacto |
+|---|---|
+| `CP-H12-API-07` (Actualización de atributos técnicos de terreno) | `estado_operativo` se persiste en `usuario.estado_operativo`; `cargo`, `especialidad` y `disponible_terreno` permanecen en la ficha `personal`. |
+| `CP-H12-API-09` (Cambio de rol) | Si el rol deja de ser de terreno, la ficha `personal` se elimina y un estado de terreno (`en_mision` / `en_patrulla`) se reasigna a `disponible`. Si el rol pasa a ser de terreno y no existía ficha, se crea con `disponible_terreno = true`. |
+| `CP-H12-API-11` (Desactivación de la cuenta) | `activo = false` fuerza `estado_operativo = 'inactivo'` y `disponible_terreno = false`. |
+
+**Nueva validación (H11):** `en_mision` y `en_patrulla` se rechazan con **HTTP 422** para
+funcionarios administrativos. Los estados válidos para administrativos son `disponible`,
+`descanso`, `licencia` e `inactivo`.
+
+Ver `HU11_VISUALIZAR_DISPONIBILIDAD_PERSONAL_CASOS_DE_PRUEBA.md` para la matriz completa.
