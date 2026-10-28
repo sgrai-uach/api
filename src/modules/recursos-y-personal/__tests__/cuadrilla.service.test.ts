@@ -1,8 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  CrearCuadrillaInputSchema,
-  CuadrillaResponseSchema,
-} from "../cuadrilla.schema";
+import { CrearCuadrillaInputSchema } from "../cuadrilla.schema";
 import { crearCuadrilla } from "../cuadrilla.service";
 import * as cuadrillaRepository from "../cuadrilla.repository";
 import * as socketLib from "@/lib/socket";
@@ -235,6 +233,81 @@ describe("Módulo Recursos y Personal - Servicio de Cuadrillas Operativas (H79)"
       );
     });
 
+    // BUG-H79-API-02: Rechazo de perfiles administrativos
+    it("BUG-H79-API-02: debe rechazar con BadRequestError si el funcionario tiene perfil administrativo (ADMIN)", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
+        usuarioAdmin as any
+      );
+      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue(
+        undefined
+      );
+      vi.spyOn(cuadrillaRepository, "obtenerDelegacionPorId").mockResolvedValue(
+        delegacionMock as any
+      );
+      vi.spyOn(cuadrillaRepository, "obtenerUsuarioPorId").mockResolvedValue({
+        ...usuarioDelegadoMock,
+        rol_codigo: "ADMIN",
+      } as any);
+
+      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
+        BadRequestError
+      );
+      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
+        "No se puede asignar a un funcionario con perfil administrativo como delegado de cuadrilla."
+      );
+    });
+
+    it("BUG-H79-API-02: debe rechazar con BadRequestError si el funcionario tiene perfil SUPERVISOR o ENCARGADO", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
+        usuarioAdmin as any
+      );
+      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue(
+        undefined
+      );
+      vi.spyOn(cuadrillaRepository, "obtenerDelegacionPorId").mockResolvedValue(
+        delegacionMock as any
+      );
+      vi.spyOn(cuadrillaRepository, "obtenerUsuarioPorId").mockResolvedValue({
+        ...usuarioDelegadoMock,
+        rol_codigo: "ENCARGADO",
+      } as any);
+
+      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
+        BadRequestError
+      );
+      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
+        "No se puede asignar a un funcionario con perfil administrativo como delegado de cuadrilla."
+      );
+    });
+
+    // BUG-H79-API-01: Mando único ICS - Asignación de un mismo delegado a múltiples cuadrillas activas
+    it("BUG-H79-API-01: debe rechazar con ConflictError si el delegado ya lidera una cuadrilla activa", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
+        usuarioAdmin as any
+      );
+      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue(
+        undefined
+      );
+      vi.spyOn(cuadrillaRepository, "obtenerDelegacionPorId").mockResolvedValue(
+        delegacionMock as any
+      );
+      vi.spyOn(cuadrillaRepository, "obtenerUsuarioPorId").mockResolvedValue(
+        usuarioDelegadoMock as any
+      );
+      vi.spyOn(cuadrillaRepository, "buscarCuadrillaActivaDeDelegado").mockResolvedValue({
+        id: "50000000-0000-4000-8000-000000000010",
+        nombre: "Cuadrilla Vías 1",
+        estado: "DISPONIBLE",
+      } as any);
+
+      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
+        ConflictError
+      );
+      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
+        "El funcionario seleccionado ya se encuentra asignado como delegado de la cuadrilla activa 'Cuadrilla Vías 1'."
+      );
+    });
+
     it("Flujo Feliz: debe insertar la cuadrilla con estado DISPONIBLE y emitir WebSocket", async () => {
       vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
         usuarioAdmin as any
@@ -247,6 +320,9 @@ describe("Módulo Recursos y Personal - Servicio de Cuadrillas Operativas (H79)"
       );
       vi.spyOn(cuadrillaRepository, "obtenerUsuarioPorId").mockResolvedValue(
         usuarioDelegadoMock as any
+      );
+      vi.spyOn(cuadrillaRepository, "buscarCuadrillaActivaDeDelegado").mockResolvedValue(
+        undefined
       );
       vi.spyOn(cuadrillaRepository, "obtenerRolDelegadoCuadrilla").mockResolvedValue(
         rolDelegadoMock as any
@@ -266,7 +342,7 @@ describe("Módulo Recursos y Personal - Servicio de Cuadrillas Operativas (H79)"
       expect(resultado.delegado.email).toBe(usuarioDelegadoMock.email);
       expect(resultado.creadoPorId).toBe(usuarioAdmin.id);
 
-      // Verificación de repositorio
+      // Verificación de repositorio (incluyendo sincronización territorial)
       expect(insertSpy).toHaveBeenCalledWith(
         {
           nombre: inputValido.nombre,
@@ -275,18 +351,20 @@ describe("Módulo Recursos y Personal - Servicio de Cuadrillas Operativas (H79)"
           creadoPorId: usuarioAdmin.id,
         },
         rolDelegadoMock.id,
-        "DELEGADO_CUADRILLA"
+        "DELEGADO_CUADRILLA",
+        usuarioDelegadoMock.delegacion_id
       );
 
       // Verificación de emisión WebSocket
       expect(socketSpy).toHaveBeenCalledWith(resultado);
     });
 
-    it("debe promover atómicamente a DELEGADO_CUADRILLA si el usuario tiene rol previo BRIGADISTA", async () => {
+    it("debe promover atómicamente a DELEGADO_CUADRILLA si el usuario tiene rol previo BRIGADISTA y sincronizar delegación", async () => {
       const usuarioBrigadista = {
         ...usuarioDelegadoMock,
         rol_codigo: "BRIGADISTA",
         rol_id: "20000000-0000-4000-8000-000000000009",
+        delegacion_id: "30000000-0000-4000-8000-000000000099", // Delegación anterior diferente
       };
 
       vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
@@ -301,6 +379,9 @@ describe("Módulo Recursos y Personal - Servicio de Cuadrillas Operativas (H79)"
       vi.spyOn(cuadrillaRepository, "obtenerUsuarioPorId").mockResolvedValue(
         usuarioBrigadista as any
       );
+      vi.spyOn(cuadrillaRepository, "buscarCuadrillaActivaDeDelegado").mockResolvedValue(
+        undefined
+      );
       vi.spyOn(cuadrillaRepository, "obtenerRolDelegadoCuadrilla").mockResolvedValue(
         rolDelegadoMock as any
       );
@@ -314,7 +395,8 @@ describe("Módulo Recursos y Personal - Servicio de Cuadrillas Operativas (H79)"
       expect(insertSpy).toHaveBeenCalledWith(
         expect.anything(),
         rolDelegadoMock.id,
-        "BRIGADISTA"
+        "BRIGADISTA",
+        "30000000-0000-4000-8000-000000000099"
       );
     });
   });

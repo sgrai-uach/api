@@ -377,12 +377,17 @@ Permite al Administrador registrar una nueva cuadrilla operativa en el sistema i
 
 #### Reglas de Negocio
 1. **Unicidad de Nombre:** El nombre de la cuadrilla debe ser único a nivel comunal (insensible a mayúsculas/minúsculas y espacios superfluos). Si ya existe una cuadrilla activa con el mismo nombre, el endpoint rechaza con **`409 Conflict`**.
-2. **Validación Territorial y de Personal:**
+2. **Mando Único ICS (Exclusividad de Liderazgo):** Un funcionario no puede liderar simultáneamente más de una cuadrilla activa (`eliminado_en IS NULL` y `estado != 'NO_DISPONIBLE'`). Si el delegado ya lidera una cuadrilla activa, se rechaza con **`409 Conflict`** (*"El funcionario seleccionado ya se encuentra asignado como delegado de la cuadrilla activa '{nombre_cuadrilla}'"*).
+3. **Restricción de Perfiles Jerárquicos:** No se permite asignar funcionarios con roles administrativos (`ADMIN`, `SUPERVISOR`, `ENCARGADO`) como delegados de cuadrilla de terreno; de intentarse, el endpoint rechaza con **`400 Bad Request`** (*"No se puede asignar a un funcionario con perfil administrativo como delegado de cuadrilla"*).
+4. **Validación Territorial y de Personal:**
    - La delegación municipal (`delegacionId`) debe existir y estar activa (`activo = true`).
    - El usuario designado como delegado (`usuarioDelegadoId`) debe existir y estar activo en el sistema.
-3. **Promoción Atómica de Delegado:** Si el usuario seleccionado no posee el rol `DELEGADO_CUADRILLA`, el sistema actualiza su `rol_id` de forma atómica en la transacción y deja registro de auditoría en `log_cambios_usuarios`.
-4. **Estado Inicial:** Toda cuadrilla se crea con estado `DISPONIBLE`.
-5. **Sincronización WebSocket:** Al completarse la inserción, emite el evento `"cuadrilla:creada"` con los datos de la cuadrilla, delegado y delegación hacia las salas `operaciones`, `encargado` y `supervisor`.
+5. **Promoción Atómica y Sincronización Territorial:** 
+   - Si el usuario seleccionado no posee el rol `DELEGADO_CUADRILLA`, el sistema actualiza su `rol_id` de forma atómica en la transacción.
+   - Sincroniza automáticamente la adscripción territorial del funcionario (`usuario.delegacion_id` y `personal.delegacion_id`) con la delegación base de la cuadrilla.
+   - Deja registro inmutable de auditoría en `log_cambios_usuarios` con el diff JSONB.
+6. **Estado Inicial:** Toda cuadrilla se crea con estado `DISPONIBLE`.
+7. **Sincronización WebSocket:** Al completarse la inserción, emite el evento `"cuadrilla:creada"` con los datos de la cuadrilla, delegado y delegación hacia las salas `operaciones`, `encargado` y `supervisor`.
 
 #### Cuerpo de la Solicitud (`POST` Body)
 ```json
@@ -425,15 +430,17 @@ Permite al Administrador registrar una nueva cuadrilla operativa en el sistema i
 - **`201 Created`:** Recurso o cuadrilla operativa validada e insertada exitosamente en estado inicial `DISPONIBLE`.
 - **`400 Bad Request`:**
   - Parámetros de consulta o cuerpo JSON inválidos según esquema Zod (ej. `nombre` menor a 3 caracteres, cantidad negativa).
+  - Intento de asignar a un funcionario con perfil administrativo (`ADMIN`, `SUPERVISOR`, `ENCARGADO`) como delegado de cuadrilla.
   - Intento de reducir la cantidad de inventario por debajo de las unidades actualmente en uso en terreno (`cantidadInventario < cantidadEnUso`).
   - Intento de asignar estado de mantenimiento (`enMantencion: true`) a un recurso o material a granel (`esIndividual === false`).
   - Delegación municipal base o usuario delegado inactivo en el sistema.
   - Identificadores de rol/delegación inexistentes o inválidos.
-- **`401 Unauthorized`:** Cabecera `X-User-Id` (o `Authorization: Bearer`) ausente, vacía o usuario no autenticado.
+- **`401 Unauthorized`:** Cabecera `Authorization: Bearer` o `x-user-id` ausente, inválida o usuario no autenticado.
 - **`403 Forbidden`:** Usuario no cuenta con permisos suficientes (requiere rol Administrador o permiso `recursos:crear`).
 - **`404 Not Found`:** Recurso, delegación municipal o usuario delegado no encontrado en el sistema.
 - **`409 Conflict`:**
   - Ya existe una cuadrilla operativa activa con el nombre ingresado (insensible a mayúsculas/minúsculas).
+  - El funcionario seleccionado ya se encuentra asignado como delegado de otra cuadrilla activa (regla de mando único ICS).
   - El recurso no se puede eliminar porque actualmente tiene unidades en uso en terreno o se encuentra asignado a cuadrillas en misión activa.
   - Correo electrónico o RUT duplicado en otro usuario.
 - **`422 Unprocessable Entity`:** Formato o tipo de datos inválido según validación Zod.

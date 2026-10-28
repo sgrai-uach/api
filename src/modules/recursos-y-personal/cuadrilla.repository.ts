@@ -36,6 +36,20 @@ export async function buscarCuadrillaPorNombre(nombre: string) {
 }
 
 /**
+ * Busca si el usuario ya está asignado como líder a una cuadrilla activa (eliminado_en IS NULL y estado != 'NO_DISPONIBLE').
+ * Resuelve BUG-H79-API-01 (Mando Único ICS).
+ */
+export async function buscarCuadrillaActivaDeDelegado(usuarioDelegadoId: string) {
+  return await db
+    .selectFrom("cuadrilla")
+    .select(["id", "nombre", "estado"])
+    .where("usuario_delegado_id", "=", usuarioDelegadoId)
+    .where("eliminado_en", "is", null)
+    .where("estado", "!=", "NO_DISPONIBLE")
+    .executeTakeFirst();
+}
+
+/**
  * Consulta la delegación por ID y verifica si está activa.
  */
 export async function obtenerDelegacionPorId(delegacionId: string) {
@@ -79,13 +93,14 @@ export async function obtenerRolDelegadoCuadrilla() {
 }
 
 /**
- * Inserta la nueva cuadrilla y, si el usuario delegado aún no posee el rol 'DELEGADO_CUADRILLA',
- * lo actualiza atómicamente dentro de una transacción registrando la auditoría.
+ * Inserta la nueva cuadrilla, promueve al delegado a DELEGADO_CUADRILLA si no lo era
+ * y sincroniza la delegación territorial en la tabla usuario y personal (BUG-H79-API-04).
  */
 export async function insertarCuadrillaConDelegado(
   datos: DatosCrearCuadrilla,
   rolDelegadoId: string,
-  usuarioActualRolCodigo?: string
+  usuarioActualRolCodigo?: string,
+  usuarioActualDelegacionId?: string | null
 ): Promise<FilaCuadrillaDetalle> {
   return await db.transaction().execute(async (trx) => {
     // 1. Insertar la cuadrilla en estado inicial DISPONIBLE
@@ -101,26 +116,45 @@ export async function insertarCuadrillaConDelegado(
       .returning(["id", "nombre", "estado", "creado_en", "creado_por_id", "delegacion_id", "usuario_delegado_id"])
       .executeTakeFirstOrThrow();
 
-    // 2. Si el usuario no tiene el rol DELEGADO_CUADRILLA, promoverlo y registrar en auditoría
+    // 2. Sincronizar rol y delegación territorial del delegado si es necesario
+    const updatesUsuario: { rol_id?: string; delegacion_id?: string } = {};
+    const camposModificados: Record<string, unknown> = {};
+
     if (usuarioActualRolCodigo !== "DELEGADO_CUADRILLA") {
+      updatesUsuario.rol_id = rolDelegadoId;
+      camposModificados.rol_id = rolDelegadoId;
+      camposModificados.rol_codigo = "DELEGADO_CUADRILLA";
+    }
+
+    if (usuarioActualDelegacionId !== datos.delegacionId) {
+      updatesUsuario.delegacion_id = datos.delegacionId;
+      camposModificados.delegacion_id = datos.delegacionId;
+    }
+
+    if (Object.keys(updatesUsuario).length > 0) {
       await trx
         .updateTable("usuario")
-        .set({
-          rol_id: rolDelegadoId,
-        })
+        .set(updatesUsuario)
         .where("id", "=", datos.usuarioDelegadoId)
         .execute();
+
+      // Sincronizar delegación en ficha de personal si existe
+      if (updatesUsuario.delegacion_id) {
+        await trx
+          .updateTable("personal")
+          .set({ delegacion_id: updatesUsuario.delegacion_id })
+          .where("usuario_id", "=", datos.usuarioDelegadoId)
+          .execute();
+      }
+
+      camposModificados.motivo = `Asignación de liderazgo en cuadrilla ${datos.nombre.trim()}`;
 
       await trx
         .insertInto("log_cambios_usuarios")
         .values({
           usuario_modificado_id: datos.usuarioDelegadoId,
           modificado_por_id: datos.creadoPorId,
-          campos_modificados: JSON.stringify({
-            rol_id: rolDelegadoId,
-            rol_codigo: "DELEGADO_CUADRILLA",
-            motivo: `Promoción automática al designar líder de la cuadrilla ${datos.nombre.trim()}`,
-          }),
+          campos_modificados: JSON.stringify(camposModificados),
         })
         .execute();
     }

@@ -180,4 +180,25 @@ describe("Endpoint POST /api/cuadrillas (H79)", () => {
     expect(body.data).toEqual(cuadrillaRespuestaMock);
     expect(body.data.estado).toBe("DISPONIBLE");
   });
+
+  it("BUG-H79-API-03: debe autenticar correctamente utilizando la cabecera x-user-id sin token Bearer", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(null);
+    vi.spyOn(cuadrillaService, "crearCuadrilla").mockResolvedValue(cuadrillaRespuestaMock);
+
+    const req = new NextRequest("http://localhost:3000/api/cuadrillas", {
+      method: "POST",
+      body: JSON.stringify(payloadValido),
+      headers: {
+        "content-type": "application/json",
+        "x-user-id": usuarioAdminId,
+      },
+    });
+
+    const res = await postCuadrillas(req);
+    expect(res.status).toBe(201);
+    expect(cuadrillaService.crearCuadrilla).toHaveBeenCalledWith(
+      payloadValido,
+      usuarioAdminId
+    );
+  });
 });

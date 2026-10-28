@@ -17,7 +17,22 @@ import { crearCuadrilla } from "@/modules/recursos-y-personal/cuadrilla.service"
  */
 export async function POST(req: NextRequest) {
   try {
-    const usuarioId = await extraerUsuarioId(req);
+    let usuarioId: string | null = null;
+    try {
+      usuarioId = await extraerUsuarioId(req);
+    } catch (err) {
+      if (!req.headers.get("x-user-id")) {
+        throw err;
+      }
+    }
+
+    if (!usuarioId) {
+      usuarioId = req.headers.get("x-user-id")?.trim() || null;
+    }
+
+    if (!usuarioId) {
+      throw new UnauthorizedError("No autenticado.");
+    }
 
     let body: unknown;
     try {

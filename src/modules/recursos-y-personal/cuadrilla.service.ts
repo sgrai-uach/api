@@ -8,6 +8,7 @@ import {
 import { emitirCuadrillaCreada } from "@/lib/socket";
 import {
   buscarCuadrillaPorNombre,
+  buscarCuadrillaActivaDeDelegado,
   obtenerDelegacionPorId,
   obtenerUsuarioPorId,
   obtenerRolDelegadoCuadrilla,
@@ -18,10 +19,15 @@ import type {
   CuadrillaResponse,
 } from "./cuadrilla.schema";
 
+const ROLES_ADMINISTRATIVOS = ["ADMIN", "SUPERVISOR", "ENCARGADO"];
+
 /**
  * Servicio para registrar una nueva cuadrilla operativa en el sistema (H79).
  * Valida permisos RBAC, unicidad de nombre, existencia y vigencia de la delegación y el delegado,
- * promueve atómicamente al usuario a 'DELEGADO_CUADRILLA' si aún no lo es y emite notificación WebSocket.
+ * verifica que el delegado no posea perfil administrativo (BUG-H79-API-02),
+ * verifica que no lidere otra cuadrilla activa (BUG-H79-API-01),
+ * promueve atómicamente al usuario a 'DELEGADO_CUADRILLA', sincroniza territorialidad (BUG-H79-API-04)
+ * y emite notificación WebSocket.
  */
 export async function crearCuadrilla(
   input: CrearCuadrillaInput,
@@ -57,13 +63,31 @@ export async function crearCuadrilla(
     throw new BadRequestError("El usuario designado como delegado de cuadrilla se encuentra inactivo.");
   }
 
-  // 5. Obtener el rol institucional DELEGADO_CUADRILLA para asignación
+  // 5. Validar que el usuario no posea roles administrativos (BUG-H79-API-02)
+  if (
+    usuarioDelegado.rol_codigo &&
+    ROLES_ADMINISTRATIVOS.includes(usuarioDelegado.rol_codigo.toUpperCase())
+  ) {
+    throw new BadRequestError(
+      "No se puede asignar a un funcionario con perfil administrativo como delegado de cuadrilla."
+    );
+  }
+
+  // 6. Validar mando único: no permitir que lidere múltiples cuadrillas activas (BUG-H79-API-01)
+  const cuadrillaActivaExistente = await buscarCuadrillaActivaDeDelegado(input.usuarioDelegadoId);
+  if (cuadrillaActivaExistente) {
+    throw new ConflictError(
+      `El funcionario seleccionado ya se encuentra asignado como delegado de la cuadrilla activa '${cuadrillaActivaExistente.nombre}'.`
+    );
+  }
+
+  // 7. Obtener el rol institucional DELEGADO_CUADRILLA para asignación
   const rolDelegado = await obtenerRolDelegadoCuadrilla();
   if (!rolDelegado) {
     throw new BadRequestError("El rol de sistema 'DELEGADO_CUADRILLA' no se encuentra configurado.");
   }
 
-  // 6. Insertar cuadrilla y promover delegado atómicamente
+  // 8. Insertar cuadrilla, promover delegado y sincronizar delegación territorial atómicamente (BUG-H79-API-04)
   const resultado = await insertarCuadrillaConDelegado(
     {
       nombre: input.nombre,
@@ -72,10 +96,11 @@ export async function crearCuadrilla(
       creadoPorId: usuarioAutenticado.id,
     },
     rolDelegado.id,
-    usuarioDelegado.rol_codigo ?? undefined
+    usuarioDelegado.rol_codigo ?? undefined,
+    usuarioDelegado.delegacion_id
   );
 
-  // 7. Mapear a la respuesta estructurada de dominio
+  // 9. Mapear a la respuesta estructurada de dominio
   const respuesta: CuadrillaResponse = {
     id: resultado.id,
     nombre: resultado.nombre,
@@ -97,7 +122,7 @@ export async function crearCuadrilla(
     creadoPorId: resultado.creado_por_id,
   };
 
-  // 8. Emitir evento WebSocket para sincronización en tiempo real
+  // 10. Emitir evento WebSocket para sincronización en tiempo real
   try {
     emitirCuadrillaCreada(respuesta);
   } catch (error) {
