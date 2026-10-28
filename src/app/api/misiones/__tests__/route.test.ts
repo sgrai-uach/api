@@ -97,6 +97,8 @@ describe("Route Handler POST /api/misiones (HU-20: Asignar Patrulla Verificadora
   const usuarioEncargadoMock = {
     id: "00000000-0000-4000-8000-000000000003",
     email: "encargado@valdivia.cl",
+    rut: "12.345.678-9",
+    nombre: "Encargado Municipal",
     rolId: "20000000-0000-4000-8000-000000000003",
     rolNombre: "Encargado",
     activo: true,
