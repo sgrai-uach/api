@@ -320,9 +320,11 @@ export interface EventoAsistenciaSocialTable {
 
 export interface PatrullaVerificadoraTable {
   id: Generated<string>;
+  codigo: string;
   nombre: string;
   estado: ColumnType<EstadoPatrulla, EstadoPatrulla | undefined, EstadoPatrulla>;
   delegacion_id: string | null;
+  vehiculo_id: string | null;
   usuario_lider_id: string | null;
   latitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
   longitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
@@ -331,6 +333,8 @@ export interface PatrullaVerificadoraTable {
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
   eliminado_en: Date | null;
+  eliminado_por_id: string | null;
+  activo: ColumnType<boolean, boolean | undefined, boolean>;
 }
 
 export interface PatrullaPersonalTable {
@@ -514,6 +518,17 @@ export interface EventoPrevencionRecursoTable {
   creado_en: Generated<Date>;
 }
 
+export interface MisionHitoTable {
+  id: Generated<string>;
+  mision_id: string;
+  hito: string;
+  descripcion: string;
+  registrado_por_id: string | null;
+  latitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
+  longitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
+  creado_en: Generated<Date>;
+}
+
 export interface Database {
   // Entidades principales (nombres singulares de Kysely)
   recurso: RecursoTable;
@@ -535,6 +550,7 @@ export interface Database {
   cuadrilla: CuadrillaTable;
   cuadrilla_recurso: CuadrillaRecursoTable;
   mision: MisionTable;
+  mision_hito: MisionHitoTable;
   aviso_incidente: AvisoIncidenteTable;
   adjunto: AdjuntoTable;
   reporte_terreno: ReporteTerrenoTable;
@@ -555,6 +571,7 @@ export interface Database {
   delegaciones: DelegacionTable;
   tipos_incidentes: TipoIncidenteTable;
   misiones: MisionTable;
+  misiones_hitos: MisionHitoTable;
   recuperaciones: RecuperacionTable;
   recuperacion_recursos: RecuperacionRecursoTable;
   eventos_asistencia_social: EventoAsistenciaSocialTable;
@@ -565,3 +582,4 @@ export interface Database {
   eventos_prevencion_recursos: EventoPrevencionRecursoTable;
   tokens_recuperacion_contrasena: TokenRecuperacionContrasenaTable;
 }
+

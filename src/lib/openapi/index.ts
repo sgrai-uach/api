@@ -48,7 +48,16 @@ import {
   PatrullaIdParamSchema,
   ActualizarEstadoPatrullaInputSchema,
   ActualizarEstadoPatrullaResponseSchema,
+  CrearPatrullaInputSchema,
+  CrearPatrullaResponseSchema,
+  ModificarPatrullaInputSchema,
+  ModificarPatrullaResponseSchema,
 } from "@/modules/recursos-y-personal/patrulla.schema";
+
+import {
+  CrearMisionVerificacionSchema,
+  CrearMisionResponseSchema,
+} from "@/modules/misiones/mision.schema";
 
 import {
   CrearAvisoIncidenteInputSchema,
@@ -1813,12 +1822,61 @@ registry.registerPath({
   },
 });
 
-// --- Módulo: Patrullas Verificadoras (Recursos y Personal - HU-16) ---
+// --- Módulo: Patrullas Verificadoras (Recursos y Personal - HU-16 & HU-83) ---
 registry.register("PatrullaItemResponse", PatrullaItemResponseSchema);
 registry.register("ListarPatrullasResponse", ListarPatrullasResponseSchema);
 registry.register("PatrullaDetalleResponse", PatrullaDetalleResponseSchema);
 registry.register("ActualizarEstadoPatrullaInput", ActualizarEstadoPatrullaInputSchema);
 registry.register("ActualizarEstadoPatrullaResponse", ActualizarEstadoPatrullaResponseSchema);
+registry.register("CrearPatrullaInput", CrearPatrullaInputSchema);
+registry.register("CrearPatrullaResponse", CrearPatrullaResponseSchema);
+
+registry.registerPath({
+  method: "post",
+  path: "/api/patrullas",
+  summary: "Dar de alta una nueva patrulla verificadora (HU-83)",
+  description:
+    "Registra una nueva patrulla verificadora en estado inicial canónico DISPONIBLE, validando la unicidad del código identificador, la existencia de la delegación base, la disponibilidad del vehículo institucional individual asignado y la adscripción de dotación de personal con rol PATRULLA_VERIFICADORA. Emite el evento en tiempo real 'patrulla:creada' para el Centro de Mando.",
+  tags: ["Recursos y Personal"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: CrearPatrullaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Patrulla verificadora registrada exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearPatrullaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos, error de validación Zod o funcionarios sin rol PATRULLA_VERIFICADORA",
+    },
+    401: {
+      description: "No autenticado o token de sesión inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil Administrador o permiso 'recursos:crear'",
+    },
+    404: {
+      description: "Delegación base o vehículo institucional no encontrado",
+    },
+    409: {
+      description: "Conflicto por código identificador ya registrado o vehículo institucional no disponible",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
 
 registry.registerPath({
   method: "get",
@@ -1938,6 +1996,106 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor",
+    },
+  },
+});
+
+registry.registerPath({
+  method: "put",
+  path: "/api/patrullas/{id}",
+  summary: "Modificar patrulla verificadora registrada (HU-84)",
+  description:
+    "Modifica la delegación municipal base, vehículo institucional asignado y dotación de personal operativo adscrito a una patrulla verificadora. Bloquea con HTTP 409 Conflict si la patrulla se encuentra en estado EN_VERIFICACION o cuenta con una misión táctica activa en terreno.",
+  tags: ["Recursos y Personal"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: PatrullaIdParamSchema,
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: ModificarPatrullaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Patrulla verificadora modificada exitosamente",
+      content: {
+        "application/json": {
+          schema: ModificarPatrullaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos o funcionarios sin rol 'PATRULLA_VERIFICADORA'",
+    },
+    401: {
+      description: "No autenticado o token ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recursos:editar'",
+    },
+    404: {
+      description: "Patrulla, delegación o vehículo no encontrado",
+    },
+    409: {
+      description:
+        "Conflicto operativo: la patrulla está en estado EN_VERIFICACION o en misión activa, o el vehículo ya se encuentra asignado",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// POST /api/misiones (HU-20: Asignar y despachar patrulla verificadora)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones",
+  summary: "Asignar y despachar patrulla verificadora a un incidente (HU-20)",
+  description:
+    "Despacha una patrulla verificadora disponible a un incidente formal en estado REPORTADO. Ejecuta una transacción atómica que: (1) crea la misión con tipo VERIFICACION y estado DESPACHADA, (2) actualiza el incidente a estado VERIFICANDO, (3) actualiza la patrulla a estado EN_VERIFICACION, y (4) registra el hito inicial en mision_hito. Emite eventos WebSocket a las salas 'patrulla:{id}', 'encargado' y 'mapa'. Requiere permiso 'misiones:asignar'.",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: CrearMisionVerificacionSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Misión de verificación creada y patrulla despachada exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearMisionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos o formato JSON malformado",
+    },
+    401: {
+      description: "No autenticado o token ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:asignar'",
+    },
+    404: {
+      description: "Incidente o patrulla no encontrado",
+    },
+    409: {
+      description:
+        "Conflicto: la patrulla seleccionada ya no se encuentra DISPONIBLE o el incidente no está en estado REPORTADO",
+    },
+    500: {
+      description: "Error interno del servidor al crear y despachar la misión",
     },
   },
 });

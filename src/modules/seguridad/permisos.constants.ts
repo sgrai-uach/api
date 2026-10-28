@@ -12,6 +12,7 @@ export const PERMISO_CREAR_PUNTO_CRITICO = "puntos_criticos:crear";
 export const PERMISO_EDITAR_PUNTO_CRITICO = "puntos_criticos:editar";
 export const PERMISO_ELIMINAR_PUNTO_CRITICO = "puntos_criticos:eliminar";
 export const PERMISO_LEER_MISION = "misiones:leer";
+export const PERMISO_ASIGNAR_MISION = "misiones:asignar";
 export const PERMISO_CREAR_RECUPERACION = "recuperacion:crear";
 export const PERMISO_CREAR_ASISTENCIA_SOCIAL = "asistencia_social:crear";
 export const PERMISO_LEER_ASISTENCIA_SOCIAL = "asistencia_social:leer";

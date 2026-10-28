@@ -74,8 +74,11 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `DELETE` | `/api/personal/:id` | Dar de baja lógica a un funcionario preservando trazabilidad histórica (H13). |
 | `GET` | `/api/catalogos` | Entregar catálogos de referencia (roles, delegaciones activas, especialidades y cargos) para selectores. |
 | `GET` | `/api/patrullas` | Listar patrullas verificadoras con paginación estricta, filtros por delegación/estado, líder, integrantes y misión activa (HU-16). |
+| `POST` | `/api/patrullas` | Registrar una nueva patrulla verificadora en estado canónico DISPONIBLE con código, dotación y vehículo (HU-83). |
 | `GET` | `/api/patrullas/{id}` | Consultar detalle completo de una patrulla verificadora. |
 | `PATCH` | `/api/patrullas/{id}` | Actualizar estado operativo canónico y/o geolocalización de una patrulla con emisión en tiempo real vía WebSocket. |
+| `PUT` | `/api/patrullas/{id}` | Modificar delegación base, vehículo asignado y dotación de personal de una patrulla verificadora (HU-84). |
+| `DELETE` | `/api/patrullas/{id}` | Desactivar mediante baja lógica una patrulla verificadora liberando personal y vehículo asignados (HU-85). |
 
 
 ---
@@ -530,38 +533,189 @@ Permite modificar el estado operativo de una patrulla y/o sus coordenadas geogr�
   ```
 - **Respuesta (`200 OK`):** Retorna `{ message, data }` con la patrulla actualizada.
 
-#### 3.8.6 Eventos en Tiempo Real (Socket.io)
-Ante cualquier cambio de estado o asignación de patrulla, el backend emite:
-1. `patrulla:actualizada`:
+#### 3.8.6 Alta de Patrulla Verificadora (`POST /api/patrullas`) (HU-83)
+Permite al Administrador dar de alta una nueva patrulla verificadora para labores de triage y evaluación preliminar en terreno:
+- **Autenticación requerida:** `Authorization: Bearer <jwt>` (o `X-User-Id` para retrocompatibilidad).
+- **Autorización RBAC:** Requiere rol `Administrador` o poseer el permiso `recursos:crear`.
+- **Reglas de Negocio:**
+  - El `codigo` debe ser único e inmutable en el sistema (ej. `PV-NORTE-01`). Ante duplicados se responde con `HTTP 409 Conflict`.
+  - El registro nace obligatoriamente con estado inicial canónico `DISPONIBLE`.
+  - El vehículo institucional asignado (`vehiculoId`) debe existir, ser un recurso individual (`es_individual: true`) y encontrarse en estado `DISPONIBLE`. Al registrarse la patrulla, el vehículo pasa atómicamente a estado `ASIGNADO` con `cantidad_en_uso = 1`.
+  - Los funcionarios asignados en `personalIds` deben tener cuenta activa y rol `PATRULLA_VERIFICADORA`. Sus estados pasan a `en_patrulla`.
+  - Se emite de inmediato el evento WebSocket `patrulla:creada` hacia la sala de encargados y mapa del Centro de Mando.
+
+- **Body JSON:**
+  ```json
+  {
+    "codigo": "PV-NORTE-01",
+    "nombre": "Patrulla Rápida Norte 1",
+    "delegacionId": "30000000-0000-4000-8000-000000000001",
+    "vehiculoId": "e1000000-0000-4000-8000-000000000002",
+    "personalIds": [
+      "b1000000-0000-4000-8000-000000000001",
+      "b1000000-0000-4000-8000-000000000002"
+    ],
+    "usuarioLiderId": "c1000000-0000-4000-8000-000000000001"
+  }
+  ```
+
+- **Respuesta (`201 Created`):**
+  ```json
+  {
+    "message": "Patrulla verificadora registrada exitosamente.",
+    "data": {
+      "id": "f1000000-0000-4000-8000-000000000099",
+      "codigo": "PV-NORTE-01",
+      "nombre": "Patrulla Rápida Norte 1",
+      "estado": "DISPONIBLE",
+      "delegacion": {
+        "id": "30000000-0000-4000-8000-000000000001",
+        "nombre": "Delegación Municipal Norte",
+        "codigo": "DEL_NORTE"
+      },
+      "vehiculo": {
+        "id": "e1000000-0000-4000-8000-000000000002",
+        "nombre": "Camioneta 4x4 Navara",
+        "detalles": { "patente": "CD-FG-23" },
+        "estado": "ASIGNADO"
+      },
+      "lider": {
+        "id": "c1000000-0000-4000-8000-000000000001",
+        "nombre": "Juan Líder",
+        "email": "juan@valdivia.cl"
+      },
+      "integrantes": [...],
+      "misionActiva": null,
+      "creadoEn": "2026-10-24T18:00:00.000Z",
+      "actualizadoEn": "2026-10-24T18:00:00.000Z"
+    }
+  }
+  ```
+
+#### 3.8.7 Modificación de Patrulla Verificadora (`PUT /api/patrullas/{id}`) (HU-84)
+Permite al Administrador adecuar la composición del equipo verificador ante rotaciones o mantenimiento vehicular, reasignando su vehículo, delegación municipal base y dotación de funcionarios asociados:
+- **Autenticación requerida:** `Authorization: Bearer <jwt>` (o `X-User-Id` para retrocompatibilidad).
+- **Autorización RBAC:** Requiere rol `Administrador` o poseer el permiso `recursos:editar`.
+- **Reglas de Negocio:**
+  - **Bloqueo Operativo Estricto:** Si la patrulla se encuentra en estado `EN_VERIFICACION` o cuenta con una misión táctica activa en terreno (`PLANIFICADA`, `DESPACHADA` o `EN_CURSO`), el backend rechaza la modificación con código `HTTP 409 Conflict`.
+  - **Reasignación Vehicular Atómica:** 
+    - Si se desasigna el vehículo previo (`vehiculoId: null`) o se reemplaza por otro, el vehículo anterior se libera automáticamente (`estado = 'DISPONIBLE'`, `cantidad_en_uso = 0`).
+    - Si se especifica un nuevo vehículo, este debe existir, ser un recurso individual (`es_individual: true`) y encontrarse disponible (`estado === 'DISPONIBLE'`). Al asignarse, pasa a estado `ASIGNADO` con `cantidad_en_uso = 1`.
+  - **Dotación de Personal:**
+    - Los funcionarios desvinculados de la patrulla retornan a `estado_operativo = 'disponible'` en la tabla `personal`.
+    - Los nuevos funcionarios asignados deben contar con rol `PATRULLA_VERIFICADORA` y pasan a `estado_operativo = 'en_patrulla'`.
+  - **Auditoría:** Cada modificación registra la fecha y hora de actualización en la columna `actualizado_en = CURRENT_TIMESTAMP`.
+  - **Sincronización en Tiempo Real:** Emite el evento WebSocket `patrulla:actualizada` a las salas `"encargado"`, `"supervisor"`, `"mapa"` y `"patrulla:{patrullaId}"`.
+
+- **Body JSON:**
+  ```json
+  {
+    "nombre": "Patrulla Costa 01 - Reforzada",
+    "delegacionId": "30000000-0000-4000-8000-000000000003",
+    "vehiculoId": "e1000000-0000-4000-8000-000000000005",
+    "personalIds": [
+      "b1000000-0000-4000-8000-000000000001",
+      "b1000000-0000-4000-8000-000000000002"
+    ],
+    "usuarioLiderId": "c1000000-0000-4000-8000-000000000001"
+  }
+  ```
+
+- **Respuesta (`200 OK`):**
+  ```json
+  {
+    "message": "Patrulla verificadora modificada exitosamente.",
+    "data": {
+      "id": "f1000000-0000-4000-8000-000000000001",
+      "codigo": "PV-COSTA-01",
+      "nombre": "Patrulla Costa 01 - Reforzada",
+      "estado": "DISPONIBLE",
+      "delegacion": {
+        "id": "30000000-0000-4000-8000-000000000003",
+        "nombre": "Delegación Costa",
+        "codigo": "DEL_COSTA"
+      },
+      "vehiculo": {
+        "id": "e1000000-0000-4000-8000-000000000005",
+        "nombre": "Camioneta 4x4 Hilux",
+        "detalles": { "patente": "GH-JK-89" },
+        "estado": "ASIGNADO"
+      },
+      "lider": {
+        "id": "c1000000-0000-4000-8000-000000000001",
+        "nombre": "Juan Líder",
+        "email": "juan@valdivia.cl"
+      },
+      "integrantes": [...],
+      "misionActiva": null,
+      "creadoEn": "2026-10-20T10:00:00.000Z",
+      "actualizadoEn": "2026-10-26T12:00:00.000Z"
+    }
+  }
+  ```
+
+#### 3.8.8 Eventos en Tiempo Real (Socket.io)
+Ante cambios de estado, asignación, alta o modificación de patrulla, el backend emite:
+1. `patrulla:creada`:
+   - **Salas destino:** `"encargado"`, `"supervisor"`, `"mapa"`, `"sala:encargados"`.
+   - **Payload:** `{ patrullaId, codigo, nombre, estado, delegacionId, vehiculoId, usuarioLiderId, creadoEn }`.
+2. `patrulla:actualizada`:
    - **Salas destino:** `"encargado"`, `"supervisor"`, `"mapa"`, `"patrulla:{patrullaId}"`.
-   - **Payload:**
-     ```json
-     {
-       "patrullaId": "f1000000-0000-4000-8000-000000000001",
-       "nombre": "Patrulla Rápida Costa-1",
-       "estado": "EN_VERIFICACION",
-       "delegacionId": "30000000-0000-4000-8000-000000000003",
-       "usuarioLiderId": "00000000-0000-4000-8000-000000000003",
-       "misionActivaId": "d1000000-0000-4000-8000-000000000001",
-       "incidenteId": "a1000000-0000-4000-8000-000000000003",
-       "actualizadoEn": "2026-10-20T22:30:00.000Z"
-     }
-     ```
-2. `mision:asignada`:
+   - **Payload:** `{ patrullaId, nombre, estado, delegacionId, usuarioLiderId, misionActivaId, incidenteId, actualizadoEn }`.
+3. `patrulla:desactivada`:
+   - **Salas destino:** `"encargado"`, `"supervisor"`, `"mapa"`, `"administrador"`, `"patrulla:{patrullaId}"`.
+   - **Payload:** `{ patrullaId, nombre, eliminadoPorId, eliminadoEn }`.
+4. `mision:asignada`:
    - **Salas destino:** `"encargado"`, `"supervisor"`.
-   - **Payload:**
-     ```json
-     {
-       "misionId": "d1000000-0000-4000-8000-000000000001",
-       "codigo": "MIS-2026-0001",
-       "tipoMision": "VERIFICACION",
-       "patrullaId": "f1000000-0000-4000-8000-000000000001",
-       "incidenteId": "a1000000-0000-4000-8000-000000000003",
-       "asignadoEn": "2026-10-20T22:00:00.000Z"
-     }
-     ```
+   - **Payload:** `{ misionId, codigo, tipoMision, patrullaId, incidenteId, asignadoEn }`.
 
 ---
+
+### 3.9. `DELETE /api/patrullas/{id}` (HU-85: Desactivar Patrulla Verificadora)
+Desactiva mediante **baja lógica (soft delete)** una patrulla verificadora que ya no prestará servicios operacionales, impidiendo su selección en nuevos despachos mientras preserva íntegramente la auditoría de los reportes técnicos (`reporte_terreno`) y misiones tácticas en las que actuó.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
+- **Perfiles y permisos autorizados:** Perfil `Administrador` o usuarios que cuenten con el permiso `recursos:eliminar`.
+
+#### Reglas de Negocio Críticas Aplicadas:
+1. **Validación de Bloqueo por Misiones o Verificación en Terreno (`HTTP 409 Conflict`):**
+   - Si la patrulla se encuentra en estado `EN_VERIFICACION`, la baja es rechazada inmediatamente con `409 Conflict`.
+   - Si la patrulla cuenta con misiones activas en curso (`PLANIFICADA`, `DESPACHADA` o `EN_CURSO`), la baja es rechazada con `409 Conflict`.
+2. **Aplicación Estricta de Baja Lógica (Regla Crítica §3.7):**
+   - No se realiza eliminación física (`DELETE`) en la base de datos relacional.
+   - Se actualizan los atributos: `activo = false`, `eliminado_en = CURRENT_TIMESTAMP`, `eliminado_por_id = usuarioId` y `estado = 'NO_DISPONIBLE'`.
+3. **Liberación Inmediata de Inventario y Dotación Comunal:**
+   - **Vehículo:** Si la patrulla tenía un vehículo institucional asignado (`vehiculo_id`), este se desasocia y en la tabla `recurso` pasa inmediatamente a `estado = 'DISPONIBLE'` y `cantidad_en_uso = 0`.
+   - **Personal de Terreno:** Los funcionarios asignados a la dotación en `patrulla_personal` pasan en la tabla `personal` a `estado_operativo = 'disponible'`, quedando listos para conformar nuevas dotaciones o asignaciones.
+4. **Preservación Inmutable de Evidencia e Informes Técnicos:**
+   - Los registros de `reporte_terreno` vinculados a misiones históricas ejecutadas por esta patrulla no sufren ninguna alteración, garantizando trazabilidad para auditorías y fiscalizaciones comunales (SENAPRED / DGRD).
+5. **Sincronización en Tiempo Real:**
+   - Emite el evento `patrulla:desactivada` y `patrulla:actualizada` a las salas del Centro de Mando.
+   - Si se liberó un vehículo, emite `recurso:actualizado` para refrescar los módulos de inventario en vivo.
+
+#### Parámetros de Ruta
+- `id` (`UUID`, obligatorio): Identificador único de la patrulla verificadora a desactivar.
+
+#### Respuesta Exitosa (`HTTP 200 OK`)
+```json
+{
+  "message": "Patrulla verificadora desactivada exitosamente.",
+  "data": {
+    "id": "f1000000-0000-4000-8000-000000000001",
+    "codigo": "PV-COSTA-01",
+    "nombre": "Patrulla Costa 01",
+    "estado": "NO_DISPONIBLE",
+    "activo": false,
+    "eliminadoEn": "2026-10-26T15:30:00.000Z",
+    "eliminadoPorId": "00000000-0000-4000-8000-000000000001",
+    "vehiculoLiberadoId": "e1000000-0000-4000-8000-000000000002",
+    "personalLiberadoIds": [
+      "b1000000-0000-4000-8000-000000000001",
+      "b1000000-0000-4000-8000-000000000002"
+    ]
+  }
+}
+```
 
 ---
 
@@ -574,11 +728,15 @@ Ante cualquier cambio de estado o asignación de patrulla, el backend emite:
   - Intento de reducir la cantidad de inventario por debajo de las unidades actualmente en uso en terreno (`cantidadInventario < cantidadEnUso`).
   - Intento de asignar estado de mantenimiento (`enMantencion: true`) a un recurso o material a granel (`esIndividual === false`).
   - Identificadores de rol/delegación inexistentes o inválidos.
+  - Funcionarios asignados a patrulla sin rol operativo `PATRULLA_VERIFICADORA`.
 - **`401 Unauthorized`:** Cabecera `X-User-Id` (o `Authorization: Bearer`) ausente, vacía o usuario no autenticado.
-- **`403 Forbidden`:** Usuario no cuenta con permisos suficientes (requiere rol Administrador o permiso explícito).
-- **`404 Not Found`:** Recurso o empleado no encontrado en el sistema, o recurso ya dado de baja previamente.
+- **`403 Forbidden`:** Usuario no cuenta con permisos suficientes (requiere rol Administrador o permiso explícito como `recursos:editar`).
+- **`404 Not Found`:** Recurso, patrulla o empleado no encontrado en el sistema, o recurso ya dado de baja previamente.
 - **`409 Conflict`:**
   - El recurso no se puede eliminar porque actualmente tiene unidades en uso en terreno o se encuentra asignado a cuadrillas en misión activa.
+  - La patrulla verificadora no se puede modificar o desactivar porque se encuentra en estado `EN_VERIFICACION` o con una misión táctica activa en curso (HU-84 / HU-85).
+  - El vehículo institucional a asignar ya se encuentra en uso o asignado a otra dotación activa.
+  - Código identificador de patrulla ya registrado en otra patrulla activa.
   - Correo electrónico o RUT duplicado en otro usuario.
 - **`422 Unprocessable Entity`:** Formato o tipo de datos inválido según validación Zod.
 - **`500 Internal Server Error`:** Falla de conexión a base de datos PostgreSQL o error de servidor no controlado.

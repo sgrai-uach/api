@@ -4,6 +4,7 @@ import {
   MisionDetalleResponseSchema,
   MisionDetalleCompletoSchema,
   ReporteTerrenoDetalleSchema,
+  CrearMisionVerificacionSchema,
 } from "../mision.schema";
 
 describe("Mision Schemas (HU-17)", () => {
@@ -244,4 +245,77 @@ describe("Mision Schemas (HU-17)", () => {
       expect(resultado.success).toBe(true);
     });
   });
+
+  describe("CrearMisionVerificacionSchema (HU-20)", () => {
+    it("debe validar un payload correcto de despacho de patrulla", () => {
+      const payload = {
+        incidenteId: "50000000-0000-4000-8000-000000000001",
+        patrullaId: "f1000000-0000-4000-8000-000000000001",
+        titulo: "Verificación de anegamiento en Las Ánimas",
+        descripcion: "Evaluar anegamiento en patio de vivienda y riesgo eléctrico.",
+        prioridad: "ALTA",
+      };
+
+      const resultado = CrearMisionVerificacionSchema.safeParse(payload);
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.tipoMision).toBe("VERIFICACION");
+        expect(resultado.data.prioridad).toBe("ALTA");
+      }
+    });
+
+    it("debe asignar tipoMision VERIFICACION por defecto si se omite", () => {
+      const payloadMinimo = {
+        incidenteId: "50000000-0000-4000-8000-000000000001",
+        patrullaId: "f1000000-0000-4000-8000-000000000001",
+      };
+
+      const resultado = CrearMisionVerificacionSchema.safeParse(payloadMinimo);
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.tipoMision).toBe("VERIFICACION");
+      }
+    });
+
+    it("debe fallar si incidenteId no es un UUID válido", () => {
+      const payload = {
+        incidenteId: "invalido",
+        patrullaId: "f1000000-0000-4000-8000-000000000001",
+      };
+
+      const resultado = CrearMisionVerificacionSchema.safeParse(payload);
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(resultado.error.issues[0].message).toContain("identificador del incidente debe ser un UUID válido");
+      }
+    });
+
+    it("debe fallar si patrullaId no es un UUID válido", () => {
+      const payload = {
+        incidenteId: "50000000-0000-4000-8000-000000000001",
+        patrullaId: "patrulla-123",
+      };
+
+      const resultado = CrearMisionVerificacionSchema.safeParse(payload);
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(resultado.error.issues[0].message).toContain("identificador de la patrulla verificadora debe ser un UUID válido");
+      }
+    });
+
+    it("debe fallar si el título tiene menos de 3 caracteres", () => {
+      const payload = {
+        incidenteId: "50000000-0000-4000-8000-000000000001",
+        patrullaId: "f1000000-0000-4000-8000-000000000001",
+        titulo: "Ok",
+      };
+
+      const resultado = CrearMisionVerificacionSchema.safeParse(payload);
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(resultado.error.issues[0].message).toContain("al menos 3 caracteres");
+      }
+    });
+  });
 });
+

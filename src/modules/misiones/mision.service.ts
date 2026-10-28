@@ -1,10 +1,20 @@
-import { obtenerMisionDetallePorIdRepo } from "./mision.repository";
+import {
+  obtenerMisionDetallePorIdRepo,
+  crearMisionVerificacionRepo,
+} from "./mision.repository";
 import type {
   MisionDetalleCompleto,
   MisionBitacoraHito,
   ReporteTerrenoDetalle,
   AdjuntoEvidencia,
+  CrearMisionVerificacionInput,
+  CrearMisionResponse,
 } from "./mision.schema";
+import {
+  notificarMisionAsignada,
+  notificarIncidenteActualizado,
+  notificarPatrullaActualizada,
+} from "@/lib/socket";
 
 function formatearFechaIso(fecha: Date | string | null | undefined): string | null {
   if (!fecha) return null;
@@ -236,3 +246,72 @@ export async function obtenerDetalleMisionService(
     reportesTerreno: reportesMapeados,
   };
 }
+
+/**
+ * HU-20 - Servicio de negocio para asignar y despachar una patrulla verificadora disponible
+ * a un incidente en estado REPORTADO.
+ *
+ * 1. Ejecuta la transacción atómica en persistencia.
+ * 2. Emite eventos reactivos Socket.io a través del broker Redis:
+ *    - 'mision:asignada' a la sala de la patrulla ('patrulla:{id}') y 'encargado'.
+ *    - 'incidente:actualizado' a las salas 'encargado' y 'mapa' (mueve Kanban a 'VERIFICANDO').
+ *    - 'patrulla:actualizada' para actualizar la disponibilidad en el mapa y listados.
+ */
+export async function asignarPatrullaVerificacionService(
+  input: CrearMisionVerificacionInput,
+  operadorId: string
+): Promise<CrearMisionResponse> {
+  const resultado = await crearMisionVerificacionRepo(input, operadorId);
+
+  // Emitir eventos WebSocket en segundo plano
+  try {
+    notificarMisionAsignada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      tipoMision: resultado.mision.tipoMision,
+      patrullaId: resultado.patrulla.id,
+      incidenteId: resultado.incidente.id,
+      asignadoEn: resultado.mision.creadoEn,
+    });
+
+    notificarIncidenteActualizado({
+      id: resultado.incidente.id,
+      codigo: resultado.incidente.codigo,
+      nuevoEstado: resultado.incidente.estado,
+      prioridad: resultado.incidente.prioridad,
+      actualizadoEn: new Date().toISOString(),
+    });
+
+    notificarPatrullaActualizada({
+      patrullaId: resultado.patrulla.id,
+      nombre: resultado.patrulla.nombre,
+      estado: resultado.patrulla.estado,
+      delegacionId: resultado.patrulla.delegacionId,
+      usuarioLiderId: resultado.patrulla.usuarioLiderId,
+      misionActivaId: resultado.mision.id,
+      incidenteId: resultado.incidente.id,
+      actualizadoEn: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras asignar patrulla:", error);
+  }
+
+  return {
+    message: "Misión de verificación creada y patrulla despachada exitosamente.",
+    data: {
+      mision: resultado.mision,
+      incidente: {
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        estado: resultado.incidente.estado,
+      },
+      patrulla: {
+        id: resultado.patrulla.id,
+        nombre: resultado.patrulla.nombre,
+        estado: resultado.patrulla.estado,
+      },
+      hitoInicial: resultado.hitoInicial,
+    },
+  };
+}
+
