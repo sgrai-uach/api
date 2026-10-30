@@ -27,6 +27,8 @@ import {
   obtenerPersonalParaAsignacion,
   obtenerRecursosParaAsignacion,
   obtenerRecursosIndividualesAsignadosAOtrasCuadrillas,
+  verificarDelegadoAsignadoAOtraCuadrilla,
+  obtenerTrabajadoresAsignadosAOtrasCuadrillas,
   actualizarCuadrillaConDotacionTransaccional,
 } from "./cuadrilla.repository";
 import type {
@@ -365,7 +367,16 @@ export async function editarCuadrilla(
 
   const rolBrigadista = await obtenerRolPorCodigo("BRIGADISTA");
 
-  // 8. Validar trabajadores operativos (personal)
+  // 8. Validaciones ICS de Dotación y Personal (BUG-H81-API-03)
+  // 8.1 Verificar asignación multicuadrilla del Delegado
+  const estadoDelegadoOtra = await verificarDelegadoAsignadoAOtraCuadrilla(input.usuarioDelegadoId, id);
+  if (estadoDelegadoOtra.asignado) {
+    throw new ConflictError(
+      `El usuario designado como Delegado ya se encuentra asignado a otra cuadrilla operativa activa ('${estadoDelegadoOtra.cuadrillaNombre}').`
+    );
+  }
+
+  // 8.2 Validar trabajadores operativos (personal)
   const personalIds = input.trabajadores.map((t) => t.personalId);
   const setPersonalIds = new Set(personalIds);
   if (setPersonalIds.size !== personalIds.length) {
@@ -382,6 +393,14 @@ export async function editarCuadrilla(
       );
     }
 
+    // Regla ICS: Asignación dual (el delegado no puede figurar en la dotación de operarios bajo su propio mando)
+    const delegadoPersonal = personalEncontrado.find((p) => p.usuario_id === input.usuarioDelegadoId);
+    if (delegadoPersonal) {
+      throw new BadRequestError(
+        "El funcionario designado como Delegado no puede formar parte de la dotación de trabajadores de la cuadrilla."
+      );
+    }
+
     for (const p of personalEncontrado) {
       if (!p.usuario_activo) {
         throw new BadRequestError(`El funcionario '${p.nombre}' se encuentra inactivo en el sistema.`);
@@ -394,6 +413,14 @@ export async function editarCuadrilla(
           `El funcionario '${p.nombre}' no se encuentra disponible (estado operativo actual: '${p.estado_operativo}').`
         );
       }
+    }
+
+    // Regla ICS: Asignación multicuadrilla de trabajadores
+    const trabajadoresEnOtras = await obtenerTrabajadoresAsignadosAOtrasCuadrillas(personalIds, id);
+    if (trabajadoresEnOtras.length > 0) {
+      throw new ConflictError(
+        `El funcionario '${trabajadoresEnOtras[0].nombre}' ya se encuentra asignado a otra cuadrilla operativa activa ('${trabajadoresEnOtras[0].cuadrilla_nombre}').`
+      );
     }
   }
 
@@ -420,15 +447,24 @@ export async function editarCuadrilla(
       const recurso = mapaRecursosEncontrados.get(item.recursoId);
       if (!recurso) continue;
 
+      if (recurso.estado !== "DISPONIBLE") {
+        throw new BadRequestError(
+          `El recurso '${recurso.nombre}' no se encuentra en estado DISPONIBLE (estado actual: ${recurso.estado}).`
+        );
+      }
+
       if (recurso.es_individual && item.cantidad > 1) {
         throw new BadRequestError(
           `El recurso individual o vehículo '${recurso.nombre}' solo admite una cantidad asignada de 1 unidad.`
         );
       }
 
-      if (item.cantidad > recurso.cantidad_inventario) {
+      const enUso = Number(recurso.cantidad_en_uso ?? 0);
+      const disponible = Number(recurso.cantidad_inventario) - enUso;
+
+      if (item.cantidad > disponible) {
         throw new BadRequestError(
-          `Stock insuficiente para el recurso '${recurso.nombre}' (solicitado: ${item.cantidad}, inventario total: ${recurso.cantidad_inventario}).`
+          `Stock insuficiente para el recurso '${recurso.nombre}' (solicitado: ${item.cantidad}, disponible en bodega: ${disponible}).`
         );
       }
     }
