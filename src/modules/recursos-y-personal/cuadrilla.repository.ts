@@ -637,6 +637,103 @@ export async function obtenerRecursosIndividualesAsignadosAOtrasCuadrillas(
 }
 
 /**
+ * Verifica si un usuario designado como delegado ya está asignado a otra cuadrilla activa
+ * (sea como líder delegado o como trabajador en cuadrilla_personal).
+ */
+export async function verificarDelegadoAsignadoAOtraCuadrilla(
+  usuarioDelegadoId: string,
+  excluirCuadrillaId: string
+) {
+  // 1. ¿Lidera otra cuadrilla activa?
+  const cuadrillaComoLider = await db
+    .selectFrom("cuadrilla")
+    .select(["id", "nombre"])
+    .where("usuario_delegado_id", "=", usuarioDelegadoId)
+    .where("id", "!=", excluirCuadrillaId)
+    .where("eliminado_en", "is", null)
+    .executeTakeFirst();
+
+  if (cuadrillaComoLider) {
+    return {
+      asignado: true,
+      rolEnOtra: "delegado" as const,
+      cuadrillaNombre: cuadrillaComoLider.nombre,
+    };
+  }
+
+  // 2. ¿Es trabajador en otra cuadrilla activa?
+  const cuadrillaComoTrabajador = await db
+    .selectFrom("cuadrilla_personal")
+    .innerJoin("cuadrilla", "cuadrilla.id", "cuadrilla_personal.cuadrilla_id")
+    .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+    .select(["cuadrilla.id", "cuadrilla.nombre"])
+    .where("personal.usuario_id", "=", usuarioDelegadoId)
+    .where("cuadrilla.id", "!=", excluirCuadrillaId)
+    .where("cuadrilla.eliminado_en", "is", null)
+    .executeTakeFirst();
+
+  if (cuadrillaComoTrabajador) {
+    return {
+      asignado: true,
+      rolEnOtra: "trabajador" as const,
+      cuadrillaNombre: cuadrillaComoTrabajador.nombre,
+    };
+  }
+
+  return { asignado: false, rolEnOtra: null, cuadrillaNombre: null };
+}
+
+/**
+ * Obtiene si alguno de los funcionarios solicitados ya forma parte de otra cuadrilla activa
+ * (sea como trabajador o como delegado de dicha cuadrilla).
+ */
+export async function obtenerTrabajadoresAsignadosAOtrasCuadrillas(
+  personalIds: string[],
+  excluirCuadrillaId: string
+) {
+  if (personalIds.length === 0) return [];
+
+  // Buscar si están en cuadrilla_personal de otra cuadrilla activa
+  const comoTrabajadores = await db
+    .selectFrom("cuadrilla_personal")
+    .innerJoin("cuadrilla", "cuadrilla.id", "cuadrilla_personal.cuadrilla_id")
+    .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+    .innerJoin("usuario", "usuario.id", "personal.usuario_id")
+    .select([
+      "personal.id as personal_id",
+      "usuario.nombre as nombre",
+      "cuadrilla.id as cuadrilla_id",
+      "cuadrilla.nombre as cuadrilla_nombre",
+    ])
+    .where("cuadrilla_personal.personal_id", "in", personalIds)
+    .where("cuadrilla.id", "!=", excluirCuadrillaId)
+    .where("cuadrilla.eliminado_en", "is", null)
+    .execute();
+
+  if (comoTrabajadores.length > 0) {
+    return comoTrabajadores;
+  }
+
+  // Buscar si su usuario_id es delegado de otra cuadrilla activa
+  const comoDelegados = await db
+    .selectFrom("personal")
+    .innerJoin("usuario", "usuario.id", "personal.usuario_id")
+    .innerJoin("cuadrilla", "cuadrilla.usuario_delegado_id", "usuario.id")
+    .select([
+      "personal.id as personal_id",
+      "usuario.nombre as nombre",
+      "cuadrilla.id as cuadrilla_id",
+      "cuadrilla.nombre as cuadrilla_nombre",
+    ])
+    .where("personal.id", "in", personalIds)
+    .where("cuadrilla.id", "!=", excluirCuadrillaId)
+    .where("cuadrilla.eliminado_en", "is", null)
+    .execute();
+
+  return comoDelegados;
+}
+
+/**
  * Ejecuta atómicamente la actualización de la cuadrilla, reasignación de roles y su dotación completa.
  */
 export async function actualizarCuadrillaConDotacionTransaccional(
@@ -741,7 +838,44 @@ export async function actualizarCuadrillaConDotacionTransaccional(
         .execute();
     }
 
-    // 4. Reconciliación de recursos asignados (cuadrilla_recurso)
+    // 4. Sincronización transaccional de inventario (BUG-H81-API-05) y reconciliación de cuadrilla_recurso
+    const recursosPrevios = await trx
+      .selectFrom("cuadrilla_recurso")
+      .select(["recurso_id", "cantidad_asignada"])
+      .where("cuadrilla_id", "=", datos.id)
+      .execute();
+
+    const mapaPrevios = new Map<string, number>();
+    for (const r of recursosPrevios) {
+      mapaPrevios.set(r.recurso_id, Number(r.cantidad_asignada));
+    }
+
+    const mapaNuevos = new Map<string, number>();
+    for (const r of datos.recursos) {
+      mapaNuevos.set(r.recursoId, Number(r.cantidad));
+    }
+
+    const todosRecursoIds = new Set([
+      ...mapaPrevios.keys(),
+      ...mapaNuevos.keys(),
+    ]);
+
+    for (const recursoId of todosRecursoIds) {
+      const cantPrevia = mapaPrevios.get(recursoId) ?? 0;
+      const cantNueva = mapaNuevos.get(recursoId) ?? 0;
+      const delta = cantNueva - cantPrevia;
+
+      if (delta !== 0) {
+        await trx
+          .updateTable("recurso")
+          .set({
+            cantidad_en_uso: sql`GREATEST(0, COALESCE(cantidad_en_uso, 0) + ${delta})`,
+          })
+          .where("id", "=", recursoId)
+          .execute();
+      }
+    }
+
     await trx
       .deleteFrom("cuadrilla_recurso")
       .where("cuadrilla_id", "=", datos.id)
