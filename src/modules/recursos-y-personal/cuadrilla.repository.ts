@@ -584,7 +584,7 @@ export async function obtenerPersonalParaAsignacion(personalIds: string[]) {
       "usuario.activo as usuario_activo",
       "personal.cargo as cargo",
       "personal.especialidad as especialidad",
-      "personal.estado_operativo as estado_operativo",
+      "usuario.estado_operativo as estado_operativo",
       "personal.disponible_terreno as disponible_terreno",
     ])
     .where("personal.id", "in", personalIds)
