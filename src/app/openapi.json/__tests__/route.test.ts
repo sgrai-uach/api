@@ -9,7 +9,14 @@ describe("Endpoint GET /openapi.json", () => {
     const spec = await res.json();
     expect(spec.openapi).toBe("3.0.0");
     expect(spec.info.title).toContain("SGRAI API");
-    expect(spec.info.version).toBe("0.9.0");
+    expect(spec.info.version).toBe("0.10.0");
+
+    // Rutas de Patrullas Verificadoras (HU-16)
+    expect(spec.paths["/api/patrullas"]).toBeDefined();
+    expect(spec.paths["/api/patrullas"].get).toBeDefined();
+    expect(spec.paths["/api/patrullas/{id}"]).toBeDefined();
+    expect(spec.paths["/api/patrullas/{id}"].get).toBeDefined();
+    expect(spec.paths["/api/patrullas/{id}"].patch).toBeDefined();
 
     // Rutas de Puntos Críticos (Eventos ATP - HU-57 / HU-55 / HU-56)
     expect(spec.paths["/api/puntos-criticos"]).toBeDefined();
