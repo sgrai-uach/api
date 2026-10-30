@@ -230,6 +230,12 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
       vi.spyOn(repo, "obtenerPersonalParaAsignacion").mockResolvedValue(personalMock);
       vi.spyOn(repo, "obtenerRecursosParaAsignacion").mockResolvedValue(recursoMock);
       vi.spyOn(repo, "obtenerRecursosIndividualesAsignadosAOtrasCuadrillas").mockResolvedValue([]);
+      vi.spyOn(repo, "verificarDelegadoAsignadoAOtraCuadrilla").mockResolvedValue({
+        asignado: false,
+        rolEnOtra: null,
+        cuadrillaNombre: null,
+      });
+      vi.spyOn(repo, "obtenerTrabajadoresAsignadosAOtrasCuadrillas").mockResolvedValue([]);
       vi.spyOn(repo, "actualizarCuadrillaConDotacionTransaccional").mockResolvedValue(resultadoConsolidadoMock);
     });
 
@@ -358,6 +364,81 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
 
       await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
         "El recurso individual ya se encuentra asignado a otra cuadrilla operativa."
+      );
+    });
+
+    it("debe lanzar BadRequestError si el recurso no está en estado DISPONIBLE (BUG-H81-API-02 / CP-H81-API-02)", async () => {
+      vi.spyOn(repo, "obtenerRecursosParaAsignacion").mockResolvedValue([
+        {
+          ...recursoMock[0],
+          estado: "EN_MANTENCION" as any,
+        },
+      ]);
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "no se encuentra en estado DISPONIBLE"
+      );
+    });
+
+    it("debe lanzar BadRequestError si el stock neto en bodega es insuficiente (BUG-H81-API-02 / CP-H81-API-02)", async () => {
+      vi.spyOn(repo, "obtenerRecursosParaAsignacion").mockResolvedValue([
+        {
+          id: recursoId,
+          nombre: "Sacos de Arena",
+          es_individual: false,
+          estado: "DISPONIBLE" as const,
+          cantidad_inventario: 10,
+          cantidad_en_uso: 8, // Disponible: 2
+        },
+      ]);
+
+      const inputStockExcedido = {
+        ...inputValido,
+        recursos: [{ recursoId, cantidad: 5 }],
+      };
+
+      await expect(editarCuadrilla(cuadrillaId, inputStockExcedido, usuarioAdminId)).rejects.toThrow(
+        "Stock insuficiente para el recurso 'Sacos de Arena' (solicitado: 5, disponible en bodega: 2)."
+      );
+    });
+
+    it("debe rechazar con BadRequestError si el Delegado figura en la lista de trabajadores subordinados (BUG-H81-API-03 / CP-H81-API-03)", async () => {
+      vi.spyOn(repo, "obtenerPersonalParaAsignacion").mockResolvedValue([
+        {
+          ...personalMock[0],
+          usuario_id: delegadoId, // Mismo ID que usuarioDelegadoId
+        },
+      ]);
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "El funcionario designado como Delegado no puede formar parte de la dotación de trabajadores de la cuadrilla."
+      );
+    });
+
+    it("debe rechazar con ConflictError si el Delegado ya lidera o integra otra cuadrilla activa (BUG-H81-API-03)", async () => {
+      vi.spyOn(repo, "verificarDelegadoAsignadoAOtraCuadrilla").mockResolvedValue({
+        asignado: true,
+        rolEnOtra: "delegado",
+        cuadrillaNombre: "Cuadrilla Sur Emergencias",
+      });
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "El usuario designado como Delegado ya se encuentra asignado a otra cuadrilla operativa activa"
+      );
+    });
+
+    it("debe rechazar con ConflictError si un trabajador ya está asignado a otra cuadrilla activa (BUG-H81-API-03)", async () => {
+      vi.spyOn(repo, "obtenerTrabajadoresAsignadosAOtrasCuadrillas").mockResolvedValue([
+        {
+          personal_id: personalId,
+          nombre: "Pedro Obrero",
+          cuadrilla_id: "cuadrilla-otra",
+          cuadrilla_nombre: "Cuadrilla Costera",
+        },
+      ]);
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "El funcionario 'Pedro Obrero' ya se encuentra asignado a otra cuadrilla operativa activa ('Cuadrilla Costera')."
       );
     });
 
