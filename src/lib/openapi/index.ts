@@ -41,6 +41,16 @@ import {
 } from "@/modules/recursos-y-personal/recurso.schema";
 
 import {
+  CrearCuadrillaInputSchema,
+  CrearCuadrillaResponseSchema,
+  EditarCuadrillaInputSchema,
+  EditarCuadrillaResponseSchema,
+  ListarCuadrillasResponseSchema,
+  DetalleCuadrillaResponseSchema,
+  CuadrillaIdParamSchema,
+} from "@/modules/recursos-y-personal/cuadrilla.schema";
+
+import {
   ListarPatrullasQuerySchema,
   ListarPatrullasResponseSchema,
   PatrullaItemResponseSchema,
@@ -156,6 +166,14 @@ registry.register("ListarMisionesResponse", ListarMisionesResponseSchema);
 registry.register("MisionItem", MisionItemSchema);
 registry.register("DetalleEmpleadoResponse", DetalleEmpleadoResponseSchema);
 registry.register("EliminarEmpleadoResponse", EliminarEmpleadoResponseSchema);
+
+// Registrar esquemas de Cuadrillas Operativas (H79 / H81)
+registry.register("CrearCuadrillaInput", CrearCuadrillaInputSchema);
+registry.register("CrearCuadrillaResponse", CrearCuadrillaResponseSchema);
+registry.register("EditarCuadrillaInput", EditarCuadrillaInputSchema);
+registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
+registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
+registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
 
 
 // Registrar esquemas de Seguridad
@@ -1935,6 +1953,185 @@ registry.registerPath({
     },
     404: {
       description: "Patrulla verificadora no encontrada",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// --- Módulo: Cuadrillas Operativas (Recursos y Personal - H81 / H79) ---
+registry.register("CrearCuadrillaInput", CrearCuadrillaInputSchema);
+registry.register("CrearCuadrillaResponse", CrearCuadrillaResponseSchema);
+registry.register("EditarCuadrillaInput", EditarCuadrillaInputSchema);
+registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
+registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
+registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
+
+// H81 / H79: Listar Cuadrillas Operativas Paginadas con Filtros
+registry.registerPath({
+  method: "get",
+  path: "/api/cuadrillas",
+  summary: "Listar cuadrillas operativas con paginación y filtros (H81 / H79)",
+  description:
+    "Retorna el listado paginado de cuadrillas operativas con soporte para filtros de texto, delegación y estado.",
+  tags: ["Cuadrillas", "Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
+  responses: {
+    200: {
+      description: "Listado de cuadrillas obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarCuadrillasResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recursos:leer' o rol Administrador",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// H79: Alta de Cuadrilla Operativa
+registry.registerPath({
+  method: "post",
+  path: "/api/cuadrillas",
+  summary: "Dar de alta una nueva cuadrilla operativa (H79)",
+  description:
+    "Crea una nueva cuadrilla operativa municipal asignando nombre, delegación y líder delegado.",
+  tags: ["Cuadrillas", "Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    body: {
+      description: "Datos requeridos para dar de alta la cuadrilla",
+      content: {
+        "application/json": {
+          schema: CrearCuadrillaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Cuadrilla operativa creada exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearCuadrillaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recursos:crear' o rol Administrador",
+    },
+    404: {
+      description: "Delegación o usuario delegado no encontrado",
+    },
+    409: {
+      description: "Conflicto: nombre de cuadrilla ya existe",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// H81 / H79: Detalle Unitario de Cuadrilla
+registry.registerPath({
+  method: "get",
+  path: "/api/cuadrillas/{id}",
+  summary: "Obtener detalle unitario de una cuadrilla operativa (H81 / H79)",
+  description:
+    "Retorna la información detallada de una cuadrilla consolidando su delegación, delegado, recursos y trabajadores.",
+  tags: ["Cuadrillas", "Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: CuadrillaIdParamSchema,
+  },
+  responses: {
+    200: {
+      description: "Detalle de cuadrilla operativa obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: DetalleCuadrillaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de cuadrilla inválido",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recursos:leer' o rol Administrador",
+    },
+    404: {
+      description: "Cuadrilla no encontrada",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// H81: Editar Cuadrilla Operativa y Dotación
+registry.registerPath({
+  method: "put",
+  path: "/api/cuadrillas/{id}",
+  summary: "Modificar datos de una cuadrilla, reasignar delegado y ajustar dotación (H81)",
+  description:
+    "Permite modificar el nombre, delegación municipal, delegado responsable y ajustar los trabajadores y recursos asignados a la cuadrilla. Bloquea con 409 Conflict si la cuadrilla está EN_MISION.",
+  tags: ["Cuadrillas", "Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: CuadrillaIdParamSchema,
+    body: {
+      description: "Datos actualizados de la cuadrilla y dotación logística",
+      content: {
+        "application/json": {
+          schema: EditarCuadrillaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Cuadrilla operativa actualizada exitosamente con su dotación",
+      content: {
+        "application/json": {
+          schema: EditarCuadrillaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros o datos de entrada inválidos",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recursos:editar' o rol Administrador",
+    },
+    404: {
+      description: "Cuadrilla, delegación, delegado, personal o recurso no encontrado",
+    },
+    409: {
+      description: "Conflicto: cuadrilla en misión activa o nombre duplicado",
     },
     500: {
       description: "Error interno del servidor",

@@ -151,7 +151,7 @@ export async function listarPatrullasRepo(filtros: ListarPatrullasQuery) {
           "p.cargo",
           "p.especialidad",
           "pp.rol_en_patrulla",
-          "p.estado_operativo",
+          "pu.estado_operativo",
         ])
         .execute();
 
@@ -241,7 +241,7 @@ export async function obtenerPatrullaPorIdRepo(id: string) {
         "p.cargo",
         "p.especialidad",
         "pp.rol_en_patrulla",
-        "p.estado_operativo",
+        "pu.estado_operativo",
       ])
       .execute()) as FilaIntegranteConsulta[];
   } catch {

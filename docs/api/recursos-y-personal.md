@@ -68,6 +68,10 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `GET` | `/api/recursos/{id}` | Obtener detalle completo de un recurso para precargar el formulario de edición. |
 | `PUT` | `/api/recursos/{id}` | Modificar características, inventario físico, especificaciones técnicas y estado de un recurso. |
 | `DELETE` | `/api/recursos/{id}` | Eliminar un recurso del inventario mediante borrado lógico (soft delete) y trazabilidad completa. |
+| `GET` | `/api/cuadrillas` | Listar cuadrillas operativas con paginación, filtros territoriales, de estado y búsqueda (H81/H79). |
+| `POST` | `/api/cuadrillas` | Registrar y dar de alta una nueva cuadrilla operativa en el sistema con líder delegado (H79). |
+| `GET` | `/api/cuadrillas/{id}` | Obtener detalle unitario consolidado de una cuadrilla con sus recursos y trabajadores asignados. |
+| `PUT` | `/api/cuadrillas/{id}` | Modificar datos, reasignar delegado y dotación de trabajadores/recursos de una cuadrilla (H81). |
 | `GET` | `/api/personal` | Listar y buscar empleados/usuarios para selectores con soporte de búsqueda textual y filtro de activos/terreno. |
 | `POST` | `/api/personal` | Registrar a un nuevo funcionario municipal con credenciales y ficha de terreno condicional (HU-10). |
 | `PATCH` | `/api/personal/:id` | Modificar datos de un empleado actualizando concurrentemente `usuarios` y `personal` en una transacción atómica. |
@@ -562,6 +566,156 @@ Ante cualquier cambio de estado o asignación de patrulla, el backend emite:
      ```
 
 ---
+
+---
+
+### 3.8. `GET /api/cuadrillas` (Listado Paginado de Cuadrillas con Filtros - H81 / H79)
+Retorna la nómina paginada de cuadrillas operativas municipales con sus respectivos delegados, recursos asignados y dotación de trabajadores.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
+- **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:leer`, `recursos:gestionar` o rol `ADMIN`.
+- **Parámetros de Consulta (Query Params):**
+  - `pagina` / `page` (`number`, default `1`): Número de página.
+  - `limite` / `limit` (`number`, default `10`, max `100`): Cantidad de registros por página.
+  - `q` / `busqueda` (`string`): Búsqueda parcial insensible a mayúsculas sobre nombre de cuadrilla, o nombre o RUT del delegado.
+  - `delegacionId` (`UUID`): Filtra por delegación municipal adscrita.
+  - `estado` (`string`): Filtra por estado operativo (`DISPONIBLE`, `EN_MISION`, `NO_DISPONIBLE`).
+
+---
+
+### 3.9. `POST /api/cuadrillas` (Alta de Cuadrilla Operativa - H79)
+Permite dar de alta una nueva cuadrilla táctica municipal en estado inicial `DISPONIBLE`, adscribiéndola a una delegación base y designando a su líder delegado.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id`).
+- **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:crear` o rol `ADMIN`.
+- **Reglas de Negocio:**
+  - Valida nombre único insensible a mayúsculas y espacios.
+  - Si el usuario seleccionado no posee el rol `DELEGADO_CUADRILLA`, lo promueve automáticamente y registra en `log_cambios_usuarios`.
+  - Emite evento Socket.io `cuadrilla:creada`.
+
+---
+
+### 3.10. `GET /api/cuadrillas/{id}` (Detalle Unitario de Cuadrilla - H81 / H79)
+Retorna el detalle completo y consolidado de una cuadrilla operativa específica por su identificador UUID.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id`).
+- **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:leer`, `recursos:gestionar` o rol `ADMIN`.
+- **Respuesta:** Detalle consolidado con su delegación, delegado, lista de recursos materiales (`cuadrilla_recurso`) y trabajadores operativos (`cuadrilla_personal`).
+- **Error 404:** Si la cuadrilla no existe o se encuentra eliminada lógicamente.
+
+---
+
+### 3.11. `PUT /api/cuadrillas/{id}` (H81: Modificar Cuadrilla Operativa y Dotación)
+Permite modificar el nombre, delegación municipal adscrita, delegado responsable y ajustar los trabajadores y recursos logísticos (vehículos, herramientas, maquinarias) que conforman la dotación real de la cuadrilla ante rotaciones de turno o traslados.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
+- **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:editar` o rol `ADMIN`.
+- **Integridad Operativa Crítica (Bloqueo `409 Conflict`):**
+  - Si la cuadrilla se encuentra en estado `EN_MISION`, `EN_TRANSITO` o `EN_OPERACION`, o posee misiones asociadas en curso (`PLANIFICADA`, `DESPACHADA`, `EN_CURSO`), el backend **bloquea inmediatamente la modificación** respondiendo `HTTP 409 Conflict` con:
+    ```json
+    {
+      "statusCode": 409,
+      "error": "Conflict",
+      "message": "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
+    }
+    ```
+- **Control de Unicidad de Nombre (`409 Conflict`):**
+  - Si ya existe otra cuadrilla activa con el mismo nombre ingresado en la comuna:
+    ```json
+    {
+      "statusCode": 409,
+      "error": "Conflict",
+      "message": "Ya existe otra cuadrilla operativa con el nombre ingresado."
+    }
+    ```
+- **Control de Recurso Individual en Uso (`409 Conflict`):**
+  - Si un recurso de tipo individual (`esIndividual: true`, ej. camioneta o camión) ya está asignado a otra cuadrilla activa:
+    ```json
+    {
+      "statusCode": 409,
+      "error": "Conflict",
+      "message": "El recurso individual ya se encuentra asignado a otra cuadrilla operativa."
+    }
+    ```
+- **Gestión Dinámica de Delegados:**
+  - Si se reasigna el delegado, el nuevo usuario es promovido a `DELEGADO_CUADRILLA` si aún no lo es (con auditoría en `log_cambios_usuarios`).
+  - Si el delegado anterior ya no lidera ninguna otra cuadrilla activa, su rol es revertido automáticamente al rol base operativo (`BRIGADISTA`).
+- **Validación de Dotación Humana (`cuadrilla_personal`):**
+  - Cada funcionario asignado debe existir, tener `usuario_activo === true`, `disponible_terreno === true` y su `estado_operativo === 'disponible'` (no se puede asignar personal con licencia o en descanso).
+- **Validación de Dotación Material (`cuadrilla_recurso`):**
+  - Los recursos individuales (`es_individual === true`, ej. camionetas 4x4) solo admiten cantidad 1 y no pueden estar asignados concurrentemente a otra cuadrilla activa (`409 Conflict`).
+- **Auditoría:**
+  - Registra automáticamente `actualizado_por_id` y `actualizado_en` (marca de tiempo actual).
+- **Tiempo Real:**
+  - Emite el evento WebSocket `cuadrilla:actualizada` a las salas `operaciones`, `encargado` y `supervisor`.
+
+#### Cuerpo de la Solicitud (`PUT /api/cuadrillas/{id}`)
+```json
+{
+  "nombre": "Cuadrilla Drenaje y Aguas Lluvias Sur",
+  "delegacionId": "30000000-0000-4000-8000-000000000002",
+  "usuarioDelegadoId": "00000000-0000-4000-8000-000000000012",
+  "recursos": [
+    {
+      "recursoId": "e1000000-0000-4000-8000-000000000004",
+      "cantidad": 2
+    }
+  ],
+  "trabajadores": [
+    {
+      "personalId": "40000000-0000-4000-8000-000000000001"
+    }
+  ]
+}
+```
+
+#### Ejemplo de Respuesta Exitosa (`200 OK`)
+```json
+{
+  "message": "Cuadrilla operativa actualizada exitosamente",
+  "data": {
+    "id": "50000000-0000-4000-8000-000000000003",
+    "nombre": "Cuadrilla Drenaje y Aguas Lluvias Sur",
+    "estado": "DISPONIBLE",
+    "delegacion": {
+      "id": "30000000-0000-4000-8000-000000000002",
+      "nombre": "Sur",
+      "codigo": "DEL_SUR"
+    },
+    "delegado": {
+      "id": "00000000-0000-4000-8000-000000000012",
+      "nombre": "Sebastián Alarcón Toledo",
+      "email": "sebastian.alarcon@valdivia.cl",
+      "rut": "15.987.654-2"
+    },
+    "recursos": [
+      {
+        "id": "cd300000-0000-4000-8000-000000000001",
+        "recursoId": "e1000000-0000-4000-8000-000000000004",
+        "nombre": "Motobomba de Achique 3\"",
+        "cantidadAsignada": 2,
+        "esIndividual": false
+      }
+    ],
+    "trabajadores": [
+      {
+        "id": "cp300000-0000-4000-8000-000000000001",
+        "personalId": "40000000-0000-4000-8000-000000000001",
+        "usuarioId": "00000000-0000-4000-8000-000000000009",
+        "nombre": "Pedro Obrero",
+        "rut": "16.222.333-4",
+        "cargo": "Motosierrista",
+        "especialidad": "Poda de Altura",
+        "asignadoEn": "2026-10-26T10:30:00.000Z"
+      }
+    ],
+    "totalRecursos": 1,
+    "totalTrabajadores": 1,
+    "creadoEn": "2026-10-23T10:00:00.000Z",
+    "actualizadoEn": "2026-10-26T10:30:00.000Z"
+  }
+}
+```
 
 ---
 
