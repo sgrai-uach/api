@@ -21,7 +21,10 @@ import {
   ListarRolesResponseSchema,
   LoginRequestSchema,
   LoginResponseSchema,
+  MensajeGenericoResponseSchema,
   PermisoCatalogoItemSchema,
+  RecuperarContrasenaRequestSchema,
+  RestablecerContrasenaRequestSchema,
   RolDetalleResponseSchema,
   UsuarioActivoResponseSchema,
 } from "@/modules/seguridad/schema";
@@ -36,6 +39,16 @@ import {
   ListarRecursosPaginadosResponseSchema,
   EliminarRecursoResponseSchema,
 } from "@/modules/recursos-y-personal/recurso.schema";
+
+import {
+  CrearCuadrillaInputSchema,
+  CrearCuadrillaResponseSchema,
+  EditarCuadrillaInputSchema,
+  EditarCuadrillaResponseSchema,
+  ListarCuadrillasResponseSchema,
+  DetalleCuadrillaResponseSchema,
+  CuadrillaIdParamSchema,
+} from "@/modules/recursos-y-personal/cuadrilla.schema";
 
 import {
   ListarPatrullasQuerySchema,
@@ -155,6 +168,14 @@ registry.register("ListarMisionesResponse", ListarMisionesResponseSchema);
 registry.register("MisionItem", MisionItemSchema);
 registry.register("DetalleEmpleadoResponse", DetalleEmpleadoResponseSchema);
 registry.register("EliminarEmpleadoResponse", EliminarEmpleadoResponseSchema);
+
+// Registrar esquemas de Cuadrillas Operativas (H79 / H81)
+registry.register("CrearCuadrillaInput", CrearCuadrillaInputSchema);
+registry.register("CrearCuadrillaResponse", CrearCuadrillaResponseSchema);
+registry.register("EditarCuadrillaInput", EditarCuadrillaInputSchema);
+registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
+registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
+registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
 
 
 // Registrar esquemas de Seguridad
@@ -306,6 +327,68 @@ registry.registerPath({
     401: { description: "Credenciales inválidas. Identificador o contraseña errónea" },
     403: { description: "Cuenta deshabilitada o temporalmente bloqueada por múltiples intentos fallidos" },
     500: { description: "Error interno del servidor al procesar el inicio de sesión" },
+  },
+});
+
+// POST /api/seguridad/recuperar-contrasena
+registry.registerPath({
+  method: "post",
+  path: "/api/seguridad/recuperar-contrasena",
+  summary: "Solicitar recuperación de contraseña",
+  description:
+    "Inicia el flujo de recuperación de credenciales mediante correo institucional (@valdivia.cl) o RUT chileno. Aplica protección estricta contra enumeración de cuentas respondiendo siempre 200 OK con un mensaje genérico.",
+  tags: ["Seguridad / Autenticación"],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: RecuperarContrasenaRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Respuesta genérica que previene la enumeración de cuentas en el sistema",
+      content: {
+        "application/json": {
+          schema: MensajeGenericoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Cuerpo de solicitud mal formado o identificador inválido" },
+    500: { description: "Error interno del servidor al procesar la solicitud" },
+  },
+});
+
+// POST /api/seguridad/restablecer-contrasena
+registry.registerPath({
+  method: "post",
+  path: "/api/seguridad/restablecer-contrasena",
+  summary: "Restablecer contraseña con token de recuperación",
+  description:
+    "Valida el token criptográfico efímero, actualiza la contraseña con hash seguro bcrypt (factor 10), invalida el token consumido y reinicia atómicamente los contadores de bloqueo (intentos_fallidos = 0, bloqueado_hasta = NULL).",
+  tags: ["Seguridad / Autenticación"],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: RestablecerContrasenaRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Contraseña actualizada exitosamente y cuenta desbloqueada",
+      content: {
+        "application/json": {
+          schema: MensajeGenericoResponseSchema,
+        },
+      },
+    },
+    400: { description: "Token inválido, expirado, ya consumido o contraseña no cumple con políticas de seguridad" },
+    500: { description: "Error interno del servidor al procesar el restablecimiento" },
   },
 });
 
@@ -836,15 +919,18 @@ registry.registerPath({
   },
 });
 
-// 16. GET /api/personal (Listar empleados/personal - H34)
+// 16. GET /api/personal (Listar empleados/personal - H34 / H11 / H26)
 registry.registerPath({
   method: "get",
   path: "/api/personal",
   description:
-    "Lista y busca empleados y personal operativo del SGRAI con filtros territoriales (delegacionId), estado operativo, cargo, especialidad, rol y búsqueda textual, con paginación estándar.",
+    "Lista y busca empleados y personal del SGRAI con filtros territoriales (delegacionId), estado operativo (disponibilidad actual), cargo, especialidad, rol (rolId o rolCodigo, ej. ASISTENTE_SOCIAL) y búsqueda textual, con paginación estándar y cómputo de casos FIBE asignados (H26). La disponibilidad se expone siempre presente (reside en `usuario.estado_operativo`); `disponible_terreno` es `null` cuando el usuario no possui ficha de terreno.",
   summary: "Listar empleados y personal",
   tags: ["Recursos y Personal"],
   request: {
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión con permiso personal:leer, personal:gestionar o personal:crear"),
+    }),
     query: ListarPersonalQuerySchema,
   },
   responses: {
@@ -857,6 +943,11 @@ registry.registerPath({
       },
     },
     400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "No autenticado: token de sesión ausente o expirado" },
+    403: {
+      description:
+        "Acceso denegado: requiere personal:leer, personal:gestionar o personal:crear; al consultar rol ASISTENTE_SOCIAL también requiere asistencia_social:leer",
+    },
     500: { description: "Error interno del servidor" },
   },
 });
@@ -866,7 +957,7 @@ registry.registerPath({
   method: "post",
   path: "/api/personal",
   description:
-    "Registra a un nuevo funcionario o empleado municipal en el sistema SGRAI, aprovisionando su cuenta institucional y opcionalmente su ficha de terreno si su rol o funciones lo requieren.",
+    "Registra a un nuevo funcionario o empleado municipal en el sistema SGRAI, aprovisionando su cuenta institucional con su disponibilidad inicial (`usuario.estado_operativo`) y opcionalmente su ficha de terreno si su rol o funciones lo requieren.",
   summary: "Registrar nuevo funcionario",
   tags: ["Recursos y Personal"],
   request: {
@@ -946,10 +1037,13 @@ registry.registerPath({
   method: "get",
   path: "/api/personal/{id}",
   description:
-    "Consulta los datos detallados de un empleado por ID (usuario_id o personal_id).",
+    "Consulta los datos detallados de un empleado por ID (usuario_id o personal_id). La disponibilidad (estado operativo) se obtiene de `usuario.estado_operativo`.",
   summary: "Obtener detalle de empleado",
   tags: ["Recursos y Personal"],
   request: {
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión con permiso personal:leer, personal:gestionar o personal:crear"),
+    }),
     params: z.object({
       id: z.string().uuid().describe("UUID del usuario o de la ficha de personal"),
     }),
@@ -964,8 +1058,8 @@ registry.registerPath({
       },
     },
     400: { description: "Identificador inválido (debe ser un UUID válido)" },
-    401: { description: "No autenticado" },
-    403: { description: "Acceso denegado" },
+    401: { description: "No autenticado: token de sesión ausente o expirado" },
+    403: { description: "Acceso denegado: requiere personal:leer, personal:gestionar o personal:crear" },
     404: { description: "Empleado no encontrado" },
     409: { description: "Conflicto con el recurso" },
     500: { description: "Error interno del servidor" },
@@ -1910,6 +2004,185 @@ registry.registerPath({
     },
     404: {
       description: "Patrulla verificadora no encontrada",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// --- Módulo: Cuadrillas Operativas (Recursos y Personal - H81 / H79) ---
+registry.register("CrearCuadrillaInput", CrearCuadrillaInputSchema);
+registry.register("CrearCuadrillaResponse", CrearCuadrillaResponseSchema);
+registry.register("EditarCuadrillaInput", EditarCuadrillaInputSchema);
+registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
+registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
+registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
+
+// H81 / H79: Listar Cuadrillas Operativas Paginadas con Filtros
+registry.registerPath({
+  method: "get",
+  path: "/api/cuadrillas",
+  summary: "Listar cuadrillas operativas con paginación y filtros (H81 / H79)",
+  description:
+    "Retorna el listado paginado de cuadrillas operativas con soporte para filtros de texto, delegación y estado.",
+  tags: ["Cuadrillas", "Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
+  responses: {
+    200: {
+      description: "Listado de cuadrillas obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarCuadrillasResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recursos:leer' o rol Administrador",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// H79: Alta de Cuadrilla Operativa
+registry.registerPath({
+  method: "post",
+  path: "/api/cuadrillas",
+  summary: "Dar de alta una nueva cuadrilla operativa (H79)",
+  description:
+    "Crea una nueva cuadrilla operativa municipal asignando nombre, delegación y líder delegado.",
+  tags: ["Cuadrillas", "Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    body: {
+      description: "Datos requeridos para dar de alta la cuadrilla",
+      content: {
+        "application/json": {
+          schema: CrearCuadrillaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Cuadrilla operativa creada exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearCuadrillaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recursos:crear' o rol Administrador",
+    },
+    404: {
+      description: "Delegación o usuario delegado no encontrado",
+    },
+    409: {
+      description: "Conflicto: nombre de cuadrilla ya existe",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// H81 / H79: Detalle Unitario de Cuadrilla
+registry.registerPath({
+  method: "get",
+  path: "/api/cuadrillas/{id}",
+  summary: "Obtener detalle unitario de una cuadrilla operativa (H81 / H79)",
+  description:
+    "Retorna la información detallada de una cuadrilla consolidando su delegación, delegado, recursos y trabajadores.",
+  tags: ["Cuadrillas", "Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: CuadrillaIdParamSchema,
+  },
+  responses: {
+    200: {
+      description: "Detalle de cuadrilla operativa obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: DetalleCuadrillaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de cuadrilla inválido",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recursos:leer' o rol Administrador",
+    },
+    404: {
+      description: "Cuadrilla no encontrada",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// H81: Editar Cuadrilla Operativa y Dotación
+registry.registerPath({
+  method: "put",
+  path: "/api/cuadrillas/{id}",
+  summary: "Modificar datos de una cuadrilla, reasignar delegado y ajustar dotación (H81)",
+  description:
+    "Permite modificar el nombre, delegación municipal, delegado responsable y ajustar los trabajadores y recursos asignados a la cuadrilla. Bloquea con 409 Conflict si la cuadrilla está EN_MISION.",
+  tags: ["Cuadrillas", "Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: CuadrillaIdParamSchema,
+    body: {
+      description: "Datos actualizados de la cuadrilla y dotación logística",
+      content: {
+        "application/json": {
+          schema: EditarCuadrillaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Cuadrilla operativa actualizada exitosamente con su dotación",
+      content: {
+        "application/json": {
+          schema: EditarCuadrillaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros o datos de entrada inválidos",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recursos:editar' o rol Administrador",
+    },
+    404: {
+      description: "Cuadrilla, delegación, delegado, personal o recurso no encontrado",
+    },
+    409: {
+      description: "Conflicto: cuadrilla en misión activa o nombre duplicado",
     },
     500: {
       description: "Error interno del servidor",

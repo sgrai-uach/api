@@ -4,6 +4,9 @@ import { verificarTokenJwt } from "./jwt";
 import {
   PERMISO_LEER_ROLES,
   PERMISO_GESTIONAR_ROLES,
+  PERMISO_LEER_PERSONAL,
+  PERMISO_CREAR_PERSONAL,
+  PERMISO_GESTIONAR_PERSONAL,
 } from "./permisos.constants";
 import { seguridadService } from "./service";
 import type { UsuarioAutenticado } from "./types";
@@ -86,4 +89,26 @@ export async function verificarAdministrador(
   request: NextRequest
 ): Promise<UsuarioAutenticado> {
   return await verificarAccesoRoles(request);
+}
+
+/**
+ * H11 - Valida que el usuario tenga rol de Administrador o alguno de los permisos
+ * del módulo de Personal (`personal:leer`, `personal:gestionar` o `personal:crear`).
+ *
+ * Lanza UnauthorizedError (401) si no hay token válido y ForbiddenError (403) si
+ * el rol no posee los permisos requeridos.
+ */
+export async function verificarAccesoPersonal(
+  request: NextRequest
+): Promise<UsuarioAutenticado> {
+  const usuarioId = await extraerUsuarioId(request);
+  return await seguridadService.validarAccesoRoles(
+    usuarioId,
+    [
+      PERMISO_LEER_PERSONAL,
+      PERMISO_GESTIONAR_PERSONAL,
+      PERMISO_CREAR_PERSONAL,
+    ],
+    "Acceso denegado. Se requiere el perfil de Administrador o los permisos 'personal:leer', 'personal:gestionar' o 'personal:crear' para consultar el directorio de personal."
+  );
 }
