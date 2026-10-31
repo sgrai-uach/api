@@ -1,5 +1,4 @@
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
-import { seguridadService } from "@/modules/seguridad/service";
 import {
   PERMISO_LEER_MISION,
   PERMISO_CREAR_RECURSO,
@@ -128,8 +127,8 @@ export async function crearPatrullaService(
   input: CrearPatrullaInputDTO,
   usuarioId?: string | null
 ): Promise<CrearPatrullaResponseDTO> {
-  // 1. Validar autorización RBAC (requiere permiso recursos:crear o perfil Administrador)
-  await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_CREAR_RECURSO]);
+  // 1. Validar autorización RBAC (requiere permiso recursos:crear)
+  await verificarPermiso(usuarioId, PERMISO_CREAR_RECURSO);
 
   // 2. Validar unicidad del código identificador
   const patrullaExistente = await buscarPatrullaPorCodigoRepo(input.codigo);
@@ -195,6 +194,18 @@ export async function crearPatrullaService(
     );
   }
 
+  // Validar disponibilidad operativa (deben estar 'disponible' según norma ICS)
+  const personalNoDisponible = personalFilas.filter(
+    (p) => p.estado_operativo !== "disponible"
+  );
+  if (personalNoDisponible.length > 0) {
+    throw new ConflictError(
+      `Los siguientes funcionarios no se encuentran disponibles: ${personalNoDisponible
+        .map((p) => p.nombre)
+        .join(", ")}.`
+    );
+  }
+
   // Determinar usuario líder
   let usuarioLiderId = input.usuarioLiderId;
   if (usuarioLiderId) {
@@ -223,6 +234,10 @@ export async function crearPatrullaService(
     latitud,
     longitud,
     personalIds: input.personalIds,
+    personalFilas: personalFilas.map((p) => ({
+      personal_id: p.personal_id,
+      usuario_id: p.usuario_id,
+    })),
   });
 
   // 7. Recuperar la entidad recién creada con relaciones completas

@@ -325,7 +325,7 @@ export async function obtenerPersonalParaPatrullaRepo(personalIds: string[]) {
       "u.email",
       "u.activo",
       "r.codigo as rol_codigo",
-      "p.estado_operativo",
+      "u.estado_operativo",
     ])
     .execute();
 }
@@ -350,6 +350,7 @@ export interface DatosCrearPatrullaRepo {
   latitud: number | null;
   longitud: number | null;
   personalIds: string[];
+  personalFilas?: { personal_id: string; usuario_id: string }[];
 }
 
 /**
@@ -382,10 +383,21 @@ export async function crearPatrullaTransaccionalRepo(datos: DatosCrearPatrullaRe
 
     const patrullaId = patrullaInsertada.id;
 
-    // 2. Insertar dotación de personal en patrulla_personal y actualizar estado operativo
-    for (let i = 0; i < datos.personalIds.length; i++) {
-      const personalId = datos.personalIds[i];
-      const esLider = i === 0;
+    // Obtener personal para mapear líderes y usuarios
+    const personalFilas =
+      datos.personalFilas ??
+      (await trx
+        .selectFrom("personal")
+        .where("id", "in", datos.personalIds)
+        .select(["id as personal_id", "usuario_id"])
+        .execute());
+
+    // 2. Insertar dotación de personal en patrulla_personal
+    for (const personalId of datos.personalIds) {
+      const personal = personalFilas.find((p) => p.personal_id === personalId);
+      const esLider = Boolean(
+        datos.usuarioLiderId && personal && personal.usuario_id === datos.usuarioLiderId
+      );
 
       await trx
         .insertInto("patrulla_personal")
@@ -396,13 +408,18 @@ export async function crearPatrullaTransaccionalRepo(datos: DatosCrearPatrullaRe
           asignado_en: sql`CURRENT_TIMESTAMP`,
         })
         .execute();
+    }
 
+    // Actualizar estado_operativo en la tabla usuario a 'en_patrulla'
+    const usuarioIds = personalFilas.map((p) => p.usuario_id);
+    if (usuarioIds.length > 0) {
       await trx
-        .updateTable("personal")
+        .updateTable("usuario")
         .set({
           estado_operativo: "en_patrulla",
+          actualizado_en: sql`CURRENT_TIMESTAMP`,
         })
-        .where("id", "=", personalId)
+        .where("id", "in", usuarioIds)
         .execute();
     }
 

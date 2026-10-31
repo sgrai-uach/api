@@ -259,6 +259,9 @@ export const CrearPatrullaInputSchema = z.object({
   personalIds: z
     .array(z.string().uuid("Cada integrante debe ser un UUID válido."))
     .min(1, "Debe asignar al menos un funcionario con rol PATRULLA_VERIFICADORA.")
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: "No se pueden ingresar funcionarios duplicados en la dotación de la patrulla.",
+    })
     .openapi({
       description: "Lista de UUIDs de personal asignado a la dotación de la patrulla",
       example: ["b1000000-0000-4000-8000-000000000001"],
