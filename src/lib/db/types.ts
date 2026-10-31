@@ -320,9 +320,11 @@ export interface EventoAsistenciaSocialTable {
 
 export interface PatrullaVerificadoraTable {
   id: Generated<string>;
+  codigo: string;
   nombre: string;
   estado: ColumnType<EstadoPatrulla, EstadoPatrulla | undefined, EstadoPatrulla>;
   delegacion_id: string | null;
+  vehiculo_id: string | null;
   usuario_lider_id: string | null;
   latitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
   longitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
@@ -331,6 +333,8 @@ export interface PatrullaVerificadoraTable {
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
   eliminado_en: Date | null;
+  eliminado_por_id: string | null;
+  activo: ColumnType<boolean, boolean | undefined, boolean>;
 }
 
 export interface PatrullaPersonalTable {
