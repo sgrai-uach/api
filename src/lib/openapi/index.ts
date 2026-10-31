@@ -58,6 +58,8 @@ import {
   PatrullaIdParamSchema,
   ActualizarEstadoPatrullaInputSchema,
   ActualizarEstadoPatrullaResponseSchema,
+  CrearPatrullaInputSchema,
+  CrearPatrullaResponseSchema,
 } from "@/modules/recursos-y-personal/patrulla.schema";
 
 import {
@@ -1831,12 +1833,61 @@ registry.registerPath({
   },
 });
 
-// --- Módulo: Patrullas Verificadoras (Recursos y Personal - HU-16) ---
+// --- Módulo: Patrullas Verificadoras (Recursos y Personal - HU-16 & HU-83) ---
 registry.register("PatrullaItemResponse", PatrullaItemResponseSchema);
 registry.register("ListarPatrullasResponse", ListarPatrullasResponseSchema);
 registry.register("PatrullaDetalleResponse", PatrullaDetalleResponseSchema);
 registry.register("ActualizarEstadoPatrullaInput", ActualizarEstadoPatrullaInputSchema);
 registry.register("ActualizarEstadoPatrullaResponse", ActualizarEstadoPatrullaResponseSchema);
+registry.register("CrearPatrullaInput", CrearPatrullaInputSchema);
+registry.register("CrearPatrullaResponse", CrearPatrullaResponseSchema);
+
+registry.registerPath({
+  method: "post",
+  path: "/api/patrullas",
+  summary: "Dar de alta una nueva patrulla verificadora (HU-83)",
+  description:
+    "Registra una nueva patrulla verificadora en estado inicial canónico DISPONIBLE, validando la unicidad del código identificador, la existencia de la delegación base, la disponibilidad del vehículo institucional individual asignado y la adscripción de dotación de personal con rol PATRULLA_VERIFICADORA. Emite el evento en tiempo real 'patrulla:creada' para el Centro de Mando.",
+  tags: ["Recursos y Personal"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: CrearPatrullaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Patrulla verificadora registrada exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearPatrullaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos, error de validación Zod o funcionarios sin rol PATRULLA_VERIFICADORA",
+    },
+    401: {
+      description: "No autenticado o token de sesión inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere perfil Administrador o permiso 'recursos:crear'",
+    },
+    404: {
+      description: "Delegación base o vehículo institucional no encontrado",
+    },
+    409: {
+      description: "Conflicto por código identificador ya registrado o vehículo institucional no disponible",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
 
 registry.registerPath({
   method: "get",

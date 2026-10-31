@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { GET } from "../route";
+import { GET, POST } from "../route";
 import { GET as GET_BY_ID, PATCH as PATCH_BY_ID } from "../[id]/route";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import * as patrullaService from "@/modules/recursos-y-personal/patrulla.service";
-import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
+import {
+  UnauthorizedError,
+  ForbiddenError,
+  ConflictError,
+  NotFoundError,
+  BadRequestError,
+} from "@/modules/seguridad/errors";
 
 describe("Route Handlers /api/patrullas", () => {
   const adminId = "00000000-0000-4000-8000-000000000001";
@@ -200,6 +206,158 @@ describe("Route Handlers /api/patrullas", () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.data.estado).toBe("DISPONIBLE");
+    });
+  });
+
+  describe("POST /api/patrullas (Alta de Patrulla - HU-83)", () => {
+    const validPayload = {
+      codigo: "PV-NORTE-01",
+      nombre: "Patrulla Rápida Norte 1",
+      delegacionId: "30000000-0000-4000-8000-000000000001",
+      vehiculoId: "e1000000-0000-4000-8000-000000000002",
+      personalIds: ["b1000000-0000-4000-8000-000000000001"],
+    };
+
+    it("debe retornar 201 Created cuando el payload es válido y el usuario tiene permiso recursos:crear", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "crearPatrullaService").mockResolvedValueOnce({
+        message: "Patrulla verificadora registrada exitosamente.",
+        data: {
+          ...dummyPatrullaDTO,
+          codigo: "PV-NORTE-01",
+          nombre: "Patrulla Rápida Norte 1",
+          estado: "DISPONIBLE",
+        },
+      });
+
+      const req = new NextRequest("http://localhost:3000/api/patrullas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validPayload),
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(201);
+      const json = await res.json();
+      expect(json.message).toContain("exitosa");
+      expect(json.data.codigo).toBe("PV-NORTE-01");
+      expect(json.data.estado).toBe("DISPONIBLE");
+    });
+
+    it("debe retornar 400 Bad Request si el cuerpo de la petición no es JSON válido", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+
+      const req = new NextRequest("http://localhost:3000/api/patrullas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "esto no es json",
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.message).toContain("JSON válido");
+    });
+
+    it("debe retornar 400 Bad Request si la validación Zod falla", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+
+      const req = new NextRequest("http://localhost:3000/api/patrullas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          codigo: "P", // muy corto
+          delegacionId: "no-es-uuid",
+        }),
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.message).toContain("inválidos");
+    });
+
+    it("debe retornar 401 Unauthorized si el usuario no está autenticado", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValueOnce(
+        new UnauthorizedError("Token no válido")
+      );
+
+      const req = new NextRequest("http://localhost:3000/api/patrullas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validPayload),
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(401);
+    });
+
+    it("debe retornar 403 Forbidden si el usuario carece de permiso recursos:crear", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "crearPatrullaService").mockRejectedValueOnce(
+        new ForbiddenError("Acceso denegado. Se requiere permiso recursos:crear.")
+      );
+
+      const req = new NextRequest("http://localhost:3000/api/patrullas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validPayload),
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(403);
+    });
+
+    it("debe retornar 409 Conflict si el código ya existe o el vehículo no está disponible", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "crearPatrullaService").mockRejectedValueOnce(
+        new ConflictError("El código identificador 'PV-NORTE-01' ya se encuentra registrado.")
+      );
+
+      const req = new NextRequest("http://localhost:3000/api/patrullas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validPayload),
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.message).toContain("ya se encuentra registrado");
+    });
+
+    it("debe retornar 404 Not Found si la delegación o vehículo no existen", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "crearPatrullaService").mockRejectedValueOnce(
+        new NotFoundError("La delegación municipal con ID '30000000-0000-4000-8000-000000000001' no existe.")
+      );
+
+      const req = new NextRequest("http://localhost:3000/api/patrullas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validPayload),
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(404);
+    });
+
+    it("debe retornar 400 Bad Request si el servicio arroja BadRequestError por personal sin rol válido", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "crearPatrullaService").mockRejectedValueOnce(
+        new BadRequestError("Los funcionarios no cuentan con el rol operativo 'PATRULLA_VERIFICADORA'.")
+      );
+
+      const req = new NextRequest("http://localhost:3000/api/patrullas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validPayload),
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.message).toContain("PATRULLA_VERIFICADORA");
     });
   });
 });
