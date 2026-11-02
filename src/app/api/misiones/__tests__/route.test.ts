@@ -224,6 +224,49 @@ describe("Route Handler POST /api/misiones (Asignar Cuadrilla y Liberar Patrulla
     expect(body.message).toContain("no está disponible");
   });
 
+
+  it("debe responder 409 Conflict con estructura de negocio 'VERIFICACION_EN_CURSO' si la patrulla no ha finalizado evaluación", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(usuarioValidoId);
+    vi.mocked(authService.verificarPermiso).mockResolvedValueOnce({
+      id: usuarioValidoId,
+      nombre: "Encargado Operaciones",
+      rol: "Encargado",
+    });
+
+    vi.mocked(misionService.asignarCuadrillaMisionService).mockRejectedValueOnce(
+      new ConflictError(
+        "No es posible despachar una cuadrilla operativa: la patrulla verificadora asignada ('Patrulla Alfa-1') aún no ha finalizado la evaluación técnica en terreno.",
+        "VERIFICACION_EN_CURSO",
+        {
+          incidenteId: incidenteValidoId,
+          misionVerificacionId: "60000000-0000-4000-8000-000000000001",
+          patrullaId: "f1000000-0000-4000-8000-000000000001",
+          patrullaNombre: "Patrulla Alfa-1",
+          estadoMision: "EN_CURSO",
+        }
+      )
+    );
+
+    const req = new NextRequest("http://localhost:3000/api/misiones", {
+      method: "POST",
+      headers: { authorization: "Bearer token_valido" },
+      body: JSON.stringify({
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId: incidenteValidoId,
+        cuadrillaId: cuadrillaValidaId,
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.statusCode).toBe(409);
+    expect(body.error).toBe("Conflict");
+    expect(body.codigo).toBe("VERIFICACION_EN_CURSO");
+    expect(body.message).toContain("aún no ha finalizado la evaluación técnica en terreno");
+    expect(body.detalles.patrullaNombre).toBe("Patrulla Alfa-1");
+  });
+
   it("debe responder 201 Created cuando la cuadrilla se asigna exitosamente y libera la patrulla", async () => {
     vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(usuarioValidoId);
     vi.mocked(authService.verificarPermiso).mockResolvedValueOnce({

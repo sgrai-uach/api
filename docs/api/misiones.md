@@ -254,8 +254,10 @@ Permite al **Encargado de Operaciones** (o Administrador) desplegar una cuadrill
 - **Permiso RBAC requerido:** `misiones:asignar` (asignado a roles Encargado y Administrador).
 
 #### Reglas de Negocio Críticas Aplicadas
-1. **Validación de Estados de Entrada:**
+1. **Validación de Estados de Entrada y Evaluación Previa en Terreno (Regla ICS):**
    - El incidente debe existir y encontrarse en estado canónico `REPORTADO` o `VERIFICANDO`. Si ya se encuentra en `EN_ATENCION`, `RESUELTO` o `NO_ABORDABLE`, la API responde con `409 Conflict`.
+   - **Evaluación técnica obligatoria antes del relevo:** Si el incidente está en `VERIFICANDO` y cuenta con una patrulla verificadora asignada, la patrulla **debe haber emitido previamente su informe técnico en terreno (`reporte_terreno`)** o registrado el hito de evaluación. Si aún se encuentra en traslado o sin emitir dicho informe, el despacho es bloqueado con `409 Conflict` y código de negocio `'VERIFICACION_EN_CURSO'`.
+   - Si el incidente se encuentra en `REPORTADO` (despacho directo sin patrullaje previo), esta validación no aplica y se permite la asignación directa de cuadrilla.
    - La cuadrilla seleccionada debe encontrarse en estado `DISPONIBLE`. Si está en `EN_MISION` o `NO_DISPONIBLE`, se rechaza con `409 Conflict`.
 2. **Transacción Atómica Kysely:**
    - Crea la nueva misión operativa con `tipo_mision = 'ATENCION_CUADRILLA'`, `estado = 'DESPACHADA'`, código correlativo oficial `MIS-YYYY-XXXX` y `fecha_inicio = null` (permanece en null hasta que la cuadrilla acepte e inicie trayecto en terreno).
@@ -361,6 +363,22 @@ Permite al **Encargado de Operaciones** (o Administrador) desplegar una cuadrill
 
 - **`409 Conflict`:**
   - En `POST /api/misiones`:
+    - **`VERIFICACION_EN_CURSO`:** La patrulla verificadora asignada al incidente aún no ha finalizado la evaluación técnica en terreno (no se ha emitido el `reporte_terreno` correspondiente).
+      ```json
+      {
+        "statusCode": 409,
+        "error": "Conflict",
+        "codigo": "VERIFICACION_EN_CURSO",
+        "message": "No es posible despachar una cuadrilla operativa: la patrulla verificadora asignada ('Patrulla Alfa-1') aún no ha finalizado la evaluación técnica en terreno.",
+        "detalles": {
+          "incidenteId": "UUID_DEL_INCIDENTE",
+          "misionVerificacionId": "UUID_MISION_VERIFICACION",
+          "patrullaId": "UUID_DE_LA_PATRULLA",
+          "patrullaNombre": "Patrulla Alfa-1",
+          "estadoMision": "EN_CURSO"
+        }
+      }
+      ```
     - La cuadrilla no se encuentra en estado `DISPONIBLE` (por encontrarse `EN_MISION` o `NO_DISPONIBLE`).
     - El incidente no se encuentra en un estado apto para despacho (`REPORTADO` o `VERIFICANDO`), por ejemplo si ya está `EN_ATENCION` o `RESUELTO`.
 - **`500 Internal Server Error`:**

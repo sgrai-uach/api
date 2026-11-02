@@ -216,6 +216,40 @@ describe("Servicio: asignarCuadrillaMisionService (HU-21 / Regla ICS §3.2)", ()
     ).rejects.toThrow(NotFoundError);
   });
 
+
+  it("debe propagar ConflictError con código 'VERIFICACION_EN_CURSO' y detalles si la patrulla no ha emitido reporte técnico", async () => {
+    const errorEsperado = new ConflictError(
+      "No es posible despachar una cuadrilla operativa: la patrulla verificadora asignada ('Patrulla Alfa-1') aún no ha finalizado la evaluación técnica en terreno.",
+      "VERIFICACION_EN_CURSO",
+      {
+        incidenteId,
+        misionVerificacionId: misionPreviaId,
+        patrullaId,
+        patrullaNombre: "Patrulla Alfa-1",
+        estadoMision: "EN_CURSO",
+      }
+    );
+
+    vi.mocked(misionRepository.asignarCuadrillaIncidenteRepo).mockRejectedValueOnce(errorEsperado);
+
+    await expect(
+      asignarCuadrillaMisionService(
+        {
+          tipoMision: "ATENCION_CUADRILLA",
+          incidenteId,
+          cuadrillaId,
+        },
+        usuarioId
+      )
+    ).rejects.toMatchObject({
+      name: "ConflictError",
+      codigo: "VERIFICACION_EN_CURSO",
+      detalles: {
+        patrullaNombre: "Patrulla Alfa-1",
+      },
+    });
+  });
+
   it("debe propagar ConflictError si la cuadrilla no está disponible", async () => {
     vi.mocked(misionRepository.asignarCuadrillaIncidenteRepo).mockRejectedValueOnce(
       new ConflictError("La cuadrilla no está disponible para asignación (estado actual: 'EN_MISION').")
@@ -233,3 +267,4 @@ describe("Servicio: asignarCuadrillaMisionService (HU-21 / Regla ICS §3.2)", ()
     ).rejects.toThrow(ConflictError);
   });
 });
+
