@@ -1,10 +1,16 @@
-import { obtenerMisionDetallePorIdRepo } from "./mision.repository";
+import {
+  obtenerMisionDetallePorIdRepo,
+  aceptarMisionPatrullaRepo,
+} from "./mision.repository";
 import type {
   MisionDetalleCompleto,
   MisionBitacoraHito,
   ReporteTerrenoDetalle,
   AdjuntoEvidencia,
+  AceptarMisionInput,
+  AceptarMisionResponse,
 } from "./mision.schema";
+import { notificarMisionActualizada } from "@/lib/socket";
 
 function formatearFechaIso(fecha: Date | string | null | undefined): string | null {
   if (!fecha) return null;
@@ -236,3 +242,54 @@ export async function obtenerDetalleMisionService(
     reportesTerreno: reportesMapeados,
   };
 }
+
+/**
+ * HU-36 - Servicio de negocio para confirmar y aceptar una misión asignada a una patrulla verificadora.
+ *
+ * 1. Ejecuta la transición atómica en base de datos (`DESPACHADA` -> `EN_CURSO`, `fecha_inicio = CURRENT_TIMESTAMP`,
+ *    registro de hito `'MISION_ACEPTADA'` en `mision_hito`).
+ * 2. Mantiene la patrulla en `EN_VERIFICACION` y el incidente en `VERIFICANDO`.
+ * 3. Emite en tiempo real el evento WebSocket `mision:actualizada` hacia la sala `encargado` del Centro de Mando.
+ */
+export async function aceptarMisionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin = false,
+  input?: AceptarMisionInput
+): Promise<AceptarMisionResponse> {
+  const resultado = await aceptarMisionPatrullaRepo(misionId, usuarioId, esAdmin, input);
+
+  try {
+    notificarMisionActualizada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      estado: resultado.mision.estado,
+      tipoMision: resultado.mision.tipoMision,
+      patrullaId: resultado.mision.patrullaId,
+      incidenteId: resultado.mision.incidenteId,
+      fechaInicio: resultado.mision.fechaInicio,
+      hito: {
+        id: resultado.hito.id,
+        hito: resultado.hito.hito,
+        descripcion: resultado.hito.descripcion,
+        registradoPorId: resultado.hito.registradoPorId,
+        creadoEn: resultado.hito.creadoEn,
+      },
+      actualizadoEn: resultado.mision.actualizadoEn,
+    });
+  } catch (error) {
+    console.error("Error al emitir evento WebSocket mision:actualizada:", error);
+  }
+
+  return {
+    message:
+      "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
+    data: {
+      mision: resultado.mision,
+      patrulla: resultado.patrulla,
+      incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
+

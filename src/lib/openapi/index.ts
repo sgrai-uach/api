@@ -128,6 +128,9 @@ import {
 import {
   MisionDetalleResponseSchema,
   MisionIdParamSchema,
+  AceptarMisionInputSchema,
+  MisionHitoRegistradoSchema,
+  AceptarMisionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -1295,6 +1298,63 @@ registry.registerPath({
 });
 
 // 22. GET /api/misiones/{id} (HU-17: Detalle Completo de Misión)
+registry.register("AceptarMisionInput", AceptarMisionInputSchema);
+registry.register("MisionHitoRegistrado", MisionHitoRegistradoSchema);
+registry.register("AceptarMisionResponse", AceptarMisionResponseSchema);
+
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/aceptar",
+  summary: "Confirmar y aceptar misión asignada desde terreno (HU-36)",
+  description:
+    "Permite a la patrulla verificadora confirmar y aceptar la misión asignada desde su dispositivo móvil (PWA). Ejecuta una transición atómica actualizando mision.estado de DESPACHADA a EN_CURSO, fijando mision.fecha_inicio = CURRENT_TIMESTAMP y registrando el hito 'Misión Aceptada por Patrulla' (código 'MISION_ACEPTADA') en mision_hito. Mantiene patrulla_verificadora.estado en EN_VERIFICACION e incidente.estado en VERIFICANDO, y emite el evento WebSocket 'mision:actualizada' hacia la sala 'encargado'. Requiere el permiso RBAC 'misiones:terreno:verificar'.",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión de la patrulla verificadora"),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado con permiso misiones:terreno:verificar" }),
+    }),
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      required: false,
+      description: "Coordenadas GPS opcionales al momento de confirmar la salida en la PWA",
+      content: {
+        "application/json": {
+          schema: AceptarMisionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Misión aceptada exitosamente y hito registrado en bitácora",
+      content: {
+        "application/json": {
+          schema: AceptarMisionResponseSchema,
+        },
+      },
+    },
+    400: { description: "El identificador de la misión no es un UUID válido o las coordenadas son inválidas" },
+    401: { description: "No autenticado o token de sesión inválido/expirado" },
+    403: {
+      description:
+        "Acceso denegado. Se requiere el permiso 'misiones:terreno:verificar' y pertenecer a la patrulla asignada",
+    },
+    404: { description: "No se encontró ninguna misión con el identificador proporcionado" },
+    409: {
+      description:
+        "Conflicto de estado: la misión no se encuentra en estado 'DESPACHADA' (ej. ya fue aceptada o cancelada)",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
 registry.registerPath({
   method: "get",
   path: "/api/misiones/{id}",
