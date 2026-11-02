@@ -143,6 +143,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: error.message }, { status: 404 });
     }
     if (error instanceof ConflictError) {
+      if (error.codigo) {
+        return NextResponse.json(
+          {
+            statusCode: 409,
+            error: "Conflict",
+            codigo: error.codigo,
+            message: error.message,
+            detalles: error.detalles,
+          },
+          { status: 409 }
+        );
+      }
       return NextResponse.json({ message: error.message }, { status: 409 });
     }
     if (error instanceof BadRequestError) {

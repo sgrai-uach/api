@@ -460,6 +460,42 @@ export async function asignarCuadrillaIncidenteRepo(
       .where("mision.estado", "in", ["DESPACHADA", "EN_CURSO"])
       .executeTakeFirst();
 
+    // 3.1. Validación previa: Si está VERIFICANDO y hay patrulla asignada, debe existir reporte técnico de terreno
+    if (misionVerificacionActiva && incidente.estado === "VERIFICANDO") {
+      const reporteTerreno = await trx
+        .selectFrom("reporte_terreno")
+        .select("id")
+        .where("mision_id", "=", misionVerificacionActiva.mision_id)
+        .executeTakeFirst();
+
+      const hitoEvaluacion = await trx
+        .selectFrom("mision_hito")
+        .select("id")
+        .where("mision_id", "=", misionVerificacionActiva.mision_id)
+        .where("hito", "in", [
+          "EVALUACION_COMPLETADA",
+          "REPORTE_EMITIDO",
+          "VERIFICACION_COMPLETADA",
+          "EVALUACION_FINALIZADA",
+          "REPORTE_TERRENO_REGISTRADO",
+        ])
+        .executeTakeFirst();
+
+      if (!reporteTerreno && !hitoEvaluacion) {
+        throw new ConflictError(
+          `No es posible despachar una cuadrilla operativa: la patrulla verificadora asignada ('${misionVerificacionActiva.patrulla_nombre}') aún no ha finalizado la evaluación técnica en terreno.`,
+          "VERIFICACION_EN_CURSO",
+          {
+            incidenteId: input.incidenteId,
+            misionVerificacionId: misionVerificacionActiva.mision_id,
+            patrullaId: misionVerificacionActiva.patrulla_id,
+            patrullaNombre: misionVerificacionActiva.patrulla_nombre,
+            estadoMision: misionVerificacionActiva.mision_estado,
+          }
+        );
+      }
+    }
+
     // 4. Determinar prioridad: heredar de misión de verificación activa o incidente
     const prioridadFinal = (
       input.prioridad ??
