@@ -515,46 +515,21 @@ export function emitirEventoPrevencionCreado(payload: {
 }
 
 /**
- * Emite la notificación de nueva cuadrilla operativa conformada
- * hacia las salas de administración, despacho y supervisión (H79).
+ * Emite la notificación de creación de cuadrilla en tiempo real a las salas operativas (H79).
  */
 export function emitirCuadrillaCreada(payload: unknown): void {
-  if (ioInstance) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("operaciones") as any).emit("cuadrilla:creada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("cuadrilla:creada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("cuadrilla:creada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("cuadrilla:creada", payload);
-    return;
-  }
+  emitirEvento("operaciones", "cuadrilla:creada", payload);
+  emitirEvento("encargado", "cuadrilla:creada", payload);
+  emitirEvento("supervisor", "cuadrilla:creada", payload);
+}
 
-  const publisher = getRedisPublisher();
-  if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "operaciones",
-          event: "cuadrilla:creada",
-          payload,
-        })
-      )
-      .catch(() => {});
-
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "encargado",
-          event: "cuadrilla:creada",
-          payload,
-        })
-      )
-      .catch(() => {});
-  }
+/**
+ * Emite la notificación de cuadrilla actualizada con nueva dotación a las salas operativas (H81).
+ */
+export function emitirCuadrillaActualizada(payload: unknown): void {
+  emitirEvento("operaciones", "cuadrilla:actualizada", payload);
+  emitirEvento("encargado", "cuadrilla:actualizada", payload);
+  emitirEvento("supervisor", "cuadrilla:actualizada", payload);
 }
 
 /**

@@ -7,32 +7,81 @@ import {
   ConflictError,
   BadRequestError,
 } from "@/modules/seguridad/errors";
-import { CrearCuadrillaInputSchema } from "@/modules/recursos-y-personal/cuadrilla.schema";
-import { crearCuadrilla } from "@/modules/recursos-y-personal/cuadrilla.service";
+import {
+  CrearCuadrillaInputSchema,
+  ListarCuadrillasQuerySchema,
+} from "@/modules/recursos-y-personal/cuadrilla.schema";
+import {
+  crearCuadrilla,
+  listarCuadrillas,
+} from "@/modules/recursos-y-personal/cuadrilla.service";
+
+/**
+ * GET /api/cuadrillas
+ * Retorna el listado paginado de cuadrillas operativas con soporte para filtros
+ * territoriales (delegación), estado operativo y búsqueda parcial (H81 / H79).
+ * 
+ * Requiere permiso RBAC 'recursos:leer', 'recursos:gestionar' o rol Administrador.
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const usuarioId = await extraerUsuarioId(req);
+
+    const { searchParams } = new URL(req.url);
+    const queryParams: Record<string, string> = {};
+
+    searchParams.forEach((value, key) => {
+      queryParams[key] = value;
+    });
+
+    const validacionQuery = ListarCuadrillasQuerySchema.safeParse(queryParams);
+    if (!validacionQuery.success) {
+      return NextResponse.json(
+        {
+          message: "Parámetros de consulta inválidos.",
+          errors: validacionQuery.error.issues.map((issue) => ({
+            campo: issue.path.join("."),
+            mensaje: issue.message,
+          })),
+        },
+        { status: 400 }
+      );
+    }
+
+    const resultado = await listarCuadrillas(validacionQuery.data, usuarioId);
+
+    return NextResponse.json(resultado, { status: 200 });
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ message: error.message }, { status: 401 });
+    }
+
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ message: error.message }, { status: 403 });
+    }
+
+    if (error instanceof BadRequestError) {
+      return NextResponse.json({ message: error.message }, { status: 400 });
+    }
+
+    console.error("Error al listar cuadrillas operativas:", error);
+    return NextResponse.json(
+      { message: "Error interno del servidor al procesar la solicitud." },
+      { status: 500 }
+    );
+  }
+}
 
 /**
  * POST /api/cuadrillas
  * Da de alta una nueva cuadrilla operativa en el sistema asignando su nombre,
  * delegación municipal base y delegado responsable (H79).
+ * 
+ * Requiere permiso RBAC 'recursos:crear' o rol Administrador.
  */
 export async function POST(req: NextRequest) {
   try {
-    let usuarioId: string | null = null;
-    try {
-      usuarioId = await extraerUsuarioId(req);
-    } catch (err) {
-      if (!req.headers.get("x-user-id")) {
-        throw err;
-      }
-    }
-
-    if (!usuarioId) {
-      usuarioId = req.headers.get("x-user-id")?.trim() || null;
-    }
-
-    if (!usuarioId) {
-      throw new UnauthorizedError("No autenticado.");
-    }
+    const usuarioId = await extraerUsuarioId(req);
 
     let body: unknown;
     try {

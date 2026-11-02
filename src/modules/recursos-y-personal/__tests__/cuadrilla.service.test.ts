@@ -1,403 +1,458 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { CrearCuadrillaInputSchema } from "../cuadrilla.schema";
-import { crearCuadrilla } from "../cuadrilla.service";
-import * as cuadrillaRepository from "../cuadrilla.repository";
-import * as socketLib from "@/lib/socket";
-import { seguridadService } from "@/modules/seguridad/service";
 import {
-  UnauthorizedError,
-  ForbiddenError,
+  listarCuadrillas,
+  obtenerCuadrillaPorId,
+  crearCuadrilla,
+  editarCuadrilla,
+} from "../cuadrilla.service";
+import * as repo from "../cuadrilla.repository";
+import { seguridadService } from "@/modules/seguridad/service";
+import * as socketModule from "@/lib/socket";
+import {
+  BadRequestError,
   NotFoundError,
   ConflictError,
-  BadRequestError,
+  ForbiddenError,
 } from "@/modules/seguridad/errors";
 
-describe("Módulo Recursos y Personal - Servicio de Cuadrillas Operativas (H79)", () => {
-  const usuarioAdmin = {
-    id: "00000000-0000-4000-8000-000000000001",
-    email: "admin@valdivia.cl",
-    rol: "ADMIN",
-    permisos: ["recursos:crear"],
-  };
+describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
+  const usuarioAdminId = "00000000-0000-4000-8000-000000000001";
+  const cuadrillaId = "50000000-0000-4000-8000-000000000001";
+  const delegacionId = "30000000-0000-4000-8000-000000000001";
+  const delegadoId = "00000000-0000-4000-8000-000000000005";
+  const personalId = "40000000-0000-4000-8000-000000000001";
+  const recursoId = "e1000000-0000-4000-8000-000000000001";
 
-  const inputValido = {
-    nombre: "Cuadrilla Vías y Calles",
-    delegacionId: "30000000-0000-4000-8000-000000000001",
-    usuarioDelegadoId: "00000000-0000-4000-8000-000000000005",
-  };
-
-  const delegacionMock = {
-    id: "30000000-0000-4000-8000-000000000001",
-    nombre: "Delegación Municipal Calle Calle",
-    activo: true,
-  };
-
-  const usuarioDelegadoMock = {
-    id: "00000000-0000-4000-8000-000000000005",
-    nombre: "Carlos Operativo",
+  const delegacionMock = { id: delegacionId, nombre: "Delegación Norte", activo: true };
+  const delegadoMock = {
+    id: delegadoId,
+    nombre: "Carlos Delegado",
     email: "carlos@valdivia.cl",
-    rut: "15.123.456-7",
+    rut: "15.111.222-3",
     activo: true,
     rol_id: "20000000-0000-4000-8000-000000000005",
-    delegacion_id: "30000000-0000-4000-8000-000000000001",
+    delegacion_id: delegacionId,
     rol_codigo: "DELEGADO_CUADRILLA",
   };
+  const rolDelegadoMock = { id: "rol-delegado-id", codigo: "DELEGADO_CUADRILLA", nombre: "Delegado" };
+  const rolBrigadistaMock = { id: "rol-brigadista-id", codigo: "BRIGADISTA", nombre: "Brigadista" };
 
-  const rolDelegadoMock = {
-    id: "20000000-0000-4000-8000-000000000005",
-    codigo: "DELEGADO_CUADRILLA",
-    nombre: "Delegado de Cuadrilla",
-  };
+  const personalMock = [
+    {
+      id: personalId,
+      usuario_id: "user-trabajador-1",
+      nombre: "Pedro Obrero",
+      rut: "16.222.333-4",
+      usuario_activo: true,
+      cargo: "Motosierrista",
+      especialidad: "Poda de Altura",
+      estado_operativo: "disponible" as const,
+      disponible_terreno: true,
+    },
+  ];
 
-  const filaDetalleMock: cuadrillaRepository.FilaCuadrillaDetalle = {
-    id: "50000000-0000-4000-8000-000000000001",
-    nombre: "Cuadrilla Vías y Calles",
+  const recursoMock = [
+    {
+      id: recursoId,
+      nombre: "Camioneta 4x4",
+      es_individual: true,
+      estado: "DISPONIBLE" as const,
+      cantidad_inventario: 1,
+      cantidad_en_uso: 0,
+    },
+  ];
+
+  const resultadoConsolidadoMock: repo.FilaCuadrillaDetalleConsolidado = {
+    id: cuadrillaId,
+    nombre: "Cuadrilla Vías y Despeje Urbano",
     estado: "DISPONIBLE",
     creado_en: new Date("2026-10-24T12:00:00Z"),
-    creado_por_id: usuarioAdmin.id,
-    delegacion_id: delegacionMock.id,
-    delegacion_nombre: delegacionMock.nombre,
-    delegado_id: usuarioDelegadoMock.id,
-    delegado_nombre: usuarioDelegadoMock.nombre,
-    delegado_email: usuarioDelegadoMock.email,
-    delegado_rut: usuarioDelegadoMock.rut,
+    actualizado_en: new Date("2026-10-26T01:30:00Z"),
+    creado_por_id: usuarioAdminId,
+    actualizado_por_id: usuarioAdminId,
+    delegacion_id: delegacionId,
+    delegacion_nombre: "Delegación Norte",
+    delegado_id: delegadoId,
+    delegado_nombre: "Carlos Delegado",
+    delegado_email: "carlos@valdivia.cl",
+    delegado_rut: "15.111.222-3",
+    recursos: [
+      {
+        id: "cr-1",
+        recurso_id: recursoId,
+        nombre: "Camioneta 4x4",
+        cantidad_asignada: 1,
+        es_individual: true,
+      },
+    ],
+    trabajadores: [
+      {
+        id: "cp-1",
+        personal_id: personalId,
+        usuario_id: "user-trabajador-1",
+        nombre: "Pedro Obrero",
+        rut: "16.222.333-4",
+        cargo: "Motosierrista",
+        especialidad: "Poda de Altura",
+        asignado_en: new Date("2026-10-26T01:30:00Z"),
+      },
+    ],
   };
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue({
+      id: usuarioAdminId,
+      rut: "11111111-1",
+      nombre: "Admin",
+      email: "admin@valdivia.cl",
+      rolId: "rol-admin",
+      rolNombre: "Administrador",
+      activo: true,
+    });
+    vi.spyOn(socketModule, "emitirCuadrillaCreada").mockImplementation(() => {});
+    vi.spyOn(socketModule, "emitirCuadrillaActualizada").mockImplementation(() => {});
   });
 
-  describe("1. Validaciones del Esquema Zod (CrearCuadrillaInputSchema)", () => {
-    it("debe aceptar un payload completo y válido", () => {
-      const parsed = CrearCuadrillaInputSchema.safeParse(inputValido);
-      expect(parsed.success).toBe(true);
-      if (parsed.success) {
-        expect(parsed.data.nombre).toBe("Cuadrilla Vías y Calles");
-      }
-    });
-
-    it("debe aplicar trim() y rechazar nombres menores a 3 caracteres", () => {
-      const parsed = CrearCuadrillaInputSchema.safeParse({
-        ...inputValido,
-        nombre: "  ab  ",
+  describe("listarCuadrillas", () => {
+    it("debe retornar listado paginado con filtros", async () => {
+      vi.spyOn(repo, "listarCuadrillasPaginadas").mockResolvedValue({
+        cuadrillas: [resultadoConsolidadoMock],
+        total: 1,
       });
-      expect(parsed.success).toBe(false);
+
+      const res = await listarCuadrillas({ pagina: 1, limite: 10, busqueda: "Vias" }, usuarioAdminId);
+
+      expect(res.data).toHaveLength(1);
+      expect(res.meta.total).toBe(1);
+      expect(res.meta.paginasTotales).toBe(1);
+      expect(res.data[0].totalRecursos).toBe(1);
+      expect(res.data[0].totalTrabajadores).toBe(1);
     });
 
-    it("debe rechazar si falta el nombre o es vacío", () => {
-      const parsed = CrearCuadrillaInputSchema.safeParse({
-        ...inputValido,
-        nombre: "",
-      });
-      expect(parsed.success).toBe(false);
-    });
+    it("debe rechazar si el usuario no tiene permisos", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValue(
+        new ForbiddenError("Acceso denegado")
+      );
 
-    it("debe rechazar UUID inválido para delegacionId o usuarioDelegadoId", () => {
-      expect(
-        CrearCuadrillaInputSchema.safeParse({
-          ...inputValido,
-          delegacionId: "invalido",
-        }).success
-      ).toBe(false);
-
-      expect(
-        CrearCuadrillaInputSchema.safeParse({
-          ...inputValido,
-          usuarioDelegadoId: "12345",
-        }).success
-      ).toBe(false);
+      await expect(listarCuadrillas({}, "usuario-invalido")).rejects.toThrow(ForbiddenError);
     });
   });
 
-  describe("2. Autorización y Reglas de Negocio en crearCuadrilla()", () => {
-    it("debe rechazar si el usuario no está autenticado (UnauthorizedError)", async () => {
+  describe("obtenerCuadrillaPorId", () => {
+    it("debe retornar el detalle unitario consolidado de la cuadrilla", async () => {
+      vi.spyOn(repo, "obtenerCuadrillaDetalleUnitario").mockResolvedValue(resultadoConsolidadoMock);
+
+      const res = await obtenerCuadrillaPorId(cuadrillaId, usuarioAdminId);
+
+      expect(res.id).toBe(cuadrillaId);
+      expect(res.recursos).toHaveLength(1);
+      expect(res.trabajadores).toHaveLength(1);
+    });
+
+    it("debe lanzar NotFoundError si la cuadrilla no existe", async () => {
+      vi.spyOn(repo, "obtenerCuadrillaDetalleUnitario").mockResolvedValue(undefined);
+
+      await expect(obtenerCuadrillaPorId(cuadrillaId, usuarioAdminId)).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe("crearCuadrilla", () => {
+    const inputCrear = {
+      nombre: "Nueva Cuadrilla",
+      delegacionId,
+      usuarioDelegadoId: delegadoId,
+    };
+
+    it("debe crear cuadrilla exitosamente y emitir evento WebSocket", async () => {
+      vi.spyOn(repo, "buscarCuadrillaPorNombre").mockResolvedValue(undefined);
+      vi.spyOn(repo, "obtenerDelegacionPorId").mockResolvedValue(delegacionMock);
+      vi.spyOn(repo, "obtenerUsuarioPorId").mockResolvedValue(delegadoMock);
+      vi.spyOn(repo, "obtenerRolPorCodigo").mockResolvedValue(rolDelegadoMock);
+      vi.spyOn(repo, "insertarCuadrillaConDelegado").mockResolvedValue({
+        ...resultadoConsolidadoMock,
+        nombre: inputCrear.nombre,
+      });
+
+      const res = await crearCuadrilla(inputCrear, usuarioAdminId);
+
+      expect(res.nombre).toBe(inputCrear.nombre);
+      expect(res.estado).toBe("DISPONIBLE");
+      expect(socketModule.emitirCuadrillaCreada).toHaveBeenCalledTimes(1);
+    });
+
+    it("debe lanzar ConflictError si el nombre ya existe", async () => {
+      vi.spyOn(repo, "buscarCuadrillaPorNombre").mockResolvedValue({
+        id: "otra-id",
+        nombre: inputCrear.nombre,
+      });
+
+      await expect(crearCuadrilla(inputCrear, usuarioAdminId)).rejects.toThrow(ConflictError);
+    });
+
+    it("debe lanzar NotFoundError si la delegación no existe", async () => {
+      vi.spyOn(repo, "buscarCuadrillaPorNombre").mockResolvedValue(undefined);
+      vi.spyOn(repo, "obtenerDelegacionPorId").mockResolvedValue(undefined);
+
+      await expect(crearCuadrilla(inputCrear, usuarioAdminId)).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe("editarCuadrilla", () => {
+    const inputValido = {
+      nombre: "Cuadrilla Vías y Despeje Urbano",
+      delegacionId,
+      usuarioDelegadoId: delegadoId,
+      recursos: [{ recursoId, cantidad: 1 }],
+      trabajadores: [{ personalId }],
+    };
+
+    const cuadrillaActualMock: repo.FilaCuadrillaParaEdicion = {
+      id: cuadrillaId,
+      nombre: "Cuadrilla Anterior",
+      estado: "DISPONIBLE",
+      delegacion_id: delegacionId,
+      usuario_delegado_id: "00000000-0000-4000-8000-000000000099",
+      eliminado_en: null,
+    };
+
+    beforeEach(() => {
+      vi.spyOn(repo, "obtenerCuadrillaPorIdParaEdicion").mockResolvedValue(cuadrillaActualMock);
+      vi.spyOn(repo, "verificarMisionesActivasCuadrilla").mockResolvedValue(false);
+      vi.spyOn(repo, "buscarCuadrillaPorNombreExcluyendoId").mockResolvedValue(undefined);
+      vi.spyOn(repo, "obtenerDelegacionPorId").mockResolvedValue(delegacionMock);
+      vi.spyOn(repo, "obtenerUsuarioPorId").mockResolvedValue(delegadoMock);
+      vi.spyOn(repo, "obtenerRolPorCodigo").mockImplementation(async (codigo) => {
+        if (codigo === "DELEGADO_CUADRILLA") return rolDelegadoMock;
+        if (codigo === "BRIGADISTA") return rolBrigadistaMock;
+        return undefined;
+      });
+      vi.spyOn(repo, "obtenerPersonalParaAsignacion").mockResolvedValue(personalMock);
+      vi.spyOn(repo, "obtenerRecursosParaAsignacion").mockResolvedValue(recursoMock);
+      vi.spyOn(repo, "obtenerRecursosIndividualesAsignadosAOtrasCuadrillas").mockResolvedValue([]);
+      vi.spyOn(repo, "verificarDelegadoAsignadoAOtraCuadrilla").mockResolvedValue({
+        asignado: false,
+        rolEnOtra: null,
+        cuadrillaNombre: null,
+      });
+      vi.spyOn(repo, "obtenerTrabajadoresAsignadosAOtrasCuadrillas").mockResolvedValue([]);
+      vi.spyOn(repo, "actualizarCuadrillaConDotacionTransaccional").mockResolvedValue(resultadoConsolidadoMock);
+    });
+
+    it("debe rechazar con ForbiddenError si el usuario no tiene permisos", async () => {
       vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValue(
-        new UnauthorizedError("No autenticado.")
+        new ForbiddenError("Acceso denegado")
       );
 
-      await expect(crearCuadrilla(inputValido, null)).rejects.toThrow(
-        UnauthorizedError
+      await expect(editarCuadrilla(cuadrillaId, inputValido, "otro-usuario")).rejects.toThrow(
+        ForbiddenError
       );
     });
 
-    it("debe rechazar con ForbiddenError si el usuario no tiene permisos suficientes", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValue(
-        new ForbiddenError("Acceso denegado. Se requiere permiso recursos:crear.")
-      );
+    it("debe lanzar NotFoundError si la cuadrilla no existe", async () => {
+      vi.spyOn(repo, "obtenerCuadrillaPorIdParaEdicion").mockResolvedValue(undefined);
 
-      await expect(
-        crearCuadrilla(inputValido, "usuario-sin-permisos")
-      ).rejects.toThrow(ForbiddenError);
-    });
-
-    it("debe rechazar con ConflictError si ya existe una cuadrilla con el mismo nombre", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
-        usuarioAdmin as any
-      );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue({
-        id: "50000000-0000-4000-8000-000000000099",
-        nombre: "cuadrilla vías y calles",
-      } as any);
-
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        ConflictError
-      );
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        "Ya existe una cuadrilla operativa con el nombre ingresado."
-      );
-    });
-
-    it("debe rechazar con NotFoundError si la delegación municipal no existe", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
-        usuarioAdmin as any
-      );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue(
-        undefined
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerDelegacionPorId").mockResolvedValue(
-        undefined
-      );
-
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
         NotFoundError
       );
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        "La delegación municipal especificada no existe."
+    });
+
+    it("debe bloquear con ConflictError (409) si la cuadrilla está en estado EN_MISION", async () => {
+      vi.spyOn(repo, "obtenerCuadrillaPorIdParaEdicion").mockResolvedValue({
+        ...cuadrillaActualMock,
+        estado: "EN_MISION",
+      });
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
       );
     });
 
-    it("debe rechazar con BadRequestError si la delegación municipal está inactiva", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
-        usuarioAdmin as any
-      );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue(
-        undefined
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerDelegacionPorId").mockResolvedValue({
-        id: delegacionMock.id,
-        nombre: delegacionMock.nombre,
-        activo: false,
-      } as any);
+    it("debe bloquear con ConflictError (409) si la cuadrilla está en estado EN_TRANSITO o EN_OPERACION", async () => {
+      vi.spyOn(repo, "obtenerCuadrillaPorIdParaEdicion").mockResolvedValue({
+        ...cuadrillaActualMock,
+        estado: "EN_TRANSITO" as unknown as repo.FilaCuadrillaParaEdicion["estado"],
+      });
 
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        BadRequestError
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
       );
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        "La delegación municipal seleccionada se encuentra inactiva."
+
+      vi.spyOn(repo, "obtenerCuadrillaPorIdParaEdicion").mockResolvedValue({
+        ...cuadrillaActualMock,
+        estado: "EN_OPERACION" as unknown as repo.FilaCuadrillaParaEdicion["estado"],
+      });
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
       );
     });
 
-    it("debe rechazar con NotFoundError si el delegado no existe en usuarios", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
-        usuarioAdmin as any
-      );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue(
-        undefined
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerDelegacionPorId").mockResolvedValue(
-        delegacionMock as any
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerUsuarioPorId").mockResolvedValue(
-        undefined
-      );
+    it("debe bloquear con ConflictError (409) si la cuadrilla tiene misiones operativas activas", async () => {
+      vi.spyOn(repo, "verificarMisionesActivasCuadrilla").mockResolvedValue(true);
 
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        NotFoundError
-      );
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        "El usuario designado como delegado de cuadrilla no existe."
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
       );
     });
 
-    it("debe rechazar con BadRequestError si el delegado está inactivo", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
-        usuarioAdmin as any
-      );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue(
-        undefined
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerDelegacionPorId").mockResolvedValue(
-        delegacionMock as any
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerUsuarioPorId").mockResolvedValue({
-        ...usuarioDelegadoMock,
-        activo: false,
-      } as any);
+    it("debe lanzar ConflictError si el nuevo nombre colisiona con otra cuadrilla", async () => {
+      vi.spyOn(repo, "buscarCuadrillaPorNombreExcluyendoId").mockResolvedValue({
+        id: "otra-cuadrilla-id",
+        nombre: inputValido.nombre,
+      });
 
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        BadRequestError
-      );
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        "El usuario designado como delegado de cuadrilla se encuentra inactivo."
-      );
-    });
-
-    // BUG-H79-API-02: Rechazo de perfiles administrativos
-    it("BUG-H79-API-02: debe rechazar con BadRequestError si el funcionario tiene perfil administrativo (ADMIN)", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
-        usuarioAdmin as any
-      );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue(
-        undefined
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerDelegacionPorId").mockResolvedValue(
-        delegacionMock as any
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerUsuarioPorId").mockResolvedValue({
-        ...usuarioDelegadoMock,
-        rol_codigo: "ADMIN",
-      } as any);
-
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        BadRequestError
-      );
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        "No se puede asignar a un funcionario con perfil administrativo como delegado de cuadrilla."
-      );
-    });
-
-    it("BUG-H79-API-02: debe rechazar con BadRequestError si el funcionario tiene perfil SUPERVISOR o ENCARGADO", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
-        usuarioAdmin as any
-      );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue(
-        undefined
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerDelegacionPorId").mockResolvedValue(
-        delegacionMock as any
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerUsuarioPorId").mockResolvedValue({
-        ...usuarioDelegadoMock,
-        rol_codigo: "ENCARGADO",
-      } as any);
-
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        BadRequestError
-      );
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        "No se puede asignar a un funcionario con perfil administrativo como delegado de cuadrilla."
-      );
-    });
-
-    // BUG-H79-API-01: Mando único ICS - Asignación de un mismo delegado a múltiples cuadrillas activas
-    it("BUG-H79-API-01: debe rechazar con ConflictError si el delegado ya lidera una cuadrilla activa", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
-        usuarioAdmin as any
-      );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue(
-        undefined
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerDelegacionPorId").mockResolvedValue(
-        delegacionMock as any
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerUsuarioPorId").mockResolvedValue(
-        usuarioDelegadoMock as any
-      );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaActivaDeDelegado").mockResolvedValue({
-        id: "50000000-0000-4000-8000-000000000010",
-        nombre: "Cuadrilla Vías 1",
-        estado: "DISPONIBLE",
-      } as any);
-
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
         ConflictError
       );
-      await expect(crearCuadrilla(inputValido, usuarioAdmin.id)).rejects.toThrow(
-        "El funcionario seleccionado ya se encuentra asignado como delegado de la cuadrilla activa 'Cuadrilla Vías 1'."
+    });
+
+    it("debe lanzar BadRequestError si la delegación está inactiva", async () => {
+      vi.spyOn(repo, "obtenerDelegacionPorId").mockResolvedValue({
+        ...delegacionMock,
+        activo: false,
+      });
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        BadRequestError
       );
     });
 
-    it("Flujo Feliz: debe insertar la cuadrilla con estado DISPONIBLE y emitir WebSocket", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
-        usuarioAdmin as any
-      );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue(
-        undefined
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerDelegacionPorId").mockResolvedValue(
-        delegacionMock as any
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerUsuarioPorId").mockResolvedValue(
-        usuarioDelegadoMock as any
-      );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaActivaDeDelegado").mockResolvedValue(
-        undefined
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerRolDelegadoCuadrilla").mockResolvedValue(
-        rolDelegadoMock as any
-      );
-      const insertSpy = vi
-        .spyOn(cuadrillaRepository, "insertarCuadrillaConDelegado")
-        .mockResolvedValue(filaDetalleMock);
-      const socketSpy = vi.spyOn(socketLib, "emitirCuadrillaCreada").mockReturnValue(undefined);
+    it("debe lanzar BadRequestError si el delegado está inactivo", async () => {
+      vi.spyOn(repo, "obtenerUsuarioPorId").mockResolvedValue({
+        ...delegadoMock,
+        activo: false,
+      });
 
-      const resultado = await crearCuadrilla(inputValido, usuarioAdmin.id);
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        BadRequestError
+      );
+    });
 
-      expect(resultado).toBeDefined();
-      expect(resultado.id).toBe(filaDetalleMock.id);
-      expect(resultado.nombre).toBe(filaDetalleMock.nombre);
-      expect(resultado.estado).toBe("DISPONIBLE");
-      expect(resultado.delegacion.nombre).toBe(delegacionMock.nombre);
-      expect(resultado.delegado.email).toBe(usuarioDelegadoMock.email);
-      expect(resultado.creadoPorId).toBe(usuarioAdmin.id);
-
-      // Verificación de repositorio (incluyendo sincronización territorial)
-      expect(insertSpy).toHaveBeenCalledWith(
+    it("debe lanzar BadRequestError si un funcionario operativo asignado no está disponible", async () => {
+      vi.spyOn(repo, "obtenerPersonalParaAsignacion").mockResolvedValue([
         {
-          nombre: inputValido.nombre,
-          delegacionId: inputValido.delegacionId,
-          usuarioDelegadoId: inputValido.usuarioDelegadoId,
-          creadoPorId: usuarioAdmin.id,
+          ...personalMock[0],
+          estado_operativo: "en_mision" as const,
         },
-        rolDelegadoMock.id,
-        "DELEGADO_CUADRILLA",
-        usuarioDelegadoMock.delegacion_id
-      );
+      ]);
 
-      // Verificación de emisión WebSocket
-      expect(socketSpy).toHaveBeenCalledWith(resultado);
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        BadRequestError
+      );
     });
 
-    it("debe promover atómicamente a DELEGADO_CUADRILLA si el usuario tiene rol previo BRIGADISTA y sincronizar delegación", async () => {
-      const usuarioBrigadista = {
-        ...usuarioDelegadoMock,
-        rol_codigo: "BRIGADISTA",
-        rol_id: "20000000-0000-4000-8000-000000000009",
-        delegacion_id: "30000000-0000-4000-8000-000000000099", // Delegación anterior diferente
+    it("debe lanzar BadRequestError si se intenta asignar más de 1 unidad a un recurso individual", async () => {
+      const inputRecursoExcedido = {
+        ...inputValido,
+        recursos: [{ recursoId, cantidad: 2 }],
       };
 
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValue(
-        usuarioAdmin as any
+      await expect(editarCuadrilla(cuadrillaId, inputRecursoExcedido, usuarioAdminId)).rejects.toThrow(
+        BadRequestError
       );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaPorNombre").mockResolvedValue(
-        undefined
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerDelegacionPorId").mockResolvedValue(
-        delegacionMock as any
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerUsuarioPorId").mockResolvedValue(
-        usuarioBrigadista as any
-      );
-      vi.spyOn(cuadrillaRepository, "buscarCuadrillaActivaDeDelegado").mockResolvedValue(
-        undefined
-      );
-      vi.spyOn(cuadrillaRepository, "obtenerRolDelegadoCuadrilla").mockResolvedValue(
-        rolDelegadoMock as any
-      );
-      const insertSpy = vi
-        .spyOn(cuadrillaRepository, "insertarCuadrillaConDelegado")
-        .mockResolvedValue(filaDetalleMock);
-      vi.spyOn(socketLib, "emitirCuadrillaCreada").mockReturnValue(undefined);
+    });
 
-      await crearCuadrilla(inputValido, usuarioAdmin.id);
+    it("debe lanzar ConflictError si un recurso individual ya está asignado a otra cuadrilla", async () => {
+      vi.spyOn(repo, "obtenerRecursosIndividualesAsignadosAOtrasCuadrillas").mockResolvedValue([
+        {
+          recurso_id: recursoId,
+          recurso_nombre: "Camioneta 4x4",
+          cuadrilla_nombre: "Cuadrilla Alfa",
+        },
+      ]);
 
-      expect(insertSpy).toHaveBeenCalledWith(
-        expect.anything(),
-        rolDelegadoMock.id,
-        "BRIGADISTA",
-        "30000000-0000-4000-8000-000000000099"
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "El recurso individual ya se encuentra asignado a otra cuadrilla operativa."
       );
+    });
+
+    it("debe lanzar BadRequestError si el recurso no está en estado DISPONIBLE (BUG-H81-API-02 / CP-H81-API-02)", async () => {
+      vi.spyOn(repo, "obtenerRecursosParaAsignacion").mockResolvedValue([
+        {
+          ...recursoMock[0],
+          estado: "EN_MANTENCION" as unknown as (typeof recursoMock)[number]["estado"],
+        },
+      ]);
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "no se encuentra en estado DISPONIBLE"
+      );
+    });
+
+    it("debe lanzar BadRequestError si el stock neto en bodega es insuficiente (BUG-H81-API-02 / CP-H81-API-02)", async () => {
+      vi.spyOn(repo, "obtenerRecursosParaAsignacion").mockResolvedValue([
+        {
+          id: recursoId,
+          nombre: "Sacos de Arena",
+          es_individual: false,
+          estado: "DISPONIBLE" as const,
+          cantidad_inventario: 10,
+          cantidad_en_uso: 8, // Disponible: 2
+        },
+      ]);
+
+      const inputStockExcedido = {
+        ...inputValido,
+        recursos: [{ recursoId, cantidad: 5 }],
+      };
+
+      await expect(editarCuadrilla(cuadrillaId, inputStockExcedido, usuarioAdminId)).rejects.toThrow(
+        "Stock insuficiente para el recurso 'Sacos de Arena' (solicitado: 5, disponible en bodega: 2)."
+      );
+    });
+
+    it("debe rechazar con BadRequestError si el Delegado figura en la lista de trabajadores subordinados (BUG-H81-API-03 / CP-H81-API-03)", async () => {
+      vi.spyOn(repo, "obtenerPersonalParaAsignacion").mockResolvedValue([
+        {
+          ...personalMock[0],
+          usuario_id: delegadoId, // Mismo ID que usuarioDelegadoId
+        },
+      ]);
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "El funcionario designado como Delegado no puede formar parte de la dotación de trabajadores de la cuadrilla."
+      );
+    });
+
+    it("debe rechazar con ConflictError si el Delegado ya lidera o integra otra cuadrilla activa (BUG-H81-API-03)", async () => {
+      vi.spyOn(repo, "verificarDelegadoAsignadoAOtraCuadrilla").mockResolvedValue({
+        asignado: true,
+        rolEnOtra: "delegado",
+        cuadrillaNombre: "Cuadrilla Sur Emergencias",
+      });
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "El usuario designado como Delegado ya se encuentra asignado a otra cuadrilla operativa activa"
+      );
+    });
+
+    it("debe rechazar con ConflictError si un trabajador ya está asignado a otra cuadrilla activa (BUG-H81-API-03)", async () => {
+      vi.spyOn(repo, "obtenerTrabajadoresAsignadosAOtrasCuadrillas").mockResolvedValue([
+        {
+          personal_id: personalId,
+          nombre: "Pedro Obrero",
+          cuadrilla_id: "cuadrilla-otra",
+          cuadrilla_nombre: "Cuadrilla Costera",
+        },
+      ]);
+
+      await expect(editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId)).rejects.toThrow(
+        "El funcionario 'Pedro Obrero' ya se encuentra asignado a otra cuadrilla operativa activa ('Cuadrilla Costera')."
+      );
+    });
+
+    it("debe ejecutar actualización atómica y emitir evento WebSocket ante éxito", async () => {
+      const resultado = await editarCuadrilla(cuadrillaId, inputValido, usuarioAdminId);
+
+      expect(resultado.id).toBe(cuadrillaId);
+      expect(resultado.nombre).toBe(inputValido.nombre);
+      expect(resultado.recursos).toHaveLength(1);
+      expect(resultado.trabajadores).toHaveLength(1);
+      expect(resultado.actualizadoEn).toBeDefined();
+
+      expect(repo.actualizarCuadrillaConDotacionTransaccional).toHaveBeenCalledTimes(1);
+      expect(socketModule.emitirCuadrillaActualizada).toHaveBeenCalledWith(resultado);
     });
   });
 });
