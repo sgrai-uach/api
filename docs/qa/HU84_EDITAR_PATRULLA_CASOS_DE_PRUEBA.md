@@ -9,6 +9,8 @@
 > **Desarrollador Asignado:** Cristóbal Veas  
 > **QA Lead Responsable:** Antigravity QA Lead / Equipo de Control de Calidad SGRAI  
 > **Commits Clave Evaluados (Conventional Commits):**
+> * `merge: rama 'feature/h84-editar-patrulla' de github.com:sgrai-uach/api hacia feature/h84-editar-patrulla`
+> * `merge: sincronizar con develop y resolver conflictos en openapi y patrullas`
 > * `feat(patrullas): implementar endpoint PUT /api/patrullas/[id] para modificar patrulla verificadora (HU-84)`
 > * `fix(patrullas): corregir tipos e incompatibilidades zod para build de produccion`
 > * `docs(api): documentar endpoint POST /api/patrullas y eventos socket en recursos-y-personal.md (HU-83)`
@@ -16,28 +18,31 @@
 > * `refactor(db): renombrar migracion de patrullas verificadoras a 026`
 >
 > **Fecha de Auditoría Inicial:** 29/10/2026.  
-> **Estado de Certificación QA:** 🔴 **RECHAZADO / CHANGES REQUESTED (5 Defectos Críticos Detectados)**.
+> **Fecha de Ejecución de Re-Test:** 02/11/2026 12:05.  
+> **Estado de Certificación QA:** 🔴 **RE-TEST FALLIDO / CHANGES STILL REQUESTED (5 Defectos Persisten — Solo se realizó merge con develop)**.
 
 ---
 
-## 1. Resumen Ejecutivo de Auditoría de Código y Pruebas
+## 1. Resumen Ejecutivo de Auditoría de Código, Pruebas y Re-Test
 
-Tras completar la inspección forense de arquitectura, base de datos relacional (PostgreSQL + PostGIS), contratos OpenAPI y ejecución de suites automatizadas de pruebas en la rama `feature/h84-editar-patrulla`, se determina que la entrega técnica **NO CUMPLE con los estándares de calidad, integridad de datos e invariantes operacionales del Sistema de Comando de Incidentes (ICS)** para su promoción a la rama `develop`.
+Tras completar la inspección forense de arquitectura, base de datos relacional (PostgreSQL + PostGIS), contratos OpenAPI y ejecución de suites automatizadas de pruebas en la rama `feature/h84-editar-patrulla`, se determinó inicialmente que la entrega técnica **NO CUMPLÍA con los estándares de calidad, integridad de datos e invariantes operacionales del Sistema de Comando de Incidentes (ICS)**.
 
-Se han detectado **5 defectos reales** que comprometen gravemente la coherencia del modelo relacional, provocan desasignaciones accidentales de inventario logístico y permiten colisiones de personal operativo en terreno.
+### Resultado de la Re-Evaluación Técnica (Re-Test — 02/11/2026):
+Ante la notificación del desarrollador respecto a la realización de cambios para subsanar los defectos, el equipo de QA procedió a una auditoría exhaustiva del árbol de trabajo y del historial Git. Se constató que los commits incorporados por el desarrollador (`f09e246` y `9133063`) corresponden **exclusivamente a una sincronización con la rama `develop` (resolución de conflictos de merge con HU-81 y compatibilidad de esquema con la migración 025)**, sin haber implementado ninguna modificación en el código fuente de `src/` para corregir los 5 defectos reportados.
 
-| Métrica de Calidad | Resultado de la Evaluación |
-|---|:---:|
-| **Total Casos Diseñados en Matriz** | **26 Casos** (21 Casos de Prueba + 5 Defectos Formalizados) |
-| **Casos Aprobados (Passed)** | **21** |
-| **Casos Fallidos / Bloqueantes (Defectos Abiertos)** | **5** (`BUG-H84-API-01` a `BUG-H84-API-05`) |
-| **Estado Global de la Rama** | 🔴 **RECHAZADO (Changes Requested en GitHub PR)** |
-| **Tasa de Aprobación Inicial (% Pass)** | **80.77%** |
-| **Chequeo Estático ESLint (`npm run lint`)** | 0 errores (6 advertencias en archivos preexistentes) |
-| **Tests de Route Handler (`route.test.ts`)** | 10/10 tests ejecutados con mocks de servicio exitosos |
-| **Tests Unitarios de Dominio (`patrulla.service.test.ts`)** | ❌ **0% de cobertura (0 tests para `modificarPatrullaService`)** |
-| **Contrato OpenAPI 3.0 Centralizado** | Registrado en `src/lib/openapi/index.ts` |
-| **Sincronización WebSocket (Socket.io)** | Emisión de `patrulla:actualizada` implementada |
+Por consiguiente, los **5 defectos reales continúan abiertos y reproducibles** en el código fuente actual de la rama.
+
+| Métrica de Calidad | Evaluación Inicial (29/10) | Re-Test Formal (02/11) | Estado Actual |
+|---|:---:|:---:|:---:|
+| **Total Casos Diseñados en Matriz** | 26 Casos | 26 Casos | 26 Casos |
+| **Casos Aprobados (Passed)** | 21 | 21 | 21 Casos |
+| **Defectos Abiertos / Re-Test Fallido** | 5 (`BUG-H84-API-01` a `05`) | 5 (`BUG-H84-API-01` a `05`) | 🔴 **5 Defectos Persistentes** |
+| **Estado Global de la Rama** | 🔴 RECHAZADO | 🔴 **RE-TEST FALLIDO** | **Changes Still Requested** |
+| **Tasa de Aprobación (% Pass)** | 80.77% | 80.77% | **80.77% (Bloqueada)** |
+| **Chequeo Estático ESLint (`npm run lint`)** | 0 errores | 0 errores | Limpio |
+| **Tests de Route Handler (`route.test.ts`)** | 10/10 pasados (con mocks) | 10/10 pasados (con mocks) | Pasado (Capa HTTP) |
+| **Tests Unitarios de Dominio (`patrulla.service.test.ts`)** | ❌ 0% cobertura (0 tests) | ❌ 0% cobertura (0 tests) | **0% Cobertura Dominio** |
+| **Subsanación de Defectos en Código Fuente** | N/A | ❌ 0/5 corregidos | **No implementados** |
 
 ---
 
@@ -47,7 +52,8 @@ A continuación se detallan los 5 defectos reales identificados en la implementa
 
 ### `BUG-H84-API-01`: Disociación e Inconsistencia Crítica entre `patrulla_verificadora.usuario_lider_id` y `patrulla_personal.rol_en_patrulla`
 * **Severidad:** Crítica (Integridad de Datos / Lógica Operativa ICS).
-* **Módulo / Archivo Afectado:** `src/modules/recursos-y-personal/patrulla.repository.ts` (Líneas 582-596) y `src/modules/recursos-y-personal/patrulla.service.ts` (Líneas 454-468).
+* **Estado Post Re-Test (02/11/2026):** 🔴 **RE-TEST FALLIDO — Persiste en Código (Línea 599 de `patrulla.repository.ts`).**
+* **Módulo / Archivo Afectado:** `src/modules/recursos-y-personal/patrulla.repository.ts` (Líneas 597-610) y `src/modules/recursos-y-personal/patrulla.service.ts` (Líneas 464-475).
 * **Descripción del Defecto:**  
   En `modificarPatrullaTransaccionalRepo`, al reinsertar la dotación de funcionarios en la tabla intermedia `patrulla_personal`, el código evalúa de manera fija:
   ```typescript
@@ -75,7 +81,8 @@ A continuación se detallan los 5 defectos reales identificados en la implementa
 
 ### `BUG-H84-API-02`: Desasignación y Pérdida Silenciosa de Vehículo Institucional al Omitir el Campo Opcional `vehiculoId`
 * **Severidad:** Alta (Pérdida Involuntaria de Asignación / Regresión de Inventario).
-* **Módulo / Archivo Afectado:** `src/modules/recursos-y-personal/patrulla.service.ts` (Líneas 406-431, 462).
+* **Estado Post Re-Test (02/11/2026):** 🔴 **RE-TEST FALLIDO — Persiste en Código (Líneas 437-441 y 481 de `patrulla.service.ts`).**
+* **Módulo / Archivo Afectado:** `src/modules/recursos-y-personal/patrulla.service.ts` (Líneas 412-441, 481).
 * **Descripción del Defecto:**  
   En el esquema Zod `ModificarPatrullaInputSchema`, la propiedad `vehiculoId` fue definida como `.nullable().optional()`. No obstante, en la capa de servicio se implementó:
   ```typescript
@@ -108,7 +115,8 @@ A continuación se detallan los 5 defectos reales identificados en la implementa
 
 ### `BUG-H84-API-03`: Ausencia de Validación de Disponibilidad Operativa de Funcionarios Reasignados (Colisión de Dotaciones)
 * **Severidad:** Alta (Violación de Reglas Operativas ICS / Integridad de Recursos).
-* **Módulo / Archivo Afectado:** `src/modules/recursos-y-personal/patrulla.service.ts` (Líneas 434-452) y `src/modules/recursos-y-personal/patrulla.repository.ts` (Líneas 312-331).
+* **Estado Post Re-Test (02/11/2026):** 🔴 **RE-TEST FALLIDO — Persiste en Código (Líneas 444-461 de `patrulla.service.ts`).**
+* **Módulo / Archivo Afectado:** `src/modules/recursos-y-personal/patrulla.service.ts` (Líneas 444-461) y `src/modules/recursos-y-personal/patrulla.repository.ts` (Líneas 320-335).
 * **Descripción del Defecto:**  
   Al validar los `personalIds` entrantes en `modificarPatrullaService`, la función `obtenerPersonalParaPatrullaRepo` solo comprueba que el funcionario exista, que su usuario esté activo y que tenga rol `PATRULLA_VERIFICADORA`. Sin embargo, **no valida el campo `p.estado_operativo`**.  
   Si un funcionario ya se encuentra asignado a otra patrulla activa (`estado_operativo = 'en_patrulla'`), o está en una cuadrilla (`en_cuadrilla`), o desplegado en misión táctica (`en_mision`), o con licencia médica (`licencia` / `no_disponible`), el servicio permite su asignación sin objeción. La base de datos no tiene una restricción `UNIQUE` sobre `personal_id` en `patrulla_personal`, por lo que el funcionario queda duplicado en dos patrullas operativas al mismo tiempo.
@@ -121,7 +129,8 @@ A continuación se detallan los 5 defectos reales identificados en la implementa
 
 ### `BUG-H84-API-04`: Inconsistencia Geoespacial y Persistencia de Marca Temporal Huérfana al Desasignar Vehículo
 * **Severidad:** Media (Integridad Espacial PostGIS / Metadatos).
-* **Módulo / Archivo Afectado:** `src/modules/recursos-y-personal/patrulla.repository.ts` (Líneas 537-553) y `src/modules/recursos-y-personal/patrulla.service.ts` (Líneas 428-431).
+* **Estado Post Re-Test (02/11/2026):** 🔴 **RE-TEST FALLIDO — Persiste en Código (Líneas 552-558 de `patrulla.repository.ts`).**
+* **Módulo / Archivo Afectado:** `src/modules/recursos-y-personal/patrulla.repository.ts` (Líneas 552-558) y `src/modules/recursos-y-personal/patrulla.service.ts` (Líneas 437-441).
 * **Descripción del Defecto:**  
   Cuando un vehículo se desasigna (`vehiculoId: null`), `modificarPatrullaTransaccionalRepo` actualiza:
   ```typescript
@@ -141,6 +150,7 @@ A continuación se detallan los 5 defectos reales identificados en la implementa
 
 ### `BUG-H84-API-05`: Ausencia Absoluta de Pruebas Unitarias de Servicio para `modificarPatrullaService` en la Capa de Dominio
 * **Severidad:** Media (Deuda Técnica / Cobertura de QA).
+* **Estado Post Re-Test (02/11/2026):** 🔴 **RE-TEST FALLIDO — Persiste (0 pruebas unitarias para `modificarPatrullaService`).**
 * **Módulo / Archivo Afectado:** `src/modules/recursos-y-personal/__tests__/patrulla.service.test.ts`.
 * **Descripción del Defecto:**  
   La suite de pruebas unitarias `patrulla.service.test.ts` contiene 13 tests, pero **ninguno** de ellos prueba la función `modificarPatrullaService`. La cobertura se limitó a `route.test.ts`, donde todas las reglas de negocio del servicio fueron mockeadas (`vi.spyOn(patrullaService, "modificarPatrullaService")`).  
@@ -152,66 +162,44 @@ A continuación se detallan los 5 defectos reales identificados en la implementa
 
 ---
 
-## 3. Mensaje Formal de Code Review para Rechazar el Pull Request (GitHub)
+## 3. Mensaje Formal de Code Review para Mantener Rechazado el Pull Request (GitHub — Re-Test Fallido)
 
 ```markdown
-## ❌ Code Review QA: Changes Requested — HU-84 (Modificar Patrulla Verificadora)
+## ❌ Code Review QA: Changes Still Requested (Re-Test Fallido) — HU-84 (Modificar Patrulla Verificadora)
 
 Estimado @CristobalVeas,
 
-He completado la auditoría técnica y ejecución de pruebas para el endpoint `PUT /api/patrullas/[id]` correspondiente a la **HU-84** (*Modificar Patrulla Verificadora*). 
+He realizado la re-evaluación técnica formal (Re-Test) sobre la rama `feature/h84-editar-patrulla` tras el aviso de cambios.
 
-Si bien la integración inicial con Next.js Route Handlers, esquemas Zod y documentación en `recursos-y-personal.md` está bien encaminada, se han identificado **5 defectos técnicos reales** que comprometen la integridad relacional de la base de datos y la operación logística en terreno según el Sistema de Comando de Incidentes (ICS).
+Al auditar el historial de commits y el diff de la rama, se observa que los últimos commits incorporados (`f09e246` y `9133063`):
+* Corresponden **únicamente a sincronización con develop** (`merge: sincronizar con develop y resolver conflictos en openapi y patrullas`) para absorber los cambios de HU-81 y la migración 025.
+* **No incluyeron código de solución para ninguno de los 5 defectos reportados en la auditoría técnica de QA.**
 
-Por lo anterior, el Pull Request queda en estado **CHANGES REQUESTED** hasta que se subsanen los siguientes puntos:
+Tras ejecutar nuevamente las pruebas y auditar el código fuente en `src/modules/recursos-y-personal/`, se confirma que **los 5 defectos persisten abiertos y reproducibles**:
 
----
+1. **`BUG-H84-API-01` (Crítica):** En `patrulla.repository.ts` (L. 599), `const esLider = i === 0;` sigue asignando rígidamente el rol `LIDER` al primer elemento del array, provocando disociación si `usuarioLiderId` apunta a otro integrante.
+2. **`BUG-H84-API-02` (Alta):** En `patrulla.service.ts` (L. 437-441, 481), si se omite `vehiculoId` (`undefined`), el servicio lo evalúa como falso y pasa `vehiculoId: null`, desasignando y liberando el vehículo involuntariamente en el inventario.
+3. **`BUG-H84-API-03` (Alta):** En `patrulla.service.ts` (L. 444-461), sigue sin validarse `p.estado_operativo === 'disponible'` en el personal nuevo entrante, permitiendo doble dotación de funcionarios.
+4. **`BUG-H84-API-04` (Media):** En `patrulla.repository.ts` (L. 552-558), al desasignar vehículo se limpian latitud/longitud pero no se resetea `ultima_actualizacion_ubicacion`.
+5. **`BUG-H84-API-05` (Media):** En `patrulla.service.test.ts`, siguen habiendo **0 pruebas unitarias** para `modificarPatrullaService`.
 
-### 🚨 Hallazgos Críticos a Corregir:
-
-1. **`BUG-H84-API-01` — Inconsistencia en Asignación de Líder (`patrulla_personal` vs `patrulla_verificadora`):**
-   * **Archivo:** `src/modules/recursos-y-personal/patrulla.repository.ts` (L. 583-596)
-   * **Problema:** En el bucle de reinserción de dotación se evalúa `const esLider = i === 0;`. Si en el request se envía `usuarioLiderId` correspondiente al segundo integrante (`i = 1`), la tabla `patrulla_verificadora` guarda al segundo como líder, pero en `patrulla_personal` el primero queda con rol `LIDER` y el segundo con `OPERATIVO`.
-   * **Fix sugerido:** Determinar el `personalLiderId` en el servicio y en el repositorio asignar `rol_en_patrulla = personalId === datos.personalLiderId ? "LIDER" : "OPERATIVO"`.
-
-2. **`BUG-H84-API-02` — Desasignación Silenciosa de Vehículo por Campo Opcional:**
-   * **Archivo:** `src/modules/recursos-y-personal/patrulla.service.ts` (L. 406-431, 462)
-   * **Problema:** En el schema `ModificarPatrullaInputSchema`, `vehiculoId` es opcional. Si un usuario actualiza solo el nombre o dotación omitiendo `vehiculoId` (`undefined`), el servicio lo evalúa como falso y pasa `vehiculoId: null`, desasignando y liberando el vehículo involuntariamente en el inventario.
-   * **Fix sugerido:** Preservar el vehículo actual si `input.vehiculoId === undefined`. Solo desasignar si llega explícitamente `null`.
-
-3. **`BUG-H84-API-03` — Ausencia de Validación de Disponibilidad de Funcionarios:**
-   * **Archivo:** `src/modules/recursos-y-personal/patrulla.service.ts` (L. 434-452)
-   * **Problema:** No se valida `p.estado_operativo` en los funcionarios entrantes. Se permite asignar funcionarios que ya están en otra patrulla (`en_patrulla`), en cuadrilla o de licencia médica, provocando que un brigadista esté asignado a dos patrullas al mismo tiempo.
-   * **Fix sugerido:** Verificar que para funcionarios nuevos en la patrulla, su `estado_operativo` sea estrictamente `'disponible'`. Lanzar `ConflictError` si no están libres.
-
-4. **`BUG-H84-API-04` — Inconsistencia de Ubicación y Timestamp Huérfano en Desasignación:**
-   * **Archivo:** `src/modules/recursos-y-personal/patrulla.repository.ts` (L. 546-551)
-   * **Problema:** Al desasignar vehículo se setea `latitud = null, longitud = null`, pero no se resetea `ultima_actualizacion_ubicacion`, dejando un timestamp activo sin coordenadas. Además, se borra la ubicación de la patrulla aunque el equipo humano continúe geolocalizado en terreno.
-   * **Fix sugerido:** Actualizar `ultima_actualizacion_ubicacion = null` al anular coordenadas y conservar la ubicación previa de la patrulla si sigue en terreno.
-
-5. **`BUG-H84-API-05` — Cobertura Nula en Tests de Dominio (`patrulla.service.test.ts`):**
-   * **Archivo:** `src/modules/recursos-y-personal/__tests__/patrulla.service.test.ts`
-   * **Problema:** Hay 0 pruebas unitarias para `modificarPatrullaService`. Toda la cobertura quedó en `route.test.ts` con el servicio mockeado, por lo que las reglas de negocio reales no están testeadas.
-   * **Fix sugerido:** Agregar suite completa de pruebas unitarias para `modificarPatrullaService` en `patrulla.service.test.ts`.
-
----
-
-Por favor avísame cuando los commits con los fixes estén en la rama para realizar el re-test formal y proceder con la aprobación y certificación de la HU. ¡Buen trabajo con la base de la implementación!
+### 🛠️ Acciones Requeridas para Aprobar el Pull Request:
+Por favor aplica los fixes directamente en `src/modules/recursos-y-personal/` con Conventional Commits descriptivos (ej. `fix(patrullas): ...` y `test(patrullas): ...`) y avísame para ejecutar el re-test definitivo y emitir la certificación QA aprobada.
 ```
 
 ---
 
 ## 4. Matriz Consolidada de Casos de Prueba (13 Columnas)
 
-A continuación se presenta la matriz oficial en el formato tabular institucional de 13 columnas. Los defectos detectados se listan al inicio con estado `ABIERTO`, indicando la solución pendiente del Code Review:
+A continuación se presenta la matriz oficial en el formato tabular institucional de 13 columnas. Los defectos detectados se listan al inicio con estado `RE-TEST FALLIDO (ABIERTO)`, documentando la persistencia de las no conformidades tras la auditoría técnica de Re-Test:
 
 | ID Caso | Título del Caso de Prueba | Tipo de Prueba | Nivel | Prioridad | Precondición | Datos de Prueba (Payload / Headers / Query) | Resultado Esperado | Resultado Obtenido | Estado | Fecha / Hora Ejecución | Fecha / Hora Re-Test | Solución / Commit |
 |---|---|---|---|---|---|---|---|---|:---:|:---:|:---:|---|
-| `BUG-H84-API-01` | Inconsistencia crítica entre patrulla_verificadora.usuario_lider_id y patrulla_personal.rol_en_patrulla | Integridad / Regla de Negocio | Repositorio / DAL | Crítica | Patrulla registrada con dotación de 2 o más funcionarios | PUT /api/patrullas/[id] con usuarioLiderId apuntando al segundo integrante | Coherencia total: integrante con usuario_id del líder debe tener rol_en_patrulla = 'LIDER' | rol_en_patrulla = 'LIDER' asignado ciegamente al primer integrante (i=0) y 'OPERATIVO' al verdadero líder | ABIERTO | 29/10/2026 22:30 | (Pendiente) | Pendiente (Rechazado en Code Review) |
-| `BUG-H84-API-02` | Desasignación involuntaria de vehículo institucional al omitir la clave opcional vehiculoId | Integridad / Inventario | Servicio / Dominio | Alta | Patrulla con vehículo institucional previamente asignado | PUT /api/patrullas/[id] omitiendo la propiedad vehiculoId del payload JSON | Preservación del vehículo actual asignado si la propiedad no viene en la petición | El vehículo se desasigna automáticamente, liberándose en recurso y quedando vehiculo_id = NULL | ABIERTO | 29/10/2026 22:32 | (Pendiente) | Pendiente (Rechazado en Code Review) |
-| `BUG-H84-API-03` | Ausencia de validación de disponibilidad operativa de funcionarios permitiendo doble dotación | Validación / Negocio ICS | Servicio / Dominio | Alta | Funcionario activo asignado a otra patrulla (estado_operativo = 'en_patrulla') | PUT /api/patrullas/[id] agregando dicho funcionario a una nueva patrulla | HTTP 409 Conflict impidiendo asignar funcionarios que no estén con estado disponible | HTTP 200 OK asignando al funcionario y dejándolo simultáneamente en dos patrullas operativas | ABIERTO | 29/10/2026 22:34 | (Pendiente) | Pendiente (Rechazado en Code Review) |
-| `BUG-H84-API-04` | Metadatos geoespaciales huérfanos al desasignar vehículo con marca temporal activa y coordenadas nulas | Integridad / Geoespacial | DAL / PostgreSQL | Media | Patrulla con coordenadas y marca temporal de ubicación | PUT /api/patrullas/[id] con {"vehiculoId": null} | ultima_actualizacion_ubicacion fijado en NULL si se limpian las coordenadas elipsoidales | latitud y longitud pasan a NULL pero ultima_actualizacion_ubicacion retiene timestamp desactualizado | ABIERTO | 29/10/2026 22:36 | (Pendiente) | Pendiente (Rechazado en Code Review) |
-| `BUG-H84-API-05` | Ausencia absoluta de pruebas unitarias para modificarPatrullaService en suite de servicio | Cobertura / QA | Suite Vitest | Media | Ejecución de vitest en módulo recursos-y-personal | npm test -- patrulla.service.test.ts | Suite de pruebas unitarias cubriendo lógica aislada de modificarPatrullaService | 0 pruebas implementadas para modificarPatrullaService; cobertura de servicio en 0% | ABIERTO | 29/10/2026 22:38 | (Pendiente) | Pendiente (Rechazado en Code Review) |
+| `BUG-H84-API-01` | Inconsistencia crítica entre patrulla_verificadora.usuario_lider_id y patrulla_personal.rol_en_patrulla | Integridad / Regla de Negocio | Repositorio / DAL | Crítica | Patrulla registrada con dotación de 2 o más funcionarios | PUT /api/patrullas/[id] con usuarioLiderId apuntando al segundo integrante | Coherencia total: integrante con usuario_id del líder debe tener rol_en_patrulla = 'LIDER' | rol_en_patrulla = 'LIDER' asignado ciegamente al primer integrante (i=0) y 'OPERATIVO' al verdadero líder; persiste en L. 599 | RE-TEST FALLIDO (ABIERTO) | 29/10/2026 22:30 | 02/11/2026 12:05 | Pendiente (Re-Test Fallido - Solo sincronizó develop) |
+| `BUG-H84-API-02` | Desasignación involuntaria de vehículo institucional al omitir la clave opcional vehiculoId | Integridad / Inventario | Servicio / Dominio | Alta | Patrulla con vehículo institucional previamente asignado | PUT /api/patrullas/[id] omitiendo la propiedad vehiculoId del payload JSON | Preservación del vehículo actual asignado si la propiedad no viene en la petición | El vehículo se desasigna automáticamente, liberándose en recurso y quedando vehiculo_id = NULL; persiste en L. 437 | RE-TEST FALLIDO (ABIERTO) | 29/10/2026 22:32 | 02/11/2026 12:05 | Pendiente (Re-Test Fallido - Solo sincronizó develop) |
+| `BUG-H84-API-03` | Ausencia de validación de disponibilidad operativa de funcionarios permitiendo doble dotación | Validación / Negocio ICS | Servicio / Dominio | Alta | Funcionario activo asignado a otra patrulla (estado_operativo = 'en_patrulla') | PUT /api/patrullas/[id] agregando dicho funcionario a una nueva patrulla | HTTP 409 Conflict impidiendo asignar funcionarios que no estén con estado disponible | HTTP 200 OK asignando al funcionario y dejándolo simultáneamente en dos patrullas operativas; persiste en L. 444 | RE-TEST FALLIDO (ABIERTO) | 29/10/2026 22:34 | 02/11/2026 12:05 | Pendiente (Re-Test Fallido - Solo sincronizó develop) |
+| `BUG-H84-API-04` | Metadatos geoespaciales huérfanos al desasignar vehículo con marca temporal activa y coordenadas nulas | Integridad / Geoespacial | DAL / PostgreSQL | Media | Patrulla con coordenadas y marca temporal de ubicación | PUT /api/patrullas/[id] con {"vehiculoId": null} | ultima_actualizacion_ubicacion fijado en NULL si se limpian las coordenadas elipsoidales | latitud y longitud pasan a NULL pero ultima_actualizacion_ubicacion retiene timestamp desactualizado; persiste en L. 552 | RE-TEST FALLIDO (ABIERTO) | 29/10/2026 22:36 | 02/11/2026 12:05 | Pendiente (Re-Test Fallido - Solo sincronizó develop) |
+| `BUG-H84-API-05` | Ausencia absoluta de pruebas unitarias para modificarPatrullaService en suite de servicio | Cobertura / QA | Suite Vitest | Media | Ejecución de vitest en módulo recursos-y-personal | npm test -- patrulla.service.test.ts | Suite de pruebas unitarias cubriendo lógica aislada de modificarPatrullaService | 0 pruebas implementadas para modificarPatrullaService; cobertura de servicio se mantiene en 0% | RE-TEST FALLIDO (ABIERTO) | 29/10/2026 22:38 | 02/11/2026 12:05 | Pendiente (Re-Test Fallido - Solo sincronizó develop) |
 | `CP-H84-API-01` | Modificación exitosa de patrulla verificadora disponible reasignando vehículo, delegación y personal | Funcional | API / Servicio | Crítica | Patrulla en estado DISPONIBLE y usuario con permiso recursos:editar | PUT /api/patrullas/[id] con payload completo válido y cabecera Authorization | HTTP 200 OK con mensaje de éxito y campos actualizados fidedignamente | HTTP 200 OK con objeto patrulla modificado y relaciones sincronizadas | APROBADO | 29/10/2026 22:40 | - | feat(patrullas): implementar endpoint PUT /api/patrullas/[id] para modificar patrulla verificadora (HU-84) |
 | `CP-H84-API-02` | Desasignación voluntaria y explícita de vehículo institucional mediante vehiculoId en null | Regla de Negocio | Servicio / DAL | Alta | Patrulla con vehículo asignado previamente | PUT /api/patrullas/[id] enviando explícitamente {"vehiculoId": null} | HTTP 200 OK, vehículo liberado a DISPONIBLE con cantidad_en_uso = 0 y patrulla con vehiculo: null | HTTP 200 OK, recurso desvinculado y devuelto al inventario disponible | APROBADO | 29/10/2026 22:42 | - | feat(patrullas): implementar endpoint PUT /api/patrullas/[id] para modificar patrulla verificadora (HU-84) |
 | `CP-H84-API-03` | Reemplazo atómico de vehículo previo por un nuevo vehículo disponible en inventario | Regla de Negocio | Servicio / BD | Alta | Vehículo actual asignado y nuevo vehículo en estado DISPONIBLE | PUT /api/patrullas/[id] con nuevo vehiculoId disponible | HTTP 200 OK, vehículo anterior liberado a DISPONIBLE y nuevo vehículo marcado ASIGNADO | HTTP 200 OK, transición transaccional correcta de inventario de recursos | APROBADO | 29/10/2026 22:44 | - | feat(patrullas): implementar endpoint PUT /api/patrullas/[id] para modificar patrulla verificadora (HU-84) |
@@ -242,11 +230,11 @@ A continuación se incluye el bloque TSV listo para copiar y pegar directamente 
 
 ```tsv
 ID Caso	Título del Caso de Prueba	Tipo de Prueba	Nivel	Prioridad	Precondición	Datos de Prueba (Payload / Headers / Query)	Resultado Esperado	Resultado Obtenido	Estado	Fecha / Hora Ejecución	Fecha / Hora Re-Test	Solución / Commit
-BUG-H84-API-01	Inconsistencia crítica entre patrulla_verificadora.usuario_lider_id y patrulla_personal.rol_en_patrulla	Integridad / Regla de Negocio	Repositorio / DAL	Crítica	Patrulla registrada con dotación de 2 o más funcionarios	PUT /api/patrullas/[id] con usuarioLiderId apuntando al segundo integrante	Coherencia total: integrante con usuario_id del líder debe tener rol_en_patrulla = 'LIDER'	rol_en_patrulla = 'LIDER' asignado ciegamente al primer integrante (i=0) y 'OPERATIVO' al verdadero líder	ABIERTO	29/10/2026 22:30	(Pendiente)	Pendiente (Rechazado en Code Review)
-BUG-H84-API-02	Desasignación involuntaria de vehículo institucional al omitir la clave opcional vehiculoId	Integridad / Inventario	Servicio / Dominio	Alta	Patrulla con vehículo institucional previamente asignado	PUT /api/patrullas/[id] omitiendo la propiedad vehiculoId del payload JSON	Preservación del vehículo actual asignado si la propiedad no viene en la petición	El vehículo se desasigna automáticamente, liberándose en recurso y quedando vehiculo_id = NULL	ABIERTO	29/10/2026 22:32	(Pendiente)	Pendiente (Rechazado en Code Review)
-BUG-H84-API-03	Ausencia de validación de disponibilidad operativa de funcionarios permitiendo doble dotación	Validación / Negocio ICS	Servicio / Dominio	Alta	Funcionario activo asignado a otra patrulla (estado_operativo = 'en_patrulla')	PUT /api/patrullas/[id] agregando dicho funcionario a una nueva patrulla	HTTP 409 Conflict impidiendo asignar funcionarios que no estén con estado disponible	HTTP 200 OK asignando al funcionario y dejándolo simultáneamente en dos patrullas operativas	ABIERTO	29/10/2026 22:34	(Pendiente)	Pendiente (Rechazado en Code Review)
-BUG-H84-API-04	Metadatos geoespaciales huérfanos al desasignar vehículo con marca temporal activa y coordenadas nulas	Integridad / Geoespacial	DAL / PostgreSQL	Media	Patrulla con coordenadas y marca temporal de ubicación	PUT /api/patrullas/[id] con {"vehiculoId": null}	ultima_actualizacion_ubicacion fijado en NULL si se limpian las coordenadas elipsoidales	latitud y longitud pasan a NULL pero ultima_actualizacion_ubicacion retiene timestamp desactualizado	ABIERTO	29/10/2026 22:36	(Pendiente)	Pendiente (Rechazado en Code Review)
-BUG-H84-API-05	Ausencia absoluta de pruebas unitarias para modificarPatrullaService en suite de servicio	Cobertura / QA	Suite Vitest	Media	Ejecución de vitest en módulo recursos-y-personal	npm test -- patrulla.service.test.ts	Suite de pruebas unitarias cubriendo lógica aislada de modificarPatrullaService	0 pruebas implementadas para modificarPatrullaService; cobertura de servicio en 0%	ABIERTO	29/10/2026 22:38	(Pendiente)	Pendiente (Rechazado en Code Review)
+BUG-H84-API-01	Inconsistencia crítica entre patrulla_verificadora.usuario_lider_id y patrulla_personal.rol_en_patrulla	Integridad / Regla de Negocio	Repositorio / DAL	Crítica	Patrulla registrada con dotación de 2 o más funcionarios	PUT /api/patrullas/[id] con usuarioLiderId apuntando al segundo integrante	Coherencia total: integrante con usuario_id del líder debe tener rol_en_patrulla = 'LIDER'	rol_en_patrulla = 'LIDER' asignado ciegamente al primer integrante (i=0) y 'OPERATIVO' al verdadero líder; persiste en L. 599	RE-TEST FALLIDO (ABIERTO)	29/10/2026 22:30	02/11/2026 12:05	Pendiente (Re-Test Fallido - Solo sincronizó develop)
+BUG-H84-API-02	Desasignación involuntaria de vehículo institucional al omitir la clave opcional vehiculoId	Integridad / Inventario	Servicio / Dominio	Alta	Patrulla con vehículo institucional previamente asignado	PUT /api/patrullas/[id] omitiendo la propiedad vehiculoId del payload JSON	Preservación del vehículo actual asignado si la propiedad no viene en la petición	El vehículo se desasigna automáticamente, liberándose en recurso y quedando vehiculo_id = NULL; persiste en L. 437	RE-TEST FALLIDO (ABIERTO)	29/10/2026 22:32	02/11/2026 12:05	Pendiente (Re-Test Fallido - Solo sincronizó develop)
+BUG-H84-API-03	Ausencia de validación de disponibilidad operativa de funcionarios permitiendo doble dotación	Validación / Negocio ICS	Servicio / Dominio	Alta	Funcionario activo asignado a otra patrulla (estado_operativo = 'en_patrulla')	PUT /api/patrullas/[id] agregando dicho funcionario a una nueva patrulla	HTTP 409 Conflict impidiendo asignar funcionarios que no estén con estado disponible	HTTP 200 OK asignando al funcionario y dejándolo simultáneamente en dos patrullas operativas; persiste en L. 444	RE-TEST FALLIDO (ABIERTO)	29/10/2026 22:34	02/11/2026 12:05	Pendiente (Re-Test Fallido - Solo sincronizó develop)
+BUG-H84-API-04	Metadatos geoespaciales huérfanos al desasignar vehículo con marca temporal activa y coordenadas nulas	Integridad / Geoespacial	DAL / PostgreSQL	Media	Patrulla con coordenadas y marca temporal de ubicación	PUT /api/patrullas/[id] con {"vehiculoId": null}	ultima_actualizacion_ubicacion fijado en NULL si se limpian las coordenadas elipsoidales	latitud y longitud pasan a NULL pero ultima_actualizacion_ubicacion retiene timestamp desactualizado; persiste en L. 552	RE-TEST FALLIDO (ABIERTO)	29/10/2026 22:36	02/11/2026 12:05	Pendiente (Re-Test Fallido - Solo sincronizó develop)
+BUG-H84-API-05	Ausencia absoluta de pruebas unitarias para modificarPatrullaService en suite de servicio	Cobertura / QA	Suite Vitest	Media	Ejecución de vitest en módulo recursos-y-personal	npm test -- patrulla.service.test.ts	Suite de pruebas unitarias cubriendo lógica aislada de modificarPatrullaService	0 pruebas implementadas para modificarPatrullaService; cobertura de servicio se mantiene en 0%	RE-TEST FALLIDO (ABIERTO)	29/10/2026 22:38	02/11/2026 12:05	Pendiente (Re-Test Fallido - Solo sincronizó develop)
 CP-H84-API-01	Modificación exitosa de patrulla verificadora disponible reasignando vehículo, delegación y personal	Funcional	API / Servicio	Crítica	Patrulla en estado DISPONIBLE y usuario con permiso recursos:editar	PUT /api/patrullas/[id] con payload completo válido y cabecera Authorization	HTTP 200 OK con mensaje de éxito y campos actualizados fidedignamente	HTTP 200 OK con objeto patrulla modificado y relaciones sincronizadas	APROBADO	29/10/2026 22:40	-	feat(patrullas): implementar endpoint PUT /api/patrullas/[id] para modificar patrulla verificadora (HU-84)
 CP-H84-API-02	Desasignación voluntaria y explícita de vehículo institucional mediante vehiculoId en null	Regla de Negocio	Servicio / DAL	Alta	Patrulla con vehículo asignado previamente	PUT /api/patrullas/[id] enviando explícitamente {"vehiculoId": null}	HTTP 200 OK, vehículo liberado a DISPONIBLE con cantidad_en_uso = 0 y patrulla con vehiculo: null	HTTP 200 OK, recurso desvinculado y devuelto al inventario disponible	APROBADO	29/10/2026 22:42	-	feat(patrullas): implementar endpoint PUT /api/patrullas/[id] para modificar patrulla verificadora (HU-84)
 CP-H84-API-03	Reemplazo atómico de vehículo previo por un nuevo vehículo disponible en inventario	Regla de Negocio	Servicio / BD	Alta	Vehículo actual asignado y nuevo vehículo en estado DISPONIBLE	PUT /api/patrullas/[id] con nuevo vehiculoId disponible	HTTP 200 OK, vehículo anterior liberado a DISPONIBLE y nuevo vehículo marcado ASIGNADO	HTTP 200 OK, transición transaccional correcta de inventario de recursos	APROBADO	29/10/2026 22:44	-	feat(patrullas): implementar endpoint PUT /api/patrullas/[id] para modificar patrulla verificadora (HU-84)
@@ -449,11 +437,12 @@ curl -X PUT "http://localhost:3000/api/patrullas/f1000000-0000-4000-8000-0000000
 
 ## 8. Conclusión y Próximos Pasos
 
-1. **Estado del Pull Request:** **CHANGES REQUESTED**.
-2. **Acción Requerida del Desarrollador (@CristobalVeas):**
-   * Corregir el bucle de dotación en `patrulla.repository.ts` para que `rol_en_patrulla = 'LIDER'` coincida con `usuarioLiderId`.
-   * Preservar el vehículo actual si `vehiculoId === undefined` en el payload.
-   * Validar disponibilidad (`estado_operativo === 'disponible'`) para nuevos integrantes en `patrulla.service.ts`.
-   * Limpiar `ultima_actualizacion_ubicacion` cuando las coordenadas pasen a `NULL`.
-   * Escribir la suite de pruebas unitarias para `modificarPatrullaService` en `patrulla.service.test.ts`.
-3. **Ciclo de Re-Test:** Una vez que el desarrollador aplique los fixes con sus respectivos commits en Conventional Commits, QA ejecutará el re-test formal para certificar la historia al 100%.
+1. **Estado del Pull Request:** 🔴 **CHANGES STILL REQUESTED (RE-TEST FALLIDO — 02/11/2026)**.
+2. **Dictamen de QA:** La auditoría técnica forense determinó que los commits recientes (`f09e246`, `9133063`) únicamente sincronizaron la rama con `develop`. Los 5 defectos de backend persisten en el código fuente. La historia de usuario **HU-84 NO se encuentra certificada** para merge a `develop`.
+3. **Acción Requerida del Desarrollador (@CristobalVeas):**
+   * Corregir el bucle de dotación en `patrulla.repository.ts` para que `rol_en_patrulla = 'LIDER'` coincida exactamente con `usuarioLiderId`.
+   * Preservar el vehículo actual si `vehiculoId === undefined` en el payload de `patrulla.service.ts`.
+   * Validar disponibilidad operativa (`u.estado_operativo === 'disponible'`) para nuevos integrantes en `patrulla.service.ts`.
+   * Limpiar `ultima_actualizacion_ubicacion: null` cuando las coordenadas pasen a `NULL` en `patrulla.repository.ts`.
+   * Escribir la suite completa de pruebas unitarias para `modificarPatrullaService` en `patrulla.service.test.ts`.
+4. **Ciclo de Re-Test Definitivo:** Una vez que el desarrollador aplique los fixes reales con sus respectivos commits en Conventional Commits (ej. `fix(patrullas): ...`), QA ejecutará la re-verificación final para otorgar la certificación verde.
