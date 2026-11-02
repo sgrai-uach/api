@@ -19,6 +19,8 @@ export interface ServerToClientEvents {
         eliminadoEn: string;
     }) => void;
     "punto_critico:actualizado": (payload: unknown) => void;
+    "cuadrilla:creada": (payload: unknown) => void;
+    "cuadrilla:actualizada": (payload: unknown) => void;
     "patrulla:actualizada": (payload: {
         patrullaId: string;
         nombre: string;

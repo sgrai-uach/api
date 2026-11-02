@@ -1,5 +1,6 @@
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+import { validarRutChileno } from "@/modules/incidentes/aviso-incidente.utils";
 
 extendZodWithOpenApi(z);
 
@@ -398,4 +399,94 @@ export const LoginResponseSchema = z
   .openapi("LoginResponse");
 
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+
+/**
+ * Esquema de validación para la fortaleza de contraseñas institucionales.
+ * Mínimo 8 caracteres, máximo 72 (límite bcrypt), al menos una mayúscula, una minúscula y un número.
+ */
+export const PoliticaPasswordSchema = z
+  .string()
+  .min(8, "La contraseña debe tener al menos 8 caracteres")
+  .max(72, "La contraseña no puede exceder 72 caracteres")
+  .regex(/[A-Z]/, "La contraseña debe contener al menos una letra mayúscula")
+  .regex(/[a-z]/, "La contraseña debe contener al menos una letra minúscula")
+  .regex(/\d/, "La contraseña debe contener al menos un número")
+  .openapi({
+    description: "Contraseña segura: 8-72 caracteres, con mayúsculas, minúsculas y dígitos",
+    example: "Valdivia2026!",
+  });
+
+/**
+ * Esquema de solicitud para solicitar recuperación de contraseña.
+ * Requiere un correo @valdivia.cl o un RUT chileno válido.
+ */
+export const RecuperarContrasenaRequestSchema = z
+  .object({
+    identificador: z
+      .string()
+      .trim()
+      .min(1, "El identificador es obligatorio")
+      .refine(
+        (val) => {
+          const esEmailValdivia = /^[a-zA-Z0-9._%+-]+@valdivia\.cl$/i.test(val);
+          const esRut = validarRutChileno(val);
+          return esEmailValdivia || esRut;
+        },
+        {
+          message:
+            "El identificador debe ser un correo institucional (@valdivia.cl) o un RUT chileno válido",
+        }
+      )
+      .openapi({
+        description: "Correo institucional (@valdivia.cl) o RUT chileno del funcionario",
+        example: "carlos.miranda@valdivia.cl",
+      }),
+  })
+  .openapi("RecuperarContrasenaRequest");
+
+export type RecuperarContrasenaRequest = z.infer<typeof RecuperarContrasenaRequestSchema>;
+
+/**
+ * Esquema de solicitud para restablecer contraseña mediante token criptográfico.
+ */
+export const RestablecerContrasenaRequestSchema = z
+  .object({
+    token: z
+      .string()
+      .trim()
+      .min(1, "El token de recuperación es obligatorio")
+      .openapi({
+        description: "Token criptográfico efímero recibido por correo institucional",
+        example: "N2ZmNGViMGQzYjYw...",
+      }),
+    nuevaPassword: PoliticaPasswordSchema,
+    confirmacionPassword: z
+      .string()
+      .min(1, "La confirmación de contraseña es obligatoria")
+      .openapi({
+        description: "Confirmación idéntica de la nueva contraseña",
+        example: "Valdivia2026!",
+      }),
+  })
+  .refine((data) => data.nuevaPassword === data.confirmacionPassword, {
+    message: "Las contraseñas no coinciden",
+    path: ["confirmacionPassword"],
+  })
+  .openapi("RestablecerContrasenaRequest");
+
+export type RestablecerContrasenaRequest = z.infer<typeof RestablecerContrasenaRequestSchema>;
+
+/**
+ * Esquema de respuesta con mensaje descriptivo para operaciones de seguridad.
+ */
+export const MensajeGenericoResponseSchema = z
+  .object({
+    message: z.string().openapi({
+      description: "Mensaje descriptivo del resultado de la operación",
+      example: "Si el identificador corresponde a una cuenta registrada, se enviará un enlace de recuperación.",
+    }),
+  })
+  .openapi("MensajeGenericoResponse");
+
+export type MensajeGenericoResponse = z.infer<typeof MensajeGenericoResponseSchema>;
 

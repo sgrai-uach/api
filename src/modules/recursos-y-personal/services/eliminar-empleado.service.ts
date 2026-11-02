@@ -17,9 +17,10 @@ export class EmpleadoEnMisionActivaError extends Error {
  * Realiza las siguientes operaciones dentro de una transacción atómica:
  * 1. Resuelve si el identificador corresponde a 'personal.id' o a 'usuarios.id'.
  * 2. Valida que el empleado no se encuentre participando en una misión o patrulla activa.
- * 3. Actualiza la tabla 'usuarios' marcando 'activo = false' y registrando 'fecha_salida' si no existe.
- * 4. Si el usuario cuenta con ficha en la tabla 'personal', actualiza 'estado_operativo = inactivo'
- *    y 'disponible_terreno = false' para prevenir futuras asignaciones territoriales.
+ * 3. Actualiza la tabla 'usuario' marcando 'activo = false', 'estado_operativo = inactivo'
+ *    y registrando 'fecha_salida' si no existe.
+ * 4. Si el usuario cuenta con ficha en la tabla 'personal', actualiza 'disponible_terreno = false'
+ *    para prevenir futuras asignaciones territoriales.
  * 5. Registra la auditoría en 'log_cambios_usuarios'.
  */
 export async function eliminarEmpleadoLogico(
@@ -39,7 +40,7 @@ export async function eliminarEmpleadoLogico(
       usuarioId = personalRecord.usuario_id;
     } else {
       const userExists = await trx
-        .selectFrom("usuarios")
+        .selectFrom("usuario")
         .select(["id", "activo", "fecha_salida"])
         .where("id", "=", id)
         .executeTakeFirst();
@@ -56,15 +57,18 @@ export async function eliminarEmpleadoLogico(
     }
 
     // 2. Criterio de Aceptación HU-13: Impedir desactivación si el empleado está en misión/patrulla activa
-    if (personalRecord) {
-      if (
-        personalRecord.estado_operativo === "en_mision" ||
-        personalRecord.estado_operativo === "en_patrulla"
-      ) {
-        throw new EmpleadoEnMisionActivaError(
-          `El empleado se encuentra actualmente en terreno (estado '${personalRecord.estado_operativo}'). Debe finalizar o reasignar su misión antes de darlo de baja.`
-        );
-      }
+    const usuarioParaEstado = await trx
+      .selectFrom("usuario")
+      .select(["estado_operativo"])
+      .where("id", "=", usuarioId)
+      .executeTakeFirst();
+
+    const estadoOperativoActual = usuarioParaEstado?.estado_operativo ?? null;
+
+    if (estadoOperativoActual === "en_mision" || estadoOperativoActual === "en_patrulla") {
+      throw new EmpleadoEnMisionActivaError(
+        `El empleado se encuentra actualmente en terreno (estado '${estadoOperativoActual}'). Debe finalizar o reasignar su misión antes de darlo de baja.`
+      );
     }
 
     // Verificar si es delegado de una cuadrilla activa en misión
@@ -99,7 +103,7 @@ export async function eliminarEmpleadoLogico(
 
     // 3. Desactivar usuario y establecer fecha de salida si no existe
     const usuarioActual = await trx
-      .selectFrom("usuarios")
+      .selectFrom("usuario")
       .select(["fecha_salida"])
       .where("id", "=", usuarioId)
       .executeTakeFirst();
@@ -107,20 +111,20 @@ export async function eliminarEmpleadoLogico(
     const fechaSalidaFinal = usuarioActual?.fecha_salida || fechaHoy;
 
     await trx
-      .updateTable("usuarios")
+      .updateTable("usuario")
       .set({
         activo: false,
+        estado_operativo: "inactivo",
         fecha_salida: fechaSalidaFinal,
       })
       .where("id", "=", usuarioId)
       .execute();
 
-    // 3. Si tiene ficha operativa en personal, marcar inactivo y no disponible para terreno
+    // 3.1. Si tiene ficha operativa en personal, deja de estar disponible para terreno
     if (personalRecord) {
       await trx
         .updateTable("personal")
         .set({
-          estado_operativo: "inactivo",
           disponible_terreno: false,
         })
         .where("id", "=", personalRecord.id)

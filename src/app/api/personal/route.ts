@@ -8,9 +8,12 @@ import {
   RolNotFoundError,
   DelegacionNotFoundError,
 } from "@/modules/recursos-y-personal/services/registrar-empleado.service";
+import { EstadoOperativoInvalidoError } from "@/modules/recursos-y-personal/estado-operativo";
 import { ListarPersonalQuerySchema } from "@/modules/recursos-y-personal/personal-listado.schema";
 import { listarPersonalService } from "@/modules/recursos-y-personal/personal-listado.service";
-import { verificarAdministrador } from "@/modules/seguridad/auth.guard";
+import { extraerUsuarioId, verificarAdministrador, verificarAccesoPersonal } from "@/modules/seguridad/auth.guard";
+import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { PERMISO_LEER_ASISTENCIA_SOCIAL } from "@/modules/seguridad/permisos.constants";
 import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
 
 /**
@@ -18,15 +21,26 @@ import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
  *
  * Lista y busca empleados/usuarios para los selectores del frontend.
  * Soporta paginación estándar (page, limit) y filtros:
+ * - rolCodigo / rol_codigo: código canónico del rol (ej. ASISTENTE_SOCIAL)
  * - q / busqueda: término de búsqueda (RUT, nombres, apellidos, email)
  * - solo_personal / soloPersonal: 'true' si solo se buscan usuarios con ficha operativa en 'personal'
  * - delegacion_id / delegacionId: UUID de delegación territorial
  * - rol_id / rolId: UUID de rol
+ * - estadoOperativo: estado operativo (disponibilidad actual) del funcionario
+ * - incluirInactivos: 'true' para incluir funcionarios dados de baja (activo = false)
  * - ordenar_por / ordenarPor: apellidos | nombres | rut
  * - orden: asc | desc
+ *
+ * Requiere sesión autenticada con permiso 'personal:leer', 'personal:gestionar' o
+ * 'personal:crear' (o rol Administrador).
+ *
+ * Si se consulta por rol ASISTENTE_SOCIAL, además valida el permiso
+ * 'asistencia_social:leer' (H26).
  */
 export async function GET(request: NextRequest) {
   try {
+    await verificarAccesoPersonal(request);
+
     const { searchParams } = new URL(request.url);
     const queryRaw = Object.fromEntries(searchParams.entries());
 
@@ -44,9 +58,34 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const rolCodigo = validacion.data.rolCodigo ?? validacion.data.rol_codigo;
+    if (rolCodigo?.toUpperCase() === "ASISTENTE_SOCIAL") {
+      const usuarioId =
+        (await extraerUsuarioId(request)) ||
+        request.headers.get("x-user-id")?.trim() ||
+        null;
+
+      if (!usuarioId) {
+        return NextResponse.json(
+          { message: "Se requiere cabecera de autenticación Authorization: Bearer <token> o X-User-Id." },
+          { status: 401 }
+        );
+      }
+
+      await verificarPermiso(usuarioId, PERMISO_LEER_ASISTENCIA_SOCIAL);
+    }
+
     const resultado = await listarPersonalService(validacion.data);
     return NextResponse.json(resultado, { status: 200 });
-  } catch (error) {
+  } catch (error: unknown) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message, message: error.message }, { status: 401 });
+    }
+
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message, message: error.message }, { status: 403 });
+    }
+
     console.error("Error al listar empleados:", error);
     return NextResponse.json(
       { error: "Error interno al obtener lista de empleados", message: "Error interno al obtener lista de empleados" },
@@ -109,6 +148,10 @@ export async function POST(request: NextRequest) {
 
     if (error instanceof RolNotFoundError || error instanceof DelegacionNotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    if (error instanceof EstadoOperativoInvalidoError) {
+      return NextResponse.json({ error: error.message }, { status: 422 });
     }
 
     if (error instanceof UnauthorizedError) {

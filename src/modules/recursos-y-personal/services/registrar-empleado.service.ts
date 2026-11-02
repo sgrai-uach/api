@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { db, type EstadoOperativoPersonal } from "@/lib/db";
+import { db } from "@/lib/db";
 import type { RegistrarEmpleadoDTO } from "../schemas/registrar-empleado.schema";
 import {
   RutDuplicadoError,
@@ -7,6 +7,7 @@ import {
   RolNotFoundError,
   DelegacionNotFoundError,
 } from "./actualizar-empleado.service";
+import { esRolTerreno, resolverEstadoOperativo } from "../estado-operativo";
 
 export {
   RutDuplicadoError,
@@ -23,7 +24,7 @@ export {
  * 2. Verifica unicidad anti-colisión en la tabla 'usuario'.
  * 3. Valida existencia de Rol y Delegación en sus respectivos catálogos.
  * 4. Cifra la contraseña provista con bcrypt (factor de costo 10).
- * 5. Inserta el registro en 'usuario'.
+ * 5. Inserta el registro en 'usuario' incluyendo siempre su estado operativo.
  * 6. Si el rol es de terreno o se enviaron atributos operativos, inserta en 'personal'.
  * 7. Inserta registro de auditoría en 'log_cambios_usuarios'.
  * 8. Retorna la entidad consolidada del empleado, omitiendo 'password_hash'.
@@ -84,6 +85,17 @@ export async function registrarEmpleado(
 
     // 5. Inserción atómica en la tabla 'usuario'
     const fechaIngreso = dto.fecha_ingreso ?? new Date().toISOString().slice(0, 10);
+    const activo = dto.activo ?? true;
+
+    // La disponibilidad (estado operativo) es un atributo de toda cuenta del sistema.
+    // Default: cuenta activa => 'disponible'; cuenta inactiva => 'inactivo'.
+    const esRolTerrenoUsuario = esRolTerreno(rol.codigo);
+    const estadoOperativo = resolverEstadoOperativo({
+      estadoSolicitado: dto.estado_operativo,
+      esRolTerreno: esRolTerrenoUsuario,
+      disponibleTerreno: dto.disponible_terreno,
+      activo,
+    });
 
     const [nuevoUsuario] = await trx
       .insertInto("usuario")
@@ -96,7 +108,8 @@ export async function registrarEmpleado(
         password_hash: passwordHash,
         rol_id: dto.rol_id,
         delegacion_id: dto.delegacion_id,
-        activo: dto.activo ?? true,
+        activo,
+        estado_operativo: estadoOperativo,
         fecha_ingreso: fechaIngreso,
       })
       .returning(["id"])
@@ -105,9 +118,6 @@ export async function registrarEmpleado(
     const nuevoUsuarioId = nuevoUsuario.id;
 
     // 6. Inserción condicional en la tabla 'personal' (roles de terreno o atributos de terreno)
-    const esRolTerreno = ["PATRULLA_VERIFICADORA", "DELEGADO_CUADRILLA", "BRIGADISTA"].includes(
-      rol.codigo || ""
-    );
     const tieneDatosTerreno =
       dto.cargo !== undefined ||
       dto.especialidad !== undefined ||
@@ -115,7 +125,7 @@ export async function registrarEmpleado(
       dto.disponible_terreno !== undefined;
 
     let personalId: string | null = null;
-    if (esRolTerreno || tieneDatosTerreno) {
+    if (esRolTerrenoUsuario || tieneDatosTerreno) {
       const [nuevoPersonal] = await trx
         .insertInto("personal")
         .values({
@@ -123,7 +133,6 @@ export async function registrarEmpleado(
           delegacion_id: dto.delegacion_id,
           cargo: dto.cargo ?? null,
           especialidad: dto.especialidad ?? null,
-          estado_operativo: (dto.estado_operativo as EstadoOperativoPersonal) || "disponible",
           disponible_terreno: dto.disponible_terreno ?? true,
           observaciones: dto.observaciones ?? null,
         })
@@ -147,7 +156,8 @@ export async function registrarEmpleado(
             email: emailNormalizado,
             rol_id: dto.rol_id,
             delegacion_id: dto.delegacion_id,
-            es_terreno: esRolTerreno || Boolean(personalId),
+            es_terreno: esRolTerrenoUsuario || Boolean(personalId),
+            estado_operativo: estadoOperativo,
           },
         }),
       })
@@ -167,6 +177,7 @@ export async function registrarEmpleado(
         "usuario.email",
         "usuario.telefono",
         "usuario.activo as usuario_activo",
+        "usuario.estado_operativo",
         "usuario.fecha_ingreso",
         "usuario.fecha_salida",
         "rol.id as rol_id",
@@ -178,7 +189,6 @@ export async function registrarEmpleado(
         "personal.id as personal_id",
         "personal.especialidad",
         "personal.cargo",
-        "personal.estado_operativo",
         "personal.disponible_terreno",
         "personal.observaciones",
         "personal.updated_at as personal_updated_at",

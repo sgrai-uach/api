@@ -24,13 +24,26 @@ export const ModificarEmpleadoSchema = z
     fecha_ingreso: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha de ingreso debe ser YYYY-MM-DD").nullable().optional(),
     fecha_salida: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha de salida debe ser YYYY-MM-DD").nullable().optional(),
 
-    // Campos correspondientes a la tabla 'personal' (especialización operativa de terreno)
-    especialidad: z.string().max(100).nullable().optional(),
-    cargo: z.string().max(100).nullable().optional(),
+    // Campos correspondientes a la tabla 'usuario' (disponibilidad actual)
     estado_operativo: z
       .enum(["disponible", "en_mision", "en_patrulla", "descanso", "licencia", "inactivo"])
-      .optional(),
-    disponible_terreno: z.boolean().optional(),
+      .optional()
+      .openapi({
+        description:
+          "Estado operativo (disponibilidad actual) persistido en `usuario.estado_operativo`. Los estados 'en_mision' y 'en_patrulla' sólo se admiten para perfiles de terreno.",
+        example: "disponible",
+      }),
+
+    // Campos correspondientes a la ficha opcional de terreno (tabla 'personal')
+    especialidad: z.string().max(100).nullable().optional(),
+    cargo: z.string().max(100).nullable().optional(),
+    disponible_terreno: z
+      .boolean()
+      .optional()
+      .openapi({
+        description: "Capacidad/aptitud para salir a terreno (sólo aplica a la ficha de terreno).",
+        example: true,
+      }),
     observaciones: z.string().nullable().optional(),
   })
   .strict();
@@ -56,7 +69,14 @@ export const EmpleadoConsolidadoSchema = z.object({
   personal_id: z.string().uuid().nullable().optional(),
   especialidad: z.string().nullable().optional(),
   cargo: z.string().nullable().optional(),
-  estado_operativo: z.string().nullable().optional(),
+  estado_operativo: z
+    .enum(["disponible", "en_mision", "en_patrulla", "descanso", "licencia", "inactivo"])
+    .nullable()
+    .optional()
+    .openapi({
+      description: "Disponibilidad actual del funcionario (reside en `usuario.estado_operativo`).",
+      example: "disponible",
+    }),
   disponible_terreno: z.boolean().nullable().optional(),
   observaciones: z.string().nullable().optional(),
   es_personal: z.boolean().optional(),

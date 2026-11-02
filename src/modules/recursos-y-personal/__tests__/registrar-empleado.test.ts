@@ -198,6 +198,85 @@ describe("Módulo Recursos y Personal — Servicio registrarEmpleado", () => {
     expect(resultado.rut).toBe("12345678-5");
   });
 
+  it("H11: debe persistir el estado operativo en 'usuario' (disponible por defecto en cuentas activas)", async () => {
+    let selectCallCount = 0;
+    const mockTrx = createBaseMockTrx();
+
+    mockTrx.execute.mockResolvedValue([{ id: "nuevo-usuario-uuid" }]);
+    mockTrx.executeTakeFirst.mockImplementation(async () => {
+      selectCallCount++;
+      if (selectCallCount === 1) return null; // RUT libre
+      if (selectCallCount === 2) return null; // Email libre
+      if (selectCallCount === 3) return { id: "rol-id", codigo: "CALL_CENTER", nombre: "Call Center" };
+      if (selectCallCount === 4) return { id: "del-id", codigo: "DEL_NORTE", nombre: "Delegación Municipal Norte" };
+      return null;
+    });
+    mockTrx.executeTakeFirstOrThrow.mockResolvedValue({
+      usuario_id: "nuevo-usuario-uuid",
+      rut: "12345678-5",
+      nombres: "Esteban",
+      apellidos: "Morales",
+      email: "esteban.morales@valdivia.cl",
+      telefono: "+56912345678",
+      usuario_activo: true,
+      estado_operativo: "disponible",
+      fecha_ingreso: "2026-10-01",
+      fecha_salida: null,
+      rol_id: "rol-id",
+      rol_codigo: "CALL_CENTER",
+      rol_nombre: "Call Center",
+      delegacion_id: "del-id",
+      delegacion_codigo: "DEL_NORTE",
+      delegacion_nombre: "Delegación Municipal Norte",
+      personal_id: null,
+      especialidad: null,
+      cargo: null,
+      disponible_terreno: null,
+      observaciones: null,
+      personal_updated_at: null,
+    });
+
+    vi.spyOn(db, "transaction").mockReturnValue({
+      execute: vi.fn().mockImplementation(async (callback: (trx: TrxParameter) => Promise<unknown>) => {
+        return await callback(mockTrx as unknown as TrxParameter);
+      }),
+    } as unknown as ReturnType<typeof db.transaction>);
+
+    await registrarEmpleado(dtoBase, "admin-uuid");
+
+    const valoresUsuario = mockTrx.values.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(valoresUsuario.estado_operativo).toBe("disponible");
+    expect(valoresUsuario.activo).toBe(true);
+  });
+
+  it("H11: debe persistir estado 'inactivo' cuando la cuenta se crea deshabilitada", async () => {
+    let selectCallCount = 0;
+    const mockTrx = createBaseMockTrx();
+
+    mockTrx.execute.mockResolvedValue([{ id: "nuevo-usuario-uuid" }]);
+    mockTrx.executeTakeFirst.mockImplementation(async () => {
+      selectCallCount++;
+      if (selectCallCount === 1) return null; // RUT libre
+      if (selectCallCount === 2) return null; // Email libre
+      if (selectCallCount === 3) return { id: "rol-id", codigo: "CALL_CENTER", nombre: "Call Center" };
+      if (selectCallCount === 4) return { id: "del-id", codigo: "DEL_NORTE", nombre: "Delegación Municipal Norte" };
+      return null;
+    });
+    mockTrx.executeTakeFirstOrThrow.mockResolvedValue({});
+
+    vi.spyOn(db, "transaction").mockReturnValue({
+      execute: vi.fn().mockImplementation(async (callback: (trx: TrxParameter) => Promise<unknown>) => {
+        return await callback(mockTrx as unknown as TrxParameter);
+      }),
+    } as unknown as ReturnType<typeof db.transaction>);
+
+    await registrarEmpleado({ ...dtoBase, activo: false }, "admin-uuid");
+
+    const valoresUsuario = mockTrx.values.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(valoresUsuario.estado_operativo).toBe("inactivo");
+    expect(valoresUsuario.activo).toBe(false);
+  });
+
   it("debe insertar en personal cuando el rol es de terreno (PATRULLA_VERIFICADORA)", async () => {
     const dtoTerreno = {
       ...dtoBase,
@@ -256,6 +335,11 @@ describe("Módulo Recursos y Personal — Servicio registrarEmpleado", () => {
     expect(mockTrx.insertInto).toHaveBeenCalledWith("log_cambios_usuarios");
     expect(resultado.es_personal).toBe(true);
     expect(resultado.personal_id).toBe("nuevo-personal-uuid");
+
+    // H11: la ficha de terreno conserva la capacidad, no el estado
+    const valoresPersonal = mockTrx.values.mock.calls[1]?.[0] as Record<string, unknown>;
+    expect(valoresPersonal.disponible_terreno).toBe(true);
+    expect(valoresPersonal).not.toHaveProperty("estado_operativo");
   });
 
   it("debe omitir inserción en personal si el funcionario es administrativo y no posee atributos de terreno (BUG-H10-API-01)", async () => {

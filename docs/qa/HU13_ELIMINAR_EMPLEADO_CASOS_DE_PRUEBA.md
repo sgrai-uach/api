@@ -571,3 +571,27 @@ $ npx vitest run src/app/openapi.json/__tests__/route.test.ts
 
 > **Dictamen Final de Calidad (QA Backend):**  
 > La implementación de la Historia de Usuario **HU-13 (Baja Lógica de Empleados)** en `sgrai-api` satisface al 100% todos los Criterios de Aceptación, aplicando un modelo estricto de **soft-delete**, garantizando la inmutabilidad histórica requerida por SENAPRED, bloqueando desvinculaciones indebidas ante misiones tácticas activas y sincronizando los contratos de interfaz con `sgrai-web` mediante OpenAPI 3.0 y esquemas Zod.
+
+---
+
+## 8. Actualización H11 — Traslado del estado operativo a `usuario` (Octubre 2026)
+
+La **HU-11** normalizó el estado operativo a **`usuario.estado_operativo`**. En consecuencia,
+la baja lógica ahora opera sobre la fuente única de verdad:
+
+| Concepto | Efecto en la baja lógica (H13 + H11) |
+|---|---|
+| `usuario.activo` | `false` — el funcionario deja de pertenecer y de acceder al sistema. |
+| `usuario.estado_operativo` | `'inactivo'` — la disponibilidad se marca como inactiva. |
+| `personal.disponible_terreno` | `false` — el funcionario deja de ser desplegable en terreno (sólo si posee ficha). |
+
+**Casos afectados:**
+
+- `CP-H13-API-02`: el resultado esperado es ahora `usuario.activo = false`,
+  `usuario.estado_operativo = 'inactivo'` y `personal.disponible_terreno = false`.
+- `CP-H13-API-08` y `CP-H13-API-09`: el bloqueo por misión o patrulla activa se evalúa sobre
+  `usuario.estado_operativo` (antes `personal.estado_operativo`), manteniéndose el **HTTP 409**.
+- `CP-H13-API-13`: el parámetro `incluir_inactivos=true` sigue devolviendo a los funcionarios
+  dados de baja, que ahora aparecen con `estado_operativo = 'inactivo'`.
+
+Ver `HU11_VISUALIZAR_DISPONIBILIDAD_PERSONAL_CASOS_DE_PRUEBA.md` para la matriz completa.

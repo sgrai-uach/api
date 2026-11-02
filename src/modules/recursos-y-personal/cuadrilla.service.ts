@@ -1,0 +1,566 @@
+import { seguridadService } from "@/modules/seguridad/service";
+import {
+  PERMISO_CREAR_RECURSO,
+  PERMISO_LEER_RECURSO,
+  PERMISO_EDITAR_RECURSO,
+} from "@/modules/seguridad/permisos.constants";
+import {
+  BadRequestError,
+  NotFoundError,
+  ConflictError,
+} from "@/modules/seguridad/errors";
+import {
+  emitirCuadrillaCreada,
+  emitirCuadrillaActualizada,
+} from "@/lib/socket";
+import {
+  buscarCuadrillaPorNombre,
+  obtenerCuadrillaPorIdParaEdicion,
+  obtenerCuadrillaDetalleUnitario,
+  listarCuadrillasPaginadas,
+  insertarCuadrillaConDelegado,
+  verificarMisionesActivasCuadrilla,
+  buscarCuadrillaPorNombreExcluyendoId,
+  obtenerDelegacionPorId,
+  obtenerUsuarioPorId,
+  obtenerRolPorCodigo,
+  obtenerPersonalParaAsignacion,
+  obtenerRecursosParaAsignacion,
+  obtenerRecursosIndividualesAsignadosAOtrasCuadrillas,
+  verificarDelegadoAsignadoAOtraCuadrilla,
+  obtenerTrabajadoresAsignadosAOtrasCuadrillas,
+  actualizarCuadrillaConDotacionTransaccional,
+} from "./cuadrilla.repository";
+import type {
+  CrearCuadrillaInput,
+  EditarCuadrillaInput,
+  ListarCuadrillasQuery,
+  CuadrillaResponse,
+  ListarCuadrillasResponse,
+} from "./cuadrilla.schema";
+
+const PERMISOS_LECTURA = [PERMISO_LEER_RECURSO, "recursos:gestionar"];
+
+/**
+ * Consulta el listado paginado de cuadrillas operativas aplicando filtros y control RBAC.
+ */
+export async function listarCuadrillas(
+  query: ListarCuadrillasQuery,
+  usuarioId: string | null | undefined
+): Promise<ListarCuadrillasResponse> {
+  // 1. Validar autorización RBAC (requiere recursos:leer, recursos:gestionar o Administrador)
+  await seguridadService.validarAccesoAdministrador(usuarioId, PERMISOS_LECTURA);
+
+  // 2. Normalizar parámetros de paginación y filtros
+  const pagina = query.pagina ?? query.page ?? 1;
+  const limite = query.limite ?? query.limit ?? 10;
+  const busqueda = query.busqueda ?? query.q;
+  const delegacionId = query.delegacionId;
+  const estado = query.estado;
+
+  // 3. Ejecutar consulta en repositorio
+  const { cuadrillas, total } = await listarCuadrillasPaginadas({
+    pagina,
+    limite,
+    busqueda,
+    delegacionId,
+    estado,
+  });
+
+  const paginasTotales = Math.ceil(total / limite) || 1;
+
+  // 4. Mapear datos al contrato de respuesta
+  const data = cuadrillas.map((c) => ({
+    id: c.id,
+    nombre: c.nombre,
+    estado: c.estado,
+    delegacion: {
+      id: c.delegacion_id,
+      nombre: c.delegacion_nombre,
+      codigo: c.delegacion_codigo ?? null,
+    },
+    delegado: {
+      id: c.delegado_id,
+      nombre: c.delegado_nombre,
+      email: c.delegado_email,
+      rut: c.delegado_rut ?? null,
+    },
+    recursos: c.recursos.map((r) => ({
+      id: r.id,
+      recursoId: r.recurso_id,
+      nombre: r.nombre,
+      cantidadAsignada: r.cantidad_asignada,
+      esIndividual: r.es_individual,
+    })),
+    trabajadores: c.trabajadores.map((t) => ({
+      id: t.id,
+      personalId: t.personal_id,
+      usuarioId: t.usuario_id,
+      nombre: t.nombre,
+      rut: t.rut,
+      cargo: t.cargo,
+      especialidad: t.especialidad,
+      asignadoEn:
+        t.asignado_en instanceof Date
+          ? t.asignado_en.toISOString()
+          : String(t.asignado_en),
+    })),
+    totalRecursos: c.recursos.length,
+    totalTrabajadores: c.trabajadores.length,
+    creadoEn:
+      c.creado_en instanceof Date ? c.creado_en.toISOString() : String(c.creado_en),
+    actualizadoEn:
+      c.actualizado_en instanceof Date
+        ? c.actualizado_en.toISOString()
+        : c.actualizado_en
+        ? String(c.actualizado_en)
+        : null,
+  }));
+
+  return {
+    message: "Listado de cuadrillas obtenido exitosamente",
+    data,
+    meta: {
+      total,
+      pagina,
+      limite,
+      paginasTotales,
+    },
+  };
+}
+
+/**
+ * Consulta el detalle unitario consolidado de una cuadrilla por su UUID.
+ */
+export async function obtenerCuadrillaPorId(
+  id: string,
+  usuarioId: string | null | undefined
+): Promise<CuadrillaResponse> {
+  // 1. Validar autorización RBAC (requiere recursos:leer o Administrador)
+  await seguridadService.validarAccesoAdministrador(usuarioId, PERMISOS_LECTURA);
+
+  // 2. Obtener cuadrilla consolidada
+  const cuadrilla = await obtenerCuadrillaDetalleUnitario(id);
+  if (!cuadrilla) {
+    throw new NotFoundError("La cuadrilla operativa especificada no existe.");
+  }
+
+  // 3. Mapear a contrato estructurado de respuesta
+  return {
+    id: cuadrilla.id,
+    nombre: cuadrilla.nombre,
+    estado: cuadrilla.estado,
+    delegacion: {
+      id: cuadrilla.delegacion_id,
+      nombre: cuadrilla.delegacion_nombre,
+      codigo: cuadrilla.delegacion_codigo ?? null,
+    },
+    delegado: {
+      id: cuadrilla.delegado_id,
+      nombre: cuadrilla.delegado_nombre,
+      email: cuadrilla.delegado_email,
+      rut: cuadrilla.delegado_rut ?? null,
+    },
+    recursos: cuadrilla.recursos.map((r) => ({
+      id: r.id,
+      recursoId: r.recurso_id,
+      nombre: r.nombre,
+      cantidadAsignada: r.cantidad_asignada,
+      esIndividual: r.es_individual,
+    })),
+    trabajadores: cuadrilla.trabajadores.map((t) => ({
+      id: t.id,
+      personalId: t.personal_id,
+      usuarioId: t.usuario_id,
+      nombre: t.nombre,
+      rut: t.rut,
+      cargo: t.cargo,
+      especialidad: t.especialidad,
+      asignadoEn:
+        t.asignado_en instanceof Date
+          ? t.asignado_en.toISOString()
+          : String(t.asignado_en),
+    })),
+    totalRecursos: cuadrilla.recursos.length,
+    totalTrabajadores: cuadrilla.trabajadores.length,
+    creadoEn:
+      cuadrilla.creado_en instanceof Date
+        ? cuadrilla.creado_en.toISOString()
+        : String(cuadrilla.creado_en),
+    actualizadoEn:
+      cuadrilla.actualizado_en instanceof Date
+        ? cuadrilla.actualizado_en.toISOString()
+        : cuadrilla.actualizado_en
+        ? String(cuadrilla.actualizado_en)
+        : null,
+    actualizadoPorId: cuadrilla.actualizado_por_id,
+    creadoPorId: cuadrilla.creado_por_id,
+  };
+}
+
+/**
+ * Servicio para registrar una nueva cuadrilla operativa en el sistema (H79).
+ */
+export async function crearCuadrilla(
+  input: CrearCuadrillaInput,
+  usuarioId: string | null | undefined
+): Promise<CuadrillaResponse> {
+  // 1. Validar autorización RBAC (requiere permiso recursos:crear o Administrador)
+  const usuarioAutenticado = await seguridadService.validarAccesoAdministrador(
+    usuarioId,
+    [PERMISO_CREAR_RECURSO]
+  );
+
+  // 2. Validar unicidad de nombre (insensible a mayúsculas y espacios superfluos)
+  const cuadrillaDuplicada = await buscarCuadrillaPorNombre(input.nombre);
+  if (cuadrillaDuplicada) {
+    throw new ConflictError("Ya existe una cuadrilla operativa con el nombre ingresado.");
+  }
+
+  // 3. Validar existencia y vigencia de la delegación base
+  const delegacion = await obtenerDelegacionPorId(input.delegacionId);
+  if (!delegacion) {
+    throw new NotFoundError("La delegación municipal especificada no existe.");
+  }
+  if (delegacion.activo === false) {
+    throw new BadRequestError("La delegación municipal seleccionada se encuentra inactiva.");
+  }
+
+  // 4. Validar existencia y vigencia del usuario delegado
+  const usuarioDelegado = await obtenerUsuarioPorId(input.usuarioDelegadoId);
+  if (!usuarioDelegado) {
+    throw new NotFoundError("El usuario designado como delegado de cuadrilla no existe.");
+  }
+  if (usuarioDelegado.activo === false) {
+    throw new BadRequestError("El usuario designado como delegado de cuadrilla se encuentra inactivo.");
+  }
+
+  // 5. Obtener el rol institucional DELEGADO_CUADRILLA para asignación
+  const rolDelegado = await obtenerRolPorCodigo("DELEGADO_CUADRILLA");
+  if (!rolDelegado) {
+    throw new BadRequestError("El rol de sistema 'DELEGADO_CUADRILLA' no se encuentra configurado.");
+  }
+
+  // 6. Insertar cuadrilla y promover delegado atómicamente
+  const resultado = await insertarCuadrillaConDelegado(
+    {
+      nombre: input.nombre,
+      delegacionId: input.delegacionId,
+      usuarioDelegadoId: input.usuarioDelegadoId,
+      creadoPorId: usuarioAutenticado.id,
+    },
+    rolDelegado.id,
+    usuarioDelegado.rol_codigo ?? undefined
+  );
+
+  // 7. Mapear a la respuesta estructurada de dominio
+  const respuesta: CuadrillaResponse = {
+    id: resultado.id,
+    nombre: resultado.nombre,
+    estado: resultado.estado,
+    delegacion: {
+      id: resultado.delegacion_id,
+      nombre: resultado.delegacion_nombre,
+      codigo: resultado.delegacion_codigo ?? null,
+    },
+    delegado: {
+      id: resultado.delegado_id,
+      nombre: resultado.delegado_nombre,
+      email: resultado.delegado_email,
+      rut: resultado.delegado_rut ?? null,
+    },
+    recursos: [],
+    trabajadores: [],
+    totalRecursos: 0,
+    totalTrabajadores: 0,
+    creadoEn:
+      resultado.creado_en instanceof Date
+        ? resultado.creado_en.toISOString()
+        : String(resultado.creado_en),
+    actualizadoEn: null,
+    creadoPorId: resultado.creado_por_id,
+    actualizadoPorId: null,
+  };
+
+  // 8. Emitir evento WebSocket para sincronización en tiempo real
+  try {
+    emitirCuadrillaCreada(respuesta);
+  } catch (error) {
+    console.error("Error al emitir evento Socket.io cuadrilla:creada:", error);
+  }
+
+  return respuesta;
+}
+
+/**
+ * Servicio para modificar datos, reasignar delegado y ajustar dotación de una cuadrilla (H81).
+ */
+export async function editarCuadrilla(
+  id: string,
+  input: EditarCuadrillaInput,
+  usuarioId: string | null | undefined
+): Promise<CuadrillaResponse> {
+  // 1. Validar autorización RBAC (requiere permiso recursos:editar o Administrador)
+  const usuarioAutenticado = await seguridadService.validarAccesoAdministrador(
+    usuarioId,
+    [PERMISO_EDITAR_RECURSO]
+  );
+
+  // 2. Obtener cuadrilla actual y validar existencia
+  const cuadrillaActual = await obtenerCuadrillaPorIdParaEdicion(id);
+  if (!cuadrillaActual) {
+    throw new NotFoundError("La cuadrilla operativa especificada no existe.");
+  }
+
+  // 3. Regla de negocio crítica: Bloquear modificación si se encuentra EN_MISION, EN_TRANSITO o EN_OPERACION (409 Conflict)
+  const estadoCuadrilla = String(cuadrillaActual.estado);
+  if (
+    estadoCuadrilla === "EN_MISION" ||
+    estadoCuadrilla === "EN_TRANSITO" ||
+    estadoCuadrilla === "EN_OPERACION"
+  ) {
+    throw new ConflictError(
+      "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
+    );
+  }
+
+  // Comprobar misiones activas asociadas (doble capa de integridad operativa)
+  const tieneMisionesActivas = await verificarMisionesActivasCuadrilla(id);
+  if (tieneMisionesActivas) {
+    throw new ConflictError(
+      "No es posible modificar los datos ni la dotación de una cuadrilla que se encuentra actualmente en misión activa en terreno."
+    );
+  }
+
+  // 4. Validar unicidad de nombre si fue modificado (insensible a mayúsculas y espacios)
+  const nombreLimpio = input.nombre.trim();
+  if (nombreLimpio.toLowerCase() !== cuadrillaActual.nombre.trim().toLowerCase()) {
+    const cuadrillaDuplicada = await buscarCuadrillaPorNombreExcluyendoId(nombreLimpio, id);
+    if (cuadrillaDuplicada) {
+      throw new ConflictError("Ya existe otra cuadrilla operativa con el nombre ingresado.");
+    }
+  }
+
+  // 5. Validar existencia y vigencia de la delegación base
+  const delegacion = await obtenerDelegacionPorId(input.delegacionId);
+  if (!delegacion) {
+    throw new NotFoundError("La delegación municipal especificada no existe.");
+  }
+  if (delegacion.activo === false) {
+    throw new BadRequestError("La delegación municipal seleccionada se encuentra inactiva.");
+  }
+
+  // 6. Validar existencia y vigencia del usuario delegado
+  const usuarioDelegado = await obtenerUsuarioPorId(input.usuarioDelegadoId);
+  if (!usuarioDelegado) {
+    throw new NotFoundError("El usuario designado como delegado de cuadrilla no existe.");
+  }
+  if (usuarioDelegado.activo === false) {
+    throw new BadRequestError("El usuario designado como delegado de cuadrilla se encuentra inactivo.");
+  }
+
+  // 7. Roles del sistema para gestión de delegados y brigadistas
+  const rolDelegado = await obtenerRolPorCodigo("DELEGADO_CUADRILLA");
+  if (!rolDelegado) {
+    throw new BadRequestError("El rol de sistema 'DELEGADO_CUADRILLA' no se encuentra configurado.");
+  }
+
+  const rolBrigadista = await obtenerRolPorCodigo("BRIGADISTA");
+
+  // 8. Validaciones ICS de Dotación y Personal (BUG-H81-API-03)
+  // 8.1 Verificar asignación multicuadrilla del Delegado
+  const estadoDelegadoOtra = await verificarDelegadoAsignadoAOtraCuadrilla(input.usuarioDelegadoId, id);
+  if (estadoDelegadoOtra.asignado) {
+    throw new ConflictError(
+      `El usuario designado como Delegado ya se encuentra asignado a otra cuadrilla operativa activa ('${estadoDelegadoOtra.cuadrillaNombre}').`
+    );
+  }
+
+  // 8.2 Validar trabajadores operativos (personal)
+  const personalIds = input.trabajadores.map((t) => t.personalId);
+  const setPersonalIds = new Set(personalIds);
+  if (setPersonalIds.size !== personalIds.length) {
+    throw new BadRequestError("No se puede asignar repetidas veces al mismo funcionario en la cuadrilla.");
+  }
+
+  if (personalIds.length > 0) {
+    const personalEncontrado = await obtenerPersonalParaAsignacion(personalIds);
+    if (personalEncontrado.length !== personalIds.length) {
+      const encontradosIds = new Set(personalEncontrado.map((p) => p.id));
+      const faltantes = personalIds.filter((pid) => !encontradosIds.has(pid));
+      throw new NotFoundError(
+        `Uno o más funcionarios operativos no existen: ${faltantes.join(", ")}`
+      );
+    }
+
+    // Regla ICS: Asignación dual (el delegado no puede figurar en la dotación de operarios bajo su propio mando)
+    const delegadoPersonal = personalEncontrado.find((p) => p.usuario_id === input.usuarioDelegadoId);
+    if (delegadoPersonal) {
+      throw new BadRequestError(
+        "El funcionario designado como Delegado no puede formar parte de la dotación de trabajadores de la cuadrilla."
+      );
+    }
+
+    for (const p of personalEncontrado) {
+      if (!p.usuario_activo) {
+        throw new BadRequestError(`El funcionario '${p.nombre}' se encuentra inactivo en el sistema.`);
+      }
+      if (!p.disponible_terreno) {
+        throw new BadRequestError(`El funcionario '${p.nombre}' no se encuentra habilitado para labores en terreno.`);
+      }
+      if (p.estado_operativo !== "disponible") {
+        throw new BadRequestError(
+          `El funcionario '${p.nombre}' no se encuentra disponible (estado operativo actual: '${p.estado_operativo}').`
+        );
+      }
+    }
+
+    // Regla ICS: Asignación multicuadrilla de trabajadores
+    const trabajadoresEnOtras = await obtenerTrabajadoresAsignadosAOtrasCuadrillas(personalIds, id);
+    if (trabajadoresEnOtras.length > 0) {
+      throw new ConflictError(
+        `El funcionario '${trabajadoresEnOtras[0].nombre}' ya se encuentra asignado a otra cuadrilla operativa activa ('${trabajadoresEnOtras[0].cuadrilla_nombre}').`
+      );
+    }
+  }
+
+  // 9. Validar recursos materiales, vehículos y maquinarias
+  const recursoIds = input.recursos.map((r) => r.recursoId);
+  const setRecursoIds = new Set(recursoIds);
+  if (setRecursoIds.size !== recursoIds.length) {
+    throw new BadRequestError("No se puede especificar el mismo recurso en múltiples líneas de la dotación.");
+  }
+
+  if (recursoIds.length > 0) {
+    const recursosEncontrados = await obtenerRecursosParaAsignacion(recursoIds);
+    if (recursosEncontrados.length !== recursoIds.length) {
+      const encontradosIds = new Set(recursosEncontrados.map((r) => r.id));
+      const faltantes = recursoIds.filter((rid) => !encontradosIds.has(rid));
+      throw new NotFoundError(
+        `Uno o más recursos logísticos solicitados no existen en el inventario: ${faltantes.join(", ")}`
+      );
+    }
+
+    const mapaRecursosEncontrados = new Map(recursosEncontrados.map((r) => [r.id, r]));
+
+    for (const item of input.recursos) {
+      const recurso = mapaRecursosEncontrados.get(item.recursoId);
+      if (!recurso) continue;
+
+      if (recurso.estado !== "DISPONIBLE") {
+        throw new BadRequestError(
+          `El recurso '${recurso.nombre}' no se encuentra en estado DISPONIBLE (estado actual: ${recurso.estado}).`
+        );
+      }
+
+      if (recurso.es_individual && item.cantidad > 1) {
+        throw new BadRequestError(
+          `El recurso individual o vehículo '${recurso.nombre}' solo admite una cantidad asignada de 1 unidad.`
+        );
+      }
+
+      const enUso = Number(recurso.cantidad_en_uso ?? 0);
+      const disponible = Number(recurso.cantidad_inventario) - enUso;
+
+      if (item.cantidad > disponible) {
+        throw new BadRequestError(
+          `Stock insuficiente para el recurso '${recurso.nombre}' (solicitado: ${item.cantidad}, disponible en bodega: ${disponible}).`
+        );
+      }
+    }
+
+    // Verificar si algún recurso individual ya está asignado a otra cuadrilla activa
+    const colisionesIndividuales = await obtenerRecursosIndividualesAsignadosAOtrasCuadrillas(
+      recursoIds,
+      id
+    );
+
+    if (colisionesIndividuales.length > 0) {
+      throw new ConflictError(
+        "El recurso individual ya se encuentra asignado a otra cuadrilla operativa."
+      );
+    }
+  }
+
+  // 10. Persistencia atómica de datos y dotación en Kysely
+  const resultado = await actualizarCuadrillaConDotacionTransaccional(
+    {
+      id,
+      nombre: nombreLimpio,
+      delegacionId: input.delegacionId,
+      usuarioDelegadoId: input.usuarioDelegadoId,
+      delegadoAnteriorId: cuadrillaActual.usuario_delegado_id,
+      actualizadoPorId: usuarioAutenticado.id,
+      recursos: input.recursos.map((r) => ({
+        recursoId: r.recursoId,
+        cantidad: r.cantidad,
+      })),
+      trabajadores: input.trabajadores.map((t) => ({
+        personalId: t.personalId,
+      })),
+    },
+    rolDelegado.id,
+    rolBrigadista?.id ?? null
+  );
+
+  // 11. Mapear a formato estandarizado de respuesta
+  const respuesta: CuadrillaResponse = {
+    id: resultado.id,
+    nombre: resultado.nombre,
+    estado: resultado.estado,
+    delegacion: {
+      id: resultado.delegacion_id,
+      nombre: resultado.delegacion_nombre,
+      codigo: resultado.delegacion_codigo ?? null,
+    },
+    delegado: {
+      id: resultado.delegado_id,
+      nombre: resultado.delegado_nombre,
+      email: resultado.delegado_email,
+      rut: resultado.delegado_rut ?? null,
+    },
+    recursos: resultado.recursos.map((r) => ({
+      id: r.id,
+      recursoId: r.recurso_id,
+      nombre: r.nombre,
+      cantidadAsignada: r.cantidad_asignada,
+      esIndividual: r.es_individual,
+    })),
+    trabajadores: resultado.trabajadores.map((t) => ({
+      id: t.id,
+      personalId: t.personal_id,
+      usuarioId: t.usuario_id,
+      nombre: t.nombre,
+      rut: t.rut,
+      cargo: t.cargo,
+      especialidad: t.especialidad,
+      asignadoEn:
+        t.asignado_en instanceof Date
+          ? t.asignado_en.toISOString()
+          : String(t.asignado_en),
+    })),
+    totalRecursos: resultado.recursos.length,
+    totalTrabajadores: resultado.trabajadores.length,
+    creadoEn:
+      resultado.creado_en instanceof Date
+        ? resultado.creado_en.toISOString()
+        : String(resultado.creado_en),
+    actualizadoEn:
+      resultado.actualizado_en instanceof Date
+        ? resultado.actualizado_en.toISOString()
+        : resultado.actualizado_en
+        ? String(resultado.actualizado_en)
+        : null,
+    actualizadoPorId: resultado.actualizado_por_id,
+    creadoPorId: resultado.creado_por_id,
+  };
+
+  // 12. Emitir evento WebSocket en tiempo real
+  try {
+    emitirCuadrillaActualizada(respuesta);
+  } catch (error) {
+    console.error("Error al emitir evento Socket.io cuadrilla:actualizada:", error);
+  }
+
+  return respuesta;
+}

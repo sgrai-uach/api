@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import bcrypt from "bcryptjs";
-import { POST } from "../route";
+import { POST, GET } from "../route";
 import * as authGuard from "@/modules/seguridad/auth.guard";
+import * as personalListadoService from "@/modules/recursos-y-personal/personal-listado.service";
 import * as registrarService from "@/modules/recursos-y-personal/services/registrar-empleado.service";
 import {
   validarRutChileno,
@@ -18,6 +19,101 @@ import {
   RolNotFoundError,
   DelegacionNotFoundError,
 } from "@/modules/recursos-y-personal/services/registrar-empleado.service";
+
+describe("H11: Listado de personal con RBAC (GET /api/personal)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const usuarioAutenticado = {
+    id: "00000000-0000-4000-8000-000000000001",
+    rut: "11.111.111-1",
+    nombre: "Administrador General",
+    email: "admin@valdivia.cl",
+    rolId: "20000000-0000-4000-8000-000000000001",
+    rolNombre: "Administrador",
+    activo: true,
+  };
+
+  it("debe responder 401 si la petición no incluye token de sesión", async () => {
+    const req = new NextRequest("http://localhost:3000/api/personal");
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBeDefined();
+  });
+
+  it("debe responder 403 si el rol no posee permisos de personal", async () => {
+    vi.spyOn(authGuard, "verificarAccesoPersonal").mockRejectedValueOnce(
+      new ForbiddenError(
+        "Acceso denegado. Se requiere el perfil de Administrador o los permisos 'personal:leer', 'personal:gestionar' o 'personal:crear'."
+      )
+    );
+
+    const req = new NextRequest("http://localhost:3000/api/personal");
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain("Acceso denegado");
+  });
+
+  it("debe responder 200 con el listado paginado cuando el usuario cuenta con permiso", async () => {
+    vi.spyOn(authGuard, "verificarAccesoPersonal").mockResolvedValueOnce(usuarioAutenticado);
+
+    vi.spyOn(personalListadoService, "listarPersonalService").mockResolvedValueOnce({
+      data: [
+        {
+          usuario_id: "00000000-0000-4000-8000-000000000002",
+          rut: "22222222-2",
+          nombres: "María",
+          apellidos: "González",
+          email: "maria@valdivia.cl",
+          telefono: null,
+          usuario_activo: true,
+          fecha_ingreso: null,
+          fecha_salida: null,
+          rol_id: "20000000-0000-4000-8000-000000000002",
+          rol_codigo: "CALL_CENTER",
+          rol_nombre: "Call Center",
+          delegacion_id: "30000000-0000-4000-8000-000000000001",
+          delegacion_codigo: "DEL_NORTE",
+          delegacion_nombre: "Norte",
+          personal_id: null,
+          especialidad: null,
+          cargo: null,
+          estado_operativo: "disponible",
+          disponible_terreno: null,
+          observaciones: null,
+          personal_updated_at: null,
+          es_personal: false,
+          casos_fibe_asignados: 0,
+        },
+      ],
+      meta: {
+        total: 1,
+        page: 1,
+        limit: 20,
+        totalPages: 1,
+        hasNext: false,
+        hasPrev: false,
+      },
+    });
+
+    const req = new NextRequest("http://localhost:3000/api/personal?estadoOperativo=disponible");
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].estado_operativo).toBe("disponible");
+    expect(body.data[0].disponible_terreno).toBeNull();
+  });
+});
 
 describe("HU-10: Registrar Nuevo Funcionario (POST /api/personal)", () => {
   beforeEach(() => {
@@ -354,7 +450,7 @@ describe("HU-10: Registrar Nuevo Funcionario (POST /api/personal)", () => {
         personal_id: null,
         especialidad: null,
         cargo: null,
-        estado_operativo: null,
+        estado_operativo: "disponible" as const,
         disponible_terreno: null,
         observaciones: null,
         personal_updated_at: null,

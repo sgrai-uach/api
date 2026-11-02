@@ -1,5 +1,5 @@
 import { sql, type Transaction } from "kysely";
-import type { Database, EstadoRecurso, EstadoPatrulla, EstadoOperativoPersonal, PrioridadIncidente } from "@/lib/db/types";
+import type { Database, EstadoRecurso, EstadoPatrulla, EstadoOperativo, PrioridadIncidente } from "@/lib/db/types";
 
 export type KyselyTrx = Transaction<Database>;
 
@@ -199,12 +199,21 @@ export async function actualizarEstadoPatrulla(
 export async function actualizarEstadoPersonalLider(
   trx: KyselyTrx,
   usuarioLiderId: string,
-  nuevoEstado: EstadoOperativoPersonal = "en_mision"
+  nuevoEstado: EstadoOperativo = "en_mision"
 ) {
+  // H11: la disponibilidad reside en `usuario.estado_operativo`
+  await trx
+    .updateTable("usuario")
+    .set({
+      estado_operativo: nuevoEstado,
+    })
+    .where("id", "=", usuarioLiderId)
+    .execute();
+
+  // La aptitud para terreno se mantiene en la ficha opcional de personal
   await trx
     .updateTable("personal")
     .set({
-      estado_operativo: nuevoEstado,
       disponible_terreno: false,
       updated_at: new Date(),
     })

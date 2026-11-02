@@ -299,8 +299,23 @@ describe("DELETE /api/personal/[id] (HU-13)", () => {
   });
 });
 
-describe("GET /api/personal/[id] (HU-13 / Validación de UUID)", () => {
+describe("GET /api/personal/[id] (HU-11 / Validación de UUID y RBAC)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("BUG-H13-API-04: retorna 400 Bad Request si el parámetro :id no es un UUID válido", async () => {
+    const authGuard = await import("@/modules/seguridad/auth.guard");
+    vi.spyOn(authGuard, "verificarAccesoPersonal").mockResolvedValueOnce({
+      id: "00000000-0000-4000-8000-000000000001",
+      rut: "11.111.111-1",
+      nombre: "Administrador General",
+      email: "admin@valdivia.cl",
+      rolId: "20000000-0000-4000-8000-000000000001",
+      rolNombre: "Administrador",
+      activo: true,
+    });
+
     const { GET } = await import("../route");
     const req = new NextRequest("http://localhost:3000/api/personal/no-es-un-uuid");
 
@@ -311,5 +326,39 @@ describe("GET /api/personal/[id] (HU-13 / Validación de UUID)", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.message).toContain("UUID válido");
+  });
+
+  it("H11-API: retorna 401 Unauthorized si la petición no incluye token de sesión", async () => {
+    const { GET } = await import("../route");
+    const req = new NextRequest(
+      "http://localhost:3000/api/personal/00000000-0000-4000-8000-000000000001"
+    );
+
+    const res = await GET(req, {
+      params: Promise.resolve({ id: "00000000-0000-4000-8000-000000000001" }),
+    });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("H11-API: retorna 403 Forbidden si el usuario no posee permisos de personal", async () => {
+    const authGuard = await import("@/modules/seguridad/auth.guard");
+    const { ForbiddenError } = await import("@/modules/seguridad/errors");
+    vi.spyOn(authGuard, "verificarAccesoPersonal").mockRejectedValueOnce(
+      new ForbiddenError("Acceso denegado. Se requiere el permiso 'personal:leer'.")
+    );
+
+    const { GET } = await import("../route");
+    const req = new NextRequest(
+      "http://localhost:3000/api/personal/00000000-0000-4000-8000-000000000001"
+    );
+
+    const res = await GET(req, {
+      params: Promise.resolve({ id: "00000000-0000-4000-8000-000000000001" }),
+    });
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain("Acceso denegado");
   });
 });

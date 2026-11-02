@@ -15,12 +15,16 @@ vi.mock("@/lib/db", () => {
   };
 });
 
+/**
+ * H11: el estado operativo (disponibilidad) reside en `usuario.estado_operativo`.
+ * `personal` conserva sólo la capacidad de terreno (`disponible_terreno`).
+ */
 describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("lanza EmpleadoNotFoundError si el ID no existe en personal ni en usuarios", async () => {
+  it("lanza EmpleadoNotFoundError si el ID no existe en personal ni en usuario", async () => {
     const mockTrx = {
       selectFrom: vi.fn().mockImplementation((table: string) => ({
         selectAll: () => ({
@@ -47,7 +51,7 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
     ).rejects.toThrow(EmpleadoNotFoundError);
   });
 
-  it("lanza EmpleadoEnMisionActivaError si el empleado tiene estado operativo en_mision", async () => {
+  it("lanza EmpleadoEnMisionActivaError si el usuario tiene estado operativo en_mision", async () => {
     const mockTrx = {
       selectFrom: vi.fn().mockImplementation((table: string) => {
         if (table === "personal") {
@@ -57,8 +61,20 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
                 executeTakeFirst: vi.fn().mockResolvedValue({
                   id: "personal-456",
                   usuario_id: "usuario-123",
-                  estado_operativo: "en_mision",
                   disponible_terreno: false,
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === "usuario") {
+          return {
+            select: () => ({
+              where: () => ({
+                executeTakeFirst: vi.fn().mockResolvedValue({
+                  id: "usuario-123",
+                  activo: true,
+                  estado_operativo: "en_mision",
                 }),
               }),
             }),
@@ -91,13 +107,14 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
             }),
           };
         }
-        if (table === "usuarios") {
+        if (table === "usuario") {
           return {
             select: () => ({
               where: () => ({
                 executeTakeFirst: vi.fn().mockResolvedValue({
                   id: "usuario-123",
                   activo: true,
+                  estado_operativo: "disponible",
                 }),
               }),
             }),
@@ -148,13 +165,14 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
             }),
           };
         }
-        if (table === "usuarios") {
+        if (table === "usuario") {
           return {
             select: () => ({
               where: () => ({
                 executeTakeFirst: vi.fn().mockResolvedValue({
                   id: "usuario-123",
                   activo: true,
+                  estado_operativo: "disponible",
                   fecha_salida: null,
                 }),
               }),
@@ -203,12 +221,12 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
     expect(insertExecute).toHaveBeenCalledTimes(1);
   });
 
-  it("desactiva tanto el usuario como la ficha de personal cuando el empleado es operativo disponible", async () => {
+  it("desactiva el usuario y deshabilita la capacidad de terreno de la ficha de personal", async () => {
     const updatePersonalExecute = vi.fn().mockResolvedValue([]);
     const updateUsuarioExecute = vi.fn().mockResolvedValue([]);
     const insertAuditExecute = vi.fn().mockResolvedValue([]);
+    const datosPorTabla: Record<string, Record<string, unknown>> = {};
 
-    let updateCount = 0;
     const mockTrx = {
       selectFrom: vi.fn().mockImplementation((table: string) => {
         if (table === "personal") {
@@ -218,18 +236,20 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
                 executeTakeFirst: vi.fn().mockResolvedValue({
                   id: "personal-456",
                   usuario_id: "usuario-123",
-                  estado_operativo: "disponible",
                   disponible_terreno: true,
                 }),
               }),
             }),
           };
         }
-        if (table === "usuarios") {
+        if (table === "usuario") {
           return {
             select: () => ({
               where: () => ({
                 executeTakeFirst: vi.fn().mockResolvedValue({
+                  id: "usuario-123",
+                  activo: true,
+                  estado_operativo: "disponible",
                   fecha_salida: "2026-05-01",
                 }),
               }),
@@ -250,12 +270,14 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
         return {};
       }),
       updateTable: vi.fn().mockImplementation((table: string) => {
-        updateCount++;
         return {
-          set: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({
-              execute: table === "personal" ? updatePersonalExecute : updateUsuarioExecute,
-            }),
+          set: vi.fn((datos: Record<string, unknown>) => {
+            datosPorTabla[table] = datos;
+            return {
+              where: vi.fn().mockReturnValue({
+                execute: table === "personal" ? updatePersonalExecute : updateUsuarioExecute,
+              }),
+            };
           }),
         };
       }),
@@ -280,5 +302,11 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
     expect(updatePersonalExecute).toHaveBeenCalled();
     expect(updateUsuarioExecute).toHaveBeenCalled();
     expect(insertAuditExecute).toHaveBeenCalled();
+
+    // H11: la disponibilidad queda en 'usuario' y la ficha sólo conserva la capacidad
+    expect(datosPorTabla.usuario.estado_operativo).toBe("inactivo");
+    expect(datosPorTabla.usuario.activo).toBe(false);
+    expect(datosPorTabla.personal.disponible_terreno).toBe(false);
+    expect(datosPorTabla.personal).not.toHaveProperty("estado_operativo");
   });
 });

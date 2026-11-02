@@ -59,6 +59,8 @@ El módulo **Seguridad** centraliza la autenticación formal de funcionarios, em
 | Método | Ruta | Propósito | Autenticación Requerida |
 |---|---|---|---|
 | `POST` | `/api/seguridad/login` | Iniciar sesión institucional mediante correo o RUT y contraseña. Retorna JWT y perfil. | **Pública** |
+| `POST` | `/api/seguridad/recuperar-contrasena` | Solicitar restablecimiento de contraseña mediante correo o RUT. Responde 200 OK genérico anti-enumeración. | **Pública** |
+| `POST` | `/api/seguridad/restablecer-contrasena` | Restablecer contraseña con token efímero, invalidándolo y desbloqueando la cuenta atómicamente. | **Pública** |
 | `GET` | `/api/seguridad/usuario-activo` | Obtener datos del usuario autenticado, su rol y la lista de todos sus permisos dinámicos en tiempo real. | `Bearer <JWT>` |
 | `GET` | `/api/seguridad/roles` | Listar todos los perfiles registrados con sus permisos asignados y metadatos de auditoría. | `Bearer <JWT>` (Admin) |
 | `GET` | `/api/seguridad/roles/{id}` | Obtener el detalle interactivo de un rol específico con la lista completa de sus acciones autorizadas. | `Bearer <JWT>` (Admin) |
@@ -128,10 +130,50 @@ El token generado contiene en su cuerpo los claims esenciales para inspección s
 
 ---
 
-## 5. Códigos de Error Esperables no Obvios
+## 5. Protocolo de Recuperación y Restablecimiento Seguro de Contraseñas (HU-65)
 
-- **`400 Bad Request` en `POST /api/seguridad/login`**:
-  - El cuerpo de la petición no es JSON válido o los campos `identificador` o `password` se encuentran vacíos.
+### 5.1 Flujo Anti-Enumeración (`POST /api/seguridad/recuperar-contrasena`)
+* **Propósito:** Permite a cualquier funcionario solicitar el restablecimiento autónomo de sus credenciales ingresando su correo `@valdivia.cl` o RUT chileno.
+* **Protección Anti-Enumeración:** Para impedir que un atacante determine qué usuarios o correos existen en el sistema, el endpoint responde **siempre `200 OK` con el mensaje genérico:**
+  ```json
+  {
+    "message": "Si el identificador corresponde a una cuenta registrada, se enviará un enlace de recuperación."
+  }
+  ```
+  La respuesta es idéntica byte a byte independientemente de si la cuenta existe, no existe o está inactiva.
+* **Tokens Criptográficos Efímeros:** Si la cuenta existe y está activa (`activo = true`), el sistema genera un token seguro de 32 bytes (256 bits de entropía en codificación `base64url`). En la base de datos se almacena **exclusivamente el hash SHA-256** (`token_hash`), nunca el token en claro.
+* **Vigencia y Unicidad:** Cada token tiene una vigencia máxima configurable de **30 minutos** (`PASSWORD_RESET_TOKEN_TTL_MINUTES`). Al solicitar un nuevo token, cualquier token previo activo del usuario queda invalidado atómicamente (`usado_en = CURRENT_TIMESTAMP`).
+* **Control de Tasa (Rate Limiting):** Para prevenir spam y ataques de saturación, se limita a un máximo de **3 solicitudes por usuario cada 15 minutos**. Al superarse, se retorna el mismo mensaje genérico `200 OK`, pero se omite la emisión de un nuevo token y el despacho del correo.
+* **Despacho Asíncrono de Correo:** El enlace se envía en segundo plano mediante `EmailSender` (transporte configurable vía `MAIL_TRANSPORT`: consola en desarrollo local, Mailpit en staging y SMTP corporativo en producción), evitando demoras de red que permitan ataques de canal lateral por análisis de tiempo (timing attacks).
+
+### 5.2 Restablecimiento Atómico y Desbloqueo (`POST /api/seguridad/restablecer-contrasena`)
+* **Propósito:** Consumir el token recibido por correo para actualizar la contraseña del usuario.
+* **Validación de Token:** El token en texto plano enviado por el usuario es hasheado con SHA-256 y contrastado con la tabla `token_recuperacion_contrasena`. Debe existir, tener `usado_en IS NULL`, no haber expirado (`expira_en > NOW()`) y el usuario debe encontrarse activo.
+* **Políticas de Contraseña:**
+  - Longitud entre 8 y 72 caracteres (límite superior impuesto por el algoritmo bcrypt).
+  - Al menos una letra mayúscula, una letra minúscula y un número.
+  - La nueva contraseña debe ser distinta a la contraseña actual registrada en el sistema.
+* **Desbloqueo Atómico y Sinergia con H59:**
+  - La nueva contraseña se almacena con hash `bcrypt` (factor de costo 10).
+  - En la misma transacción relacional, se reinician atómicamente los contadores de penalización por fuerza bruta:
+    `intentos_fallidos = 0`, `bloqueado_hasta = NULL`.
+    De este modo, si la cuenta se encontraba bloqueada temporalmente por reintentos fallidos (H59), el restablecimiento exitoso la desbloquea de inmediato.
+  - El token queda marcado como consumido (`usado_en = CURRENT_TIMESTAMP`), impidiendo cualquier reutilización.
+  - Se genera un registro inmutable en `log_cambios_usuarios` para trazabilidad institucional.
+
+---
+
+## 6. Códigos de Error Esperables no Obvios
+
+- **`400 Bad Request` en `POST /api/seguridad/recuperar-contrasena`**:
+  - El cuerpo de la solicitud no es un JSON válido o el campo `identificador` no corresponde a un correo institucional (`@valdivia.cl`) ni a un RUT chileno válido según el algoritmo Módulo 11.
+- **`200 OK` (Anti-enumeración) en `POST /api/seguridad/recuperar-contrasena`**:
+  - Se retorna intencionalmente aun cuando el usuario no exista, esté inactivo o haya excedido el rate limit.
+- **`400 Bad Request` en `POST /api/seguridad/restablecer-contrasena`**:
+  - Error genérico *"El enlace de recuperación es inválido o ha expirado."* retornado indistintamente si el token no existe, ya fue usado, expiró o la cuenta está inactiva (unificación para evitar fugas de información).
+  - Error *"Las contraseñas no coinciden"* cuando `nuevaPassword` y `confirmacionPassword` difieren.
+  - Error *"La nueva contraseña debe ser distinta a la contraseña actual."* cuando coincide con el hash previo.
+  - Error de validación Zod si la contraseña no cumple la política de robustez institucional.
 - **`401 Unauthorized` en `POST /api/seguridad/login`**:
   - Identificador no registrado o contraseña incorrecta (*"Credenciales inválidas. Verifique su identificador o contraseña."*).
 - **`403 Forbidden` en `POST /api/seguridad/login`**:
@@ -147,18 +189,25 @@ El token generado contiene en su cuerpo los claims esenciales para inspección s
 
 ---
 
-## 6. Trazabilidad con Frontends (`sgrai-web` y `sgrai-pwa`)
+## 7. Trazabilidad con Frontends (`sgrai-web` y `sgrai-pwa`)
 
-1. **Almacenamiento de Sesión:**
+1. **Flujo de Recuperación en la Web (`sgrai-web`):**
+   - En `/login`, el botón *"¿Olvidaste tu contraseña?"* conduce a `/recuperar-contrasena`.
+   - El formulario consume `POST /api/seguridad/recuperar-contrasena` enviando `{ identificador }`.
+   - Muestra siempre una alerta de confirmación con el mensaje genérico retornado.
+   - El usuario abre el enlace recibido por correo (`/restablecer-contrasena?token=<token>`).
+   - La vista presenta el formulario para ingresar y confirmar la nueva contraseña, consumiendo `POST /api/seguridad/restablecer-contrasena`.
+   - Tras el éxito, notifica al funcionario y lo redirige automáticamente a `/login`.
+2. **Almacenamiento de Sesión:**
    - Tras recibir el `200 OK` de `POST /api/seguridad/login`, el cliente web o PWA debe persistir el `token` (en almacenamiento de sesión seguro o cookie HTTPOnly) y registrar el perfil de usuario en su estado global de sesión.
-2. **Invocación de Endpoints:**
+3. **Invocación de Endpoints:**
    - El cliente HTTP de presentación (`apiClient`) debe inyectar automáticamente la cabecera en cada solicitud:
      ```http
      Authorization: Bearer <token>
      ```
-3. **Generación Automática de Tipos TypeScript:**
+4. **Generación Automática de Tipos TypeScript:**
    - Los frontends sincronizan sus interfaces ejecutando:
      ```bash
      npx openapi-typescript http://localhost:3001/openapi.json -o src/types/api.ts
      ```
-   - Esto genera automáticamente los tipos exactos para `LoginRequest`, `LoginResponse`, `UsuarioPerfilSesion` y todos los esquemas asociados sin requerir tipeo manual.
+   - Esto genera automáticamente los tipos exactos para `LoginRequest`, `LoginResponse`, `RecuperarContrasenaRequest`, `RestablecerContrasenaRequest`, `MensajeGenericoResponse` y todos los esquemas asociados sin requerir tipeo manual.

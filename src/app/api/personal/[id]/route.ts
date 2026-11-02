@@ -14,7 +14,8 @@ import {
   eliminarEmpleadoLogico,
   EmpleadoEnMisionActivaError,
 } from "@/modules/recursos-y-personal/services/eliminar-empleado.service";
-import { extraerUsuarioId, verificarAdministrador } from "@/modules/seguridad/auth.guard";
+import { EstadoOperativoInvalidoError } from "@/modules/recursos-y-personal/estado-operativo";
+import { extraerUsuarioId, verificarAdministrador, verificarAccesoPersonal } from "@/modules/seguridad/auth.guard";
 import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
 
 interface RouteParams {
@@ -25,9 +26,13 @@ interface RouteParams {
  * GET /api/personal/[id]
  *
  * Consulta los datos detallados de un empleado por ID (usuario_id o personal_id).
+ * Requiere sesión autenticada con permiso 'personal:leer', 'personal:gestionar' o
+ * 'personal:crear' (o rol Administrador).
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    await verificarAccesoPersonal(request);
+
     const { id } = await params;
 
     const idValido = z.string().uuid().safeParse(id);
@@ -42,35 +47,35 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     const empleado = await db
-      .selectFrom("usuarios")
-      .leftJoin("roles", "roles.id", "usuarios.rol_id")
-      .leftJoin("delegaciones", "delegaciones.id", "usuarios.delegacion_id")
-      .leftJoin("personal", "personal.usuario_id", "usuarios.id")
+      .selectFrom("usuario")
+      .leftJoin("rol", "rol.id", "usuario.rol_id")
+      .leftJoin("delegacion", "delegacion.id", "usuario.delegacion_id")
+      .leftJoin("personal", "personal.usuario_id", "usuario.id")
       .select([
-        "usuarios.id as usuario_id",
-        "usuarios.rut",
-        "usuarios.nombres",
-        "usuarios.apellidos",
-        "usuarios.email",
-        "usuarios.telefono",
-        "usuarios.activo as usuario_activo",
-        "usuarios.fecha_ingreso",
-        "usuarios.fecha_salida",
-        "roles.id as rol_id",
-        "roles.codigo as rol_codigo",
-        "roles.nombre as rol_nombre",
-        "delegaciones.id as delegacion_id",
-        "delegaciones.codigo as delegacion_codigo",
-        "delegaciones.nombre as delegacion_nombre",
+        "usuario.id as usuario_id",
+        "usuario.rut",
+        "usuario.nombres",
+        "usuario.apellidos",
+        "usuario.email",
+        "usuario.telefono",
+        "usuario.activo as usuario_activo",
+        "usuario.estado_operativo",
+        "usuario.fecha_ingreso",
+        "usuario.fecha_salida",
+        "rol.id as rol_id",
+        "rol.codigo as rol_codigo",
+        "rol.nombre as rol_nombre",
+        "delegacion.id as delegacion_id",
+        "delegacion.codigo as delegacion_codigo",
+        "delegacion.nombre as delegacion_nombre",
         "personal.id as personal_id",
         "personal.especialidad",
         "personal.cargo",
-        "personal.estado_operativo",
         "personal.disponible_terreno",
         "personal.observaciones",
         "personal.updated_at as personal_updated_at",
       ])
-      .where((eb) => eb.or([eb("usuarios.id", "=", id), eb("personal.id", "=", id)]))
+      .where((eb) => eb.or([eb("usuario.id", "=", id), eb("personal.id", "=", id)]))
       .executeTakeFirst();
 
     if (!empleado) {
@@ -86,7 +91,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         es_personal: empleado.personal_id !== null,
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message, message: error.message }, { status: 401 });
+    }
+
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message, message: error.message }, { status: 403 });
+    }
+
     console.error("Error al obtener empleado:", error);
     return NextResponse.json(
       { error: "Error interno al consultar el empleado", message: "Error interno al consultar el empleado" },
@@ -165,6 +178,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json(
         { error: error.message, message: error.message },
         { status: 400 }
+      );
+    }
+
+    if (error instanceof EstadoOperativoInvalidoError) {
+      return NextResponse.json(
+        { error: error.message, message: error.message },
+        { status: 422 }
       );
     }
 
