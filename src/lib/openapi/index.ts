@@ -52,6 +52,16 @@ import {
 } from "@/modules/recursos-y-personal/cuadrilla.schema";
 
 import {
+  ListarPatrullasQuerySchema,
+  ListarPatrullasResponseSchema,
+  PatrullaItemResponseSchema,
+  PatrullaDetalleResponseSchema,
+  PatrullaIdParamSchema,
+  ActualizarEstadoPatrullaInputSchema,
+  ActualizarEstadoPatrullaResponseSchema,
+} from "@/modules/recursos-y-personal/patrulla.schema";
+
+import {
   CrearAvisoIncidenteInputSchema,
   AvisoIncidenteResponseSchema,
   ConsultaSeguimientoResponseSchema,
@@ -1822,6 +1832,143 @@ registry.registerPath({
   },
 });
 
+// --- Módulo: Patrullas Verificadoras (Recursos y Personal - HU-16) ---
+registry.register("PatrullaItemResponse", PatrullaItemResponseSchema);
+registry.register("ListarPatrullasResponse", ListarPatrullasResponseSchema);
+registry.register("PatrullaDetalleResponse", PatrullaDetalleResponseSchema);
+registry.register("ActualizarEstadoPatrullaInput", ActualizarEstadoPatrullaInputSchema);
+registry.register("ActualizarEstadoPatrullaResponse", ActualizarEstadoPatrullaResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/patrullas",
+  summary: "Listar patrullas verificadoras con paginación y filtros operativos (HU-16)",
+  description:
+    "Retorna la dotación de patrullas verificadoras de terreno con su estado operativo en tiempo real, funcionario líder, funcionarios de terreno (integrantes), delegación adscrita y misión/incidente activo si se encuentra en terreno. Admite filtros por delegacionId, estado y búsqueda textual.",
+  tags: ["Recursos y Personal"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    query: ListarPatrullasQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado de patrullas verificadoras obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarPatrullasResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos",
+    },
+    401: {
+      description: "No autenticado o token de sesión inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:leer'",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/patrullas/{id}",
+  summary: "Consultar detalle unitario de una patrulla verificadora",
+  description:
+    "Obtiene la ficha exhaustiva de una patrulla verificadora incluyendo su dotación de personal de terreno, líder asignado, misión activa y coordenadas.",
+  tags: ["Recursos y Personal"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: PatrullaIdParamSchema,
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle de patrulla obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: PatrullaDetalleResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de patrulla inválido",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:leer'",
+    },
+    404: {
+      description: "Patrulla verificadora no encontrada",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/patrullas/{id}",
+  summary: "Actualizar estado operativo y/o geolocalización de una patrulla (HU-16)",
+  description:
+    "Modifica el estado operativo canónico (DISPONIBLE, EN_VERIFICACION, EN_PREVENCION, EN_RECUPERACION, EN_MISION, NO_DISPONIBLE) y/o las coordenadas de la patrulla, notificando en tiempo real a las salas WebSocket 'encargado' y 'supervisor'.",
+  tags: ["Recursos y Personal"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: PatrullaIdParamSchema,
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: ActualizarEstadoPatrullaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Estado de la patrulla actualizado exitosamente",
+      content: {
+        "application/json": {
+          schema: ActualizarEstadoPatrullaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada o identificador inválidos",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:leer'",
+    },
+    404: {
+      description: "Patrulla verificadora no encontrada",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// --- Módulo: Cuadrillas Operativas (Recursos y Personal - H81 / H79) ---
+registry.register("CrearCuadrillaInput", CrearCuadrillaInputSchema);
+registry.register("CrearCuadrillaResponse", CrearCuadrillaResponseSchema);
+registry.register("EditarCuadrillaInput", EditarCuadrillaInputSchema);
+registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
+registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
+registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
+
 // H81 / H79: Listar Cuadrillas Operativas Paginadas con Filtros
 registry.registerPath({
   method: "get",
@@ -2041,7 +2188,7 @@ export function generarOpenAPISpec() {
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.9.0",
+      version: "0.10.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",
@@ -2052,3 +2199,4 @@ export function generarOpenAPISpec() {
 
 // Alias para compatibilidad de nomenclatura
 export const generarOpenApiSpec = generarOpenAPISpec;
+
