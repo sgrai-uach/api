@@ -513,7 +513,7 @@ export async function sembrarEstadosIncidentes() {
       'Verificación técnica de anegamiento en Av. Francia',
       'Evaluar cota de agua, sumideros y riesgo a viviendas aledañas',
       'VERIFICACION',
-      'EN_CURSO',
+      'COMPLETADA',
       'ALTA',
       'a1000000-0000-4000-8000-000000000013',
       'f1000000-0000-4000-8000-000000000002',
@@ -521,7 +521,7 @@ export async function sembrarEstadosIncidentes() {
       ${encargadoId},
       ${adminId},
       CURRENT_TIMESTAMP - interval '40 minutes',
-      NULL,
+      CURRENT_TIMESTAMP - interval '10 minutes',
       CURRENT_TIMESTAMP - interval '45 minutes'
     );
   `.execute(db);

@@ -457,7 +457,8 @@ export async function asignarCuadrillaIncidenteRepo(
       ])
       .where("mision.incidente_id", "=", input.incidenteId)
       .where("mision.tipo_mision", "=", "VERIFICACION")
-      .where("mision.estado", "in", ["DESPACHADA", "EN_CURSO"])
+      .where("mision.estado", "in", ["DESPACHADA", "EN_CURSO", "COMPLETADA"])
+      .orderBy("mision.creado_en", "desc")
       .executeTakeFirst();
 
     // 3.1. Validación previa: Si está VERIFICANDO y hay patrulla asignada, debe existir reporte técnico de terreno
