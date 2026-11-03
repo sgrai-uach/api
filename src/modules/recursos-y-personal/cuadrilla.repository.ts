@@ -18,12 +18,12 @@ export interface FilaCuadrillaDetalleConsolidado {
   actualizado_en: Date | null;
   creado_por_id: string | null;
   actualizado_por_id: string | null;
-  delegacion_id: string;
-  delegacion_nombre: string;
+  delegacion_id: string | null;
+  delegacion_nombre: string | null;
   delegacion_codigo?: string | null;
-  delegado_id: string;
-  delegado_nombre: string;
-  delegado_email: string;
+  delegado_id: string | null;
+  delegado_nombre: string | null;
+  delegado_email: string | null;
   delegado_rut: string | null;
   recursos: Array<{
     id: string;
