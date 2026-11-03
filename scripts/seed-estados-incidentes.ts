@@ -2,7 +2,7 @@ import { db } from "../src/lib/db";
 import { sql } from "kysely";
 
 export async function sembrarEstadosIncidentes() {
-  console.log("Iniciando carga de incidentes en todos los estados...");
+  console.log("Iniciando carga de incidentes y cuadrillas en todos los estados...");
 
   // 1. Obtener delegaciones
   const delegaciones = await db.selectFrom("delegacion").selectAll().execute();
@@ -25,14 +25,80 @@ export async function sembrarEstadosIncidentes() {
   const fuenteLlamada = fuentes.find((f) => f.nombre === "LLAMADA_TELEFONICA")?.id ?? fuentes[0]?.id;
   const fuenteTerreno = fuentes.find((f) => f.nombre === "FUNCIONARIO_TERRENO")?.id ?? fuentes[0]?.id;
 
-  // 4. Usuarios
+  // 4. Roles y Usuarios
+  const rolDelegado = await db.selectFrom("rol").where("codigo", "=", "DELEGADO_CUADRILLA").selectAll().executeTakeFirst();
+  const rolDelegadoId = rolDelegado?.id ?? "20000000-0000-4000-8000-000000000005";
+
   const encargado = await db.selectFrom("usuario").where("email", "=", "encargado@valdivia.cl").selectAll().executeTakeFirst();
   const encargadoId = encargado?.id ?? "00000000-0000-4000-8000-000000000003";
 
   const admin = await db.selectFrom("usuario").where("email", "=", "admin@valdivia.cl").selectAll().executeTakeFirst();
   const adminId = admin?.id ?? "00000000-0000-4000-8000-000000000001";
 
-  // 5. Informantes
+  // Hash oficial de desarrollo 'Valdivia2026!'
+  const HASH_VALDIVIA_2026 = "$2b$10$dMlhpX4QFpPonWcTHVNo0usyfRLusunVKj6LsxLc9PaZ9JZkN5asm";
+  // 5. Asegurar usuarios Delegados de Cuadrilla
+  await sql`
+    INSERT INTO usuario (id, rut, nombres, apellidos, email, password_hash, rol_id, delegacion_id, activo, estado_operativo)
+    VALUES
+      (
+        '00000000-0000-4000-8000-000000000005',
+        '15.111.222-3',
+        'Carlos',
+        'Morales Delegado',
+        'carlos.delegado@valdivia.cl',
+        ${HASH_VALDIVIA_2026},
+        ${rolDelegadoId},
+        ${delNorte},
+        true,
+        'disponible'
+      ),
+      (
+        '00000000-0000-4000-8000-000000000006',
+        '16.789.012-3',
+        'Andrés',
+        'Morales Ríos',
+        'andres.morales@valdivia.cl',
+        ${HASH_VALDIVIA_2026},
+        ${rolDelegadoId},
+        ${delCosta},
+        true,
+        'disponible'
+      ),
+      (
+        '00000000-0000-4000-8000-000000000010',
+        '17.654.321-0',
+        'Felipe',
+        'Sandoval Cárdenas',
+        'felipe.sandoval@valdivia.cl',
+        ${HASH_VALDIVIA_2026},
+        ${rolDelegadoId},
+        ${delSur},
+        true,
+        'disponible'
+      ),
+      (
+        '00000000-0000-4000-8000-000000000011',
+        '18.123.789-4',
+        'Matías',
+        'Oyarzún Vera',
+        'matias.oyarzun@valdivia.cl',
+        ${HASH_VALDIVIA_2026},
+        ${rolDelegadoId},
+        ${delCalleCalle},
+        true,
+        'disponible'
+      )
+    ON CONFLICT (id) DO UPDATE SET
+      nombres = EXCLUDED.nombres,
+      apellidos = EXCLUDED.apellidos,
+      rol_id = EXCLUDED.rol_id,
+      delegacion_id = EXCLUDED.delegacion_id,
+      activo = true,
+      estado_operativo = 'disponible';
+  `.execute(db);
+
+  // 6. Informantes
   await sql`
     INSERT INTO informante (id, rut, nombre, telefono)
     VALUES
@@ -43,48 +109,88 @@ export async function sembrarEstadosIncidentes() {
     ON CONFLICT (id) DO NOTHING;
   `.execute(db);
 
-  // 6. Asegurar Cuadrillas Operativas (incluyendo DISPONIBLES para poder asignar)
+  // 7. Sembrar Cuadrillas Operativas con sus Delegados
   await sql`
-    INSERT INTO cuadrilla (id, nombre, estado, delegacion_id, creado_por_id, creado_en)
+    INSERT INTO cuadrilla (id, nombre, estado, delegacion_id, usuario_delegado_id, creado_por_id, creado_en)
     VALUES
+      -- Cuadrilla 1: En misión
       (
         'c1000000-0000-4000-8000-000000000001',
         'Cuadrilla Aguas Lluvias Alfa',
         'EN_MISION',
         ${delNorte},
+        '00000000-0000-4000-8000-000000000005',
         ${adminId},
         CURRENT_TIMESTAMP - interval '3 days'
       ),
+      -- Cuadrilla 2: DISPONIBLE
       (
         'c1000000-0000-4000-8000-000000000002',
         'Cuadrilla Vías y Despeje Urbano',
         'DISPONIBLE',
-        ${delSur},
+        ${delNorte},
+        '00000000-0000-4000-8000-000000000005',
         ${adminId},
         CURRENT_TIMESTAMP - interval '3 days'
       ),
+      -- Cuadrilla 3: DISPONIBLE
       (
         'c1000000-0000-4000-8000-000000000003',
         'Cuadrilla Operativa Sur - Despeje y Bombeo',
         'DISPONIBLE',
         ${delSur},
+        '00000000-0000-4000-8000-000000000010',
         ${adminId},
         CURRENT_TIMESTAMP - interval '2 days'
       ),
+      -- Cuadrilla 4: DISPONIBLE
       (
         'c1000000-0000-4000-8000-000000000004',
-        'Cuadrilla Cuenca y Ribera',
+        'Cuadrilla Cuenca y Ribera Calle Calle',
         'DISPONIBLE',
         ${delCalleCalle},
+        '00000000-0000-4000-8000-000000000011',
         ${adminId},
         CURRENT_TIMESTAMP - interval '1 day'
+      ),
+      -- Cuadrilla 5: DISPONIBLE
+      (
+        'c1000000-0000-4000-8000-000000000005',
+        'Cuadrilla Mitigación Costera Niebla',
+        'DISPONIBLE',
+        ${delCosta},
+        '00000000-0000-4000-8000-000000000006',
+        ${adminId},
+        CURRENT_TIMESTAMP - interval '1 day'
+      ),
+      -- IDs de fallback compatibles con frontend
+      (
+        '50000000-0000-4000-8000-000000000001',
+        'Cuadrilla Vías y Despeje Urbano Norte',
+        'DISPONIBLE',
+        ${delNorte},
+        '00000000-0000-4000-8000-000000000005',
+        ${adminId},
+        CURRENT_TIMESTAMP - interval '3 days'
+      ),
+      (
+        '50000000-0000-4000-8000-000000000003',
+        'Cuadrilla Bombeo y Desagüe Calle Calle',
+        'DISPONIBLE',
+        ${delCalleCalle},
+        '00000000-0000-4000-8000-000000000011',
+        ${adminId},
+        CURRENT_TIMESTAMP - interval '2 days'
       )
     ON CONFLICT (id) DO UPDATE SET
       estado = EXCLUDED.estado,
-      nombre = EXCLUDED.nombre;
+      nombre = EXCLUDED.nombre,
+      delegacion_id = EXCLUDED.delegacion_id,
+      usuario_delegado_id = EXCLUDED.usuario_delegado_id,
+      eliminado_en = NULL;
   `.execute(db);
 
-  // 7. Asegurar Patrullas Verificadoras
+  // 8. Asegurar Patrullas Verificadoras
   await sql`
     INSERT INTO patrulla_verificadora (id, nombre, estado, delegacion_id, creado_en)
     VALUES
@@ -128,7 +234,7 @@ export async function sembrarEstadosIncidentes() {
       nombre = EXCLUDED.nombre;
   `.execute(db);
 
-  // 8. Limpiar misiones previas de los incidentes que vamos a actualizar para evitar inconsistencias
+  // 9. Limpiar misiones previas de los incidentes objetivo
   const incidentesIds = [
     'a1000000-0000-4000-8000-000000000001',
     'a1000000-0000-4000-8000-000000000002',
@@ -155,7 +261,7 @@ export async function sembrarEstadosIncidentes() {
     DELETE FROM mision WHERE incidente_id IN (${sql.join(incidentesIds)});
   `.execute(db);
 
-  // 9. Sembrar Incidentes en TODOS los estados requeridos
+  // 10. Sembrar Incidentes en TODOS los estados requeridos
   await sql`
     INSERT INTO incidente (
       id, codigo, codigo_seguimiento, folio, informante_id, tipo_incidente_id, delegacion_id, fuente_incidente_id,
@@ -351,7 +457,7 @@ export async function sembrarEstadosIncidentes() {
       actualizado_en = EXCLUDED.actualizado_en;
   `.execute(db);
 
-  // 10. Misiones Tácticas
+  // 11. Misiones Tácticas
   // Misión 1: Verificación en curso para INC-2026-0003 (SIN reporte_terreno)
   await sql`
     INSERT INTO mision (
@@ -378,7 +484,6 @@ export async function sembrarEstadosIncidentes() {
     );
   `.execute(db);
 
-  // Hito de patrulla en ruta para INC-2026-0003 (sin terminar verificación)
   await sql`
     INSERT INTO mision_hito (
       id, mision_id, hito, descripcion, registrado_por_id, latitud, longitud, creado_en
@@ -421,7 +526,6 @@ export async function sembrarEstadosIncidentes() {
     );
   `.execute(db);
 
-  // Reporte de terreno estructurado para INC-2026-0013
   await sql`
     INSERT INTO reporte_terreno (
       id, mision_id, evaluador_id, resumen_tecnico, acciones_realizadas,
@@ -444,7 +548,6 @@ export async function sembrarEstadosIncidentes() {
     );
   `.execute(db);
 
-  // Hito de evaluación completada para INC-2026-0013
   await sql`
     INSERT INTO mision_hito (
       id, mision_id, hito, descripcion, registrado_por_id, latitud, longitud, creado_en
@@ -513,7 +616,7 @@ export async function sembrarEstadosIncidentes() {
     );
   `.execute(db);
 
-  console.log("¡Carga de incidentes en todos los estados completada con éxito!");
+  console.log("¡Carga de incidentes y cuadrillas operativas completada con éxito!");
 }
 
 if (process.argv[1]?.includes("seed-estados-incidentes")) {
@@ -523,7 +626,7 @@ if (process.argv[1]?.includes("seed-estados-incidentes")) {
       process.exit(0);
     })
     .catch(async (err) => {
-      console.error("Error al sembrar incidentes:", err);
+      console.error("Error al sembrar incidentes y cuadrillas:", err);
       await db.destroy();
       process.exit(1);
     });

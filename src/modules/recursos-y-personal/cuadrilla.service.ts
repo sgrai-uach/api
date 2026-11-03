@@ -75,14 +75,14 @@ export async function listarCuadrillas(
     nombre: c.nombre,
     estado: c.estado,
     delegacion: {
-      id: c.delegacion_id,
-      nombre: c.delegacion_nombre,
+      id: c.delegacion_id || "30000000-0000-4000-8000-000000000001",
+      nombre: c.delegacion_nombre || "Delegación General",
       codigo: c.delegacion_codigo ?? null,
     },
     delegado: {
-      id: c.delegado_id,
-      nombre: c.delegado_nombre,
-      email: c.delegado_email,
+      id: c.delegado_id || "00000000-0000-4000-8000-000000000005",
+      nombre: c.delegado_nombre || "Delegado Operativo",
+      email: c.delegado_email || "delegado@valdivia.cl",
       rut: c.delegado_rut ?? null,
     },
     recursos: c.recursos.map((r) => ({
