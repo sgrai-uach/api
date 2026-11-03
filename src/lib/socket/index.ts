@@ -591,33 +591,83 @@ export function notificarMisionAsignada(payload: {
   incidenteId?: string | null;
   asignadoEn: string;
 }): void {
-  if (ioInstance) {
+  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  if (payload.cuadrillaId) {
+    rooms.push(`cuadrilla:${payload.cuadrillaId}`);
+  }
+  if (payload.patrullaId) {
+    rooms.push(`patrulla:${payload.patrullaId}`);
+  }
+
+  const io = ioInstance;
+  if (io) {
+    rooms.forEach((room) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (io.to(room) as any).emit("mision:asignada", payload);
+    });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("mision:asignada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("mision:asignada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("mision:asignada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("mision:asignada", payload);
+    (io as any).emit("mision:asignada", payload);
     return;
   }
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "encargado",
-          event: "mision:asignada",
-          payload,
-        })
-      )
-      .catch(() => {});
+    rooms.forEach((room) => {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "mision:asignada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    });
+  }
+}
+
+/**
+ * Emite una notificación en tiempo real cuando una patrulla verificadora es liberada
+ * automáticamente al despachar una cuadrilla operativa (Regla §3.2 ICS).
+ */
+export function notificarPatrullaLiberada(payload: {
+  patrullaId: string;
+  nombre: string;
+  misionPreviaId?: string | null;
+  incidenteId: string;
+  estado: string;
+  liberadaEn: string;
+}): void {
+  const patrullaRoom = `patrulla:${payload.patrullaId}`;
+  const rooms = [patrullaRoom, "encargado", "supervisor"];
+
+  const io = ioInstance;
+  if (io) {
+    rooms.forEach((room) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (io.to(room) as any).emit("patrulla:liberada", payload);
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (io as any).emit("patrulla:liberada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    rooms.forEach((room) => {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "patrulla:liberada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    });
   }
 }
 
 export * from "./types";
-
-

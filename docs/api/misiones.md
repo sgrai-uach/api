@@ -43,6 +43,7 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 |---|---|---|---|
 | `GET` | `/api/misiones` | `misiones:leer` / Sesión válida | Listar misiones tácticas con paginación estándar, metadatos `meta` y filtros multicriterio (H34). |
 | `GET` | `/api/misiones/{id}` | `misiones:leer` | Consultar detalle exhaustivo de una misión por su ID (incidente, cuadrilla/patrulla, tiempos y reportes con adjuntos - HU-17). |
+| `POST` | `/api/misiones` | `misiones:asignar` | Asignar y despachar cuadrilla operativa a un incidente en estado `REPORTADO` o `VERIFICANDO`, liberando automáticamente a la patrulla verificadora previa (HU-21 / Regla ICS §3.2). |
 
 ---
 
@@ -244,6 +245,110 @@ Obtiene la información exhaustiva de una misión operativa específica, incluye
 
 ---
 
+
+### 3.3. `POST /api/misiones` (HU-21: Asignar Cuadrilla a Incidente y Liberar Patrulla Verificadora)
+
+Permite al **Encargado de Operaciones** (o Administrador) desplegar una cuadrilla operativa para la intervención táctica y pesada de un incidente verificado, liberando de forma atómica e inmediata a la patrulla verificadora previa conforme a los protocolos del Sistema de Comando de Incidentes (ICS).
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o cabecera `x-user-id` de prueba interna).
+- **Permiso RBAC requerido:** `misiones:asignar` (asignado a roles Encargado y Administrador).
+
+#### Reglas de Negocio Críticas Aplicadas
+1. **Validación de Estados de Entrada y Evaluación Previa en Terreno (Regla ICS):**
+   - El incidente debe existir y encontrarse en estado canónico `REPORTADO` o `VERIFICANDO`. Si ya se encuentra en `EN_ATENCION`, `RESUELTO` o `NO_ABORDABLE`, la API responde con `409 Conflict`.
+   - **Evaluación técnica obligatoria antes del relevo:** Si el incidente está en `VERIFICANDO` y cuenta con una patrulla verificadora asignada, la patrulla **debe haber emitido previamente su informe técnico en terreno (`reporte_terreno`)** o registrado el hito de evaluación. Si aún se encuentra en traslado o sin emitir dicho informe, el despacho es bloqueado con `409 Conflict` y código de negocio `'VERIFICACION_EN_CURSO'`.
+   - Si el incidente se encuentra en `REPORTADO` (despacho directo sin patrullaje previo), esta validación no aplica y se permite la asignación directa de cuadrilla.
+   - La cuadrilla seleccionada debe encontrarse en estado `DISPONIBLE`. Si está en `EN_MISION` o `NO_DISPONIBLE`, se rechaza con `409 Conflict`.
+2. **Transacción Atómica Kysely:**
+   - Crea la nueva misión operativa con `tipo_mision = 'ATENCION_CUADRILLA'`, `estado = 'DESPACHADA'`, código correlativo oficial `MIS-YYYY-XXXX` y `fecha_inicio = null` (permanece en null hasta que la cuadrilla acepte e inicie trayecto en terreno).
+   - Actualiza `cuadrilla.estado = 'EN_MISION'`.
+   - Transiciona el incidente a `incidente.estado = 'EN_ATENCION'` (reflejándose en la columna correspondiente del tablero Kanban).
+3. **Regla de Negocio Crítica §3.2 (Liberación Automática de Patrulla Verificadora):**
+   - Si el incidente contaba con una misión de verificación activa (`tipo_mision = 'VERIFICACION'` en estado `DESPACHADA` o `EN_CURSO`) con una patrulla verificadora asignada:
+     - La misión de verificación se cierra atómicamente transicionando a `estado = 'COMPLETADA'` y fijando `fecha_cierre = CURRENT_TIMESTAMP`.
+     - Se registra en la bitácora `mision_hito` de dicha misión el hito `'VERIFICACION_FINALIZADA'` con la glosa explicativa del relevo táctico.
+     - La patrulla verificadora previa queda inmediatamente liberada transicionando a `estado = 'DISPONIBLE'` para nuevas asignaciones.
+4. **Herencia de Prioridad Operativa:**
+   - Si en el cuerpo de la petición no se envía una prioridad explícita, se hereda prioritariamente de la misión de verificación activa de la patrulla; si no existía patrulla previa, se hereda de la prioridad del incidente (por defecto `MEDIA`).
+5. **Registro de Bitácora (`mision_hito`):**
+   - Para la nueva misión de cuadrilla se registra el hito `'CUADRILLA_DESPACHADA'` con la descripción *"Cuadrilla despachada a terreno para resolución táctica del incidente"*.
+6. **Notificaciones WebSocket en Tiempo Real:**
+   - `mision:asignada`: Emitido a las salas `cuadrilla:{cuadrillaId}`, `encargado` y `supervisor`.
+   - `patrulla:liberada`: Emitido a las salas `patrulla:{patrullaId}`, `encargado` y `supervisor`, con payload `{ patrullaId, nombre, misionPreviaId, incidenteId, estado: 'DISPONIBLE', liberadaEn }`.
+   - `patrulla:actualizada`: Emitido a las salas de monitoreo con el estado `DISPONIBLE`.
+   - `incidente:actualizado`: Emitido a la sala `encargado` informando la transición a `EN_ATENCION`.
+
+#### Cuerpo de la Solicitud (JSON Request Body)
+
+```json
+{
+  "tipoMision": "ATENCION_CUADRILLA",
+  "incidenteId": "30000000-0000-4000-8000-000000000001",
+  "cuadrillaId": "50000000-0000-4000-8000-000000000001",
+  "titulo": "Despeje de árbol caído y calzada - Sector Collico",
+  "descripcion": "Intervención con motosierras y camión tolva para habilitar tránsito vehicular.",
+  "prioridad": "ALTA"
+}
+```
+
+#### Ejemplo de Respuesta Exitosa (`HTTP 201 Created`)
+
+```json
+{
+  "message": "Cuadrilla 'Cuadrilla Vías y Canales 1' asignada exitosamente al incidente INC-2026-0001. La patrulla verificadora previa ha sido liberada a estado DISPONIBLE.",
+  "data": {
+    "mision": {
+      "id": "70000000-0000-4000-8000-000000000001",
+      "codigo": "MIS-2026-0005",
+      "titulo": "Despeje de árbol caído y calzada - Sector Collico",
+      "descripcion": "Intervención con motosierras y camión tolva para habilitar tránsito vehicular.",
+      "tipoMision": "ATENCION_CUADRILLA",
+      "estado": "DESPACHADA",
+      "prioridad": "ALTA",
+      "incidenteId": "30000000-0000-4000-8000-000000000001",
+      "cuadrillaId": "50000000-0000-4000-8000-000000000001",
+      "encargadoId": "10000000-0000-4000-8000-000000000002",
+      "creadoPorId": "10000000-0000-4000-8000-000000000002",
+      "fechaInicio": null,
+      "creadoEn": "2026-10-04T12:30:00.000Z"
+    },
+    "cuadrilla": {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "nombre": "Cuadrilla Vías y Canales 1",
+      "estado": "EN_MISION"
+    },
+    "incidente": {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "codigo": "INC-2026-0001",
+      "estado": "EN_ATENCION",
+      "prioridad": "ALTA"
+    },
+    "patrullaLiberada": {
+      "id": "f1000000-0000-4000-8000-000000000001",
+      "nombre": "Patrulla Rápida Costa-1",
+      "estado": "DISPONIBLE",
+      "misionPreviaId": "60000000-0000-4000-8000-000000000001"
+    },
+    "hitoCuadrilla": {
+      "id": "80000000-0000-4000-8000-000000000001",
+      "misionId": "70000000-0000-4000-8000-000000000001",
+      "hito": "CUADRILLA_DESPACHADA",
+      "descripcion": "Cuadrilla despachada a terreno para resolución táctica del incidente",
+      "creadoEn": "2026-10-04T12:30:00.000Z"
+    },
+    "hitoPatrulla": {
+      "id": "80000000-0000-4000-8000-000000000002",
+      "misionId": "60000000-0000-4000-8000-000000000001",
+      "hito": "VERIFICACION_FINALIZADA",
+      "descripcion": "Misión de verificación concluida automáticamente por asignación y relevo de cuadrilla operativa",
+      "creadoEn": "2026-10-04T12:30:00.000Z"
+    }
+  }
+}
+```
+
+---
+
 ## 4. Códigos de Estado y Errores Esperables
 
 - **`400 Bad Request`:**
@@ -255,5 +360,26 @@ Obtiene la información exhaustiva de una misión operativa específica, incluye
   - El usuario no cuenta con el permiso requerido (`misiones:leer`).
 - **`404 Not Found`:**
   - En `GET /api/misiones/{id}`: No existe ninguna misión con el UUID proporcionado.
+
+- **`409 Conflict`:**
+  - En `POST /api/misiones`:
+    - **`VERIFICACION_EN_CURSO`:** La patrulla verificadora asignada al incidente aún no ha finalizado la evaluación técnica en terreno (no se ha emitido el `reporte_terreno` correspondiente).
+      ```json
+      {
+        "statusCode": 409,
+        "error": "Conflict",
+        "codigo": "VERIFICACION_EN_CURSO",
+        "message": "No es posible despachar una cuadrilla operativa: la patrulla verificadora asignada ('Patrulla Alfa-1') aún no ha finalizado la evaluación técnica en terreno.",
+        "detalles": {
+          "incidenteId": "UUID_DEL_INCIDENTE",
+          "misionVerificacionId": "UUID_MISION_VERIFICACION",
+          "patrullaId": "UUID_DE_LA_PATRULLA",
+          "patrullaNombre": "Patrulla Alfa-1",
+          "estadoMision": "EN_CURSO"
+        }
+      }
+      ```
+    - La cuadrilla no se encuentra en estado `DISPONIBLE` (por encontrarse `EN_MISION` o `NO_DISPONIBLE`).
+    - El incidente no se encuentra en un estado apto para despacho (`REPORTADO` o `VERIFICANDO`), por ejemplo si ya está `EN_ATENCION` o `RESUELTO`.
 - **`500 Internal Server Error`:**
   - Error inesperado de persistencia o fallo de base de datos.

@@ -27,9 +27,17 @@ export class BadRequestError extends Error {
 }
 
 export class ConflictError extends Error {
-  constructor(message = "Conflicto en la operación solicitada.") {
+  public codigo?: string;
+  public detalles?: Record<string, unknown>;
+
+  constructor(
+    message = "Conflicto en la operación solicitada.",
+    codigo?: string,
+    detalles?: Record<string, unknown>
+  ) {
     super(message);
     this.name = "ConflictError";
+    this.codigo = codigo;
+    this.detalles = detalles;
   }
 }
-

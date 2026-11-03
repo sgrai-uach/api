@@ -4,6 +4,8 @@ import {
   MisionDetalleResponseSchema,
   MisionDetalleCompletoSchema,
   ReporteTerrenoDetalleSchema,
+  AsignarCuadrillaMisionInputSchema,
+  AsignarCuadrillaMisionResponseSchema,
 } from "../mision.schema";
 
 describe("Mision Schemas (HU-17)", () => {
@@ -242,6 +244,61 @@ describe("Mision Schemas (HU-17)", () => {
 
       const resultado = MisionDetalleResponseSchema.safeParse(respuesta);
       expect(resultado.success).toBe(true);
+    });
+  });
+  describe("AsignarCuadrillaMisionInputSchema (HU-21)", () => {
+    it("debe validar correctamente un input completo con prioridad explícita", () => {
+      const input = {
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId: "30000000-0000-4000-8000-000000000001",
+        cuadrillaId: "50000000-0000-4000-8000-000000000001",
+        titulo: "Despeje táctico de calzada",
+        descripcion: "Instrucciones de terreno",
+        prioridad: "CRITICA",
+      };
+
+      const resultado = AsignarCuadrillaMisionInputSchema.safeParse(input);
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.tipoMision).toBe("ATENCION_CUADRILLA");
+        expect(resultado.data.prioridad).toBe("CRITICA");
+      }
+    });
+
+    it("debe validar correctamente un input mínimo opcional (sin título, descripción ni prioridad)", () => {
+      const input = {
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId: "30000000-0000-4000-8000-000000000001",
+        cuadrillaId: "50000000-0000-4000-8000-000000000001",
+      };
+
+      const resultado = AsignarCuadrillaMisionInputSchema.safeParse(input);
+      expect(resultado.success).toBe(true);
+    });
+
+    it("debe rechazar un tipoMision distinto a 'ATENCION_CUADRILLA'", () => {
+      const input = {
+        tipoMision: "VERIFICACION",
+        incidenteId: "30000000-0000-4000-8000-000000000001",
+        cuadrillaId: "50000000-0000-4000-8000-000000000001",
+      };
+
+      const resultado = AsignarCuadrillaMisionInputSchema.safeParse(input);
+      expect(resultado.success).toBe(false);
+    });
+
+    it("debe rechazar identificadores UUID malformados", () => {
+      const input = {
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId: "invalido",
+        cuadrillaId: "123",
+      };
+
+      const resultado = AsignarCuadrillaMisionInputSchema.safeParse(input);
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(resultado.error.issues.length).toBeGreaterThanOrEqual(2);
+      }
     });
   });
 });

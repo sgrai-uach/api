@@ -1,4 +1,6 @@
-import { obtenerMisionDetallePorIdRepo } from "./mision.repository";
+import { obtenerMisionDetallePorIdRepo, asignarCuadrillaIncidenteRepo } from "./mision.repository";
+import type { AsignarCuadrillaMisionInput, AsignarCuadrillaMisionResponse } from "./mision.schema";
+import { notificarMisionAsignada, notificarPatrullaLiberada, notificarPatrullaActualizada, notificarIncidenteActualizado } from "@/lib/socket";
 import type {
   MisionDetalleCompleto,
   MisionBitacoraHito,
@@ -234,5 +236,77 @@ export async function obtenerDetalleMisionService(
     patrulla,
     bitacoraTiempos,
     reportesTerreno: reportesMapeados,
+  };
+}
+
+// ========================================================
+// HU-21: Asignar Cuadrilla a Incidente y Liberar Patrulla
+// ========================================================
+
+export async function asignarCuadrillaMisionService(
+  input: AsignarCuadrillaMisionInput,
+  usuarioId: string
+): Promise<AsignarCuadrillaMisionResponse> {
+  // 1. Ejecutar transacción atómica en repositorio
+  const resultado = await asignarCuadrillaIncidenteRepo(input, usuarioId);
+
+  // 2. Notificaciones WebSocket reactivas
+  // a) Misión asignada a la cuadrilla y al Centro de Mando
+  notificarMisionAsignada({
+    misionId: resultado.mision.id,
+    codigo: resultado.mision.codigo,
+    tipoMision: resultado.mision.tipoMision,
+    cuadrillaId: resultado.cuadrilla.id,
+    incidenteId: resultado.incidente.id,
+    asignadoEn: resultado.mision.creadoEn,
+  });
+
+  // b) Si existía patrulla verificadora previa, notificar su liberación
+  if (resultado.patrullaLiberada) {
+    notificarPatrullaLiberada({
+      patrullaId: resultado.patrullaLiberada.id,
+      nombre: resultado.patrullaLiberada.nombre,
+      misionPreviaId: resultado.patrullaLiberada.misionPreviaId,
+      incidenteId: resultado.incidente.id,
+      estado: "DISPONIBLE",
+      liberadaEn: new Date().toISOString(),
+    });
+
+    notificarPatrullaActualizada({
+      patrullaId: resultado.patrullaLiberada.id,
+      nombre: resultado.patrullaLiberada.nombre,
+      estado: "DISPONIBLE",
+      delegacionId: null,
+      usuarioLiderId: null,
+      misionActivaId: null,
+      incidenteId: null,
+      actualizadoEn: new Date().toISOString(),
+    });
+  }
+
+  // c) Notificar actualización de estado del incidente al Centro de Mando
+  notificarIncidenteActualizado({
+    id: resultado.incidente.id,
+    codigo: resultado.incidente.codigo,
+    nuevoEstado: "EN_ATENCION",
+    prioridad: resultado.incidente.prioridad,
+    actualizadoEn: new Date().toISOString(),
+  });
+
+  // 3. Estructurar respuesta DTO
+  const mensaje = resultado.patrullaLiberada
+    ? `Cuadrilla '${resultado.cuadrilla.nombre}' asignada exitosamente al incidente ${resultado.incidente.codigo}. La patrulla verificadora previa ha sido liberada a estado DISPONIBLE.`
+    : `Cuadrilla '${resultado.cuadrilla.nombre}' asignada exitosamente al incidente ${resultado.incidente.codigo}.`;
+
+  return {
+    message: mensaje,
+    data: {
+      mision: resultado.mision,
+      cuadrilla: resultado.cuadrilla,
+      incidente: resultado.incidente,
+      patrullaLiberada: resultado.patrullaLiberada,
+      hitoCuadrilla: resultado.hitoCuadrilla,
+      hitoPatrulla: resultado.hitoPatrulla,
+    },
   };
 }
