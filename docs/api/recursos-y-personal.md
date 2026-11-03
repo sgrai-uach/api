@@ -729,10 +729,15 @@ Desactiva mediante baja lógica una cuadrilla operativa que haya sido disuelta o
 - **Baja Lógica y Auditoría Inmutable:**
   - Aplica estrictamente `cuadrilla.activo = false`, `cuadrilla.estado = 'NO_DISPONIBLE'`, `cuadrilla.eliminado_en = CURRENT_TIMESTAMP` y estampa `cuadrilla.eliminado_por_id` con el UUID del usuario responsable.
 - **Trazabilidad Histórica y Liberación de Dotación:**
-  - **Recursos (`cuadrilla_recurso`):** No se borran físicamente los registros para mantener la auditoría; se actualiza `activo = false` y `desvinculado_en = CURRENT_TIMESTAMP`, liberando inmediatamente los recursos para el inventario central.
-  - **Personal Operativo (`cuadrilla_personal`):** Se actualiza `activo = false` y `desvinculado_en = CURRENT_TIMESTAMP`, preservando el registro de qué trabajadores integraron la cuadrilla y en qué período, dejando a los brigadistas disponibles para conformar nuevas dotaciones.
-- **Reversión de Rol del Delegado:**
-  - Si el usuario que ejercía como Delegado (`usuario_delegado_id`) no lidera ninguna otra cuadrilla activa en el sistema, su rol institucional en `usuario` se revierte automáticamente a **`BRIGADISTA`**, registrando el diff en la tabla de auditoría `log_cambios_usuarios`.
+  - **Recursos (`cuadrilla_recurso` y `recurso`):** No se borran físicamente los registros para mantener la auditoría; se actualiza `activo = false` y `desvinculado_en = CURRENT_TIMESTAMP`, y simultáneamente se decrementa `recurso.cantidad_en_uso` en la cantidad liberada (`GREATEST(0, cantidad_en_uso - cantidad_liberada)`), restituyendo el stock disponible inmediatamente en el inventario central (CA-5 / BUG-H82-API-01).
+  - **Personal Operativo (`cuadrilla_personal` y `usuario`):** Se actualiza `activo = false` y `desvinculado_en = CURRENT_TIMESTAMP`, preservando la trazabilidad de los brigadistas asignados. Si los trabajadores liberados no integran otra unidad operativa activa (cuadrilla o patrulla), su disponibilidad se restaura automáticamente actualizando `usuario.estado_operativo = 'disponible'` (BUG-H82-API-04).
+- **Reversión de Rol y Disponibilidad del Delegado:**
+  - Si el usuario que ejercía como Delegado (`usuario_delegado_id`) no lidera ninguna otra cuadrilla activa en el sistema, su rol institucional en `usuario` se revierte automáticamente a **`BRIGADISTA`** (registrando el diff en `log_cambios_usuarios`) y su disponibilidad se restaura a `usuario.estado_operativo = 'disponible'` (si no participa en otra patrulla o cuadrilla activa).
+- **Protección contra Concurrencia (TOCTOU):**
+  - La transacción Kysely adquiere bloqueo pesimista `SELECT ... FOR UPDATE` sobre la fila de la cuadrilla y re-valida atómicamente la ausencia de misiones activas antes de proceder con la baja lógica (BUG-H82-API-05).
+- **Consulta Histórica y Auditoría:**
+  - `GET /api/cuadrillas/{id}` permite consultar el detalle unitario y la dotación histórica de una cuadrilla desactivada (con `activo = false` y `eliminadoEn`).
+  - `GET /api/cuadrillas` permite listar cuadrillas inactivas mediante los parámetros `activo=false`, `estado=INACTIVAS`, `estado=TODAS` o `incluir_inactivas=true` (BUG-H82-API-03).
 - **Sincronización en Tiempo Real:**
   - Tras el éxito de la transacción, el servidor emite el evento WebSocket **`cuadrilla:desactivada`** a las salas `"operaciones"`, `"encargado"` y `"supervisor"`.
 

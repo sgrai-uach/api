@@ -10,7 +10,7 @@ import {
   ConflictError,
 } from "@/modules/seguridad/errors";
 
-describe("Endpoint /api/cuadrillas/[id] (GET / PUT / DELETE)", () => {
+describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
   const usuarioAdminId = "00000000-0000-4000-8000-000000000001";
   const cuadrillaIdValido = "50000000-0000-4000-8000-000000000001";
   const contextValido = { params: Promise.resolve({ id: cuadrillaIdValido }) };
@@ -132,6 +132,23 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT / DELETE)", () => {
       const res = await GET(req, contextValido);
 
       expect(res.status).toBe(403);
+    });
+    it("debe retornar 200 OK con el detalle de la cuadrilla incluso si fue desactivada para auditoría histórica (BUG-H82-API-03)", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      const cuadrillaInactivaMock = {
+        ...cuadrillaRespuestaMock,
+        activo: false,
+        eliminadoEn: "2026-10-26T12:00:00.000Z",
+      };
+      vi.spyOn(cuadrillaService, "obtenerCuadrillaPorId").mockResolvedValue(cuadrillaInactivaMock as any);
+
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`);
+      const res = await GET(req, contextValido);
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.data.activo).toBe(false);
+      expect(data.data.eliminadoEn).toBe("2026-10-26T12:00:00.000Z");
     });
   });
 
@@ -321,110 +338,121 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT / DELETE)", () => {
     });
   });
 
-  describe("DELETE /api/cuadrillas/[id] (H82)", () => {
-    it("debe retornar 400 Bad Request si el UUID de ruta es inválido", async () => {
+
+  describe("DELETE /api/cuadrillas/[id] (HU-82)", () => {
+    it("debe retornar 400 Bad Request si el id no es un UUID válido", async () => {
       vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
-      const req = new NextRequest("http://localhost:3000/api/cuadrillas/id-invalido", {
+      const contextInvalido = { params: Promise.resolve({ id: "id-invalido-123" }) };
+
+      const req = new NextRequest("http://localhost:3000/api/cuadrillas/id-invalido-123", {
         method: "DELETE",
       });
+      const res = await DELETE(req, contextInvalido);
 
-      const res = await DELETE(req, { params: Promise.resolve({ id: "id-invalido" }) });
       expect(res.status).toBe(400);
       const data = await res.json();
-      expect(data.message).toBe("Identificador de cuadrilla inválido.");
+      expect(data.statusCode).toBe(400);
+      expect(data.error).toBe("Bad Request");
+      expect(data.message).toContain("Identificador de cuadrilla inválido");
     });
 
-    it("debe retornar 401 Unauthorized si el usuario no está autenticado", async () => {
+    it("debe retornar 401 Unauthorized si la petición no incluye sesión válida", async () => {
       vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValue(
         new UnauthorizedError("No autenticado")
       );
+
       const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
         method: "DELETE",
       });
-
       const res = await DELETE(req, contextValido);
+
       expect(res.status).toBe(401);
       const data = await res.json();
-      expect(data.message).toBe("No autenticado");
+      expect(data.statusCode).toBe(401);
+      expect(data.error).toBe("Unauthorized");
     });
 
-    it("debe retornar 403 Forbidden si el usuario no tiene permisos", async () => {
-      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue("usuario-no-admin");
+    it("debe retornar 403 Forbidden si el usuario carece del permiso cuadrillas:eliminar", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue("user-sin-permiso");
       vi.spyOn(cuadrillaService, "desactivarCuadrilla").mockRejectedValue(
-        new ForbiddenError("Acceso denegado")
+        new ForbiddenError("No tiene permiso para desactivar cuadrillas operativas.")
       );
 
       const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
         method: "DELETE",
       });
-
       const res = await DELETE(req, contextValido);
+
       expect(res.status).toBe(403);
       const data = await res.json();
-      expect(data.message).toBe("Acceso denegado");
+      expect(data.statusCode).toBe(403);
+      expect(data.error).toBe("Forbidden");
     });
 
     it("debe retornar 404 Not Found si la cuadrilla no existe o ya fue desactivada", async () => {
       vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
       vi.spyOn(cuadrillaService, "desactivarCuadrilla").mockRejectedValue(
-        new NotFoundError("La cuadrilla operativa especificada no existe o ya fue desactivada.")
+        new NotFoundError("La cuadrilla operativa especificada no existe o ya ha sido desactivada previamente.")
       );
 
       const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
         method: "DELETE",
       });
-
       const res = await DELETE(req, contextValido);
+
       expect(res.status).toBe(404);
       const data = await res.json();
-      expect(data.message).toBe("La cuadrilla operativa especificada no existe o ya fue desactivada.");
+      expect(data.statusCode).toBe(404);
+      expect(data.error).toBe("Not Found");
+      expect(data.message).toContain("no existe o ya ha sido desactivada");
     });
 
-    it("debe retornar 409 Conflict si la cuadrilla posee misiones activas en curso", async () => {
+    it("debe retornar 409 Conflict si la cuadrilla posee misiones activas (CA-4)", async () => {
       vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
       vi.spyOn(cuadrillaService, "desactivarCuadrilla").mockRejectedValue(
-        new ConflictError("No es posible desactivar la cuadrilla porque posee misiones activas en curso (PLANIFICADA, DESPACHADA o EN_CURSO).")
+        new ConflictError("No es posible desactivar la cuadrilla porque tiene misiones activas en curso (PLANIFICADA, DESPACHADA o EN_CURSO).")
       );
 
       const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
         method: "DELETE",
       });
-
       const res = await DELETE(req, contextValido);
+
       expect(res.status).toBe(409);
       const data = await res.json();
-      expect(data.message).toContain("posee misiones activas en curso");
+      expect(data.statusCode).toBe(409);
+      expect(data.error).toBe("Conflict");
+      expect(data.message).toContain("misiones activas en curso");
     });
 
-    it("debe retornar 200 OK tras desactivar la cuadrilla exitosamente", async () => {
+    it("debe retornar 200 OK con confirmación y datos de baja lógica ante desactivación exitosa (CA-1, CA-2, CA-5)", async () => {
       vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
-      vi.spyOn(cuadrillaService, "desactivarCuadrilla").mockResolvedValue({
+      const resultadoMock = {
         message: "Cuadrilla operativa desactivada exitosamente",
         data: {
           id: cuadrillaIdValido,
           nombre: "Cuadrilla Vías y Despeje Urbano",
           activo: false,
           estado: "NO_DISPONIBLE",
-          recursosDesvinculados: 1,
-          trabajadoresDesvinculados: 1,
-          delegadoRevertido: true,
-          eliminadoEn: "2026-10-26T12:00:00.000Z",
+          eliminadoEn: "2026-11-03T18:00:00.000Z",
           eliminadoPorId: usuarioAdminId,
+          recursosLiberados: 1,
+          personalLiberado: 1,
         },
-      });
+      };
+      vi.spyOn(cuadrillaService, "desactivarCuadrilla").mockResolvedValue(resultadoMock as any);
 
       const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
         method: "DELETE",
       });
-
       const res = await DELETE(req, contextValido);
+
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data.message).toBe("Cuadrilla operativa desactivada exitosamente");
-      expect(data.data.id).toBe(cuadrillaIdValido);
       expect(data.data.activo).toBe(false);
-      expect(data.data.estado).toBe("NO_DISPONIBLE");
-      expect(data.data.recursosDesvinculados).toBe(1);
+      expect(data.data.recursosLiberados).toBe(1);
+      expect(data.data.personalLiberado).toBe(1);
     });
   });
 });

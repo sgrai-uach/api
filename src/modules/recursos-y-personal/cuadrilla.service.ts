@@ -69,6 +69,8 @@ export async function listarCuadrillas(
     busqueda,
     delegacionId,
     estado,
+    activo: query.activo,
+    incluirInactivas: query.incluir_inactivas ?? query.incluirInactivas,
   });
 
   const paginasTotales = Math.ceil(total / limite) || 1;
@@ -111,8 +113,15 @@ export async function listarCuadrillas(
     })),
     totalRecursos: c.recursos.length,
     totalTrabajadores: c.trabajadores.length,
+    activo: c.activo !== undefined ? c.activo : c.eliminado_en == null,
     creadoEn:
       c.creado_en instanceof Date ? c.creado_en.toISOString() : String(c.creado_en),
+    eliminadoEn:
+      c.eliminado_en instanceof Date
+        ? c.eliminado_en.toISOString()
+        : c.eliminado_en
+        ? String(c.eliminado_en)
+        : null,
     actualizadoEn:
       c.actualizado_en instanceof Date
         ? c.actualizado_en.toISOString()
@@ -154,6 +163,7 @@ export async function obtenerCuadrillaPorId(
     id: cuadrilla.id,
     nombre: cuadrilla.nombre,
     estado: cuadrilla.estado,
+    activo: cuadrilla.activo !== undefined ? cuadrilla.activo : cuadrilla.eliminado_en == null,
     delegacion: {
       id: cuadrilla.delegacion_id,
       nombre: cuadrilla.delegacion_nombre,
@@ -199,6 +209,13 @@ export async function obtenerCuadrillaPorId(
         : null,
     actualizadoPorId: cuadrilla.actualizado_por_id,
     creadoPorId: cuadrilla.creado_por_id,
+    eliminadoEn:
+      cuadrilla.eliminado_en instanceof Date
+        ? cuadrilla.eliminado_en.toISOString()
+        : cuadrilla.eliminado_en
+        ? String(cuadrilla.eliminado_en)
+        : null,
+    eliminadoPorId: cuadrilla.eliminado_por_id ?? null,
   };
 }
 
@@ -619,12 +636,26 @@ export async function desactivarCuadrilla(
   // 4. Obtener rol BRIGADISTA para eventual reversión de rol del delegado
   const rolBrigadista = await obtenerRolPorCodigo("BRIGADISTA");
 
-  // 5. Ejecutar desactivación transaccional con desvinculación histórica
-  const resultado = await desactivarCuadrillaTransaccional(
-    id,
-    usuarioAutenticado.id,
-    rolBrigadista ? rolBrigadista.id : null
-  );
+  // 5. Ejecutar desactivación transaccional con desvinculación histórica y bloqueo atómico (BUG-H82-API-05)
+  let resultado;
+  try {
+    resultado = await desactivarCuadrillaTransaccional(
+      id,
+      usuarioAutenticado.id,
+      rolBrigadista ? rolBrigadista.id : null
+    );
+  } catch (error: any) {
+    if (error instanceof ConflictError || error instanceof NotFoundError) {
+      throw error;
+    }
+    if (error?.message?.startsWith("CONFLICT:")) {
+      throw new ConflictError(error.message.replace("CONFLICT:", ""));
+    }
+    if (error?.message?.includes("no existe o ya fue desactivada")) {
+      throw new NotFoundError(error.message);
+    }
+    throw error;
+  }
 
   // 6. Formatear respuesta de dominio
   const eliminadoEnStr =

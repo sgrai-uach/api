@@ -626,7 +626,6 @@ export function notificarMisionAsignada(payload: {
       .catch(() => {});
   }
 }
-}
 
 export * from "./types";
 

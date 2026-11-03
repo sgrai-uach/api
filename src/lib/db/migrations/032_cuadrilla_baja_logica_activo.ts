@@ -59,7 +59,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     DO $$
     DECLARE
       v_permiso_id UUID;
-      v_target_id UUID := '10000000-0000-4000-8000-000000000031';
+      v_target_id UUID := '10000000-0000-4000-8000-000000000032';
       v_admin_rol_id UUID := '20000000-0000-4000-8000-000000000001';
       v_admin_user_id UUID;
     BEGIN
