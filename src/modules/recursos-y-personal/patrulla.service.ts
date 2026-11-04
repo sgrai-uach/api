@@ -164,9 +164,9 @@ export async function crearPatrullaService(
       );
     }
 
-    if (vehiculo.estado !== "DISPONIBLE" || (vehiculo.cantidad_en_uso ?? 0) > 0) {
+    if (vehiculo.estado === "EN_MANTENCION" || vehiculo.estado === "NO_DISPONIBLE") {
       throw new ConflictError(
-        `El vehículo institucional '${vehiculo.nombre}' no se encuentra disponible (estado actual: ${vehiculo.estado}).`
+        `El vehículo institucional '${vehiculo.nombre}' no se encuentra operativo para asignación (estado actual: ${vehiculo.estado}).`
       );
     }
 
@@ -194,13 +194,13 @@ export async function crearPatrullaService(
     );
   }
 
-  // Validar disponibilidad operativa (deben estar 'disponible' según norma ICS)
+  // Validar disponibilidad operativa (se permite si está 'disponible' o 'en_patrulla' para asignación compartida)
   const personalNoDisponible = personalFilas.filter(
-    (p) => p.estado_operativo !== "disponible"
+    (p) => p.estado_operativo !== "disponible" && p.estado_operativo !== "en_patrulla"
   );
   if (personalNoDisponible.length > 0) {
     throw new ConflictError(
-      `Los siguientes funcionarios no se encuentran disponibles: ${personalNoDisponible
+      `Los siguientes funcionarios no se encuentran disponibles operativamente (en descanso, licencia o inactivos): ${personalNoDisponible
         .map((p) => p.nombre)
         .join(", ")}.`
     );
