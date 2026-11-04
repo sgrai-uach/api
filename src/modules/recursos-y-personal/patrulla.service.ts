@@ -132,8 +132,8 @@ export async function crearPatrullaService(
   input: CrearPatrullaInputDTO,
   usuarioId?: string | null
 ): Promise<CrearPatrullaResponseDTO> {
-  // 1. Validar autorización RBAC (requiere permiso recursos:crear o perfil Administrador)
-  await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_CREAR_RECURSO]);
+  // 1. Validar autorización RBAC (requiere permiso recursos:crear)
+  await verificarPermiso(usuarioId, PERMISO_CREAR_RECURSO);
 
   // 2. Validar unicidad del código identificador
   const patrullaExistente = await buscarPatrullaPorCodigoRepo(input.codigo);
@@ -169,9 +169,9 @@ export async function crearPatrullaService(
       );
     }
 
-    if (vehiculo.estado !== "DISPONIBLE" || (vehiculo.cantidad_en_uso ?? 0) > 0) {
+    if (vehiculo.estado === "EN_MANTENCION" || vehiculo.estado === "NO_DISPONIBLE") {
       throw new ConflictError(
-        `El vehículo institucional '${vehiculo.nombre}' no se encuentra disponible (estado actual: ${vehiculo.estado}).`
+        `El vehículo institucional '${vehiculo.nombre}' no se encuentra operativo para asignación (estado actual: ${vehiculo.estado}).`
       );
     }
 
@@ -194,6 +194,18 @@ export async function crearPatrullaService(
   if (personalSinRol.length > 0) {
     throw new BadRequestError(
       `Los siguientes funcionarios no cuentan con el rol operativo 'PATRULLA_VERIFICADORA': ${personalSinRol
+        .map((p) => p.nombre)
+        .join(", ")}.`
+    );
+  }
+
+  // Validar disponibilidad operativa (se permite si está 'disponible' o 'en_patrulla' para asignación compartida)
+  const personalNoDisponible = personalFilas.filter(
+    (p) => p.estado_operativo !== "disponible" && p.estado_operativo !== "en_patrulla"
+  );
+  if (personalNoDisponible.length > 0) {
+    throw new ConflictError(
+      `Los siguientes funcionarios no se encuentran disponibles operativamente (en descanso, licencia o inactivos): ${personalNoDisponible
         .map((p) => p.nombre)
         .join(", ")}.`
     );
@@ -227,6 +239,10 @@ export async function crearPatrullaService(
     latitud,
     longitud,
     personalIds: input.personalIds,
+    personalFilas: personalFilas.map((p) => ({
+      personal_id: p.personal_id,
+      usuario_id: p.usuario_id,
+    })),
   });
 
   // 7. Recuperar la entidad recién creada con relaciones completas
@@ -431,9 +447,9 @@ export async function modificarPatrullaService(
         );
       }
 
-      if (vehiculo.estado !== "DISPONIBLE" || (vehiculo.cantidad_en_uso ?? 0) > 0) {
+      if (vehiculo.estado === "EN_MANTENCION" || vehiculo.estado === "NO_DISPONIBLE") {
         throw new ConflictError(
-          `El vehículo institucional '${vehiculo.nombre}' no se encuentra disponible (estado actual: ${vehiculo.estado}).`
+          `El vehículo institucional '${vehiculo.nombre}' no se encuentra operativo para asignación (estado actual: ${vehiculo.estado}).`
         );
       }
 
@@ -477,11 +493,11 @@ export async function modificarPatrullaService(
     (p) => !integrantesActualesIds.has(p.personal_id)
   );
   const noDisponibles = nuevosIntegrantes.filter(
-    (p) => p.estado_operativo !== "disponible"
+    (p) => p.estado_operativo !== "disponible" && p.estado_operativo !== "en_patrulla"
   );
   if (noDisponibles.length > 0) {
     throw new ConflictError(
-      `Los siguientes funcionarios no se encuentran disponibles operativamente: ${noDisponibles
+      `Los siguientes funcionarios no se encuentran disponibles operativamente (en descanso, licencia o inactivos): ${noDisponibles
         .map((p) => `${p.nombre} (${p.estado_operativo})`)
         .join(", ")}.`
     );

@@ -241,6 +241,22 @@ describe("Módulo Recursos y Personal - Patrullas Verificadoras Schemas", () => 
       expect(resultado.success).toBe(false);
     });
 
+    it("debe rechazar si personalIds contiene UUIDs duplicados", () => {
+      const resultado = CrearPatrullaInputSchema.safeParse({
+        ...payloadValido,
+        personalIds: [
+          "b1000000-0000-4000-8000-000000000001",
+          "b1000000-0000-4000-8000-000000000001",
+        ],
+      });
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(resultado.error.issues[0].message).toBe(
+          "No se pueden ingresar funcionarios duplicados en la dotación de la patrulla."
+        );
+      }
+    });
+
     it("debe rechazar delegacionId con formato UUID inválido", () => {
       const resultado = CrearPatrullaInputSchema.safeParse({
         ...payloadValido,

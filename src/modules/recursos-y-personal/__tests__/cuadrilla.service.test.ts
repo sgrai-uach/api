@@ -371,7 +371,7 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
       vi.spyOn(repo, "obtenerRecursosParaAsignacion").mockResolvedValue([
         {
           ...recursoMock[0],
-          estado: "EN_MANTENCION" as any,
+          estado: "EN_MANTENCION" as unknown as typeof recursoMock[0]["estado"],
         },
       ]);
 
