@@ -29,6 +29,10 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/eventos-atp/recuperacion"].post).toBeDefined();
 
     // Rutas de Recursos y Personal
+    expect(spec.paths["/api/cuadrillas"]).toBeDefined();
+    expect(spec.paths["/api/cuadrillas"].get).toBeDefined();
+    expect(spec.paths["/api/cuadrillas"].get.parameters).toBeDefined();
+    expect(spec.paths["/api/cuadrillas"].post).toBeDefined();
     expect(spec.paths["/api/recursos"]).toBeDefined();
     expect(spec.paths["/api/recursos"].post).toBeDefined();
     expect(spec.paths["/api/recursos"].get).toBeDefined();
