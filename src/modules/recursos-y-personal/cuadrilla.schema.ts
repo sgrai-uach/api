@@ -199,10 +199,13 @@ export const CuadrillaResponseSchema = z
     trabajadores: z.array(CuadrillaTrabajadorDetalleSchema).default([]),
     totalRecursos: z.number().optional(),
     totalTrabajadores: z.number().optional(),
+    activo: z.boolean().default(true).optional(),
     creadoEn: z.string(),
     actualizadoEn: z.string().nullable().optional(),
     actualizadoPorId: z.string().uuid().nullable().optional(),
     creadoPorId: z.string().uuid().nullable().optional(),
+    eliminadoEn: z.string().nullable().optional(),
+    eliminadoPorId: z.string().uuid().nullable().optional(),
   })
   .openapi({
     title: "CuadrillaResponse",
@@ -217,6 +220,8 @@ export type CuadrillaResponse = z.infer<typeof CuadrillaResponseSchema>;
 export const CuadrillaItemResponseSchema = CuadrillaResponseSchema.extend({
   totalRecursos: z.number().openapi({ example: 1, description: "Cantidad total de recursos asignados" }),
   totalTrabajadores: z.number().openapi({ example: 1, description: "Cantidad total de trabajadores asignados" }),
+  activo: z.boolean().default(true).optional().openapi({ example: true, description: "Indica si la cuadrilla se encuentra activa operativamente" }),
+  eliminadoEn: z.string().nullable().optional().openapi({ example: null, description: "Fecha de baja lógica de la cuadrilla" }),
 }).openapi({
   title: "CuadrillaItemResponse",
   description: "Ítem de cuadrilla con datos consolidados y conteos para listado",
@@ -235,7 +240,17 @@ export const ListarCuadrillasQuerySchema = z.object({
   busqueda: z.string().trim().optional(),
   q: z.string().trim().optional(),
   delegacionId: z.string().uuid("El identificador de delegación debe ser un UUID válido").optional(),
-  estado: EstadoCuadrillaSchema.optional(),
+  estado: z
+    .enum(["DISPONIBLE", "EN_MISION", "NO_DISPONIBLE", "INACTIVAS", "TODAS"])
+    .optional(),
+  activo: z
+    .union([
+      z.boolean(),
+      z.enum(["true", "false", "all"]),
+    ])
+    .optional(),
+  incluir_inactivas: z.coerce.boolean().optional(),
+  incluirInactivas: z.coerce.boolean().optional(),
 });
 
 export type ListarCuadrillasQuery = z.infer<typeof ListarCuadrillasQuerySchema>;
@@ -295,3 +310,26 @@ export const EditarCuadrillaResponseSchema = z
   });
 
 export type EditarCuadrillaResponse = z.infer<typeof EditarCuadrillaResponseSchema>;
+
+export const DesactivarCuadrillaResponseSchema = z
+  .object({
+    message: z.string().openapi({ example: "Cuadrilla operativa desactivada exitosamente" }),
+    data: z.object({
+      id: z.string().uuid(),
+      nombre: z.string(),
+      activo: z.boolean().openapi({ example: false }),
+      estado: z.string().openapi({ example: "NO_DISPONIBLE" }),
+      recursosDesvinculados: z.number().openapi({ example: 2 }),
+      trabajadoresDesvinculados: z.number().openapi({ example: 3 }),
+      delegadoRevertido: z.boolean().openapi({ example: true }),
+      eliminadoEn: z.string(),
+      eliminadoPorId: z.string().uuid().nullable().optional(),
+    }),
+  })
+  .openapi({
+    title: "DesactivarCuadrillaResponse",
+    description: "Respuesta de confirmación tras desactivar mediante baja lógica una cuadrilla operativa",
+  });
+
+export type DesactivarCuadrillaResponse = z.infer<typeof DesactivarCuadrillaResponseSchema>;
+
