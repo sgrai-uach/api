@@ -170,8 +170,9 @@ export async function crearPatrullaService(
     }
 
     if (vehiculo.estado === "EN_MANTENCION" || vehiculo.estado === "NO_DISPONIBLE") {
+      const estadoLegible = vehiculo.estado === "EN_MANTENCION" ? "En mantención" : "No disponible";
       throw new ConflictError(
-        `El vehículo institucional '${vehiculo.nombre}' no se encuentra operativo para asignación (estado actual: ${vehiculo.estado}).`
+        `El vehículo institucional '${vehiculo.nombre}' no se encuentra operativo para asignación (estado actual: ${estadoLegible}).`
       );
     }
 
