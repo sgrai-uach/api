@@ -71,6 +71,68 @@ describe("Route Handlers /api/cuadrillas (GET / POST)", () => {
       expect(data.meta.total).toBe(1);
     });
 
+    it("debe retornar 200 OK filtrando por delegacionId UUID y estado", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      const delegacionIdUuid = "30000000-0000-4000-8000-000000000001";
+      const spyListar = vi.spyOn(cuadrillaService, "listarCuadrillas").mockResolvedValue({
+        message: "Listado de cuadrillas obtenido exitosamente",
+        data: [cuadrillaMock],
+        meta: {
+          total: 1,
+          pagina: 1,
+          limite: 10,
+          paginasTotales: 1,
+        },
+      });
+
+      const req = new NextRequest(
+        `http://localhost:3000/api/cuadrillas?delegacionId=${delegacionIdUuid}&estado=DISPONIBLE`
+      );
+      const res = await GET(req);
+
+      expect(res.status).toBe(200);
+      expect(spyListar).toHaveBeenCalledWith(
+        expect.objectContaining({
+          delegacionId: delegacionIdUuid,
+          estado: "DISPONIBLE",
+        }),
+        usuarioAdminId
+      );
+      const data = await res.json();
+      expect(data.data).toHaveLength(1);
+      expect(data.data[0].id).toBe(cuadrillaIdMock);
+    });
+
+    it("debe retornar 200 OK con paginación personalizada pagina=2 y limite=5", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      const spyListar = vi.spyOn(cuadrillaService, "listarCuadrillas").mockResolvedValue({
+        message: "Listado de cuadrillas obtenido exitosamente",
+        data: [cuadrillaMock],
+        meta: {
+          total: 12,
+          pagina: 2,
+          limite: 5,
+          paginasTotales: 3,
+        },
+      });
+
+      const req = new NextRequest("http://localhost:3000/api/cuadrillas?pagina=2&limite=5");
+      const res = await GET(req);
+
+      expect(res.status).toBe(200);
+      expect(spyListar).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pagina: 2,
+          limite: 5,
+        }),
+        usuarioAdminId
+      );
+      const data = await res.json();
+      expect(data.meta.pagina).toBe(2);
+      expect(data.meta.limite).toBe(5);
+      expect(data.meta.paginasTotales).toBe(3);
+    });
+
     it("debe retornar 400 Bad Request si los parámetros de query son inválidos", async () => {
       vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
 
