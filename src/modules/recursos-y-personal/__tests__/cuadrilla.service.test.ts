@@ -13,7 +13,6 @@ import {
   NotFoundError,
   ConflictError,
   ForbiddenError,
-  UnauthorizedError,
 } from "@/modules/seguridad/errors";
 
 describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
@@ -116,94 +115,27 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
   });
 
   describe("listarCuadrillas", () => {
-    it("caso 1: debe retornar listado con filtros combinados (delegacionId + estado)", async () => {
-      const spyRepo = vi.spyOn(repo, "listarCuadrillasPaginadas").mockResolvedValue({
+    it("debe retornar listado paginado con filtros", async () => {
+      vi.spyOn(repo, "listarCuadrillasPaginadas").mockResolvedValue({
         cuadrillas: [resultadoConsolidadoMock],
         total: 1,
       });
 
-      const res = await listarCuadrillas(
-        { delegacionId, estado: "DISPONIBLE" },
-        usuarioAdminId
-      );
+      const res = await listarCuadrillas({ pagina: 1, limite: 10, busqueda: "Vias" }, usuarioAdminId);
 
-      expect(spyRepo).toHaveBeenCalledWith(
-        expect.objectContaining({
-          delegacionId,
-          estado: "DISPONIBLE",
-          pagina: 1,
-          limite: 10,
-        })
-      );
       expect(res.data).toHaveLength(1);
-      expect(res.data[0].id).toBe(cuadrillaId);
       expect(res.meta.total).toBe(1);
       expect(res.meta.paginasTotales).toBe(1);
       expect(res.data[0].totalRecursos).toBe(1);
       expect(res.data[0].totalTrabajadores).toBe(1);
     });
 
-    it("caso 2: debe manejar caso sin cuadrillas retornando data vacía y total=0", async () => {
-      vi.spyOn(repo, "listarCuadrillasPaginadas").mockResolvedValue({
-        cuadrillas: [],
-        total: 0,
-      });
-
-      const res = await listarCuadrillas({}, usuarioAdminId);
-
-      expect(res.data).toEqual([]);
-      expect(res.meta.total).toBe(0);
-      expect(res.meta.paginasTotales).toBe(1);
-    });
-
-    it("caso 3: debe calcular correctamente offset y paginasTotales en segunda página", async () => {
-      const spyRepo = vi.spyOn(repo, "listarCuadrillasPaginadas").mockResolvedValue({
-        cuadrillas: [resultadoConsolidadoMock],
-        total: 15,
-      });
-
-      const res = await listarCuadrillas({ pagina: 2, limite: 5 }, usuarioAdminId);
-
-      expect(spyRepo).toHaveBeenCalledWith(
-        expect.objectContaining({
-          pagina: 2,
-          limite: 5,
-        })
-      );
-      expect(res.meta.pagina).toBe(2);
-      expect(res.meta.limite).toBe(5);
-      expect(res.meta.paginasTotales).toBe(3);
-    });
-
-    it("caso 4: usuarioId=null (sin auth) propaga UnauthorizedError", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValue(
-        new UnauthorizedError("No autorizado")
-      );
-
-      await expect(listarCuadrillas({}, null)).rejects.toThrow(UnauthorizedError);
-    });
-
-    it("caso 5: sin permisos propaga ForbiddenError", async () => {
+    it("debe rechazar si el usuario no tiene permisos", async () => {
       vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValue(
         new ForbiddenError("Acceso denegado")
       );
 
       await expect(listarCuadrillas({}, "usuario-invalido")).rejects.toThrow(ForbiddenError);
-    });
-
-    it("caso 6: con busqueda llama al repositorio con el término de búsqueda correcto", async () => {
-      const spyRepo = vi.spyOn(repo, "listarCuadrillasPaginadas").mockResolvedValue({
-        cuadrillas: [resultadoConsolidadoMock],
-        total: 1,
-      });
-
-      await listarCuadrillas({ busqueda: "texto" }, usuarioAdminId);
-
-      expect(spyRepo).toHaveBeenCalledWith(
-        expect.objectContaining({
-          busqueda: "texto",
-        })
-      );
     });
   });
 

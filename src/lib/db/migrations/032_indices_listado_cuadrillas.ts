@@ -37,3 +37,4 @@ export async function down(db: Kysely<unknown>): Promise<void> {
   await sql`DROP INDEX IF EXISTS idx_cuadrilla_estado;`.execute(db);
   await sql`DROP INDEX IF EXISTS idx_cuadrilla_delegacion_id;`.execute(db);
 }
+

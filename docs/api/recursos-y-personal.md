@@ -569,98 +569,17 @@ Ante cualquier cambio de estado o asignación de patrulla, el backend emite:
 
 ---
 
-### 3.8. `GET /api/cuadrillas` (Listado Paginado de Cuadrillas con Filtros — H80 / Estándar H34)
-Retorna la nómina paginada de cuadrillas operativas municipales con sus respectivos delegados, recursos asignados, dotación de trabajadores y conteos consolidados, implementando el estándar unificado de filtros y paginación (H34 / H80).
+### 3.8. `GET /api/cuadrillas` (Listado Paginado de Cuadrillas con Filtros - H81 / H79)
+Retorna la nómina paginada de cuadrillas operativas municipales con sus respectivos delegados, recursos asignados y dotación de trabajadores.
 
 - **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
 - **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:leer`, `recursos:gestionar` o rol `ADMIN`.
-
-#### Parámetros de Consulta (Query Params — Estándar H34)
-
-| Parámetro | In | Tipo | Requerido | Descripción | Ejemplo |
-|---|---|---|---|---|---|
-| `pagina` | query | integer | No | Número de página a consultar (base 1, default `1`) | `1` |
-| `page` | query | integer | No | Alias de `pagina` | `1` |
-| `limite` | query | integer | No | Cantidad de registros por página (default `10`, máx. `100`) | `10` |
-| `limit` | query | integer | No | Alias de `limite` | `10` |
-| `busqueda` | query | string | No | Búsqueda textual libre por nombre de cuadrilla, delegado o RUT | `Vías` |
-| `q` | query | string | No | Alias de `busqueda` textual libre | `Vías` |
-| `delegacionId` | query | string (UUID) | No | Identificador UUID de delegación municipal para filtro territorial | `30000000-0000-4000-8000-000000000001` |
-| `estado` | query | string (Enum) | No | Estado operativo canónico: `DISPONIBLE`, `EN_MISION`, `NO_DISPONIBLE` | `DISPONIBLE` |
-
-#### Ejemplo de Solicitud (cURL)
-
-```bash
-curl -X GET "http://localhost:3001/api/cuadrillas?delegacionId=30000000-0000-4000-8000-000000000001&estado=DISPONIBLE&pagina=1&limite=10" \
-  -H "Authorization: Bearer <token_jwt>" \
-  -H "Content-Type: application/json"
-```
-
-#### Ejemplo de Respuesta Exitosa (`HTTP 200 OK`)
-
-```json
-{
-  "message": "Listado de cuadrillas obtenido exitosamente",
-  "data": [
-    {
-      "id": "50000000-0000-4000-8000-000000000001",
-      "nombre": "Cuadrilla Vías y Calles Central",
-      "estado": "DISPONIBLE",
-      "delegacion": {
-        "id": "30000000-0000-4000-8000-000000000001",
-        "nombre": "Delegación Municipal Calle Calle",
-        "codigo": "DEL_CALLE_CALLE"
-      },
-      "delegado": {
-        "id": "00000000-0000-4000-8000-000000000005",
-        "nombre": "Carlos Operativo",
-        "email": "carlos@valdivia.cl",
-        "rut": "15.123.456-7"
-      },
-      "recursos": [
-        {
-          "id": "cr-1",
-          "recursoId": "e1000000-0000-4000-8000-000000000001",
-          "nombre": "Camioneta 4x4",
-          "cantidadAsignada": 1,
-          "esIndividual": true
-        }
-      ],
-      "trabajadores": [
-        {
-          "id": "cp-1",
-          "personalId": "40000000-0000-4000-8000-000000000001",
-          "usuarioId": "user-trabajador-1",
-          "nombre": "Pedro Obrero",
-          "rut": "16.222.333-4",
-          "cargo": "Motosierrista",
-          "especialidad": "Poda de Altura",
-          "asignadoEn": "2026-10-24T12:00:00.000Z"
-        }
-      ],
-      "totalRecursos": 1,
-      "totalTrabajadores": 1,
-      "creadoEn": "2026-10-24T12:00:00.000Z",
-      "actualizadoEn": "2026-10-26T01:30:00.000Z"
-    }
-  ],
-  "meta": {
-    "total": 1,
-    "pagina": 1,
-    "limite": 10,
-    "paginasTotales": 1
-  }
-}
-```
-
-#### Códigos de Error
-
-| Código HTTP | Motivo | Detalle |
-|---|---|---|
-| `400 Bad Request` | Parámetros inválidos | Parámetros de query no cumplen con el esquema Zod (ej. `delegacionId` no es UUID, `limite > 100`, estado no reconocido). |
-| `401 Unauthorized` | No autenticado | Cabecera `Authorization: Bearer <token>` ausente, expirada o inválida. |
-| `403 Forbidden` | Permisos insuficientes | Usuario autenticado carece del permiso `recursos:leer` o no posee rol `ADMIN`. |
-| `500 Internal Server Error` | Error de servidor | Excepción no controlada o fallo de comunicación con la base de datos PostgreSQL. |
+- **Parámetros de Consulta (Query Params):**
+  - `pagina` / `page` (`number`, default `1`): Número de página.
+  - `limite` / `limit` (`number`, default `10`, max `100`): Cantidad de registros por página.
+  - `q` / `busqueda` (`string`): Búsqueda parcial insensible a mayúsculas sobre nombre de cuadrilla, o nombre o RUT del delegado.
+  - `delegacionId` (`UUID`): Filtra por delegación municipal adscrita.
+  - `estado` (`string`): Filtra por estado operativo (`DISPONIBLE`, `EN_MISION`, `NO_DISPONIBLE`).
 
 ---
 

@@ -46,7 +46,6 @@ import {
   EditarCuadrillaInputSchema,
   EditarCuadrillaResponseSchema,
   ListarCuadrillasResponseSchema,
-  ListarCuadrillasQuerySchema,
   DetalleCuadrillaResponseSchema,
   CuadrillaIdParamSchema,
 } from "@/modules/recursos-y-personal/cuadrilla.schema";
@@ -1961,27 +1960,23 @@ registry.registerPath({
   },
 });
 
-// --- Módulo: Cuadrillas Operativas (Recursos y Personal - H80 / H81 / H79) ---
+// --- Módulo: Cuadrillas Operativas (Recursos y Personal - H81 / H79) ---
 registry.register("CrearCuadrillaInput", CrearCuadrillaInputSchema);
 registry.register("CrearCuadrillaResponse", CrearCuadrillaResponseSchema);
 registry.register("EditarCuadrillaInput", EditarCuadrillaInputSchema);
 registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
-registry.register("ListarCuadrillasQuery", ListarCuadrillasQuerySchema);
 registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
 registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
 
-// H80 / H79 / H81: Listar Cuadrillas Operativas Paginadas con Filtros (H34)
+// H81 / H79: Listar Cuadrillas Operativas Paginadas con Filtros
 registry.registerPath({
   method: "get",
   path: "/api/cuadrillas",
-  summary: "Listar cuadrillas operativas con paginación y filtros (H80 / H34)",
+  summary: "Listar cuadrillas operativas con paginación y filtros (H81 / H79)",
   description:
-    "Retorna el listado paginado de cuadrillas operativas con soporte para filtros de texto (busqueda/q), delegación municipal (delegacionId) y estado operativo (estado: DISPONIBLE, EN_MISION, NO_DISPONIBLE) bajo el estándar H34.",
+    "Retorna el listado paginado de cuadrillas operativas con soporte para filtros de texto, delegación y estado.",
   tags: ["Cuadrillas", "Recursos y Personal"],
   security: [{ BearerAuth: [] }],
-  request: {
-    query: ListarCuadrillasQuerySchema,
-  },
   responses: {
     200: {
       description: "Listado de cuadrillas obtenido exitosamente",

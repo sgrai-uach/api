@@ -58,3 +58,4 @@
 ## 4. Conclusión de Calidad
 
 La implementación de la Historia de Usuario **HU-80: Listar Cuadrillas Operativas** cumple satisfactoriamente con la totalidad de criterios funcionales, requerimientos de seguridad RBAC, estándares de diseño y reglas de negocio del Sistema de Comando de Incidentes (ICS) de la Municipalidad de Valdivia.
+

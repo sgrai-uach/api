@@ -95,3 +95,4 @@ describe("Módulo Recursos y Personal - ListarCuadrillasQuerySchema (H80)", () =
     }
   });
 });
+

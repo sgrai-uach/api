@@ -93,3 +93,4 @@ describe("Migración 032 - Índices de listado de cuadrillas (H80)", () => {
     expect(sqlEjecutado).toContain("DROP INDEX IF EXISTS idx_cuadrilla_delegacion_id");
   });
 });
+
