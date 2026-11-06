@@ -1,9 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { obtenerDetalleMisionService } from "../mision.service";
+import {
+  obtenerDetalleMisionService,
+  asignarPatrullaVerificacionService,
+} from "../mision.service";
 import * as misionRepo from "../mision.repository";
+import * as socketLib from "@/lib/socket";
 
 vi.mock("../mision.repository", () => ({
   obtenerMisionDetallePorIdRepo: vi.fn(),
+  crearMisionVerificacionRepo: vi.fn(),
+}));
+
+vi.mock("@/lib/socket", () => ({
+  notificarMisionAsignada: vi.fn(),
+  notificarIncidenteActualizado: vi.fn(),
+  notificarPatrullaActualizada: vi.fn(),
 }));
 
 describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
@@ -175,3 +186,88 @@ describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
     expect(detalle?.reportesTerreno).toEqual([]);
   });
 });
+
+describe("Mision Service - asignarPatrullaVerificacionService (HU-20)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("debe orquestar la transacción y emitir eventos socket a salas patrulla, encargado y mapa", async () => {
+    const inputMock = {
+      incidenteId: "50000000-0000-4000-8000-000000000001",
+      patrullaId: "f1000000-0000-4000-8000-000000000001",
+      titulo: "Verificación de Aniego",
+      descripcion: "Evaluar anegamiento en calzada",
+      prioridad: "ALTA" as const,
+    };
+
+    const operadorId = "00000000-0000-4000-8000-000000000003";
+
+    vi.mocked(misionRepo.crearMisionVerificacionRepo).mockResolvedValueOnce({
+      mision: {
+        id: "60000000-0000-4000-8000-000000000001",
+        codigo: "MIS-2026-1234",
+        titulo: "Verificación de Aniego",
+        descripcion: "Evaluar anegamiento en calzada",
+        tipoMision: "VERIFICACION",
+        estado: "DESPACHADA",
+        prioridad: "ALTA",
+        incidenteId: inputMock.incidenteId,
+        patrullaId: inputMock.patrullaId,
+        encargadoId: operadorId,
+        fechaInicio: "2026-10-27T17:00:00.000Z",
+        creadoEn: "2026-10-27T17:00:00.000Z",
+      },
+      incidente: {
+        id: inputMock.incidenteId,
+        codigo: "INC-2026-0001",
+        estado: "VERIFICANDO",
+        prioridad: "ALTA",
+      },
+      patrulla: {
+        id: inputMock.patrullaId,
+        nombre: "Patrulla Norte 1",
+        estado: "EN_VERIFICACION",
+        delegacionId: "30000000-0000-4000-8000-000000000001",
+        usuarioLiderId: "00000000-0000-4000-8000-000000000010",
+      },
+      hitoInicial: {
+        id: "70000000-0000-4000-8000-000000000001",
+        hito: "DESPACHADA",
+        descripcion: "Misión de verificación asignada y despachada a la patrulla Patrulla Norte 1.",
+        creadoEn: "2026-10-27T17:00:00.000Z",
+      },
+    });
+
+    const respuesta = await asignarPatrullaVerificacionService(inputMock, operadorId);
+
+    expect(misionRepo.crearMisionVerificacionRepo).toHaveBeenCalledWith(inputMock, operadorId);
+    expect(respuesta.data.mision.estado).toBe("DESPACHADA");
+    expect(respuesta.data.incidente.estado).toBe("VERIFICANDO");
+    expect(respuesta.data.patrulla.estado).toBe("EN_VERIFICACION");
+
+    // Verificar emisión de eventos Socket.io
+    expect(socketLib.notificarMisionAsignada).toHaveBeenCalledWith(
+      expect.objectContaining({
+        misionId: "60000000-0000-4000-8000-000000000001",
+        patrullaId: inputMock.patrullaId,
+        incidenteId: inputMock.incidenteId,
+      })
+    );
+
+    expect(socketLib.notificarIncidenteActualizado).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: inputMock.incidenteId,
+        nuevoEstado: "VERIFICANDO",
+      })
+    );
+
+    expect(socketLib.notificarPatrullaActualizada).toHaveBeenCalledWith(
+      expect.objectContaining({
+        patrullaId: inputMock.patrullaId,
+        estado: "EN_VERIFICACION",
+      })
+    );
+  });
+});
+

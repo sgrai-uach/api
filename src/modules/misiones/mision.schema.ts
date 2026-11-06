@@ -212,3 +212,79 @@ export const MisionDetalleResponseSchema = z.object({
 });
 
 export type MisionDetalleResponse = z.infer<typeof MisionDetalleResponseSchema>;
+
+// Input para POST /api/misiones (HU-20: Asignación de Patrulla Verificadora a Incidente)
+export const CrearMisionVerificacionSchema = z.object({
+  incidenteId: z.string().uuid({
+    message: "El identificador del incidente debe ser un UUID válido.",
+  }).openapi({
+    description: "Identificador único UUID del incidente a verificar",
+    example: "50000000-0000-4000-8000-000000000001",
+  }),
+  patrullaId: z.string().uuid({
+    message: "El identificador de la patrulla verificadora debe ser un UUID válido.",
+  }).openapi({
+    description: "Identificador único UUID de la patrulla verificadora disponible",
+    example: "f1000000-0000-4000-8000-000000000001",
+  }),
+  tipoMision: z.literal("VERIFICACION").default("VERIFICACION").optional().openapi({
+    description: "Tipo de misión operativa a despachar (fijo en VERIFICACION para evaluación preliminar)",
+    example: "VERIFICACION",
+  }),
+  titulo: z.string().min(3, "El título debe contener al menos 3 caracteres.").max(150, "El título no puede exceder 150 caracteres.").optional().openapi({
+    description: "Título descriptivo opcional para la misión de verificación",
+    example: "Verificación en terreno: Aniego en Las Ánimas",
+  }),
+  descripcion: z.string().max(1000, "La descripción no puede exceder 1000 caracteres.").nullable().optional().openapi({
+    description: "Instrucciones tácticas preliminares para la patrulla",
+    example: "Evaluar anegamiento en calzada y riesgo de ingreso a viviendas.",
+  }),
+  prioridad: PrioridadMisionEnum.optional().openapi({
+    description: "Nivel de prioridad o urgencia táctica (si se omite, hereda la del incidente)",
+    example: "ALTA",
+  }),
+});
+
+export type CrearMisionVerificacionInput = z.infer<typeof CrearMisionVerificacionSchema>;
+
+export const MisionCreadaResumenSchema = z.object({
+  id: z.string().uuid(),
+  codigo: z.string(),
+  titulo: z.string(),
+  descripcion: z.string().nullable(),
+  tipoMision: TipoMisionEnum,
+  estado: EstadoMisionEnum,
+  prioridad: PrioridadMisionEnum,
+  incidenteId: z.string().uuid(),
+  patrullaId: z.string().uuid(),
+  encargadoId: z.string().uuid().nullable(),
+  fechaInicio: z.string().nullable(),
+  creadoEn: z.string(),
+});
+
+export type MisionCreadaResumen = z.infer<typeof MisionCreadaResumenSchema>;
+
+export const CrearMisionResponseSchema = z.object({
+  message: z.string().openapi({ example: "Misión de verificación creada y patrulla despachada exitosamente." }),
+  data: z.object({
+    mision: MisionCreadaResumenSchema,
+    incidente: z.object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      estado: z.string(),
+    }),
+    patrulla: z.object({
+      id: z.string().uuid(),
+      nombre: z.string(),
+      estado: z.string(),
+    }),
+    hitoInicial: z.object({
+      id: z.string().uuid(),
+      hito: z.string(),
+      descripcion: z.string(),
+      creadoEn: z.string(),
+    }),
+  }),
+});
+
+export type CrearMisionResponse = z.infer<typeof CrearMisionResponseSchema>;

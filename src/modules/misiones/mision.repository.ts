@@ -1,4 +1,6 @@
 import { db } from "@/lib/db";
+import { NotFoundError, ConflictError } from "@/modules/seguridad/errors";
+import type { CrearMisionVerificacionInput } from "./mision.schema";
 
 export interface MisionDetalleQueryResult {
   mision: {
@@ -302,3 +304,204 @@ export async function obtenerMisionDetallePorIdRepo(
     reportesTerreno,
   };
 }
+
+export interface MisionVerificacionCreadaResult {
+  mision: {
+    id: string;
+    codigo: string;
+    titulo: string;
+    descripcion: string | null;
+    tipoMision: "VERIFICACION" | "ATENCION_CUADRILLA" | "PREVENCION" | "RECUPERACION" | "ASISTENCIA_SOCIAL";
+    estado: "PLANIFICADA" | "DESPACHADA" | "EN_CURSO" | "COMPLETADA" | "CANCELADA" | "RECHAZADA";
+    prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+    incidenteId: string;
+    patrullaId: string;
+    encargadoId: string | null;
+    fechaInicio: string | null;
+    creadoEn: string;
+  };
+  incidente: {
+    id: string;
+    codigo: string;
+    estado: string;
+    prioridad: string;
+  };
+  patrulla: {
+    id: string;
+    nombre: string;
+    estado: string;
+    delegacionId: string | null;
+    usuarioLiderId: string | null;
+  };
+  hitoInicial: {
+    id: string;
+    hito: string;
+    descripcion: string;
+    creadoEn: string;
+  };
+}
+
+/**
+ * HU-20 - Ejecuta la transacción atómica de asignación y despacho de patrulla verificadora.
+ * 1. Verifica que el incidente exista y esté en estado 'REPORTADO'.
+ * 2. Actualiza atómicamente la patrulla verificadora a 'EN_VERIFICACION' asegurando que esté 'DISPONIBLE'.
+ * 3. Crea la misión con tipo 'VERIFICACION' y estado 'DESPACHADA'.
+ * 4. Actualiza el estado del incidente a 'VERIFICANDO'.
+ * 5. Registra el hito inicial 'DESPACHADA' en la bitácora de la misión ('mision_hito').
+ */
+export async function crearMisionVerificacionRepo(
+  input: CrearMisionVerificacionInput,
+  operadorId: string
+): Promise<MisionVerificacionCreadaResult> {
+  return await db.transaction().execute(async (trx) => {
+    // 1. Validar existencia y estado del incidente
+    const incidente = await trx
+      .selectFrom("incidente")
+      .select(["id", "codigo", "estado", "prioridad", "tipo_afectacion", "delegacion_id"])
+      .where("id", "=", input.incidenteId)
+      .executeTakeFirst();
+
+    if (!incidente) {
+      throw new NotFoundError(`Incidente con ID '${input.incidenteId}' no encontrado.`);
+    }
+
+    if (incidente.estado !== "REPORTADO") {
+      throw new ConflictError(
+        `El incidente se encuentra en estado '${incidente.estado}', por lo que no puede ser asignado a una patrulla verificadora. Solo se pueden verificar incidentes en estado 'REPORTADO'.`
+      );
+    }
+
+    // 2. Bloqueo y actualización atómica de la patrulla verificadora
+    const patrullaActualizada = await trx
+      .updateTable("patrulla_verificadora")
+      .set({
+        estado: "EN_VERIFICACION",
+        actualizado_en: new Date(),
+      })
+      .where("id", "=", input.patrullaId)
+      .where("estado", "=", "DISPONIBLE")
+      .where("eliminado_en", "is", null)
+      .returning(["id", "nombre", "estado", "delegacion_id", "usuario_lider_id"])
+      .executeTakeFirst();
+
+    if (!patrullaActualizada) {
+      // Diferenciar entre inexistencia y conflicto concurrente
+      const patrullaExistente = await trx
+        .selectFrom("patrulla_verificadora")
+        .select(["id", "nombre", "estado", "eliminado_en"])
+        .where("id", "=", input.patrullaId)
+        .executeTakeFirst();
+
+      if (!patrullaExistente || patrullaExistente.eliminado_en !== null) {
+        throw new NotFoundError(
+          `Patrulla verificadora con ID '${input.patrullaId}' no existe o ha sido desactivada.`
+        );
+      }
+
+      throw new ConflictError(
+        `La patrulla verificadora '${patrullaExistente.nombre}' ya no se encuentra en estado 'DISPONIBLE' (estado actual: '${patrullaExistente.estado}').`
+      );
+    }
+
+    // 3. Generar código correlativo único para la misión
+    const year = new Date().getFullYear();
+    let codigo = "";
+    let colision = true;
+    while (colision) {
+      const randomNum = Math.floor(1000 + Math.random() * 9000);
+      codigo = `MIS-${year}-${randomNum}`;
+      const existe = await trx
+        .selectFrom("mision")
+        .select("id")
+        .where("codigo", "=", codigo)
+        .executeTakeFirst();
+      if (!existe) {
+        colision = false;
+      }
+    }
+
+    // 4. Crear registro en la tabla mision
+    const titulo = input.titulo?.trim() || `Verificación de Incidente ${incidente.codigo}`;
+    const descripcion = input.descripcion?.trim() || null;
+    const prioridad = (input.prioridad || incidente.prioridad || "MEDIA") as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+    const fechaInicio = new Date();
+
+    const nuevaMision = await trx
+      .insertInto("mision")
+      .values({
+        codigo,
+        titulo,
+        descripcion,
+        tipo_mision: "VERIFICACION",
+        estado: "DESPACHADA",
+        prioridad,
+        incidente_id: input.incidenteId,
+        patrulla_id: input.patrullaId,
+        encargado_id: operadorId,
+        creado_por_id: operadorId,
+        fecha_inicio: fechaInicio,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // 5. Actualizar incidente a VERIFICANDO
+    const incidenteActualizado = await trx
+      .updateTable("incidente")
+      .set({
+        estado: "VERIFICANDO",
+        actualizado_en: new Date(),
+      })
+      .where("id", "=", input.incidenteId)
+      .returning(["id", "codigo", "estado", "prioridad"])
+      .executeTakeFirstOrThrow();
+
+    // 6. Registrar hito inicial en mision_hito
+    const hitoInicial = await trx
+      .insertInto("mision_hito")
+      .values({
+        mision_id: nuevaMision.id,
+        hito: "DESPACHADA",
+        descripcion: `Misión de verificación asignada y despachada a la patrulla ${patrullaActualizada.nombre}.`,
+        registrado_por_id: operadorId,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    return {
+      mision: {
+        id: nuevaMision.id,
+        codigo: nuevaMision.codigo,
+        titulo: nuevaMision.titulo,
+        descripcion: nuevaMision.descripcion,
+        tipoMision: nuevaMision.tipo_mision as MisionVerificacionCreadaResult["mision"]["tipoMision"],
+        estado: nuevaMision.estado as MisionVerificacionCreadaResult["mision"]["estado"],
+        prioridad: nuevaMision.prioridad as MisionVerificacionCreadaResult["mision"]["prioridad"],
+        incidenteId: input.incidenteId,
+        patrullaId: input.patrullaId,
+        encargadoId: nuevaMision.encargado_id,
+        fechaInicio: nuevaMision.fecha_inicio ? new Date(nuevaMision.fecha_inicio).toISOString() : null,
+        creadoEn: new Date(nuevaMision.creado_en).toISOString(),
+      },
+      incidente: {
+        id: incidenteActualizado.id,
+        codigo: incidenteActualizado.codigo,
+        estado: incidenteActualizado.estado,
+        prioridad: incidenteActualizado.prioridad,
+      },
+      patrulla: {
+        id: patrullaActualizada.id,
+        nombre: patrullaActualizada.nombre,
+        estado: patrullaActualizada.estado,
+        delegacionId: patrullaActualizada.delegacion_id,
+        usuarioLiderId: patrullaActualizada.usuario_lider_id,
+      },
+      hitoInicial: {
+        id: hitoInicial.id,
+        hito: hitoInicial.hito,
+        descripcion: hitoInicial.descripcion,
+        creadoEn: new Date(hitoInicial.creado_en).toISOString(),
+      },
+    };
+  });
+}
+

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { GET, POST } from "../route";
-import { GET as GET_BY_ID, PATCH as PATCH_BY_ID, PUT as PUT_BY_ID } from "../[id]/route";
+import { GET as GET_BY_ID, PATCH as PATCH_BY_ID, PUT as PUT_BY_ID, DELETE as DELETE_BY_ID } from "../[id]/route";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import * as patrullaService from "@/modules/recursos-y-personal/patrulla.service";
 import {
@@ -548,6 +548,123 @@ describe("Route Handlers /api/patrullas", () => {
       expect(res.status).toBe(409);
       const json = await res.json();
       expect(json.message).toContain("no se encuentra disponible");
+    });
+  });
+
+  describe("DELETE /api/patrullas/[id] (HU-85)", () => {
+    it("debe retornar 400 Bad Request si el id no es un UUID válido", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+
+      const req = new NextRequest("http://localhost:3000/api/patrullas/id-no-valido", {
+        method: "DELETE",
+      });
+
+      const res = await DELETE_BY_ID(req, { params: Promise.resolve({ id: "id-no-valido" }) });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.message).toContain("Identificador de patrulla inválido");
+    });
+
+    it("debe retornar 401 Unauthorized si el usuario no está autenticado", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValueOnce(
+        new UnauthorizedError("No autenticado.")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "DELETE",
+      });
+
+      const res = await DELETE_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(401);
+    });
+
+    it("debe retornar 403 Forbidden si el usuario no tiene permisos suficientes", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "desactivarPatrullaService").mockRejectedValueOnce(
+        new ForbiddenError("Acceso denegado. Se requiere el perfil de Administrador.")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "DELETE",
+      });
+
+      const res = await DELETE_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(403);
+    });
+
+    it("debe retornar 404 Not Found si la patrulla no existe o ya fue desactivada", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "desactivarPatrullaService").mockRejectedValueOnce(
+        new NotFoundError(`La patrulla verificadora con ID '${validPatrullaId}' no existe o ya ha sido desactivada.`)
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "DELETE",
+      });
+
+      const res = await DELETE_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(404);
+    });
+
+    it("debe retornar 409 Conflict si la patrulla se encuentra en estado EN_VERIFICACION", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "desactivarPatrullaService").mockRejectedValueOnce(
+        new ConflictError("No es posible desactivar la patrulla verificadora porque se encuentra en terreno en estado 'EN_VERIFICACION'.")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "DELETE",
+      });
+
+      const res = await DELETE_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.message).toContain("EN_VERIFICACION");
+    });
+
+    it("debe retornar 409 Conflict si la patrulla cuenta con misiones activas", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "desactivarPatrullaService").mockRejectedValueOnce(
+        new ConflictError("No es posible desactivar la patrulla verificadora porque cuenta con misiones tácticas activas en curso.")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "DELETE",
+      });
+
+      const res = await DELETE_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.message).toContain("misiones tácticas activas");
+    });
+
+    it("debe retornar 200 OK tras aplicar la baja lógica y liberar recursos", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "desactivarPatrullaService").mockResolvedValueOnce({
+        message: "Patrulla verificadora desactivada exitosamente.",
+        data: {
+          id: validPatrullaId,
+          codigo: "PV-COSTA-01",
+          nombre: "Patrulla Rápida Costa-1",
+          estado: "NO_DISPONIBLE",
+          activo: false,
+          eliminadoEn: "2026-10-26T15:00:00.000Z",
+          eliminadoPorId: adminId,
+          vehiculoLiberadoId: "e1000000-0000-4000-8000-000000000002",
+          personalLiberadoIds: ["b1000000-0000-4000-8000-000000000001"],
+        },
+      });
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "DELETE",
+      });
+
+      const res = await DELETE_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.message).toContain("desactivada exitosamente");
+      expect(json.data.activo).toBe(false);
+      expect(json.data.estado).toBe("NO_DISPONIBLE");
     });
   });
 });
