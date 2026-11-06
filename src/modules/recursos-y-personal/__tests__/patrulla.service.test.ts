@@ -674,16 +674,6 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
       usuarioLiderId: "c1000000-0000-4000-8000-000000000001",
     };
 
-    const mockAdminUsuario = {
-      id: adminUserId,
-      rut: "11111111-1",
-      email: "admin@valdivia.cl",
-      nombre: "Administrador",
-      rolId: "rol-admin",
-      rolNombre: "Administrador",
-      activo: true,
-    };
-
     const mockFilaDisponible: patrullaRepo.FilaPatrullaConsulta = {
       ...mockFila,
       patrulla_estado: "DISPONIBLE",
