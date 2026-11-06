@@ -5,6 +5,7 @@ export interface FilaCuadrillaParaEdicion {
   id: string;
   nombre: string;
   estado: "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE";
+  activo?: boolean;
   delegacion_id: string | null;
   usuario_delegado_id: string | null;
   eliminado_en?: Date | null;
@@ -14,10 +15,13 @@ export interface FilaCuadrillaDetalleConsolidado {
   id: string;
   nombre: string;
   estado: "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE";
+  activo?: boolean;
   creado_en: Date;
   actualizado_en: Date | null;
   creado_por_id: string | null;
   actualizado_por_id: string | null;
+  eliminado_en?: Date | null;
+  eliminado_por_id?: string | null;
   delegacion_id: string;
   delegacion_nombre: string;
   delegacion_codigo?: string | null;
@@ -69,7 +73,9 @@ export interface FiltrosListarCuadrillas {
   limite: number;
   busqueda?: string;
   delegacionId?: string;
-  estado?: "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE";
+  estado?: "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE" | "INACTIVAS" | "TODAS";
+  activo?: boolean | "true" | "false" | "all";
+  incluirInactivas?: boolean;
 }
 
 /**
@@ -97,11 +103,13 @@ export async function obtenerCuadrillaPorIdParaEdicion(
       "id",
       "nombre",
       "estado",
+      "activo",
       "delegacion_id",
       "usuario_delegado_id",
       "eliminado_en",
     ])
     .where("id", "=", id)
+    .where("activo", "=", true)
     .where("eliminado_en", "is", null)
     .executeTakeFirst();
 }
@@ -120,10 +128,13 @@ export async function obtenerCuadrillaDetalleUnitario(
       "cuadrilla.id as id",
       "cuadrilla.nombre as nombre",
       "cuadrilla.estado as estado",
+      "cuadrilla.activo as activo",
       "cuadrilla.creado_en as creado_en",
       "cuadrilla.actualizado_en as actualizado_en",
       "cuadrilla.creado_por_id as creado_por_id",
       "cuadrilla.actualizado_por_id as actualizado_por_id",
+      "cuadrilla.eliminado_en as eliminado_en",
+      "cuadrilla.eliminado_por_id as eliminado_por_id",
       "delegacion.id as delegacion_id",
       "delegacion.nombre as delegacion_nombre",
       "delegacion.codigo as delegacion_codigo",
@@ -133,13 +144,12 @@ export async function obtenerCuadrillaDetalleUnitario(
       "usuario.rut as delegado_rut",
     ])
     .where("cuadrilla.id", "=", id)
-    .where("cuadrilla.eliminado_en", "is", null)
     .executeTakeFirst();
 
   if (!cuadrillaFila) return undefined;
 
   // Consultar recursos asignados
-  const recursos = await db
+  let recursos = await db
     .selectFrom("cuadrilla_recurso")
     .innerJoin("recurso", "recurso.id", "cuadrilla_recurso.recurso_id")
     .select([
@@ -150,10 +160,28 @@ export async function obtenerCuadrillaDetalleUnitario(
       "recurso.es_individual as es_individual",
     ])
     .where("cuadrilla_recurso.cuadrilla_id", "=", id)
+    .where("cuadrilla_recurso.activo", "=", true)
+    .where("cuadrilla_recurso.desvinculado_en", "is", null)
     .execute();
 
+  // Si la cuadrilla fue dada de baja y no tiene recursos activos, traer su dotación histórica
+  if (recursos.length === 0 && (cuadrillaFila.eliminado_en !== null || cuadrillaFila.activo === false)) {
+    recursos = await db
+      .selectFrom("cuadrilla_recurso")
+      .innerJoin("recurso", "recurso.id", "cuadrilla_recurso.recurso_id")
+      .select([
+        "cuadrilla_recurso.id as id",
+        "cuadrilla_recurso.recurso_id as recurso_id",
+        "recurso.nombre as nombre",
+        "cuadrilla_recurso.cantidad_asignada as cantidad_asignada",
+        "recurso.es_individual as es_individual",
+      ])
+      .where("cuadrilla_recurso.cuadrilla_id", "=", id)
+      .execute();
+  }
+
   // Consultar trabajadores asignados
-  const trabajadores = await db
+  let trabajadores = await db
     .selectFrom("cuadrilla_personal")
     .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
     .innerJoin("usuario", "usuario.id", "personal.usuario_id")
@@ -168,16 +196,40 @@ export async function obtenerCuadrillaDetalleUnitario(
       "cuadrilla_personal.asignado_en as asignado_en",
     ])
     .where("cuadrilla_personal.cuadrilla_id", "=", id)
+    .where("cuadrilla_personal.activo", "=", true)
+    .where("cuadrilla_personal.desvinculado_en", "is", null)
     .execute();
+
+  if (trabajadores.length === 0 && (cuadrillaFila.eliminado_en !== null || cuadrillaFila.activo === false)) {
+    trabajadores = await db
+      .selectFrom("cuadrilla_personal")
+      .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+      .innerJoin("usuario", "usuario.id", "personal.usuario_id")
+      .select([
+        "cuadrilla_personal.id as id",
+        "cuadrilla_personal.personal_id as personal_id",
+        "usuario.id as usuario_id",
+        "usuario.nombre as nombre",
+        "usuario.rut as rut",
+        "personal.cargo as cargo",
+        "personal.especialidad as especialidad",
+        "cuadrilla_personal.asignado_en as asignado_en",
+      ])
+      .where("cuadrilla_personal.cuadrilla_id", "=", id)
+      .execute();
+  }
 
   return {
     id: cuadrillaFila.id,
     nombre: cuadrillaFila.nombre,
     estado: cuadrillaFila.estado as "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE",
+    activo: Boolean(cuadrillaFila.activo ?? (cuadrillaFila.eliminado_en == null)),
     creado_en: cuadrillaFila.creado_en,
     actualizado_en: cuadrillaFila.actualizado_en ?? null,
     creado_por_id: cuadrillaFila.creado_por_id ?? null,
     actualizado_por_id: cuadrillaFila.actualizado_por_id ?? null,
+    eliminado_en: cuadrillaFila.eliminado_en ?? null,
+    eliminado_por_id: cuadrillaFila.eliminado_por_id ?? null,
     delegacion_id: cuadrillaFila.delegacion_id,
     delegacion_nombre: cuadrillaFila.delegacion_nombre,
     delegacion_codigo: cuadrillaFila.delegacion_codigo ?? null,
@@ -215,14 +267,40 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
   let consultaBase = db
     .selectFrom("cuadrilla")
     .innerJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
-    .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
-    .where("cuadrilla.eliminado_en", "is", null);
+    .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id");
+
+  const soloInactivas =
+    filtros.estado === "INACTIVAS" ||
+    filtros.activo === false ||
+    filtros.activo === "false";
+
+  const todasLasCuadrillas =
+    filtros.estado === "TODAS" ||
+    filtros.activo === "all" ||
+    filtros.incluirInactivas === true;
+
+  if (soloInactivas) {
+    consultaBase = consultaBase.where((eb) =>
+      eb.or([
+        eb("cuadrilla.activo", "=", false),
+        eb("cuadrilla.eliminado_en", "is not", null),
+      ])
+    );
+  } else if (!todasLasCuadrillas) {
+    if (filtros.estado === "NO_DISPONIBLE" && filtros.activo === undefined) {
+      // Admite cuadrillas NO_DISPONIBLE tanto activas como inactivas
+    } else {
+      consultaBase = consultaBase
+        .where("cuadrilla.activo", "=", true)
+        .where("cuadrilla.eliminado_en", "is", null);
+    }
+  }
 
   if (filtros.delegacionId) {
     consultaBase = consultaBase.where("cuadrilla.delegacion_id", "=", filtros.delegacionId);
   }
 
-  if (filtros.estado) {
+  if (filtros.estado && filtros.estado !== "TODAS" && filtros.estado !== "INACTIVAS") {
     consultaBase = consultaBase.where("cuadrilla.estado", "=", filtros.estado);
   }
 
@@ -254,10 +332,13 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
       "cuadrilla.id as id",
       "cuadrilla.nombre as nombre",
       "cuadrilla.estado as estado",
+      "cuadrilla.activo as activo",
       "cuadrilla.creado_en as creado_en",
       "cuadrilla.actualizado_en as actualizado_en",
       "cuadrilla.creado_por_id as creado_por_id",
       "cuadrilla.actualizado_por_id as actualizado_por_id",
+      "cuadrilla.eliminado_en as eliminado_en",
+      "cuadrilla.eliminado_por_id as eliminado_por_id",
       "delegacion.id as delegacion_id",
       "delegacion.nombre as delegacion_nombre",
       "delegacion.codigo as delegacion_codigo",
@@ -273,7 +354,7 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
 
   const cuadrillaIds = cuadrillasLote.map((c) => c.id);
 
-  // 3. Obtener recursos y trabajadores asignados para el lote
+  // 3. Obtener recursos y trabajadores asignados activos para el lote
   const recursosLote = await db
     .selectFrom("cuadrilla_recurso")
     .innerJoin("recurso", "recurso.id", "cuadrilla_recurso.recurso_id")
@@ -286,6 +367,7 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
       "recurso.es_individual as es_individual",
     ])
     .where("cuadrilla_recurso.cuadrilla_id", "in", cuadrillaIds)
+    .where("cuadrilla_recurso.desvinculado_en", "is", null)
     .execute();
 
   const trabajadoresLote = await db
@@ -304,6 +386,7 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
       "cuadrilla_personal.asignado_en as asignado_en",
     ])
     .where("cuadrilla_personal.cuadrilla_id", "in", cuadrillaIds)
+    .where("cuadrilla_personal.desvinculado_en", "is", null)
     .execute();
 
   // Agrupar por cuadrilla_id
@@ -360,10 +443,13 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
       id: c.id,
       nombre: c.nombre,
       estado: c.estado as "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE",
+      activo: Boolean(c.activo ?? (c.eliminado_en == null)),
       creado_en: c.creado_en,
       actualizado_en: c.actualizado_en ?? null,
       creado_por_id: c.creado_por_id ?? null,
       actualizado_por_id: c.actualizado_por_id ?? null,
+      eliminado_en: c.eliminado_en ?? null,
+      eliminado_por_id: c.eliminado_por_id ?? null,
       delegacion_id: c.delegacion_id,
       delegacion_nombre: c.delegacion_nombre,
       delegacion_codigo: c.delegacion_codigo ?? null,
@@ -550,6 +636,7 @@ export async function contarOtrasCuadrillasActivasPorDelegado(
     .select((eb) => eb.fn.count("id").as("total"))
     .where("usuario_delegado_id", "=", usuarioId)
     .where("id", "!=", excluirCuadrillaId)
+    .where("activo", "=", true)
     .where("eliminado_en", "is", null)
     .executeTakeFirst();
 
@@ -633,6 +720,7 @@ export async function obtenerRecursosIndividualesAsignadosAOtrasCuadrillas(
     .where("recurso.es_individual", "=", true)
     .where("cuadrilla.id", "!=", excluirCuadrillaId)
     .where("cuadrilla.eliminado_en", "is", null)
+    .where("cuadrilla_recurso.desvinculado_en", "is", null)
     .execute();
 }
 
@@ -650,6 +738,7 @@ export async function verificarDelegadoAsignadoAOtraCuadrilla(
     .select(["id", "nombre"])
     .where("usuario_delegado_id", "=", usuarioDelegadoId)
     .where("id", "!=", excluirCuadrillaId)
+    .where("activo", "=", true)
     .where("eliminado_en", "is", null)
     .executeTakeFirst();
 
@@ -669,7 +758,10 @@ export async function verificarDelegadoAsignadoAOtraCuadrilla(
     .select(["cuadrilla.id", "cuadrilla.nombre"])
     .where("personal.usuario_id", "=", usuarioDelegadoId)
     .where("cuadrilla.id", "!=", excluirCuadrillaId)
+    .where("cuadrilla.activo", "=", true)
     .where("cuadrilla.eliminado_en", "is", null)
+    .where("cuadrilla_personal.activo", "=", true)
+    .where("cuadrilla_personal.desvinculado_en", "is", null)
     .executeTakeFirst();
 
   if (cuadrillaComoTrabajador) {
@@ -707,7 +799,10 @@ export async function obtenerTrabajadoresAsignadosAOtrasCuadrillas(
     ])
     .where("cuadrilla_personal.personal_id", "in", personalIds)
     .where("cuadrilla.id", "!=", excluirCuadrillaId)
+    .where("cuadrilla.activo", "=", true)
     .where("cuadrilla.eliminado_en", "is", null)
+    .where("cuadrilla_personal.activo", "=", true)
+    .where("cuadrilla_personal.desvinculado_en", "is", null)
     .execute();
 
   if (comoTrabajadores.length > 0) {
@@ -727,6 +822,7 @@ export async function obtenerTrabajadoresAsignadosAOtrasCuadrillas(
     ])
     .where("personal.id", "in", personalIds)
     .where("cuadrilla.id", "!=", excluirCuadrillaId)
+    .where("cuadrilla.activo", "=", true)
     .where("cuadrilla.eliminado_en", "is", null)
     .execute();
 
@@ -820,19 +916,70 @@ export async function actualizarCuadrillaConDotacionTransaccional(
       }
     }
 
-    // 3. Reconciliación de trabajadores (cuadrilla_personal)
-    await trx
-      .deleteFrom("cuadrilla_personal")
-      .where("cuadrilla_id", "=", datos.id)
+    // 3. Reconciliación de trabajadores (cuadrilla_personal) preservando histórico (BUG-H82-API-02)
+    const trabajadoresActuales = await trx
+      .selectFrom("cuadrilla_personal")
+      .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+      .select([
+        "cuadrilla_personal.id as id",
+        "cuadrilla_personal.personal_id as personal_id",
+        "personal.usuario_id as usuario_id",
+      ])
+      .where("cuadrilla_personal.cuadrilla_id", "=", datos.id)
+      .where("cuadrilla_personal.activo", "=", true)
+      .where("cuadrilla_personal.desvinculado_en", "is", null)
       .execute();
 
-    if (datos.trabajadores.length > 0) {
+    const nuevosPersonalIds = new Set(datos.trabajadores.map((t) => t.personalId));
+    const actualesPersonalIds = new Set(trabajadoresActuales.map((t) => t.personal_id));
+
+    // Desvincular lógicamente los trabajadores removidos
+    const trabajadoresARemover = trabajadoresActuales.filter(
+      (t) => !nuevosPersonalIds.has(t.personal_id)
+    );
+
+    if (trabajadoresARemover.length > 0) {
+      await trx
+        .updateTable("cuadrilla_personal")
+        .set({
+          activo: false,
+          desvinculado_en: sql`CURRENT_TIMESTAMP`,
+        })
+        .where("id", "in", trabajadoresARemover.map((t) => t.id))
+        .execute();
+
+      for (const t of trabajadoresARemover) {
+        const enOtra = await verificarUsuarioEnOtrasUnidadesActivas(
+          trx,
+          t.usuario_id,
+          t.personal_id,
+          datos.id
+        );
+        if (!enOtra) {
+          await trx
+            .updateTable("usuario")
+            .set({ estado_operativo: "disponible" })
+            .where("id", "=", t.usuario_id)
+            .where("activo", "=", true)
+            .execute();
+        }
+      }
+    }
+
+    // Insertar sólo los trabajadores nuevos
+    const trabajadoresAInsertar = datos.trabajadores.filter(
+      (t) => !actualesPersonalIds.has(t.personalId)
+    );
+
+    if (trabajadoresAInsertar.length > 0) {
       await trx
         .insertInto("cuadrilla_personal")
         .values(
-          datos.trabajadores.map((t) => ({
+          trabajadoresAInsertar.map((t) => ({
             cuadrilla_id: datos.id,
             personal_id: t.personalId,
+            activo: true,
+            desvinculado_en: null,
           }))
         )
         .execute();
@@ -841,13 +988,15 @@ export async function actualizarCuadrillaConDotacionTransaccional(
     // 4. Sincronización transaccional de inventario (BUG-H81-API-05) y reconciliación de cuadrilla_recurso
     const recursosPrevios = await trx
       .selectFrom("cuadrilla_recurso")
-      .select(["recurso_id", "cantidad_asignada"])
+      .select(["id", "recurso_id", "cantidad_asignada"])
       .where("cuadrilla_id", "=", datos.id)
+      .where("activo", "=", true)
+      .where("desvinculado_en", "is", null)
       .execute();
 
-    const mapaPrevios = new Map<string, number>();
+    const mapaPrevios = new Map<string, { id: string; cantidad: number }>();
     for (const r of recursosPrevios) {
-      mapaPrevios.set(r.recurso_id, Number(r.cantidad_asignada));
+      mapaPrevios.set(r.recurso_id, { id: r.id, cantidad: Number(r.cantidad_asignada) });
     }
 
     const mapaNuevos = new Map<string, number>();
@@ -861,7 +1010,7 @@ export async function actualizarCuadrillaConDotacionTransaccional(
     ]);
 
     for (const recursoId of todosRecursoIds) {
-      const cantPrevia = mapaPrevios.get(recursoId) ?? 0;
+      const cantPrevia = mapaPrevios.get(recursoId)?.cantidad ?? 0;
       const cantNueva = mapaNuevos.get(recursoId) ?? 0;
       const delta = cantNueva - cantPrevia;
 
@@ -876,22 +1025,44 @@ export async function actualizarCuadrillaConDotacionTransaccional(
       }
     }
 
-    await trx
-      .deleteFrom("cuadrilla_recurso")
-      .where("cuadrilla_id", "=", datos.id)
-      .execute();
-
-    if (datos.recursos.length > 0) {
+    // Desvincular lógicamente los recursos que ya no figuran en la cuadrilla
+    const recursosARemover = recursosPrevios.filter((r) => !mapaNuevos.has(r.recurso_id));
+    if (recursosARemover.length > 0) {
       await trx
-        .insertInto("cuadrilla_recurso")
-        .values(
-          datos.recursos.map((r) => ({
+        .updateTable("cuadrilla_recurso")
+        .set({
+          activo: false,
+          desvinculado_en: sql`CURRENT_TIMESTAMP`,
+        })
+        .where("id", "in", recursosARemover.map((r) => r.id))
+        .execute();
+    }
+
+    // Actualizar o insertar recursos
+    for (const r of datos.recursos) {
+      const previo = mapaPrevios.get(r.recursoId);
+      if (previo) {
+        if (previo.cantidad !== Number(r.cantidad)) {
+          await trx
+            .updateTable("cuadrilla_recurso")
+            .set({
+              cantidad_asignada: Number(r.cantidad),
+            })
+            .where("id", "=", previo.id)
+            .execute();
+        }
+      } else {
+        await trx
+          .insertInto("cuadrilla_recurso")
+          .values({
             cuadrilla_id: datos.id,
             recurso_id: r.recursoId,
             cantidad_asignada: r.cantidad,
-          }))
-        )
-        .execute();
+            activo: true,
+            desvinculado_en: null,
+          })
+          .execute();
+      }
     }
 
     // 5. Consultar entidad consolidada para la respuesta
@@ -903,10 +1074,13 @@ export async function actualizarCuadrillaConDotacionTransaccional(
         "cuadrilla.id as id",
         "cuadrilla.nombre as nombre",
         "cuadrilla.estado as estado",
+        "cuadrilla.activo as activo",
         "cuadrilla.creado_en as creado_en",
         "cuadrilla.actualizado_en as actualizado_en",
         "cuadrilla.creado_por_id as creado_por_id",
         "cuadrilla.actualizado_por_id as actualizado_por_id",
+        "cuadrilla.eliminado_en as eliminado_en",
+        "cuadrilla.eliminado_por_id as eliminado_por_id",
         "delegacion.id as delegacion_id",
         "delegacion.nombre as delegacion_nombre",
         "delegacion.codigo as delegacion_codigo",
@@ -918,7 +1092,7 @@ export async function actualizarCuadrillaConDotacionTransaccional(
       .where("cuadrilla.id", "=", datos.id)
       .executeTakeFirstOrThrow();
 
-    // Obtener recursos asignados
+    // Obtener recursos asignados activos
     const recursosAsignados = await trx
       .selectFrom("cuadrilla_recurso")
       .innerJoin("recurso", "recurso.id", "cuadrilla_recurso.recurso_id")
@@ -930,9 +1104,11 @@ export async function actualizarCuadrillaConDotacionTransaccional(
         "recurso.es_individual as es_individual",
       ])
       .where("cuadrilla_recurso.cuadrilla_id", "=", datos.id)
+      .where("cuadrilla_recurso.activo", "=", true)
+      .where("cuadrilla_recurso.desvinculado_en", "is", null)
       .execute();
 
-    // Obtener trabajadores asignados
+    // Obtener trabajadores asignados activos
     const trabajadoresAsignados = await trx
       .selectFrom("cuadrilla_personal")
       .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
@@ -948,16 +1124,21 @@ export async function actualizarCuadrillaConDotacionTransaccional(
         "cuadrilla_personal.asignado_en as asignado_en",
       ])
       .where("cuadrilla_personal.cuadrilla_id", "=", datos.id)
+      .where("cuadrilla_personal.activo", "=", true)
+      .where("cuadrilla_personal.desvinculado_en", "is", null)
       .execute();
 
     return {
       id: cuadrillaFila.id,
       nombre: cuadrillaFila.nombre,
       estado: cuadrillaFila.estado as "DISPONIBLE" | "EN_MISION" | "NO_DISPONIBLE",
+      activo: Boolean(cuadrillaFila.activo ?? (cuadrillaFila.eliminado_en == null)),
       creado_en: cuadrillaFila.creado_en,
       actualizado_en: cuadrillaFila.actualizado_en ?? null,
       creado_por_id: cuadrillaFila.creado_por_id ?? null,
       actualizado_por_id: cuadrillaFila.actualizado_por_id ?? null,
+      eliminado_en: cuadrillaFila.eliminado_en ?? null,
+      eliminado_por_id: cuadrillaFila.eliminado_por_id ?? null,
       delegacion_id: cuadrillaFila.delegacion_id,
       delegacion_nombre: cuadrillaFila.delegacion_nombre,
       delegacion_codigo: cuadrillaFila.delegacion_codigo ?? null,
@@ -987,3 +1168,304 @@ export async function actualizarCuadrillaConDotacionTransaccional(
     };
   });
 }
+
+export interface ResultadoDesactivarCuadrilla {
+  id: string;
+  nombre: string;
+  activo: boolean;
+  estado: string;
+  recursosDesvinculados: number;
+  trabajadoresDesvinculados: number;
+  delegadoRevertido: boolean;
+  eliminadoEn: Date;
+  eliminadoPorId: string;
+}
+
+/**
+ * Desactiva mediante baja lógica una cuadrilla operativa de forma atómica:
+ * - Adquiere bloqueo con .forUpdate() sobre la cuadrilla (BUG-H82-API-05).
+ * - Re-verifica misiones activas dentro de trx para evitar condición de carrera (TOCTOU).
+ * - Aplica activo = false, estado = 'NO_DISPONIBLE' y estampa eliminado_en / eliminado_por_id.
+ * - Desvincula recursos activos y decrementa recurso.cantidad_en_uso en bodega central (BUG-H82-API-01 / CA-5).
+ * - Desvincula dotación de trabajadores y restaura usuario.estado_operativo = 'disponible' (BUG-H82-API-04).
+ * - Si el delegado saliente no lidera otra cuadrilla activa, revierte su rol a BRIGADISTA y restaura su disponibilidad.
+ */
+export async function desactivarCuadrillaTransaccional(
+  cuadrillaId: string,
+  usuarioId: string,
+  rolBrigadistaId: string | null
+): Promise<ResultadoDesactivarCuadrilla> {
+  return await db.transaction().execute(async (trx) => {
+    // 1. Bloquear cuadrilla (SELECT ... FOR UPDATE) y validar existencia y estado (BUG-H82-API-05)
+    const cuadrillaActual = await trx
+      .selectFrom("cuadrilla")
+      .select(["id", "nombre", "estado", "activo", "usuario_delegado_id", "eliminado_en"])
+      .where("id", "=", cuadrillaId)
+      .forUpdate()
+      .executeTakeFirst();
+
+    if (!cuadrillaActual || cuadrillaActual.activo === false || cuadrillaActual.eliminado_en !== null) {
+      throw new Error("La cuadrilla operativa especificada no existe o ya fue desactivada.");
+    }
+
+    const estadoStr = String(cuadrillaActual.estado);
+    if (
+      estadoStr === "EN_MISION" ||
+      estadoStr === "EN_TRANSITO" ||
+      estadoStr === "EN_OPERACION"
+    ) {
+      throw new Error(
+        "CONFLICT:No es posible desactivar una cuadrilla que se encuentra actualmente en misión activa en terreno."
+      );
+    }
+
+    // Re-verificar atómicamente misiones activas dentro de la transacción protegida por el bloqueo
+    const misionActiva = await trx
+      .selectFrom("mision")
+      .select(["id", "codigo", "estado"])
+      .where("cuadrilla_id", "=", cuadrillaId)
+      .where("estado", "in", ["PLANIFICADA", "DESPACHADA", "EN_CURSO"])
+      .executeTakeFirst();
+
+    if (misionActiva) {
+      throw new Error(
+        "CONFLICT:No es posible desactivar la cuadrilla porque posee misiones activas en curso (PLANIFICADA, DESPACHADA o EN_CURSO)."
+      );
+    }
+
+    const fechaEliminado = new Date();
+
+    // 2. Aplicar baja lógica a la cuadrilla
+    await trx
+      .updateTable("cuadrilla")
+      .set({
+        activo: false,
+        estado: "NO_DISPONIBLE",
+        eliminado_en: fechaEliminado,
+        eliminado_por_id: usuarioId,
+        actualizado_en: fechaEliminado,
+        actualizado_por_id: usuarioId,
+      })
+      .where("id", "=", cuadrillaId)
+      .execute();
+
+    // 3. Desvincular recursos activos en cuadrilla_recurso y decrementar recurso.cantidad_en_uso (BUG-H82-API-01 / CA-5)
+    const recursosActivos = await trx
+      .selectFrom("cuadrilla_recurso")
+      .select(["id", "recurso_id", "cantidad_asignada"])
+      .where("cuadrilla_id", "=", cuadrillaId)
+      .where("activo", "=", true)
+      .where("desvinculado_en", "is", null)
+      .execute();
+
+    if (recursosActivos.length > 0) {
+      for (const item of recursosActivos) {
+        await trx
+          .updateTable("recurso")
+          .set((eb) => ({
+            cantidad_en_uso: sql<number>`GREATEST(0, COALESCE(${eb.ref("cantidad_en_uso")}, 0) - ${Number(item.cantidad_asignada)})`,
+            actualizado_en: fechaEliminado,
+          }))
+          .where("id", "=", item.recurso_id)
+          .execute();
+      }
+
+      await trx
+        .updateTable("cuadrilla_recurso")
+        .set({
+          activo: false,
+          desvinculado_en: fechaEliminado,
+        })
+        .where("cuadrilla_id", "=", cuadrillaId)
+        .where("activo", "=", true)
+        .where("desvinculado_en", "is", null)
+        .execute();
+    }
+
+    // 4. Desvincular dotación humana activa en cuadrilla_personal y restaurar usuario.estado_operativo (BUG-H82-API-04)
+    const trabajadoresActivos = await trx
+      .selectFrom("cuadrilla_personal")
+      .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+      .select([
+        "cuadrilla_personal.id as id",
+        "cuadrilla_personal.personal_id as personal_id",
+        "personal.usuario_id as usuario_id",
+      ])
+      .where("cuadrilla_personal.cuadrilla_id", "=", cuadrillaId)
+      .where("cuadrilla_personal.activo", "=", true)
+      .where("cuadrilla_personal.desvinculado_en", "is", null)
+      .execute();
+
+    if (trabajadoresActivos.length > 0) {
+      await trx
+        .updateTable("cuadrilla_personal")
+        .set({
+          activo: false,
+          desvinculado_en: fechaEliminado,
+        })
+        .where("cuadrilla_id", "=", cuadrillaId)
+        .where("activo", "=", true)
+        .where("desvinculado_en", "is", null)
+        .execute();
+
+      // Restaurar disponibilidad de los brigadistas liberados si no están en otra unidad activa
+      for (const t of trabajadoresActivos) {
+        const enOtraUnidad = await verificarUsuarioEnOtrasUnidadesActivas(
+          trx,
+          t.usuario_id,
+          t.personal_id,
+          cuadrillaId
+        );
+        if (!enOtraUnidad) {
+          await trx
+            .updateTable("usuario")
+            .set({ estado_operativo: "disponible" })
+            .where("id", "=", t.usuario_id)
+            .where("activo", "=", true)
+            .execute();
+        }
+      }
+    }
+
+    // 5. Reversión de rol del delegado y restauración de estado_operativo si no lidera otra cuadrilla activa
+    let delegadoRevertido = false;
+    if (cuadrillaActual.usuario_delegado_id) {
+      const otrasCuadrillas = await trx
+        .selectFrom("cuadrilla")
+        .select((eb) => eb.fn.count("id").as("total"))
+        .where("usuario_delegado_id", "=", cuadrillaActual.usuario_delegado_id)
+        .where("id", "!=", cuadrillaId)
+        .where("activo", "=", true)
+        .where("eliminado_en", "is", null)
+        .executeTakeFirst();
+
+      const tieneOtras = Number(otrasCuadrillas?.total ?? 0) > 0;
+      if (!tieneOtras && rolBrigadistaId) {
+        await trx
+          .updateTable("usuario")
+          .set({ rol_id: rolBrigadistaId })
+          .where("id", "=", cuadrillaActual.usuario_delegado_id)
+          .execute();
+
+        await trx
+          .insertInto("log_cambios_usuarios")
+          .values({
+            usuario_modificado_id: cuadrillaActual.usuario_delegado_id,
+            modificado_por_id: usuarioId,
+            campos_modificados: JSON.stringify({
+              rol_id: rolBrigadistaId,
+              rol_codigo: "BRIGADISTA",
+              motivo: `Reversión automática de rol al desactivar cuadrilla ${cuadrillaActual.nombre.trim()}`,
+            }),
+          })
+          .execute();
+
+        delegadoRevertido = true;
+      }
+
+      // Restaurar estado_operativo del delegado si no pertenece a otra unidad activa (BUG-H82-API-04)
+      const personalDelegado = await trx
+        .selectFrom("personal")
+        .select(["id"])
+        .where("usuario_id", "=", cuadrillaActual.usuario_delegado_id)
+        .executeTakeFirst();
+
+      const delegadoEnOtra = await verificarUsuarioEnOtrasUnidadesActivas(
+        trx,
+        cuadrillaActual.usuario_delegado_id,
+        personalDelegado?.id ?? null,
+        cuadrillaId
+      );
+
+      if (!delegadoEnOtra) {
+        await trx
+          .updateTable("usuario")
+          .set({ estado_operativo: "disponible" })
+          .where("id", "=", cuadrillaActual.usuario_delegado_id)
+          .where("activo", "=", true)
+          .execute();
+      }
+    }
+
+    return {
+      id: cuadrillaActual.id,
+      nombre: cuadrillaActual.nombre,
+      activo: false,
+      estado: "NO_DISPONIBLE",
+      recursosDesvinculados: recursosActivos.length,
+      trabajadoresDesvinculados: trabajadoresActivos.length,
+      delegadoRevertido,
+      eliminadoEn: fechaEliminado,
+      eliminadoPorId: usuarioId,
+    };
+  });
+}
+/**
+ * Verifica si un usuario o personal pertenece a otra unidad activa (cuadrilla o patrulla).
+ */
+export async function verificarUsuarioEnOtrasUnidadesActivas(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  trx: any,
+  usuarioId: string,
+  personalId: string | null,
+  excluirCuadrillaId: string
+): Promise<boolean> {
+  // 1. Delegado de otra cuadrilla activa
+  const otraCuadrillaDelegado = await trx
+    .selectFrom("cuadrilla")
+    .select(["id"])
+    .where("usuario_delegado_id", "=", usuarioId)
+    .where("id", "!=", excluirCuadrillaId)
+    .where("activo", "=", true)
+    .where("eliminado_en", "is", null)
+    .executeTakeFirst();
+
+  if (otraCuadrillaDelegado) return true;
+
+  // 2. Líder de patrulla activa
+  const patrullaLider = await trx
+    .selectFrom("patrulla_verificadora")
+    .select(["id"])
+    .where("usuario_lider_id", "=", usuarioId)
+    .where("eliminado_en", "is", null)
+    .executeTakeFirst();
+
+  if (patrullaLider) return true;
+
+  // Si tiene ficha de personal, verificar asignación como integrante
+  if (personalId) {
+    // 3. Integrante de otra cuadrilla activa
+    const otraCuadrillaPersonal = await trx
+      .selectFrom("cuadrilla_personal")
+      .innerJoin("cuadrilla", "cuadrilla.id", "cuadrilla_personal.cuadrilla_id")
+      .select(["cuadrilla.id"])
+      .where("cuadrilla_personal.personal_id", "=", personalId)
+      .where("cuadrilla_personal.cuadrilla_id", "!=", excluirCuadrillaId)
+      .where("cuadrilla_personal.activo", "=", true)
+      .where("cuadrilla_personal.desvinculado_en", "is", null)
+      .where("cuadrilla.activo", "=", true)
+      .where("cuadrilla.eliminado_en", "is", null)
+      .executeTakeFirst();
+
+    if (otraCuadrillaPersonal) return true;
+
+    // 4. Integrante de patrulla activa
+    const patrullaPersonal = await trx
+      .selectFrom("patrulla_personal")
+      .innerJoin(
+        "patrulla_verificadora",
+        "patrulla_verificadora.id",
+        "patrulla_personal.patrulla_id"
+      )
+      .select(["patrulla_verificadora.id"])
+      .where("patrulla_personal.personal_id", "=", personalId)
+      .where("patrulla_verificadora.eliminado_en", "is", null)
+      .executeTakeFirst();
+
+    if (patrullaPersonal) return true;
+  }
+
+  return false;
+}
+
+

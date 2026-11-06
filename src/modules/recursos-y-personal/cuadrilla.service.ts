@@ -3,6 +3,7 @@ import {
   PERMISO_CREAR_RECURSO,
   PERMISO_LEER_RECURSO,
   PERMISO_EDITAR_RECURSO,
+  PERMISO_ELIMINAR_CUADRILLA,
 } from "@/modules/seguridad/permisos.constants";
 import {
   BadRequestError,
@@ -12,6 +13,7 @@ import {
 import {
   emitirCuadrillaCreada,
   emitirCuadrillaActualizada,
+  emitirCuadrillaDesactivada,
 } from "@/lib/socket";
 import {
   buscarCuadrillaPorNombre,
@@ -30,6 +32,7 @@ import {
   verificarDelegadoAsignadoAOtraCuadrilla,
   obtenerTrabajadoresAsignadosAOtrasCuadrillas,
   actualizarCuadrillaConDotacionTransaccional,
+  desactivarCuadrillaTransaccional,
 } from "./cuadrilla.repository";
 import type {
   CrearCuadrillaInput,
@@ -37,6 +40,7 @@ import type {
   ListarCuadrillasQuery,
   CuadrillaResponse,
   ListarCuadrillasResponse,
+  DesactivarCuadrillaResponse,
 } from "./cuadrilla.schema";
 
 const PERMISOS_LECTURA = [PERMISO_LEER_RECURSO, "recursos:gestionar"];
@@ -65,6 +69,8 @@ export async function listarCuadrillas(
     busqueda,
     delegacionId,
     estado,
+    activo: query.activo,
+    incluirInactivas: query.incluir_inactivas ?? query.incluirInactivas,
   });
 
   const paginasTotales = Math.ceil(total / limite) || 1;
@@ -107,8 +113,15 @@ export async function listarCuadrillas(
     })),
     totalRecursos: c.recursos.length,
     totalTrabajadores: c.trabajadores.length,
+    activo: c.activo !== undefined ? c.activo : c.eliminado_en == null,
     creadoEn:
       c.creado_en instanceof Date ? c.creado_en.toISOString() : String(c.creado_en),
+    eliminadoEn:
+      c.eliminado_en instanceof Date
+        ? c.eliminado_en.toISOString()
+        : c.eliminado_en
+        ? String(c.eliminado_en)
+        : null,
     actualizadoEn:
       c.actualizado_en instanceof Date
         ? c.actualizado_en.toISOString()
@@ -150,6 +163,7 @@ export async function obtenerCuadrillaPorId(
     id: cuadrilla.id,
     nombre: cuadrilla.nombre,
     estado: cuadrilla.estado,
+    activo: cuadrilla.activo !== undefined ? cuadrilla.activo : cuadrilla.eliminado_en == null,
     delegacion: {
       id: cuadrilla.delegacion_id,
       nombre: cuadrilla.delegacion_nombre,
@@ -195,6 +209,13 @@ export async function obtenerCuadrillaPorId(
         : null,
     actualizadoPorId: cuadrilla.actualizado_por_id,
     creadoPorId: cuadrilla.creado_por_id,
+    eliminadoEn:
+      cuadrilla.eliminado_en instanceof Date
+        ? cuadrilla.eliminado_en.toISOString()
+        : cuadrilla.eliminado_en
+        ? String(cuadrilla.eliminado_en)
+        : null,
+    eliminadoPorId: cuadrilla.eliminado_por_id ?? null,
   };
 }
 
@@ -564,3 +585,106 @@ export async function editarCuadrilla(
 
   return respuesta;
 }
+
+/**
+ * Desactiva mediante baja lógica una cuadrilla operativa liberando su dotación de recursos y brigadistas (H82).
+ * 
+ * Reglas de negocio:
+ * 1. Requiere permiso específico 'cuadrillas:eliminar' o rol Administrador.
+ * 2. Verifica la existencia de la cuadrilla y que se encuentre activa.
+ * 3. Si posee misiones en estado PLANIFICADA, DESPACHADA o EN_CURSO, rechaza con 409 Conflict.
+ * 4. Si se encuentra actualmente en estado EN_MISION, rechaza con 409 Conflict.
+ * 5. Ejecuta baja lógica (activo = false, eliminado_en = CURRENT_TIMESTAMP), desvincula dotación histórica
+ *    y revierte el rol del delegado a BRIGADISTA si no lidera otra cuadrilla activa.
+ * 6. Emite evento en tiempo real cuadrilla:desactivada vía Socket.io.
+ */
+export async function desactivarCuadrilla(
+  id: string,
+  usuarioId: string | null | undefined
+): Promise<DesactivarCuadrillaResponse> {
+  // 1. Validar autorización RBAC (requiere permiso cuadrillas:eliminar o Administrador)
+  const usuarioAutenticado = await seguridadService.validarAccesoAdministrador(
+    usuarioId,
+    [PERMISO_ELIMINAR_CUADRILLA]
+  );
+
+  // 2. Obtener cuadrilla actual y validar existencia
+  const cuadrillaActual = await obtenerCuadrillaPorIdParaEdicion(id);
+  if (!cuadrillaActual) {
+    throw new NotFoundError("La cuadrilla operativa especificada no existe o ya fue desactivada.");
+  }
+
+  // 3. Regla crítica de negocio: Bloquear si se encuentra EN_MISION o tiene misiones activas (409 Conflict)
+  const estadoCuadrilla = String(cuadrillaActual.estado);
+  if (
+    estadoCuadrilla === "EN_MISION" ||
+    estadoCuadrilla === "EN_TRANSITO" ||
+    estadoCuadrilla === "EN_OPERACION"
+  ) {
+    throw new ConflictError(
+      "No es posible desactivar una cuadrilla que se encuentra actualmente en misión activa en terreno."
+    );
+  }
+
+  const tieneMisionesActivas = await verificarMisionesActivasCuadrilla(id);
+  if (tieneMisionesActivas) {
+    throw new ConflictError(
+      "No es posible desactivar la cuadrilla porque posee misiones activas en curso (PLANIFICADA, DESPACHADA o EN_CURSO)."
+    );
+  }
+
+  // 4. Obtener rol BRIGADISTA para eventual reversión de rol del delegado
+  const rolBrigadista = await obtenerRolPorCodigo("BRIGADISTA");
+
+  // 5. Ejecutar desactivación transaccional con desvinculación histórica y bloqueo atómico (BUG-H82-API-05)
+  let resultado;
+  try {
+    resultado = await desactivarCuadrillaTransaccional(
+      id,
+      usuarioAutenticado.id,
+      rolBrigadista ? rolBrigadista.id : null
+    );
+  } catch (error: any) {
+    if (error instanceof ConflictError || error instanceof NotFoundError) {
+      throw error;
+    }
+    if (error?.message?.startsWith("CONFLICT:")) {
+      throw new ConflictError(error.message.replace("CONFLICT:", ""));
+    }
+    if (error?.message?.includes("no existe o ya fue desactivada")) {
+      throw new NotFoundError(error.message);
+    }
+    throw error;
+  }
+
+  // 6. Formatear respuesta de dominio
+  const eliminadoEnStr =
+    resultado.eliminadoEn instanceof Date
+      ? resultado.eliminadoEn.toISOString()
+      : String(resultado.eliminadoEn);
+
+  const respuesta: DesactivarCuadrillaResponse = {
+    message: "Cuadrilla operativa desactivada exitosamente",
+    data: {
+      id: resultado.id,
+      nombre: resultado.nombre,
+      activo: false,
+      estado: resultado.estado,
+      recursosDesvinculados: resultado.recursosDesvinculados,
+      trabajadoresDesvinculados: resultado.trabajadoresDesvinculados,
+      delegadoRevertido: resultado.delegadoRevertido,
+      eliminadoEn: eliminadoEnStr,
+      eliminadoPorId: resultado.eliminadoPorId,
+    },
+  };
+
+  // 7. Emitir evento WebSocket para actualización en tiempo real
+  try {
+    emitirCuadrillaDesactivada(respuesta.data);
+  } catch (error) {
+    console.error("Error al emitir evento Socket.io cuadrilla:desactivada:", error);
+  }
+
+  return respuesta;
+}
+
