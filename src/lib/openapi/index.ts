@@ -2068,7 +2068,6 @@ registry.registerPath({
     },
   },
 });
-
 registry.registerPath({
   method: "delete",
   path: "/api/patrullas/{id}",
@@ -2119,14 +2118,6 @@ registry.registerPath({
     },
   },
 });
-
-// --- Módulo: Cuadrillas Operativas (Recursos y Personal - H81 / H79) ---
-registry.register("CrearCuadrillaInput", CrearCuadrillaInputSchema);
-registry.register("CrearCuadrillaResponse", CrearCuadrillaResponseSchema);
-registry.register("EditarCuadrillaInput", EditarCuadrillaInputSchema);
-registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
-registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
-registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
 
 // H81 / H79: Listar Cuadrillas Operativas Paginadas con Filtros
 registry.registerPath({

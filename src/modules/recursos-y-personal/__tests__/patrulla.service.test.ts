@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as authService from "@/modules/seguridad/auth.service";
+import { seguridadService } from "@/modules/seguridad/service";
 import * as socketModule from "@/lib/socket";
 import * as patrullaRepo from "../patrulla.repository";
 import {
@@ -7,6 +8,7 @@ import {
   obtenerDetallePatrullaService,
   actualizarEstadoPatrullaService,
   crearPatrullaService,
+  modificarPatrullaService,
   desactivarPatrullaService,
 } from "../patrulla.service";
 import {
@@ -657,6 +659,419 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
             { personal_id: "b1000000-0000-4000-8000-000000000001", usuario_id: "c1000000-0000-4000-8000-000000000001" },
             { personal_id: "b1000000-0000-4000-8000-000000000002", usuario_id: "c1000000-0000-4000-8000-000000000002" },
           ],
+        })
+      );
+    });
+  });
+
+
+  describe("modificarPatrullaService (Edición de Patrulla - HU-84)", () => {
+    const inputModificar = {
+      nombre: "Patrulla Costa Renovada",
+      delegacionId: "30000000-0000-4000-8000-000000000003",
+      vehiculoId: "e1000000-0000-4000-8000-000000000002",
+      personalIds: ["b1000000-0000-4000-8000-000000000001"],
+      usuarioLiderId: "c1000000-0000-4000-8000-000000000001",
+    };
+
+    const mockAdminUsuario = {
+      id: adminUserId,
+      rut: "11111111-1",
+      email: "admin@valdivia.cl",
+      nombre: "Administrador",
+      rolId: "rol-admin",
+      rolNombre: "Administrador",
+      activo: true,
+    };
+
+    const mockFilaDisponible: patrullaRepo.FilaPatrullaConsulta = {
+      ...mockFila,
+      patrulla_estado: "DISPONIBLE",
+      mision_id: null,
+      mision_codigo: null,
+      mision_titulo: null,
+      mision_tipo: null,
+      mision_estado: null,
+      mision_prioridad: null,
+      incidente_id: null,
+      incidente_codigo: null,
+      incidente_folio: null,
+      incidente_tipo_afectacion: null,
+      incidente_direccion: null,
+    };
+
+    const mockPersonalExistente = [
+      {
+        personal_id: "b1000000-0000-4000-8000-000000000001",
+        usuario_id: "c1000000-0000-4000-8000-000000000001",
+        nombre: "Juan Brigadista",
+        email: "juan@valdivia.cl",
+        activo: true,
+        rol_codigo: "PATRULLA_VERIFICADORA",
+        estado_operativo: "en_patrulla" as const,
+      },
+    ];
+
+    const mockPersonalNuevoDisponible = {
+      personal_id: "b2000000-0000-4000-8000-000000000002",
+      usuario_id: "c2000000-0000-4000-8000-000000000002",
+      nombre: "Pedro Nuevo",
+      email: "pedro@valdivia.cl",
+      activo: true,
+      rol_codigo: "PATRULLA_VERIFICADORA",
+      estado_operativo: "disponible" as const,
+    };
+
+    const mockVehiculoDisponible = {
+      id: "e2000000-0000-4000-8000-000000000005",
+      nombre: "Camioneta 4x4 Nueva",
+      es_individual: true,
+      estado: "DISPONIBLE" as const,
+      cantidad_inventario: 1,
+      cantidad_en_uso: 0,
+      latitud: -39.8142,
+      longitud: -73.2459,
+      detalles: { patente: "ZZ-YY-99" },
+    };
+
+    it("debe rechazar con ForbiddenError si no cuenta con permiso recursos:editar", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockRejectedValueOnce(
+        new ForbiddenError("Acceso denegado. Se requiere el permiso recursos:editar.")
+      );
+
+      await expect(
+        modificarPatrullaService(patrullaId, inputModificar, "usuario-sin-permiso")
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it("debe rechazar con NotFoundError si la patrulla verificadora no existe", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce(null);
+
+      await expect(
+        modificarPatrullaService("patrulla-inexistente", inputModificar, adminUserId)
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it("debe rechazar con ConflictError si la patrulla está en estado EN_VERIFICACION", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
+        fila: {
+          ...mockFila,
+          patrulla_estado: "EN_VERIFICACION",
+          mision_id: null,
+        },
+        integrantes: [mockIntegrante],
+      });
+
+      await expect(
+        modificarPatrullaService(patrullaId, inputModificar, adminUserId)
+      ).rejects.toThrow(ConflictError);
+    });
+
+    it("debe rechazar con ConflictError si la patrulla tiene una misión táctica activa en terreno", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
+        fila: {
+          ...mockFila,
+          patrulla_estado: "DISPONIBLE",
+          mision_id: "mision-activa-uuid",
+        },
+        integrantes: [mockIntegrante],
+      });
+
+      await expect(
+        modificarPatrullaService(patrullaId, inputModificar, adminUserId)
+      ).rejects.toThrow(ConflictError);
+    });
+
+    it("debe rechazar con NotFoundError si la delegación base no existe", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
+        fila: mockFilaDisponible,
+        integrantes: [mockIntegrante],
+      });
+      vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce(undefined);
+
+      await expect(
+        modificarPatrullaService(patrullaId, inputModificar, adminUserId)
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it("BUG-H84-API-02: debe preservar el vehículo actual y no desasignarlo si vehiculoId es undefined", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo")
+        .mockResolvedValueOnce({
+          fila: mockFilaDisponible, // vehiculo_id: "e1000000-0000-4000-8000-000000000002"
+          integrantes: [mockIntegrante],
+        })
+        .mockResolvedValueOnce({
+          fila: mockFilaDisponible,
+          integrantes: [mockIntegrante],
+        });
+      vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce({
+        id: "30000000-0000-4000-8000-000000000003",
+        nombre: "Delegación Costa",
+        codigo: "DEL_COSTA",
+      });
+      vi.spyOn(patrullaRepo, "obtenerPersonalParaPatrullaRepo").mockResolvedValueOnce(mockPersonalExistente);
+      const spyRepo = vi.spyOn(patrullaRepo, "modificarPatrullaTransaccionalRepo").mockResolvedValueOnce();
+      vi.spyOn(socketModule, "notificarPatrullaActualizada").mockImplementation(() => {});
+
+      const inputSinVehiculo = {
+        ...inputModificar,
+        vehiculoId: undefined, // Campo omitido en la petición
+      };
+
+      await modificarPatrullaService(patrullaId, inputSinVehiculo, adminUserId);
+
+      expect(spyRepo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: patrullaId,
+          vehiculoId: mockFilaDisponible.vehiculo_id, // Preserva el vehículo previo
+          latitud: undefined,
+          longitud: undefined,
+        })
+      );
+    });
+
+    it("BUG-H84-API-02 y BUG-H84-API-04: debe pasar vehiculoId: null y coordenadas null si se solicita explícitamente null", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo")
+        .mockResolvedValueOnce({
+          fila: mockFilaDisponible,
+          integrantes: [mockIntegrante],
+        })
+        .mockResolvedValueOnce({
+          fila: {
+            ...mockFilaDisponible,
+            vehiculo_id: null,
+            vehiculo_nombre: null,
+            patrulla_latitud: null,
+            patrulla_longitud: null,
+          },
+          integrantes: [mockIntegrante],
+        });
+      vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce({
+        id: "30000000-0000-4000-8000-000000000003",
+        nombre: "Delegación Costa",
+        codigo: "DEL_COSTA",
+      });
+      vi.spyOn(patrullaRepo, "obtenerPersonalParaPatrullaRepo").mockResolvedValueOnce(mockPersonalExistente);
+      const spyRepo = vi.spyOn(patrullaRepo, "modificarPatrullaTransaccionalRepo").mockResolvedValueOnce();
+      vi.spyOn(socketModule, "notificarPatrullaActualizada").mockImplementation(() => {});
+
+      const inputDesasignarVehiculo = {
+        ...inputModificar,
+        vehiculoId: null, // Desasignación explícita
+      };
+
+      await modificarPatrullaService(patrullaId, inputDesasignarVehiculo, adminUserId);
+
+      expect(spyRepo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: patrullaId,
+          vehiculoId: null,
+          latitud: null,
+          longitud: null,
+        })
+      );
+    });
+
+    it("debe rechazar con BadRequestError si el nuevo vehículo asignado no es individual", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
+        fila: mockFilaDisponible,
+        integrantes: [mockIntegrante],
+      });
+      vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce({
+        id: "30000000-0000-4000-8000-000000000003",
+        nombre: "Delegación Costa",
+        codigo: "DEL_COSTA",
+      });
+      vi.spyOn(patrullaRepo, "obtenerVehiculoPorIdRepo").mockResolvedValueOnce({
+        ...mockVehiculoDisponible,
+        es_individual: false, // a granel
+      });
+
+      const inputNuevoVehiculo = {
+        ...inputModificar,
+        vehiculoId: mockVehiculoDisponible.id,
+      };
+
+      await expect(
+        modificarPatrullaService(patrullaId, inputNuevoVehiculo, adminUserId)
+      ).rejects.toThrow(BadRequestError);
+    });
+
+    it("debe rechazar con ConflictError si el nuevo vehículo asignado está en mantención o no disponible", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
+        fila: mockFilaDisponible,
+        integrantes: [mockIntegrante],
+      });
+      vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce({
+        id: "30000000-0000-4000-8000-000000000003",
+        nombre: "Delegación Costa",
+        codigo: "DEL_COSTA",
+      });
+      vi.spyOn(patrullaRepo, "obtenerVehiculoPorIdRepo").mockResolvedValueOnce({
+        ...mockVehiculoDisponible,
+        estado: "EN_MANTENCION" as const,
+        cantidad_en_uso: 0,
+      });
+
+      const inputNuevoVehiculo = {
+        ...inputModificar,
+        vehiculoId: mockVehiculoDisponible.id,
+      };
+
+      await expect(
+        modificarPatrullaService(patrullaId, inputNuevoVehiculo, adminUserId)
+      ).rejects.toThrow(ConflictError);
+    });
+
+    it("BUG-H84-API-03: debe rechazar con ConflictError si un NUEVO integrante se encuentra en licencia o descanso", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
+        fila: mockFilaDisponible,
+        integrantes: [mockIntegrante], // personal_id: "b1000000-..."
+      });
+      vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce({
+        id: "30000000-0000-4000-8000-000000000003",
+        nombre: "Delegación Costa",
+        codigo: "DEL_COSTA",
+      });
+      vi.spyOn(patrullaRepo, "obtenerPersonalParaPatrullaRepo").mockResolvedValueOnce([
+        mockPersonalExistente[0],
+        {
+          ...mockPersonalNuevoDisponible,
+          estado_operativo: "licencia" as const, // ¡No operativo!
+        },
+      ]);
+
+      const inputConNuevoIntegrante = {
+        ...inputModificar,
+        personalIds: [mockPersonalExistente[0].personal_id, mockPersonalNuevoDisponible.personal_id],
+      };
+
+      await expect(
+        modificarPatrullaService(patrullaId, inputConNuevoIntegrante, adminUserId)
+      ).rejects.toThrow(ConflictError);
+    });
+
+    it("BUG-H84-API-03: debe permitir conservar integrantes actuales aunque tengan estado operativo en_patrulla", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo")
+        .mockResolvedValueOnce({
+          fila: mockFilaDisponible,
+          integrantes: [mockIntegrante], // personal_id: "b1000000-...", estado: "en_patrulla"
+        })
+        .mockResolvedValueOnce({
+          fila: mockFilaDisponible,
+          integrantes: [mockIntegrante],
+        });
+      vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce({
+        id: "30000000-0000-4000-8000-000000000003",
+        nombre: "Delegación Costa",
+        codigo: "DEL_COSTA",
+      });
+      // El funcionario existente tiene estado_operativo "en_patrulla", y el nuevo "disponible"
+      vi.spyOn(patrullaRepo, "obtenerPersonalParaPatrullaRepo").mockResolvedValueOnce([
+        mockPersonalExistente[0],
+        mockPersonalNuevoDisponible,
+      ]);
+      const spyRepo = vi.spyOn(patrullaRepo, "modificarPatrullaTransaccionalRepo").mockResolvedValueOnce();
+      vi.spyOn(socketModule, "notificarPatrullaActualizada").mockImplementation(() => {});
+
+      const inputConNuevoIntegrante = {
+        ...inputModificar,
+        personalIds: [mockPersonalExistente[0].personal_id, mockPersonalNuevoDisponible.personal_id],
+      };
+
+      await expect(
+        modificarPatrullaService(patrullaId, inputConNuevoIntegrante, adminUserId)
+      ).resolves.not.toThrow();
+      expect(spyRepo).toHaveBeenCalled();
+    });
+
+    it("BUG-H84-API-01: debe enviar personalLiderId correspondiente al usuarioLiderId suministrado", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo")
+        .mockResolvedValueOnce({
+          fila: mockFilaDisponible,
+          integrantes: [mockIntegrante],
+        })
+        .mockResolvedValueOnce({
+          fila: mockFilaDisponible,
+          integrantes: [mockIntegrante],
+        });
+      vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce({
+        id: "30000000-0000-4000-8000-000000000003",
+        nombre: "Delegación Costa",
+        codigo: "DEL_COSTA",
+      });
+      // 2 integrantes: el segundo será el líder designado
+      vi.spyOn(patrullaRepo, "obtenerPersonalParaPatrullaRepo").mockResolvedValueOnce([
+        mockPersonalExistente[0],
+        mockPersonalNuevoDisponible,
+      ]);
+      const spyRepo = vi.spyOn(patrullaRepo, "modificarPatrullaTransaccionalRepo").mockResolvedValueOnce();
+      vi.spyOn(socketModule, "notificarPatrullaActualizada").mockImplementation(() => {});
+
+      const inputConLiderEspecifico = {
+        ...inputModificar,
+        personalIds: [mockPersonalExistente[0].personal_id, mockPersonalNuevoDisponible.personal_id],
+        usuarioLiderId: mockPersonalNuevoDisponible.usuario_id, // El líder es el 2do integrante
+      };
+
+      await modificarPatrullaService(patrullaId, inputConLiderEspecifico, adminUserId);
+
+      expect(spyRepo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: patrullaId,
+          usuarioLiderId: mockPersonalNuevoDisponible.usuario_id,
+          personalLiderId: mockPersonalNuevoDisponible.personal_id, // Pasa el personal_id del segundo integrante
+        })
+      );
+    });
+
+    it("debe modificar exitosamente la patrulla y emitir notificación WebSocket patrulla:actualizada", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+
+      const filaModificada: patrullaRepo.FilaPatrullaConsulta = {
+        ...mockFilaDisponible,
+        patrulla_nombre: "Patrulla Costa Renovada",
+      };
+
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo")
+        .mockResolvedValueOnce({
+          fila: mockFilaDisponible,
+          integrantes: [mockIntegrante],
+        })
+        .mockResolvedValueOnce({
+          fila: filaModificada,
+          integrantes: [mockIntegrante],
+        });
+      vi.spyOn(patrullaRepo, "obtenerDelegacionPorIdRepo").mockResolvedValueOnce({
+        id: "30000000-0000-4000-8000-000000000003",
+        nombre: "Delegación Costa",
+        codigo: "DEL_COSTA",
+      });
+      vi.spyOn(patrullaRepo, "obtenerPersonalParaPatrullaRepo").mockResolvedValueOnce(mockPersonalExistente);
+      vi.spyOn(patrullaRepo, "modificarPatrullaTransaccionalRepo").mockResolvedValueOnce();
+      const spySocket = vi.spyOn(socketModule, "notificarPatrullaActualizada").mockImplementation(() => {});
+
+      const res = await modificarPatrullaService(patrullaId, inputModificar, adminUserId);
+
+      expect(res.message).toContain("exitosa");
+      expect(res.data.id).toBe(patrullaId);
+      expect(res.data.nombre).toBe("Patrulla Costa Renovada");
+      expect(spySocket).toHaveBeenCalledWith(
+        expect.objectContaining({
+          patrullaId,
+          nombre: "Patrulla Costa Renovada",
+          estado: filaModificada.patrulla_estado,
         })
       );
     });

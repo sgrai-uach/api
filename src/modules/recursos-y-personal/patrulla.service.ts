@@ -1,4 +1,5 @@
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { seguridadService } from "@/modules/seguridad/service";
 import {
   PERMISO_LEER_MISION,
   PERMISO_CREAR_RECURSO,
@@ -438,11 +439,17 @@ export async function modificarPatrullaService(
   }
 
   // 5. Validar vehículo institucional (si se especificó y si es diferente al que ya tiene)
+  let vehiculoFinalId: string | null = patrullaExistente.fila.vehiculo_id;
   let latitud: number | null | undefined = undefined;
   let longitud: number | null | undefined = undefined;
 
-  if (input.vehiculoId) {
-    // Si es un vehículo distinto al actual, validar disponibilidad
+  if (input.vehiculoId === null) {
+    // Desasignación voluntaria del vehículo
+    vehiculoFinalId = null;
+    latitud = null;
+    longitud = null;
+  } else if (typeof input.vehiculoId === "string") {
+    // Si es un vehículo distinto al actual, validar existencia y disponibilidad
     if (patrullaExistente.fila.vehiculo_id !== input.vehiculoId) {
       const vehiculo = await obtenerVehiculoPorIdRepo(input.vehiculoId);
       if (!vehiculo) {
@@ -457,19 +464,23 @@ export async function modificarPatrullaService(
         );
       }
 
-      if (vehiculo.estado !== "DISPONIBLE" || (vehiculo.cantidad_en_uso ?? 0) > 0) {
+      if (vehiculo.estado === "EN_MANTENCION" || vehiculo.estado === "NO_DISPONIBLE") {
+        const estadoLegible = vehiculo.estado === "EN_MANTENCION" ? "En mantención" : "No disponible";
         throw new ConflictError(
-          `El vehículo institucional '${vehiculo.nombre}' no se encuentra disponible (estado actual: ${vehiculo.estado}).`
+          `El vehículo institucional '${vehiculo.nombre}' no se encuentra operativo para asignación (estado actual: ${estadoLegible}).`
         );
       }
 
+      vehiculoFinalId = input.vehiculoId;
       latitud = vehiculo.latitud !== null ? Number(vehiculo.latitud) : null;
       longitud = vehiculo.longitud !== null ? Number(vehiculo.longitud) : null;
+    } else {
+      // Mantiene el mismo vehículo actual
+      vehiculoFinalId = input.vehiculoId;
     }
   } else {
-    // Se desasigna el vehículo
-    latitud = null;
-    longitud = null;
+    // input.vehiculoId === undefined: preservar el vehículo actual sin desasignarlo
+    vehiculoFinalId = patrullaExistente.fila.vehiculo_id;
   }
 
   // 6. Validar funcionarios asignados a la dotación
@@ -492,8 +503,28 @@ export async function modificarPatrullaService(
     );
   }
 
-  // Determinar usuario líder
+  // Validar disponibilidad operativa de los integrantes NUEVOS (BUG-H84-API-03)
+  const integrantesActualesIds = new Set(
+    patrullaExistente.integrantes.map((i) => i.personal_id)
+  );
+  const nuevosIntegrantes = personalFilas.filter(
+    (p) => !integrantesActualesIds.has(p.personal_id)
+  );
+  const noDisponibles = nuevosIntegrantes.filter(
+    (p) => p.estado_operativo !== "disponible" && p.estado_operativo !== "en_patrulla"
+  );
+  if (noDisponibles.length > 0) {
+    throw new ConflictError(
+      `Los siguientes funcionarios no se encuentran disponibles operativamente (en descanso, licencia o inactivos): ${noDisponibles
+        .map((p) => `${p.nombre} (${p.estado_operativo})`)
+        .join(", ")}.`
+    );
+  }
+
+  // Determinar usuario líder y personal líder (BUG-H84-API-01)
   let usuarioLiderId = input.usuarioLiderId;
+  let personalLiderId: string | null = null;
+
   if (usuarioLiderId) {
     const liderValido = personalFilas.find((p) => p.usuario_id === usuarioLiderId);
     if (!liderValido) {
@@ -501,8 +532,10 @@ export async function modificarPatrullaService(
         "El funcionario designado como líder debe pertenecer a la dotación asignada a la patrulla."
       );
     }
+    personalLiderId = liderValido.personal_id;
   } else {
     usuarioLiderId = personalFilas[0].usuario_id;
+    personalLiderId = personalFilas[0].personal_id;
   }
 
   // 7. Modificación transaccional
@@ -510,8 +543,9 @@ export async function modificarPatrullaService(
     id,
     nombre: input.nombre,
     delegacionId: input.delegacionId,
-    vehiculoId: input.vehiculoId ?? null,
+    vehiculoId: vehiculoFinalId,
     usuarioLiderId,
+    personalLiderId,
     latitud,
     longitud,
     personalIds: input.personalIds,

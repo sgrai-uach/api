@@ -490,6 +490,7 @@ export interface DatosModificarPatrullaRepo {
   delegacionId: string;
   vehiculoId: string | null;
   usuarioLiderId: string | null;
+  personalLiderId?: string | null;
   latitud?: number | null;
   longitud?: number | null;
   personalIds: string[];
@@ -577,6 +578,7 @@ export async function modificarPatrullaTransaccionalRepo(
           latitud: null,
           longitud: null,
           ubicacion: null,
+          ultima_actualizacion_ubicacion: null,
         });
       }
     }
@@ -619,7 +621,9 @@ export async function modificarPatrullaTransaccionalRepo(
     // Reinsertar nuevos integrantes
     for (let i = 0; i < idsNuevos.length; i++) {
       const personalId = idsNuevos[i];
-      const esLider = i === 0;
+      const esLider = datos.personalLiderId
+        ? personalId === datos.personalLiderId
+        : i === 0;
 
       await trx
         .insertInto("patrulla_personal")
