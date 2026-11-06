@@ -48,6 +48,7 @@ import {
   ListarCuadrillasResponseSchema,
   DetalleCuadrillaResponseSchema,
   CuadrillaIdParamSchema,
+  DesactivarCuadrillaResponseSchema,
 } from "@/modules/recursos-y-personal/cuadrilla.schema";
 
 import {
@@ -2183,6 +2184,48 @@ registry.registerPath({
     },
     409: {
       description: "Conflicto: cuadrilla en misión activa o nombre duplicado",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// H82: Desactivar Cuadrilla Operativa (Baja Lógica)
+registry.registerPath({
+  method: "delete",
+  path: "/api/cuadrillas/{id}",
+  summary: "Desactivar cuadrilla operativa mediante baja lógica (H82)",
+  description:
+    "Aplica baja lógica a una cuadrilla disuelta o retirada de servicio (activo = false, eliminado_en). Desvincula recursos y brigadistas al inventario central preservando trazabilidad histórica. Rechaza con 409 Conflict si posee misiones activas.",
+  tags: ["Cuadrillas", "Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: CuadrillaIdParamSchema,
+  },
+  responses: {
+    200: {
+      description: "Cuadrilla operativa desactivada exitosamente",
+      content: {
+        "application/json": {
+          schema: DesactivarCuadrillaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de cuadrilla inválido",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'cuadrillas:eliminar' o rol Administrador",
+    },
+    404: {
+      description: "Cuadrilla operativa no encontrada o ya desactivada",
+    },
+    409: {
+      description: "Conflicto: la cuadrilla se encuentra en misión activa o posee misiones en curso",
     },
     500: {
       description: "Error interno del servidor",

@@ -14,6 +14,7 @@ import {
 import {
   editarCuadrilla,
   obtenerCuadrillaPorId,
+  desactivarCuadrilla,
 } from "@/modules/recursos-y-personal/cuadrilla.service";
 
 interface RouteContext {
@@ -223,3 +224,86 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     );
   }
 }
+
+/**
+ * DELETE /api/cuadrillas/[id]
+ * Desactiva mediante baja lógica una cuadrilla operativa que haya sido disuelta o retirada de servicio (H82).
+ * Libera los recursos al inventario central y la dotación de brigadistas.
+ * 
+ * Requiere permiso RBAC 'cuadrillas:eliminar' o rol Administrador.
+ * Si la cuadrilla posee misiones en estado PLANIFICADA, DESPACHADA o EN_CURSO, rechaza con 409 Conflict.
+ */
+export async function DELETE(req: NextRequest, context: RouteContext) {
+  try {
+    const usuarioId = await extraerUsuarioId(req);
+    const { id } = await context.params;
+
+    // 1. Validar formato UUID del parámetro de ruta
+    const validacionId = CuadrillaIdParamSchema.safeParse({ id });
+    if (!validacionId.success) {
+      return NextResponse.json(
+        {
+          statusCode: 400,
+          error: "Bad Request",
+          message: "Identificador de cuadrilla inválido.",
+          errors: validacionId.error.issues.map((issue) => ({
+            campo: issue.path.join("."),
+            mensaje: issue.message,
+          })),
+        },
+        { status: 400 }
+      );
+    }
+
+    // 2. Invocar servicio de dominio
+    const resultado = await desactivarCuadrilla(id, usuarioId);
+
+    return NextResponse.json(resultado, { status: 200 });
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json(
+        { statusCode: 401, error: "Unauthorized", message: error.message },
+        { status: 401 }
+      );
+    }
+
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json(
+        { statusCode: 403, error: "Forbidden", message: error.message },
+        { status: 403 }
+      );
+    }
+
+    if (error instanceof ConflictError) {
+      return NextResponse.json(
+        { statusCode: 409, error: "Conflict", message: error.message },
+        { status: 409 }
+      );
+    }
+
+    if (error instanceof NotFoundError) {
+      return NextResponse.json(
+        { statusCode: 404, error: "Not Found", message: error.message },
+        { status: 404 }
+      );
+    }
+
+    if (error instanceof BadRequestError) {
+      return NextResponse.json(
+        { statusCode: 400, error: "Bad Request", message: error.message },
+        { status: 400 }
+      );
+    }
+
+    console.error("Error al desactivar cuadrilla operativa:", error);
+    return NextResponse.json(
+      {
+        statusCode: 500,
+        error: "Internal Server Error",
+        message: "Error interno del servidor al procesar la solicitud.",
+      },
+      { status: 500 }
+    );
+  }
+}
+

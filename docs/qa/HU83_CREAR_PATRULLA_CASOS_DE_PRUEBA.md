@@ -92,11 +92,11 @@ Se ha procedido a la ejecución exhaustiva del **Ciclo de Re-Test Formal** en do
 
 ### BUG-H83-API-03: Desfase crítico de 40 commits con `develop`, ruptura de migraciones y columna deprecada
 * **Severidad:** CRÍTICA | **Estado:** 🟢 **SUBSANADO Y VERIFICADO**
-* **Módulo Afectado:** `src/lib/db/migrations/031_patrullas_codigo_vehiculo.ts`, `patrulla.repository.ts` (L328, 414-424)
+* **Módulo Afectado:** `src/lib/db/migrations/033_patrullas_codigo_vehiculo.ts`, `patrulla.repository.ts` (L328, 414-424)
 * **Causa Raíz:** La migración colisionaba por falta de las migraciones 023-030 y el código apuntaba a la columna eliminada `personal.estado_operativo`.
-* **Solución Implementada (Commits `a7caaac` y `8bd070f`):**
+* **Solución Implementada (Commits `a7caaac`, `8bd070f` y merge con develop):**
   - Sincronización completa con `develop` vía `git merge origin/develop`.
-  - Renumeración de la migración a `031_patrullas_codigo_vehiculo.ts` encadenada secuencialmente.
+  - Renumeración de la migración a `033_patrullas_codigo_vehiculo.ts` encadenada secuencialmente (tras migraciones 031 y 032 de cuadrillas).
   - Adaptación de consultas y mutaciones a `usuario.estado_operativo` (fuente canónica de verdad según HU-11 / migración 025).
 * **Evidencia de Re-Test:** 
   - `npm run db:migrate` ejecutado exitosamente sin errores de colisión.
@@ -150,7 +150,7 @@ He completado el **Ciclo Formal de Re-Test** sobre la rama `feature/h83-crear-pa
 ### 📋 Resultados de la Verificación Técnica:
 1. **[BUG-H83-API-01] Resuelto:** La asignación de roles en `patrulla_personal` evalúa con precisión el `usuarioLiderId` y asigna `LIDER` al funcionario correspondiente independientemente de su posición en `personalIds`.
 2. **[BUG-H83-API-02] Resuelto:** Se valida estrictamente la regla ICS de disponibilidad operativa (`estado_operativo === 'disponible'`), bloqueando con `HTTP 409 Conflict` a funcionarios ocupados o desplegados.
-3. **[BUG-H83-API-03] Resuelto:** Rama sincronizada con `develop`, migración encadenada en `031_patrullas_codigo_vehiculo.ts` y persistencia adaptada al esquema canónico de `usuario.estado_operativo`.
+3. **[BUG-H83-API-03] Resuelto:** Rama sincronizada con `develop`, migración encadenada en `033_patrullas_codigo_vehiculo.ts` y persistencia adaptada al esquema canónico de `usuario.estado_operativo`.
 4. **[BUG-H83-API-04] Resuelto:** Sustituido el acoplamiento a administradores por `verificarPermiso(usuarioId, PERMISO_CREAR_RECURSO)`, devolviendo el mensaje estándar de RBAC ante acceso denegado.
 5. **[BUG-H83-API-05] Resuelto:** Esquema Zod enriquecido con `.refine()` para rechazar funcionarios duplicados con `HTTP 400 Bad Request` en la frontera de validación.
 
