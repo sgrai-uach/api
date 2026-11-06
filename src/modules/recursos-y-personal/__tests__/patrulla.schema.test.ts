@@ -88,6 +88,18 @@ describe("Módulo Recursos y Personal - Patrullas Verificadoras Schemas", () => 
       });
       expect(resultado.success).toBe(false);
     });
+
+    it("debe aceptar y coercionar filtros activo e incluirInactivas (BUG-H85-API-04)", () => {
+      const resultado = ListarPatrullasQuerySchema.safeParse({
+        activo: "false",
+        incluirInactivas: "true",
+      });
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.activo).toBe(false);
+        expect(resultado.data.incluirInactivas).toBe(true);
+      }
+    });
   });
 
   describe("PatrullaIdParamSchema", () => {
@@ -186,6 +198,38 @@ describe("Módulo Recursos y Personal - Patrullas Verificadoras Schemas", () => 
 
       const resultado = PatrullaItemResponseSchema.safeParse(dummyPatrulla);
       expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.activo).toBe(true);
+      }
+    });
+
+    it("debe validar correctamente una patrulla dada de baja con datos de auditoría histórica (BUG-H85-API-04)", () => {
+      const patrullaInactiva = {
+        id: "f1000000-0000-4000-8000-000000000001",
+        nombre: "Patrulla Disuelta",
+        estado: "NO_DISPONIBLE",
+        latitud: null,
+        longitud: null,
+        ultimaActualizacionUbicacion: null,
+        delegacion: null,
+        vehiculo: null,
+        lider: null,
+        integrantes: [],
+        misionActiva: null,
+        creadoEn: "2026-10-20T10:00:00.000Z",
+        actualizadoEn: "2026-10-26T15:00:00.000Z",
+        activo: false,
+        eliminadoEn: "2026-10-26T15:00:00.000Z",
+        eliminadoPorId: "00000000-0000-4000-8000-000000000001",
+      };
+
+      const resultado = PatrullaItemResponseSchema.safeParse(patrullaInactiva);
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.activo).toBe(false);
+        expect(resultado.data.eliminadoEn).toBe("2026-10-26T15:00:00.000Z");
+        expect(resultado.data.eliminadoPorId).toBe("00000000-0000-4000-8000-000000000001");
+      }
     });
   });
 
@@ -240,6 +284,22 @@ describe("Módulo Recursos y Personal - Patrullas Verificadoras Schemas", () => 
         personalIds: [],
       });
       expect(resultado.success).toBe(false);
+    });
+
+    it("debe rechazar si personalIds contiene UUIDs duplicados", () => {
+      const resultado = CrearPatrullaInputSchema.safeParse({
+        ...payloadValido,
+        personalIds: [
+          "b1000000-0000-4000-8000-000000000001",
+          "b1000000-0000-4000-8000-000000000001",
+        ],
+      });
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(resultado.error.issues[0].message).toBe(
+          "No se pueden ingresar funcionarios duplicados en la dotación de la patrulla."
+        );
+      }
     });
 
     it("debe rechazar delegacionId con formato UUID inválido", () => {

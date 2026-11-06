@@ -72,6 +72,7 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `POST` | `/api/cuadrillas` | Registrar y dar de alta una nueva cuadrilla operativa en el sistema con líder delegado (H79). |
 | `GET` | `/api/cuadrillas/{id}` | Obtener detalle unitario consolidado de una cuadrilla con sus recursos y trabajadores asignados. |
 | `PUT` | `/api/cuadrillas/{id}` | Modificar datos, reasignar delegado y dotación de trabajadores/recursos de una cuadrilla (H81). |
+| `DELETE` | `/api/cuadrillas/{id}` | Desactivar mediante baja lógica una cuadrilla operativa disuelta o retirada, liberando dotación (H82). |
 | `GET` | `/api/personal` | Listar y buscar empleados/usuarios para selectores con soporte de búsqueda textual y filtro de activos/terreno. |
 | `POST` | `/api/personal` | Registrar a un nuevo funcionario municipal con credenciales y ficha de terreno condicional (HU-10). |
 | `PATCH` | `/api/personal/:id` | Modificar datos de un empleado actualizando concurrentemente `usuarios` y `personal` en una transacción atómica. |
@@ -606,7 +607,7 @@ Permite al Administrador adecuar la composición del equipo verificador ante rot
     - Si se desasigna el vehículo previo (`vehiculoId: null`) o se reemplaza por otro, el vehículo anterior se libera automáticamente (`estado = 'DISPONIBLE'`, `cantidad_en_uso = 0`).
     - Si se especifica un nuevo vehículo, este debe existir, ser un recurso individual (`es_individual: true`) y encontrarse disponible (`estado === 'DISPONIBLE'`). Al asignarse, pasa a estado `ASIGNADO` con `cantidad_en_uso = 1`.
   - **Dotación de Personal:**
-    - Los funcionarios desvinculados de la patrulla retornan a `estado_operativo = 'disponible'` en la tabla `personal`.
+    - Los funcionarios desvinculados de la patrulla retornan a `estado_operativo = 'disponible'` en la tabla `usuario`.
     - Los nuevos funcionarios asignados deben contar con rol `PATRULLA_VERIFICADORA` y pasan a `estado_operativo = 'en_patrulla'`.
   - **Auditoría:** Cada modificación registra la fecha y hora de actualización en la columna `actualizado_en = CURRENT_TIMESTAMP`.
   - **Sincronización en Tiempo Real:** Emite el evento WebSocket `patrulla:actualizada` a las salas `"encargado"`, `"supervisor"`, `"mapa"` y `"patrulla:{patrullaId}"`.
@@ -682,15 +683,16 @@ Desactiva mediante **baja lógica (soft delete)** una patrulla verificadora que 
 - **Perfiles y permisos autorizados:** Perfil `Administrador` o usuarios que cuenten con el permiso `recursos:eliminar`.
 
 #### Reglas de Negocio Críticas Aplicadas:
-1. **Validación de Bloqueo por Misiones o Verificación en Terreno (`HTTP 409 Conflict`):**
-   - Si la patrulla se encuentra en estado `EN_VERIFICACION`, la baja es rechazada inmediatamente con `409 Conflict`.
-   - Si la patrulla cuenta con misiones activas en curso (`PLANIFICADA`, `DESPACHADA` o `EN_CURSO`), la baja es rechazada con `409 Conflict`.
-2. **Aplicación Estricta de Baja Lógica (Regla Crítica §3.7):**
+1. **Validación de Bloqueo por Misiones o Despliegue en Terreno (`HTTP 409 Conflict`):**
+   - Si la patrulla se encuentra en cualquiera de los estados de despliegue en terreno (`EN_VERIFICACION`, `EN_PREVENCION`, `EN_RECUPERACION` o `EN_MISION`), la baja es rechazada inmediatamente con `409 Conflict`.
+   - Si la patrulla cuenta con misiones activas en curso (`PLANIFICADA`, `DESPACHADA` o `EN_CURSO`), la baja es rechazada con `409 Conflict` bajo bloqueo pesimista `SELECT ... FOR UPDATE`.
+2. **Aplicación Estricta de Baja Lógica y Preservación de Trazabilidad (Regla Crítica §3.7):**
    - No se realiza eliminación física (`DELETE`) en la base de datos relacional.
    - Se actualizan los atributos: `activo = false`, `eliminado_en = CURRENT_TIMESTAMP`, `eliminado_por_id = usuarioId` y `estado = 'NO_DISPONIBLE'`.
+   - Se preserva el atributo `vehiculo_id` en la fila inactiva de `patrulla_verificadora` para no perder la trazabilidad histórica del móvil con el que operó la patrulla.
 3. **Liberación Inmediata de Inventario y Dotación Comunal:**
-   - **Vehículo:** Si la patrulla tenía un vehículo institucional asignado (`vehiculo_id`), este se desasocia y en la tabla `recurso` pasa inmediatamente a `estado = 'DISPONIBLE'` y `cantidad_en_uso = 0`.
-   - **Personal de Terreno:** Los funcionarios asignados a la dotación en `patrulla_personal` pasan en la tabla `personal` a `estado_operativo = 'disponible'`, quedando listos para conformar nuevas dotaciones o asignaciones.
+   - **Vehículo:** Si la patrulla tenía un vehículo institucional asignado (`vehiculo_id`), este se libera en la tabla `recurso` pasando inmediatamente a `estado = 'DISPONIBLE'` y `cantidad_en_uso = 0`.
+   - **Personal de Terreno y Líder:** Los funcionarios activos asignados a la dotación en `patrulla_personal` y el `usuario_lider_id` cuyo estado sea `'en_patrulla'` retornan en la tabla `usuario` a `estado_operativo = 'disponible'`, siempre que no integren otra patrulla o cuadrilla activa.
 4. **Preservación Inmutable de Evidencia e Informes Técnicos:**
    - Los registros de `reporte_terreno` vinculados a misiones históricas ejecutadas por esta patrulla no sufren ninguna alteración, garantizando trazabilidad para auditorías y fiscalizaciones comunales (SENAPRED / DGRD).
 5. **Sincronización en Tiempo Real:**
@@ -867,6 +869,50 @@ Permite modificar el nombre, delegación municipal adscrita, delegado responsabl
     "totalTrabajadores": 1,
     "creadoEn": "2026-10-23T10:00:00.000Z",
     "actualizadoEn": "2026-10-26T10:30:00.000Z"
+  }
+}
+```
+
+### 3.8. `DELETE /api/cuadrillas/{id}` (HU-82: Desactivar Cuadrilla Operativa)
+Desactiva mediante baja lógica una cuadrilla operativa que haya sido disuelta o retirada de servicio, evitando su asignación a nuevos incidentes y preservando el historial completo de misiones e intervenciones pasadas.
+
+#### Reglas de Negocio y Seguridad
+- **Permisos y Control de Acceso (RBAC):** Requiere token válido y permiso granular **`cuadrillas:eliminar`** o pertenecer al rol **`Administrador`**. Cualquier otro usuario sin este permiso recibirá `403 Forbidden`.
+- **Integridad Operativa ICS (Bloqueo `409 Conflict`):**
+  - Si la cuadrilla posee misiones asociadas en estado **`PLANIFICADA`**, **`DESPACHADA`** o **`EN_CURSO`**, la solicitud es rechazada inmediatamente con código `409 Conflict`.
+  - Si la cuadrilla se encuentra en estado operativo **`EN_MISION`**, **`EN_TRANSITO`** o **`EN_OPERACION`**, es rechazada con `409 Conflict`.
+- **Baja Lógica y Auditoría Inmutable:**
+  - Aplica estrictamente `cuadrilla.activo = false`, `cuadrilla.estado = 'NO_DISPONIBLE'`, `cuadrilla.eliminado_en = CURRENT_TIMESTAMP` y estampa `cuadrilla.eliminado_por_id` con el UUID del usuario responsable.
+- **Trazabilidad Histórica y Liberación de Dotación:**
+  - **Recursos (`cuadrilla_recurso` y `recurso`):** No se borran físicamente los registros para mantener la auditoría; se actualiza `activo = false` y `desvinculado_en = CURRENT_TIMESTAMP`, y simultáneamente se decrementa `recurso.cantidad_en_uso` en la cantidad liberada (`GREATEST(0, cantidad_en_uso - cantidad_liberada)`), restituyendo el stock disponible inmediatamente en el inventario central (CA-5 / BUG-H82-API-01).
+  - **Personal Operativo (`cuadrilla_personal` y `usuario`):** Se actualiza `activo = false` y `desvinculado_en = CURRENT_TIMESTAMP`, preservando la trazabilidad de los brigadistas asignados. Si los trabajadores liberados no integran otra unidad operativa activa (cuadrilla o patrulla), su disponibilidad se restaura automáticamente actualizando `usuario.estado_operativo = 'disponible'` (BUG-H82-API-04).
+- **Reversión de Rol y Disponibilidad del Delegado:**
+  - Si el usuario que ejercía como Delegado (`usuario_delegado_id`) no lidera ninguna otra cuadrilla activa en el sistema, su rol institucional en `usuario` se revierte automáticamente a **`BRIGADISTA`** (registrando el diff en `log_cambios_usuarios`) y su disponibilidad se restaura a `usuario.estado_operativo = 'disponible'` (si no participa en otra patrulla o cuadrilla activa).
+- **Protección contra Concurrencia (TOCTOU):**
+  - La transacción Kysely adquiere bloqueo pesimista `SELECT ... FOR UPDATE` sobre la fila de la cuadrilla y re-valida atómicamente la ausencia de misiones activas antes de proceder con la baja lógica (BUG-H82-API-05).
+- **Consulta Histórica y Auditoría:**
+  - `GET /api/cuadrillas/{id}` permite consultar el detalle unitario y la dotación histórica de una cuadrilla desactivada (con `activo = false` y `eliminadoEn`).
+  - `GET /api/cuadrillas` permite listar cuadrillas inactivas mediante los parámetros `activo=false`, `estado=INACTIVAS`, `estado=TODAS` o `incluir_inactivas=true` (BUG-H82-API-03).
+- **Sincronización en Tiempo Real:**
+  - Tras el éxito de la transacción, el servidor emite el evento WebSocket **`cuadrilla:desactivada`** a las salas `"operaciones"`, `"encargado"` y `"supervisor"`.
+
+#### Parámetros de Ruta
+- `id` (`UUID`, obligatorio): Identificador único de la cuadrilla operativa.
+
+#### Ejemplo de Respuesta Exitosa (`200 OK`)
+```json
+{
+  "message": "Cuadrilla operativa desactivada exitosamente",
+  "data": {
+    "id": "50000000-0000-4000-8000-000000000003",
+    "nombre": "Cuadrilla Drenaje y Aguas Lluvias Sur",
+    "activo": false,
+    "estado": "NO_DISPONIBLE",
+    "recursosDesvinculados": 2,
+    "trabajadoresDesvinculados": 4,
+    "delegadoRevertido": true,
+    "eliminadoEn": "2026-10-26T12:00:00.000Z",
+    "eliminadoPorId": "00000000-0000-4000-8000-000000000001"
   }
 }
 ```

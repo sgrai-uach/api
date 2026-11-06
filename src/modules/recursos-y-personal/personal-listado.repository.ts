@@ -124,7 +124,7 @@ export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
       sql<number>`COALESCE((
         SELECT count(*)::int
         FROM evento_asistencia_social
-        WHERE evento_asistencia_social.asistente_social_id = usuarios.id
+        WHERE evento_asistencia_social.asistente_social_id = usuario.id
           AND evento_asistencia_social.estado IN ('ASIGNADO', 'EN_EVALUACION_FIBE')
           AND evento_asistencia_social.eliminado_en IS NULL
       ), 0)`.as("casos_fibe_asignados"),
