@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { GET, POST } from "../route";
-import { GET as GET_BY_ID, PATCH as PATCH_BY_ID } from "../[id]/route";
+import { GET as GET_BY_ID, PATCH as PATCH_BY_ID, PUT as PUT_BY_ID } from "../[id]/route";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import * as patrullaService from "@/modules/recursos-y-personal/patrulla.service";
 import {
@@ -358,6 +358,196 @@ describe("Route Handlers /api/patrullas", () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.message).toContain("PATRULLA_VERIFICADORA");
+    });
+  });
+
+  describe("PUT /api/patrullas/[id] (Modificar Patrulla - HU-84)", () => {
+    const validEditPayload = {
+      nombre: "Patrulla Costa 01 - Actualizada",
+      delegacionId: "30000000-0000-4000-8000-000000000003",
+      vehiculoId: "e1000000-0000-4000-8000-000000000005",
+      personalIds: [
+        "b1000000-0000-4000-8000-000000000001",
+        "b1000000-0000-4000-8000-000000000002",
+      ],
+      usuarioLiderId: "c1000000-0000-4000-8000-000000000001",
+    };
+
+    it("debe retornar 200 OK y la patrulla modificada cuando los datos son válidos y tiene permiso recursos:editar", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "modificarPatrullaService").mockResolvedValueOnce({
+        message: "Patrulla verificadora modificada exitosamente.",
+        data: {
+          ...dummyPatrullaDTO,
+          nombre: "Patrulla Costa 01 - Actualizada",
+          actualizadoEn: "2026-10-26T12:00:00.000Z",
+        },
+      });
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validEditPayload),
+      });
+
+      const res = await PUT_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.message).toContain("modificada exitosamente");
+      expect(json.data.nombre).toBe("Patrulla Costa 01 - Actualizada");
+    });
+
+    it("debe retornar 400 Bad Request si el id no es un UUID válido", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+
+      const req = new NextRequest("http://localhost:3000/api/patrullas/id-no-valido", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validEditPayload),
+      });
+
+      const res = await PUT_BY_ID(req, { params: Promise.resolve({ id: "id-no-valido" }) });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.message).toContain("inválido");
+    });
+
+    it("debe retornar 400 Bad Request si el cuerpo de la petición no es JSON válido", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: "cuerpo no json",
+      });
+
+      const res = await PUT_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.message).toContain("JSON válido");
+    });
+
+    it("debe retornar 400 Bad Request si la validación Zod falla (ej. personalIds vacío)", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...validEditPayload,
+          personalIds: [],
+        }),
+      });
+
+      const res = await PUT_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.message).toContain("inválidos");
+    });
+
+    it("debe retornar 401 Unauthorized si el usuario no está autenticado", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValueOnce(
+        new UnauthorizedError("Token no válido o ausente")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validEditPayload),
+      });
+
+      const res = await PUT_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(401);
+    });
+
+    it("debe retornar 403 Forbidden si el usuario carece de permiso recursos:editar", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "modificarPatrullaService").mockRejectedValueOnce(
+        new ForbiddenError("Acceso denegado. Se requiere permiso recursos:editar.")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validEditPayload),
+      });
+
+      const res = await PUT_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(403);
+    });
+
+    it("debe retornar 404 Not Found si la patrulla, delegación o vehículo no existen", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "modificarPatrullaService").mockRejectedValueOnce(
+        new NotFoundError("La patrulla verificadora solicitada no existe.")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validEditPayload),
+      });
+
+      const res = await PUT_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(404);
+    });
+
+    it("debe retornar 409 Conflict si la patrulla se encuentra en estado EN_VERIFICACION", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "modificarPatrullaService").mockRejectedValueOnce(
+        new ConflictError(
+          "No es posible modificar una patrulla verificadora que se encuentra en estado 'EN_VERIFICACION' o con una misión táctica activa en terreno."
+        )
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validEditPayload),
+      });
+
+      const res = await PUT_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.message).toContain("EN_VERIFICACION");
+    });
+
+    it("debe retornar 409 Conflict si la patrulla cuenta con una misión activa", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "modificarPatrullaService").mockRejectedValueOnce(
+        new ConflictError(
+          "No es posible modificar una patrulla verificadora que se encuentra en estado 'EN_VERIFICACION' o con una misión táctica activa en terreno."
+        )
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validEditPayload),
+      });
+
+      const res = await PUT_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.message).toContain("misión táctica activa");
+    });
+
+    it("debe retornar 409 Conflict si el nuevo vehículo ya está asignado o no disponible", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "modificarPatrullaService").mockRejectedValueOnce(
+        new ConflictError("El vehículo institucional no se encuentra disponible (estado actual: ASIGNADO).")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validEditPayload),
+      });
+
+      const res = await PUT_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.message).toContain("no se encuentra disponible");
     });
   });
 });

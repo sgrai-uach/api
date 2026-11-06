@@ -1,7 +1,9 @@
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { seguridadService } from "@/modules/seguridad/service";
 import {
   PERMISO_LEER_MISION,
   PERMISO_CREAR_RECURSO,
+  PERMISO_EDITAR_RECURSO,
 } from "@/modules/seguridad/permisos.constants";
 import {
   ConflictError,
@@ -19,6 +21,7 @@ import {
   obtenerPersonalParaPatrullaRepo,
   obtenerDelegacionPorIdRepo,
   crearPatrullaTransaccionalRepo,
+  modificarPatrullaTransaccionalRepo,
   type FilaPatrullaConsulta,
   type FilaIntegranteConsulta,
 } from "./patrulla.repository";
@@ -31,6 +34,8 @@ import type {
   ActualizarEstadoPatrullaResponseDTO,
   CrearPatrullaInputDTO,
   CrearPatrullaResponseDTO,
+  ModificarPatrullaInputDTO,
+  ModificarPatrullaResponseDTO,
   IntegrantePatrullaDTO,
   VehiculoPatrullaDTO,
 } from "./patrulla.schema";
@@ -373,6 +378,188 @@ export async function actualizarEstadoPatrullaService(
 
   return {
     message: "Estado operativo de patrulla verificadora actualizado exitosamente.",
+    data,
+  };
+}
+
+/**
+ * Servicio para modificar una patrulla verificadora registrada (HU-84).
+ * Permite reasignar delegación base, vehículo institucional y dotación de funcionarios.
+ * Bloquea modificaciones si la patrulla se encuentra en estado EN_VERIFICACION o con misión táctica activa (409 Conflict).
+ * Requiere autorización RBAC: permiso 'recursos:editar' o perfil Administrador.
+ */
+export async function modificarPatrullaService(
+  id: string,
+  input: ModificarPatrullaInputDTO,
+  usuarioId?: string | null
+): Promise<ModificarPatrullaResponseDTO> {
+  // 1. Validar autorización RBAC (requiere permiso recursos:editar o perfil Administrador)
+  await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_EDITAR_RECURSO]);
+
+  // 2. Validar existencia de la patrulla
+  const patrullaExistente = await obtenerPatrullaPorIdRepo(id);
+  if (!patrullaExistente) {
+    throw new NotFoundError(
+      `La patrulla verificadora con ID '${id}' no existe o ha sido eliminada.`
+    );
+  }
+
+  // 3. Regla crítica de conflicto: si la patrulla se encuentra en EN_VERIFICACION o tiene misión activa
+  if (
+    patrullaExistente.fila.patrulla_estado === "EN_VERIFICACION" ||
+    patrullaExistente.fila.mision_id !== null
+  ) {
+    throw new ConflictError(
+      "No es posible modificar una patrulla verificadora que se encuentra en estado 'EN_VERIFICACION' o con una misión táctica activa en terreno."
+    );
+  }
+
+  // 4. Validar existencia de la delegación base
+  const delegacion = await obtenerDelegacionPorIdRepo(input.delegacionId);
+  if (!delegacion) {
+    throw new NotFoundError(
+      `La delegación municipal con ID '${input.delegacionId}' no existe o no se encuentra disponible.`
+    );
+  }
+
+  // 5. Validar vehículo institucional (si se especificó y si es diferente al que ya tiene)
+  let vehiculoFinalId: string | null = patrullaExistente.fila.vehiculo_id;
+  let latitud: number | null | undefined = undefined;
+  let longitud: number | null | undefined = undefined;
+
+  if (input.vehiculoId === null) {
+    // Desasignación voluntaria del vehículo
+    vehiculoFinalId = null;
+    latitud = null;
+    longitud = null;
+  } else if (typeof input.vehiculoId === "string") {
+    // Si es un vehículo distinto al actual, validar existencia y disponibilidad
+    if (patrullaExistente.fila.vehiculo_id !== input.vehiculoId) {
+      const vehiculo = await obtenerVehiculoPorIdRepo(input.vehiculoId);
+      if (!vehiculo) {
+        throw new NotFoundError(
+          `El vehículo institucional con ID '${input.vehiculoId}' no existe en el inventario.`
+        );
+      }
+
+      if (!vehiculo.es_individual) {
+        throw new BadRequestError(
+          `El recurso '${vehiculo.nombre}' no es un recurso individual (vehículo o maquinaria serializada).`
+        );
+      }
+
+      if (vehiculo.estado === "EN_MANTENCION" || vehiculo.estado === "NO_DISPONIBLE") {
+        const estadoLegible = vehiculo.estado === "EN_MANTENCION" ? "En mantención" : "No disponible";
+        throw new ConflictError(
+          `El vehículo institucional '${vehiculo.nombre}' no se encuentra operativo para asignación (estado actual: ${estadoLegible}).`
+        );
+      }
+
+      vehiculoFinalId = input.vehiculoId;
+      latitud = vehiculo.latitud !== null ? Number(vehiculo.latitud) : null;
+      longitud = vehiculo.longitud !== null ? Number(vehiculo.longitud) : null;
+    } else {
+      // Mantiene el mismo vehículo actual
+      vehiculoFinalId = input.vehiculoId;
+    }
+  } else {
+    // input.vehiculoId === undefined: preservar el vehículo actual sin desasignarlo
+    vehiculoFinalId = patrullaExistente.fila.vehiculo_id;
+  }
+
+  // 6. Validar funcionarios asignados a la dotación
+  const personalFilas = await obtenerPersonalParaPatrullaRepo(input.personalIds);
+  if (personalFilas.length !== input.personalIds.length) {
+    throw new BadRequestError(
+      "Uno o más funcionarios especificados para la patrulla no existen o se encuentran inactivos."
+    );
+  }
+
+  // Validar rol PATRULLA_VERIFICADORA
+  const personalSinRol = personalFilas.filter(
+    (p) => p.rol_codigo !== "PATRULLA_VERIFICADORA"
+  );
+  if (personalSinRol.length > 0) {
+    throw new BadRequestError(
+      `Los siguientes funcionarios no cuentan con el rol operativo 'PATRULLA_VERIFICADORA': ${personalSinRol
+        .map((p) => p.nombre)
+        .join(", ")}.`
+    );
+  }
+
+  // Validar disponibilidad operativa de los integrantes NUEVOS (BUG-H84-API-03)
+  const integrantesActualesIds = new Set(
+    patrullaExistente.integrantes.map((i) => i.personal_id)
+  );
+  const nuevosIntegrantes = personalFilas.filter(
+    (p) => !integrantesActualesIds.has(p.personal_id)
+  );
+  const noDisponibles = nuevosIntegrantes.filter(
+    (p) => p.estado_operativo !== "disponible" && p.estado_operativo !== "en_patrulla"
+  );
+  if (noDisponibles.length > 0) {
+    throw new ConflictError(
+      `Los siguientes funcionarios no se encuentran disponibles operativamente (en descanso, licencia o inactivos): ${noDisponibles
+        .map((p) => `${p.nombre} (${p.estado_operativo})`)
+        .join(", ")}.`
+    );
+  }
+
+  // Determinar usuario líder y personal líder (BUG-H84-API-01)
+  let usuarioLiderId = input.usuarioLiderId;
+  let personalLiderId: string | null = null;
+
+  if (usuarioLiderId) {
+    const liderValido = personalFilas.find((p) => p.usuario_id === usuarioLiderId);
+    if (!liderValido) {
+      throw new BadRequestError(
+        "El funcionario designado como líder debe pertenecer a la dotación asignada a la patrulla."
+      );
+    }
+    personalLiderId = liderValido.personal_id;
+  } else {
+    usuarioLiderId = personalFilas[0].usuario_id;
+    personalLiderId = personalFilas[0].personal_id;
+  }
+
+  // 7. Modificación transaccional
+  await modificarPatrullaTransaccionalRepo({
+    id,
+    nombre: input.nombre,
+    delegacionId: input.delegacionId,
+    vehiculoId: vehiculoFinalId,
+    usuarioLiderId,
+    personalLiderId,
+    latitud,
+    longitud,
+    personalIds: input.personalIds,
+  });
+
+  // 8. Recuperar la entidad actualizada
+  const detalleActualizado = await obtenerPatrullaPorIdRepo(id);
+  if (!detalleActualizado) {
+    throw new Error("Error interno al recuperar la patrulla verificadora actualizada.");
+  }
+
+  const data = mapearFilaAPatrullaDTO(
+    detalleActualizado.fila,
+    detalleActualizado.integrantes
+  );
+
+  // 9. Emitir evento Socket.io
+  notificarPatrullaActualizada({
+    patrullaId: data.id,
+    nombre: data.nombre,
+    estado: data.estado,
+    delegacionId: data.delegacion?.id ?? null,
+    usuarioLiderId: data.lider?.id ?? null,
+    misionActivaId: data.misionActiva?.id ?? null,
+    incidenteId: data.misionActiva?.incidenteId ?? null,
+    actualizadoEn: data.actualizadoEn,
+  });
+
+  return {
+    message: "Patrulla verificadora modificada exitosamente.",
     data,
   };
 }
