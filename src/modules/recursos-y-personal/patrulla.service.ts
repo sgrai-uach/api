@@ -604,15 +604,16 @@ export async function desactivarPatrullaService(
   let resultado;
   try {
     resultado = await desactivarPatrullaTransaccionalRepo(id, usuario.id);
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
       throw error;
     }
-    if (error?.message?.startsWith("CONFLICT:")) {
-      throw new ConflictError(error.message.replace("CONFLICT:", ""));
+    const mensaje = error instanceof Error ? error.message : String(error);
+    if (mensaje.startsWith("CONFLICT:")) {
+      throw new ConflictError(mensaje.replace("CONFLICT:", ""));
     }
-    if (error?.message?.includes("no encontrada para dar de baja")) {
-      throw new NotFoundError(error.message);
+    if (mensaje.includes("no encontrada para dar de baja")) {
+      throw new NotFoundError(mensaje);
     }
     throw error;
   }

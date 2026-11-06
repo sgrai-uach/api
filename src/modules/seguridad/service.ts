@@ -343,6 +343,12 @@ export class SeguridadService {
 
     const { token, expiraEn } = await generarTokenJwt(tokenPayload);
 
+    // Consultar estado de unidad operativa para roles de terreno (HU-82 Cuadrilla, HU-85 Patrulla)
+    const unidad = await this.repo.obtenerUnidadOperativaDeUsuario(
+      usuario.id,
+      usuario.rol_codigo
+    );
+
     return {
       data: {
         token,
@@ -358,6 +364,9 @@ export class SeguridadService {
           rolCodigo: usuario.rol_codigo,
           delegacionId: usuario.delegacion_id,
           permisos,
+          unidadId: unidad.unidadId,
+          unidadNombre: unidad.unidadNombre,
+          unidadActiva: unidad.unidadActiva,
         },
       },
     };
