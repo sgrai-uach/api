@@ -46,6 +46,28 @@ export const ListarPatrullasQuerySchema = PaginationQuerySchema.extend({
       description: "Búsqueda textual sobre el nombre de la patrulla o nombre del líder",
       example: "Costa",
     }),
+  activo: z
+    .preprocess((val) => {
+      if (val === "true" || val === true) return true;
+      if (val === "false" || val === false) return false;
+      return val;
+    }, z.boolean())
+    .optional()
+    .openapi({
+      description: "Filtrar por patrullas activas o inactivas (baja lógica)",
+      example: true,
+    }),
+  incluirInactivas: z
+    .preprocess((val) => {
+      if (val === "true" || val === true) return true;
+      if (val === "false" || val === false) return false;
+      return val;
+    }, z.boolean())
+    .optional()
+    .openapi({
+      description: "Permite incluir patrullas inactivas/desactivadas en el listado",
+      example: false,
+    }),
 });
 
 export type ListarPatrullasQuery = z.infer<typeof ListarPatrullasQuerySchema>;
@@ -156,6 +178,9 @@ export const PatrullaItemResponseSchema = z.object({
   }),
   creadoEn: z.string().openapi({ description: "Fecha ISO de conformación de la patrulla" }),
   actualizadoEn: z.string().openapi({ description: "Fecha ISO de última actualización" }),
+  activo: z.boolean().default(true).openapi({ description: "Indica si la patrulla se encuentra activa operacionalmente" }),
+  eliminadoEn: z.string().nullable().optional().openapi({ description: "Timestamp ISO de baja lógica si fue desactivada" }),
+  eliminadoPorId: z.string().uuid().nullable().optional().openapi({ description: "UUID del usuario que realizó la baja lógica" }),
 });
 
 export type PatrullaItemResponseDTO = z.infer<typeof PatrullaItemResponseSchema>;
@@ -347,4 +372,38 @@ export const ModificarPatrullaResponseSchema = z.object({
 });
 
 export type ModificarPatrullaResponseDTO = z.infer<typeof ModificarPatrullaResponseSchema>;
+
+/**
+ * Respuesta tras desactivar (baja lógica) una patrulla verificadora (DELETE /api/patrullas/:id, HU-85).
+ */
+export const DesactivarPatrullaResponseSchema = z.object({
+  message: z.string().openapi({ description: "Mensaje descriptivo del resultado" }),
+  data: z
+    .object({
+      id: z.string().uuid().openapi({ description: "UUID de la patrulla verificadora desactivada" }),
+      codigo: z.string().nullable().optional().openapi({ description: "Código identificador de la patrulla" }),
+      nombre: z.string().openapi({ description: "Nombre de la patrulla" }),
+      estado: EstadoPatrullaEnum.openapi({ description: "Estado de la patrulla tras la baja (NO_DISPONIBLE)" }),
+      activo: z.boolean().openapi({ description: "Indicador de baja lógica (false)" }),
+      eliminadoEn: z.string().openapi({ description: "Fecha y hora ISO de la baja lógica" }),
+      eliminadoPorId: z
+        .string()
+        .uuid()
+        .nullable()
+        .optional()
+        .openapi({ description: "UUID del usuario responsable de la baja" }),
+      vehiculoLiberadoId: z
+        .string()
+        .uuid()
+        .nullable()
+        .optional()
+        .openapi({ description: "UUID del vehículo que fue liberado al inventario" }),
+      personalLiberadoIds: z
+        .array(z.string().uuid())
+        .openapi({ description: "UUIDs de los funcionarios de terreno liberados a estado disponible" }),
+    })
+    .openapi({ description: "Detalle de la patrulla desactivada y recursos liberados" }),
+});
+
+export type DesactivarPatrullaResponseDTO = z.infer<typeof DesactivarPatrullaResponseSchema>;
 

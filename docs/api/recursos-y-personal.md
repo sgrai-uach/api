@@ -83,6 +83,7 @@ El módulo **Recursos y Personal** es responsable de administrar el inventario l
 | `GET` | `/api/patrullas/{id}` | Consultar detalle completo de una patrulla verificadora. |
 | `PATCH` | `/api/patrullas/{id}` | Actualizar estado operativo canónico y/o geolocalización de una patrulla con emisión en tiempo real vía WebSocket. |
 | `PUT` | `/api/patrullas/{id}` | Modificar delegación base, vehículo asignado y dotación de personal de una patrulla verificadora (HU-84). |
+| `DELETE` | `/api/patrullas/{id}` | Desactivar mediante baja lógica una patrulla verificadora liberando personal y vehículo asignados (HU-85). |
 
 
 ---
@@ -606,7 +607,7 @@ Permite al Administrador adecuar la composición del equipo verificador ante rot
     - Si se desasigna el vehículo previo (`vehiculoId: null`) o se reemplaza por otro, el vehículo anterior se libera automáticamente (`estado = 'DISPONIBLE'`, `cantidad_en_uso = 0`).
     - Si se especifica un nuevo vehículo, este debe existir, ser un recurso individual (`es_individual: true`) y encontrarse disponible (`estado === 'DISPONIBLE'`). Al asignarse, pasa a estado `ASIGNADO` con `cantidad_en_uso = 1`.
   - **Dotación de Personal:**
-    - Los funcionarios desvinculados de la patrulla retornan a `estado_operativo = 'disponible'` en la tabla `personal`.
+    - Los funcionarios desvinculados de la patrulla retornan a `estado_operativo = 'disponible'` en la tabla `usuario`.
     - Los nuevos funcionarios asignados deben contar con rol `PATRULLA_VERIFICADORA` y pasan a `estado_operativo = 'en_patrulla'`.
   - **Auditoría:** Cada modificación registra la fecha y hora de actualización en la columna `actualizado_en = CURRENT_TIMESTAMP`.
   - **Sincronización en Tiempo Real:** Emite el evento WebSocket `patrulla:actualizada` a las salas `"encargado"`, `"supervisor"`, `"mapa"` y `"patrulla:{patrullaId}"`.
@@ -666,11 +667,61 @@ Ante cambios de estado, asignación, alta o modificación de patrulla, el backen
 2. `patrulla:actualizada`:
    - **Salas destino:** `"encargado"`, `"supervisor"`, `"mapa"`, `"patrulla:{patrullaId}"`.
    - **Payload:** `{ patrullaId, nombre, estado, delegacionId, usuarioLiderId, misionActivaId, incidenteId, actualizadoEn }`.
-3. `mision:asignada`:
+3. `patrulla:desactivada`:
+   - **Salas destino:** `"encargado"`, `"supervisor"`, `"mapa"`, `"administrador"`, `"patrulla:{patrullaId}"`.
+   - **Payload:** `{ patrullaId, nombre, eliminadoPorId, eliminadoEn }`.
+4. `mision:asignada`:
    - **Salas destino:** `"encargado"`, `"supervisor"`.
    - **Payload:** `{ misionId, codigo, tipoMision, patrullaId, incidenteId, asignadoEn }`.
 
 ---
+
+### 3.9. `DELETE /api/patrullas/{id}` (HU-85: Desactivar Patrulla Verificadora)
+Desactiva mediante **baja lógica (soft delete)** una patrulla verificadora que ya no prestará servicios operacionales, impidiendo su selección en nuevos despachos mientras preserva íntegramente la auditoría de los reportes técnicos (`reporte_terreno`) y misiones tácticas en las que actuó.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
+- **Perfiles y permisos autorizados:** Perfil `Administrador` o usuarios que cuenten con el permiso `recursos:eliminar`.
+
+#### Reglas de Negocio Críticas Aplicadas:
+1. **Validación de Bloqueo por Misiones o Despliegue en Terreno (`HTTP 409 Conflict`):**
+   - Si la patrulla se encuentra en cualquiera de los estados de despliegue en terreno (`EN_VERIFICACION`, `EN_PREVENCION`, `EN_RECUPERACION` o `EN_MISION`), la baja es rechazada inmediatamente con `409 Conflict`.
+   - Si la patrulla cuenta con misiones activas en curso (`PLANIFICADA`, `DESPACHADA` o `EN_CURSO`), la baja es rechazada con `409 Conflict` bajo bloqueo pesimista `SELECT ... FOR UPDATE`.
+2. **Aplicación Estricta de Baja Lógica y Preservación de Trazabilidad (Regla Crítica §3.7):**
+   - No se realiza eliminación física (`DELETE`) en la base de datos relacional.
+   - Se actualizan los atributos: `activo = false`, `eliminado_en = CURRENT_TIMESTAMP`, `eliminado_por_id = usuarioId` y `estado = 'NO_DISPONIBLE'`.
+   - Se preserva el atributo `vehiculo_id` en la fila inactiva de `patrulla_verificadora` para no perder la trazabilidad histórica del móvil con el que operó la patrulla.
+3. **Liberación Inmediata de Inventario y Dotación Comunal:**
+   - **Vehículo:** Si la patrulla tenía un vehículo institucional asignado (`vehiculo_id`), este se libera en la tabla `recurso` pasando inmediatamente a `estado = 'DISPONIBLE'` y `cantidad_en_uso = 0`.
+   - **Personal de Terreno y Líder:** Los funcionarios activos asignados a la dotación en `patrulla_personal` y el `usuario_lider_id` cuyo estado sea `'en_patrulla'` retornan en la tabla `usuario` a `estado_operativo = 'disponible'`, siempre que no integren otra patrulla o cuadrilla activa.
+4. **Preservación Inmutable de Evidencia e Informes Técnicos:**
+   - Los registros de `reporte_terreno` vinculados a misiones históricas ejecutadas por esta patrulla no sufren ninguna alteración, garantizando trazabilidad para auditorías y fiscalizaciones comunales (SENAPRED / DGRD).
+5. **Sincronización en Tiempo Real:**
+   - Emite el evento `patrulla:desactivada` y `patrulla:actualizada` a las salas del Centro de Mando.
+   - Si se liberó un vehículo, emite `recurso:actualizado` para refrescar los módulos de inventario en vivo.
+
+#### Parámetros de Ruta
+- `id` (`UUID`, obligatorio): Identificador único de la patrulla verificadora a desactivar.
+
+#### Respuesta Exitosa (`HTTP 200 OK`)
+```json
+{
+  "message": "Patrulla verificadora desactivada exitosamente.",
+  "data": {
+    "id": "f1000000-0000-4000-8000-000000000001",
+    "codigo": "PV-COSTA-01",
+    "nombre": "Patrulla Costa 01",
+    "estado": "NO_DISPONIBLE",
+    "activo": false,
+    "eliminadoEn": "2026-10-26T15:30:00.000Z",
+    "eliminadoPorId": "00000000-0000-4000-8000-000000000001",
+    "vehiculoLiberadoId": "e1000000-0000-4000-8000-000000000002",
+    "personalLiberadoIds": [
+      "b1000000-0000-4000-8000-000000000001",
+      "b1000000-0000-4000-8000-000000000002"
+    ]
+  }
+}
+```
 
 ---
 
@@ -883,7 +934,7 @@ Desactiva mediante baja lógica una cuadrilla operativa que haya sido disuelta o
 - **`404 Not Found`:** Recurso, patrulla o empleado no encontrado en el sistema, o recurso ya dado de baja previamente.
 - **`409 Conflict`:**
   - El recurso no se puede eliminar porque actualmente tiene unidades en uso en terreno o se encuentra asignado a cuadrillas en misión activa.
-  - La patrulla verificadora no se puede modificar porque se encuentra en estado `EN_VERIFICACION` o con una misión táctica activa en curso (HU-84).
+  - La patrulla verificadora no se puede modificar o desactivar porque se encuentra en estado `EN_VERIFICACION` o con una misión táctica activa en curso (HU-84 / HU-85).
   - El vehículo institucional a asignar ya se encuentra en uso o asignado a otra dotación activa.
   - Código identificador de patrulla ya registrado en otra patrulla activa.
   - Correo electrónico o RUT duplicado en otro usuario.
