@@ -1,4 +1,12 @@
 import { db } from "@/lib/db";
+import { sql } from "kysely";
+import {
+  NotFoundError,
+  ForbiddenError,
+  BadRequestError,
+  ConflictError,
+} from "@/modules/seguridad/errors";
+import type { ReportarLlegadaBody } from "./mision-llegada.schema";
 
 export interface MisionDetalleQueryResult {
   mision: {
@@ -302,3 +310,217 @@ export async function obtenerMisionDetallePorIdRepo(
     reportesTerreno,
   };
 }
+
+export interface ReportarLlegadaResultado {
+  hito: {
+    id: string;
+    misionId: string;
+    codigoMision: string;
+    hito: "LLEGADA_TERRENO";
+    descripcion: string;
+    latitud: number;
+    longitud: number;
+    registradoEn: string;
+    registradoPor: {
+      id: string;
+      nombre: string;
+    };
+    estadoMision: string;
+    miembrosActualizados: number;
+  };
+  mision: {
+    id: string;
+    codigo: string;
+    estado: string;
+    cuadrillaId: string | null;
+  };
+}
+
+/**
+ * Registra atómicamente la llegada a terreno de una cuadrilla (HU-42).
+ *
+ * 1. Verifica la existencia de la misión y bloquea la fila para evitar concurrencia.
+ * 2. Valida que la misión posea una cuadrilla asignada y que el usuario sea el delegado de la misma (o Administrador).
+ * 3. Valida que el estado permita el reporte (rechaza COMPLETADA, CANCELADA o RECHAZADA con 409 Conflict).
+ * 4. Valida que no se haya reportado previamente el hito LLEGADA_TERRENO (409 Conflict).
+ * 5. Inserta el hito 'LLEGADA_TERRENO' en 'mision_hito' con coordenadas PostGIS.
+ * 6. Actualiza 'mision.estado' a 'EN_CURSO' y 'mision.fecha_inicio' con CURRENT_TIMESTAMP.
+ * 7. Actualiza 'personal.ultima_ubicacion' y 'personal.ultima_actualizacion_ubicacion' para los miembros de la cuadrilla y su delegado.
+ */
+export async function reportarLlegadaCuadrillaRepo(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: ReportarLlegadaBody
+): Promise<ReportarLlegadaResultado> {
+  return await db.transaction().execute(async (trx) => {
+    // 1. Obtener la misión con su cuadrilla asignada y bloquear para actualización
+    const mision = await trx
+      .selectFrom("mision")
+      .leftJoin("cuadrilla", "cuadrilla.id", "mision.cuadrilla_id")
+      .select([
+        "mision.id",
+        "mision.codigo",
+        "mision.estado",
+        "mision.tipo_mision",
+        "mision.cuadrilla_id",
+        "mision.fecha_inicio",
+        "cuadrilla.usuario_delegado_id",
+        "cuadrilla.nombre as cuadrilla_nombre",
+      ])
+      .where("mision.id", "=", misionId)
+      .forUpdate()
+      .executeTakeFirst();
+
+    if (!mision) {
+      throw new NotFoundError("No se encontró ninguna misión con el identificador proporcionado.");
+    }
+
+    if (!mision.cuadrilla_id) {
+      throw new BadRequestError("La misión no tiene una cuadrilla operativa asignada.");
+    }
+
+    // 2. Validar pertenencia táctica: solo el delegado asignado o un Administrador pueden reportar arribo
+    if (!esAdmin && mision.usuario_delegado_id !== usuarioId) {
+      throw new ForbiddenError(
+        "Acceso denegado. Solo el delegado asignado a la cuadrilla de esta misión puede reportar la llegada a terreno."
+      );
+    }
+
+    // 3. Validar estado operativo de la misión
+    const estadosInvalidos = ["COMPLETADA", "CANCELADA", "RECHAZADA"];
+    if (estadosInvalidos.includes(mision.estado)) {
+      throw new ConflictError(
+        `No es posible reportar llegada a terreno para una misión con estado ${mision.estado}.`
+      );
+    }
+
+    // 4. Validar que no se haya reportado la llegada con anterioridad
+    const hitoPrevio = await trx
+      .selectFrom("mision_hito")
+      .select("id")
+      .where("mision_id", "=", misionId)
+      .where("hito", "=", "LLEGADA_TERRENO")
+      .executeTakeFirst();
+
+    if (hitoPrevio) {
+      throw new ConflictError("La llegada a terreno ya fue reportada previamente para esta misión.");
+    }
+
+    // 5. Insertar hito LLEGADA_TERRENO en mision_hito
+    const glosaHito = input.observaciones
+      ? `Llegada a terreno reportada. ${input.observaciones}`
+      : "Llegada a terreno reportada por la brigada operativa.";
+
+    const hitoInsertado = await trx
+      .insertInto("mision_hito")
+      .values({
+        mision_id: misionId,
+        hito: "LLEGADA_TERRENO",
+        descripcion: glosaHito,
+        registrado_por_id: usuarioId,
+        latitud: input.latitud,
+        longitud: input.longitud,
+        ubicacion: sql`ST_SetSRID(ST_MakePoint(${input.longitud}, ${input.latitud}), 4326)`,
+        creado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .returning([
+        "id",
+        "mision_id",
+        "hito",
+        "descripcion",
+        "latitud",
+        "longitud",
+        "registrado_por_id",
+        "creado_en",
+      ])
+      .executeTakeFirstOrThrow();
+
+    // 6. Transicionar misión a EN_CURSO y fijar fecha_inicio para cálculo de tiempos de respuesta
+    const nuevoEstado =
+      mision.estado === "PLANIFICADA" || mision.estado === "DESPACHADA"
+        ? "EN_CURSO"
+        : mision.estado;
+
+    await trx
+      .updateTable("mision")
+      .set({
+        estado: nuevoEstado,
+        fecha_inicio: mision.fecha_inicio ?? sql`CURRENT_TIMESTAMP`,
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", misionId)
+      .execute();
+
+    // 7. Actualizar última ubicación en personal para miembros de la cuadrilla y delegado
+    const integrantesCuadrilla = await trx
+      .selectFrom("cuadrilla_personal")
+      .select("personal_id")
+      .where("cuadrilla_id", "=", mision.cuadrilla_id)
+      .execute();
+
+    const personalIds = integrantesCuadrilla.map((i) => i.personal_id);
+
+    let miembrosActualizados = 0;
+    const updateResult = await trx
+      .updateTable("personal")
+      .set({
+        ultima_ubicacion: sql`ST_SetSRID(ST_MakePoint(${input.longitud}, ${input.latitud}), 4326)`,
+        ultima_actualizacion_ubicacion: sql`CURRENT_TIMESTAMP`,
+      })
+      .where((eb) => {
+        const condiciones = [];
+        if (personalIds.length > 0) {
+          condiciones.push(eb("id", "in", personalIds));
+        }
+        if (mision.usuario_delegado_id) {
+          condiciones.push(eb("usuario_id", "=", mision.usuario_delegado_id));
+        }
+        if (condiciones.length === 0) {
+          return eb(sql`false`, "=", true);
+        }
+        return eb.or(condiciones);
+      })
+      .executeTakeFirst();
+
+    miembrosActualizados = Number(updateResult.numUpdatedRows ?? 0);
+
+    // 8. Consultar nombre del usuario para el payload
+    const usuarioRegistrador = await trx
+      .selectFrom("usuario")
+      .select(["id", "nombre"])
+      .where("id", "=", usuarioId)
+      .executeTakeFirst();
+
+    const fechaIso =
+      hitoInsertado.creado_en instanceof Date
+        ? hitoInsertado.creado_en.toISOString()
+        : new Date(hitoInsertado.creado_en).toISOString();
+
+    return {
+      hito: {
+        id: hitoInsertado.id,
+        misionId: hitoInsertado.mision_id,
+        codigoMision: mision.codigo,
+        hito: "LLEGADA_TERRENO",
+        descripcion: hitoInsertado.descripcion,
+        latitud: Number(hitoInsertado.latitud),
+        longitud: Number(hitoInsertado.longitud),
+        registradoEn: fechaIso,
+        registradoPor: {
+          id: usuarioRegistrador?.id ?? usuarioId,
+          nombre: usuarioRegistrador?.nombre ?? "Delegado de Cuadrilla",
+        },
+        estadoMision: nuevoEstado,
+        miembrosActualizados,
+      },
+      mision: {
+        id: mision.id,
+        codigo: mision.codigo,
+        estado: nuevoEstado,
+        cuadrillaId: mision.cuadrilla_id,
+      },
+    };
+  });
+}
+

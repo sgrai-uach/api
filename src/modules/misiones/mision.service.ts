@@ -1,10 +1,21 @@
-import { obtenerMisionDetallePorIdRepo } from "./mision.repository";
+import {
+  obtenerMisionDetallePorIdRepo,
+  reportarLlegadaCuadrillaRepo,
+} from "./mision.repository";
 import type {
   MisionDetalleCompleto,
   MisionBitacoraHito,
   ReporteTerrenoDetalle,
   AdjuntoEvidencia,
 } from "./mision.schema";
+import type {
+  ReportarLlegadaBody,
+  ReportarLlegadaResponse,
+} from "./mision-llegada.schema";
+import {
+  notificarHitoMisionRegistrado,
+  notificarMisionActualizada,
+} from "@/lib/socket";
 
 function formatearFechaIso(fecha: Date | string | null | undefined): string | null {
   if (!fecha) return null;
@@ -236,3 +247,53 @@ export async function obtenerDetalleMisionService(
     reportesTerreno: reportesMapeados,
   };
 }
+
+/**
+ * HU-42 - Servicio de negocio para reportar la llegada a terreno de una cuadrilla.
+ *
+ * 1. Invoca la transacción atómica en repositorio (validación de estado, pertenencia de delegado,
+ *    inserción de hito LLEGADA_TERRENO, transición de misión a EN_CURSO y actualización de ubicación de personal).
+ * 2. Emite eventos en tiempo real vía Socket.io / Redis:
+ *    - 'mision:hito_registrado' a las salas de 'encargado', 'supervisor' y de la misión.
+ *    - 'mision:actualizada' para actualizar la línea de tiempo y paneles de monitoreo.
+ * 3. Retorna la respuesta conforme al contrato DTO.
+ */
+export async function reportarLlegadaCuadrillaService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: ReportarLlegadaBody
+): Promise<ReportarLlegadaResponse> {
+  const resultado = await reportarLlegadaCuadrillaRepo(misionId, usuarioId, esAdmin, input);
+
+  try {
+    notificarHitoMisionRegistrado({
+      misionId: resultado.hito.misionId,
+      codigoMision: resultado.hito.codigoMision,
+      hito: resultado.hito.hito,
+      descripcion: resultado.hito.descripcion,
+      latitud: resultado.hito.latitud,
+      longitud: resultado.hito.longitud,
+      registradoPor: resultado.hito.registradoPor,
+      registradoEn: resultado.hito.registradoEn,
+      nuevoEstadoMision: resultado.hito.estadoMision,
+    });
+
+    notificarMisionActualizada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      estado: resultado.mision.estado,
+      cuadrillaId: resultado.mision.cuadrillaId,
+      hito: resultado.hito,
+      actualizadoEn: resultado.hito.registradoEn,
+    });
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras reportar llegada a terreno:", error);
+  }
+
+  return {
+    message: "Llegada a terreno reportada exitosamente.",
+    data: resultado.hito,
+  };
+}
+
