@@ -49,6 +49,8 @@ import {
   DetalleCuadrillaResponseSchema,
   CuadrillaIdParamSchema,
   DesactivarCuadrillaResponseSchema,
+  MisionActivaCuadrillaSchema,
+  MisionActivaIncidenteSchema,
 } from "@/modules/recursos-y-personal/cuadrilla.schema";
 
 import {
@@ -179,6 +181,8 @@ registry.register("EditarCuadrillaInput", EditarCuadrillaInputSchema);
 registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
 registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
 registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
+registry.register("MisionActivaIncidente", MisionActivaIncidenteSchema);
+registry.register("MisionActivaCuadrilla", MisionActivaCuadrillaSchema);
 
 
 // Registrar esquemas de Seguridad
@@ -2147,13 +2151,13 @@ registry.registerPath({
   },
 });
 
-// H81 / H79: Detalle Unitario de Cuadrilla
+// H81 / H79 / H22: Detalle Unitario de Cuadrilla
 registry.registerPath({
   method: "get",
   path: "/api/cuadrillas/{id}",
-  summary: "Obtener detalle unitario de una cuadrilla operativa (H81 / H79)",
+  summary: "Obtener detalle unitario de una cuadrilla operativa (H81 / H79 / H22)",
   description:
-    "Retorna la información detallada de una cuadrilla consolidando su delegación, delegado, recursos y trabajadores.",
+    "Retorna la información detallada de una cuadrilla consolidando su delegación, delegado, nómina completa de integrantes (con RUT, cargo, especialidad y teléfono de contacto), recursos y herramientas con especificaciones técnicas, y detalle de la misión en ejecución con tiempo transcurrido e incidente asociado si se encuentra EN_MISION.",
   tags: ["Cuadrillas", "Recursos y Personal"],
   security: [{ BearerAuth: [] }],
   request: {

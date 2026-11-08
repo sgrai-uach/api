@@ -172,6 +172,9 @@ export const CuadrillaRecursoDetalleSchema = z.object({
   nombre: z.string(),
   cantidadAsignada: z.number(),
   esIndividual: z.boolean(),
+  descripcion: z.string().nullable().optional(),
+  detalles: z.record(z.string(), z.unknown()).nullable().optional(),
+  especificaciones: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
 export const CuadrillaTrabajadorDetalleSchema = z.object({
@@ -182,8 +185,41 @@ export const CuadrillaTrabajadorDetalleSchema = z.object({
   rut: z.string().nullable().optional(),
   cargo: z.string().nullable().optional(),
   especialidad: z.string().nullable().optional(),
+  telefono: z.string().nullable().optional(),
   asignadoEn: z.string(),
 });
+
+export const MisionActivaIncidenteSchema = z
+  .object({
+    id: z.string().uuid().openapi({ example: "40000000-0000-4000-8000-000000000001", description: "Identificador único del incidente" }),
+    codigo: z.string().openapi({ example: "INC-2026-0042", description: "Código oficial del incidente" }),
+    tipo: z.string().nullable().optional().openapi({ example: "Inundación", description: "Tipo o afectación del incidente" }),
+    direccion: z.string().nullable().optional().openapi({ example: "Av. Los Robles 450, Isla Teja", description: "Dirección o punto de referencia" }),
+    latitud: z.number().nullable().optional().openapi({ example: -39.8152, description: "Coordenada latitud" }),
+    longitud: z.number().nullable().optional().openapi({ example: -73.2458, description: "Coordenada longitud" }),
+  })
+  .openapi({
+    title: "MisionActivaIncidente",
+    description: "Datos esenciales del incidente asignado a la misión en ejecución",
+  });
+
+export const MisionActivaCuadrillaSchema = z
+  .object({
+    id: z.string().uuid().openapi({ example: "50000000-0000-4000-8000-000000000001", description: "Identificador de la misión" }),
+    codigo: z.string().openapi({ example: "MIS-2026-0012", description: "Código de la misión" }),
+    titulo: z.string().openapi({ example: "Atención anegamiento en Isla Teja", description: "Título de la misión" }),
+    tipoMision: z.string().openapi({ example: "ATENCION_CUADRILLA", description: "Tipo de misión táctica" }),
+    estado: z.string().openapi({ example: "EN_CURSO", description: "Estado de la misión (DESPACHADA o EN_CURSO)" }),
+    fechaDespacho: z.string().nullable().optional().openapi({ example: "2026-11-08T09:30:00.000Z", description: "Fecha y hora de despacho a terreno" }),
+    tiempoTranscurridoMinutos: z.number().int().nonnegative().nullable().optional().openapi({ example: 45, description: "Minutos transcurridos desde el despacho de la misión" }),
+    incidente: MisionActivaIncidenteSchema.nullable().optional(),
+  })
+  .openapi({
+    title: "MisionActivaCuadrilla",
+    description: "Detalle de la misión táctica activa que la cuadrilla se encuentra atendiendo",
+  });
+
+export type MisionActivaCuadrilla = z.infer<typeof MisionActivaCuadrillaSchema>;
 
 /**
  * Esquema de respuesta completo para una cuadrilla operativa con dotación.
@@ -199,6 +235,7 @@ export const CuadrillaResponseSchema = z
     trabajadores: z.array(CuadrillaTrabajadorDetalleSchema).default([]),
     totalRecursos: z.number().optional(),
     totalTrabajadores: z.number().optional(),
+    misionActiva: MisionActivaCuadrillaSchema.nullable().optional(),
     activo: z.boolean().default(true).optional(),
     creadoEn: z.string(),
     actualizadoEn: z.string().nullable().optional(),

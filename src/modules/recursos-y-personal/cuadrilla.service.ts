@@ -97,6 +97,9 @@ export async function listarCuadrillas(
       nombre: r.nombre,
       cantidadAsignada: r.cantidad_asignada,
       esIndividual: r.es_individual,
+      descripcion: r.descripcion ?? null,
+      detalles: r.detalles ?? null,
+      especificaciones: r.detalles ?? null,
     })),
     trabajadores: c.trabajadores.map((t) => ({
       id: t.id,
@@ -106,6 +109,7 @@ export async function listarCuadrillas(
       rut: t.rut,
       cargo: t.cargo,
       especialidad: t.especialidad,
+      telefono: t.telefono ?? null,
       asignadoEn:
         t.asignado_en instanceof Date
           ? t.asignado_en.toISOString()
@@ -181,6 +185,9 @@ export async function obtenerCuadrillaPorId(
       nombre: r.nombre,
       cantidadAsignada: r.cantidad_asignada,
       esIndividual: r.es_individual,
+      descripcion: r.descripcion ?? null,
+      detalles: r.detalles ?? null,
+      especificaciones: r.detalles ?? null,
     })),
     trabajadores: cuadrilla.trabajadores.map((t) => ({
       id: t.id,
@@ -190,6 +197,7 @@ export async function obtenerCuadrillaPorId(
       rut: t.rut,
       cargo: t.cargo,
       especialidad: t.especialidad,
+      telefono: t.telefono ?? null,
       asignadoEn:
         t.asignado_en instanceof Date
           ? t.asignado_en.toISOString()
@@ -197,6 +205,41 @@ export async function obtenerCuadrillaPorId(
     })),
     totalRecursos: cuadrilla.recursos.length,
     totalTrabajadores: cuadrilla.trabajadores.length,
+    misionActiva: cuadrilla.mision_activa
+      ? {
+          id: cuadrilla.mision_activa.id,
+          codigo: cuadrilla.mision_activa.codigo,
+          titulo: cuadrilla.mision_activa.titulo,
+          tipoMision: cuadrilla.mision_activa.tipo_mision,
+          estado: cuadrilla.mision_activa.estado,
+          fechaDespacho:
+            cuadrilla.mision_activa.fecha_despacho instanceof Date
+              ? cuadrilla.mision_activa.fecha_despacho.toISOString()
+              : cuadrilla.mision_activa.fecha_despacho
+              ? String(cuadrilla.mision_activa.fecha_despacho)
+              : null,
+          tiempoTranscurridoMinutos: cuadrilla.mision_activa.fecha_despacho
+            ? Math.max(
+                0,
+                Math.floor(
+                  (Date.now() -
+                    new Date(cuadrilla.mision_activa.fecha_despacho).getTime()) /
+                    (1000 * 60)
+                )
+              )
+            : null,
+          incidente: cuadrilla.mision_activa.incidente
+            ? {
+                id: cuadrilla.mision_activa.incidente.id,
+                codigo: cuadrilla.mision_activa.incidente.codigo,
+                tipo: cuadrilla.mision_activa.incidente.tipo ?? null,
+                direccion: cuadrilla.mision_activa.incidente.direccion ?? null,
+                latitud: cuadrilla.mision_activa.incidente.latitud ?? null,
+                longitud: cuadrilla.mision_activa.incidente.longitud ?? null,
+              }
+            : null,
+        }
+      : null,
     creadoEn:
       cuadrilla.creado_en instanceof Date
         ? cuadrilla.creado_en.toISOString()
@@ -294,6 +337,7 @@ export async function crearCuadrilla(
     trabajadores: [],
     totalRecursos: 0,
     totalTrabajadores: 0,
+    misionActiva: null,
     creadoEn:
       resultado.creado_en instanceof Date
         ? resultado.creado_en.toISOString()
@@ -546,6 +590,9 @@ export async function editarCuadrilla(
       nombre: r.nombre,
       cantidadAsignada: r.cantidad_asignada,
       esIndividual: r.es_individual,
+      descripcion: r.descripcion ?? null,
+      detalles: r.detalles ?? null,
+      especificaciones: r.detalles ?? null,
     })),
     trabajadores: resultado.trabajadores.map((t) => ({
       id: t.id,
@@ -555,6 +602,7 @@ export async function editarCuadrilla(
       rut: t.rut,
       cargo: t.cargo,
       especialidad: t.especialidad,
+      telefono: t.telefono ?? null,
       asignadoEn:
         t.asignado_en instanceof Date
           ? t.asignado_en.toISOString()
@@ -562,6 +610,7 @@ export async function editarCuadrilla(
     })),
     totalRecursos: resultado.recursos.length,
     totalTrabajadores: resultado.trabajadores.length,
+    misionActiva: null,
     creadoEn:
       resultado.creado_en instanceof Date
         ? resultado.creado_en.toISOString()
