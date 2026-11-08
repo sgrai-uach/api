@@ -41,6 +41,21 @@ export interface ServerToClientEvents {
         incidenteId?: string | null;
         asignadoEn: string;
     }) => void;
+    "mision:hito_registrado": (payload: {
+        misionId: string;
+        codigoMision: string;
+        hito: string;
+        descripcion: string;
+        latitud: number;
+        longitud: number;
+        registradoPor: {
+            id: string;
+            nombre: string;
+        };
+        registradoEn: string;
+        nuevoEstadoMision: string;
+    }) => void;
+    "mision:actualizada": (payload: unknown) => void;
 }
 
 export interface ClientToServerEvents {

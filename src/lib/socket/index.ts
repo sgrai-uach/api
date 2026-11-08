@@ -674,6 +674,86 @@ export function notificarMisionAsignada(payload: {
   }
 }
 
+/**
+ * Emite una notificación en tiempo real cuando se registra un hito en la bitácora de la misión (HU-42).
+ * Impacta la línea de tiempo vertical del Encargado (H23) y el Centro de Mando.
+ */
+export function notificarHitoMisionRegistrado(payload: {
+  misionId: string;
+  codigoMision: string;
+  hito: string;
+  descripcion: string;
+  latitud: number;
+  longitud: number;
+  registradoPor: {
+    id: string;
+    nombre: string;
+  };
+  registradoEn: string;
+  nuevoEstadoMision: string;
+}): void {
+  const misionRoom = `mision:${payload.misionId}`;
+
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("mision:hito_registrado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("mision:hito_registrado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("mision:hito_registrado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to(misionRoom) as any).emit("mision:hito_registrado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("mision:hito_registrado", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "encargado",
+          event: "mision:hito_registrado",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
+/**
+ * Emite una notificación en tiempo real cuando se actualiza el estado u operaciones de una misión.
+ */
+export function notificarMisionActualizada(payload: unknown): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("mision:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("mision:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("mision:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("mision:actualizada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "encargado",
+          event: "mision:actualizada",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
 export * from "./types";
 
 
