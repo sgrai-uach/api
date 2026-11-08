@@ -9,10 +9,7 @@ extendZodWithOpenApi(z);
 export const ReportarLlegadaBodySchema = z
   .object({
     latitud: z
-      .number({
-        required_error: "La latitud es obligatoria.",
-        invalid_type_error: "La latitud debe ser un número decimal.",
-      })
+      .number()
       .min(-90, "La latitud no puede ser menor a -90 grados.")
       .max(90, "La latitud no puede ser mayor a 90 grados.")
       .openapi({
@@ -20,10 +17,7 @@ export const ReportarLlegadaBodySchema = z
         example: -39.81422,
       }),
     longitud: z
-      .number({
-        required_error: "La longitud es obligatoria.",
-        invalid_type_error: "La longitud debe ser un número decimal.",
-      })
+      .number()
       .min(-180, "La longitud no puede ser menor a -180 grados.")
       .max(180, "La longitud no puede ser mayor a 180 grados.")
       .openapi({

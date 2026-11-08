@@ -314,6 +314,7 @@ export async function obtenerMisionDetallePorIdRepo(
 export interface ReportarLlegadaResultado {
   hito: {
     id: string;
+    hitoId: string;
     misionId: string;
     codigoMision: string;
     hito: "LLEGADA_TERRENO";
@@ -500,6 +501,7 @@ export async function reportarLlegadaCuadrillaRepo(
     return {
       hito: {
         id: hitoInsertado.id,
+        hitoId: hitoInsertado.id,
         misionId: hitoInsertado.mision_id,
         codigoMision: mision.codigo,
         hito: "LLEGADA_TERRENO",

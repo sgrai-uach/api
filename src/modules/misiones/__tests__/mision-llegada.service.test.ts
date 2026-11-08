@@ -29,6 +29,7 @@ describe("Mision Service - reportarLlegadaCuadrillaService (HU-42)", () => {
     const mockResultadoRepo: misionRepo.ReportarLlegadaResultado = {
       hito: {
         id: "80000000-0000-4000-8000-000000000001",
+        hitoId: "80000000-0000-4000-8000-000000000001",
         misionId: "60000000-0000-4000-8000-000000000001",
         codigoMision: "MIS-2026-001",
         hito: "LLEGADA_TERRENO",

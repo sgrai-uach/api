@@ -293,7 +293,19 @@ export async function reportarLlegadaCuadrillaService(
 
   return {
     message: "Llegada a terreno reportada exitosamente.",
-    data: resultado.hito,
+    data: {
+      hitoId: resultado.hito.hitoId,
+      misionId: resultado.hito.misionId,
+      codigoMision: resultado.hito.codigoMision,
+      hito: resultado.hito.hito,
+      descripcion: resultado.hito.descripcion,
+      latitud: resultado.hito.latitud,
+      longitud: resultado.hito.longitud,
+      registradoEn: resultado.hito.registradoEn,
+      registradoPor: resultado.hito.registradoPor,
+      estadoMision: resultado.hito.estadoMision,
+      miembrosActualizados: resultado.hito.miembrosActualizados,
+    },
   };
 }
 
