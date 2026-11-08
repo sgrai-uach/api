@@ -379,6 +379,9 @@ export interface CuadrillaPersonalTable {
   desvinculado_en?: Date | null;
 }
 
+export type CuadrillaIntegranteTable = CuadrillaPersonalTable;
+export type PatrullaIntegranteTable = PatrullaPersonalTable;
+
 export type TipoMision =
   | "VERIFICACION"
   | "ATENCION_CUADRILLA"
@@ -563,6 +566,8 @@ export interface Database {
   evento_prevencion: EventoPrevencionTable;
   evento_prevencion_recurso: EventoPrevencionRecursoTable;
   token_recuperacion_contrasena: TokenRecuperacionContrasenaTable;
+  cuadrilla_integrante: CuadrillaIntegranteTable;
+  patrulla_integrante: PatrullaIntegranteTable;
 
   // Aliases plurales para compatibilidad transversal con servicios de H12 y consultas directas
   recursos: RecursoTable;

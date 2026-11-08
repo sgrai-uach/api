@@ -92,8 +92,9 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Adjunto** | `adjunto` | Migración 004 / 011 | Evidencia | Archivos y fotos vinculadas a avisos, incidentes o reportes de terreno. |
 | **Recurso** | `recurso` | Migración 005 | Recursos | Maquinaria, motobombas y vehículos. |
 | **Patrulla Verificadora** | `patrulla_verificadora`| Migración 006 | Operaciones | Unidades tácticas de evaluación preliminar. |
-| **Cuadrilla** | `cuadrilla` | Migración 006 | Operaciones | Unidades tácticas operativas de intervención. |
-| *(Asignación Logística)* | `cuadrilla_recurso` | Migración 006 | Recursos | Asignación N:M de recursos a cuadrillas. |
+| **Cuadrilla** | `cuadrilla` | Migración 006 / 027 / 031 / 032 | Operaciones | Unidades tácticas operativas de intervención. |
+| *(Asignación Logística)* | `cuadrilla_recurso` | Migración 006 / 032 | Recursos | Asignación N:M de recursos a cuadrillas con trazabilidad de desvinculación. |
+| *(Dotación de Integrantes)* | `cuadrilla_personal` (vista `cuadrilla_integrante`) | Migración 031 / 032 / 035 | Operaciones | Asignación N:M de funcionarios a cuadrillas con índice de unicidad activa y auditoría. |
 | **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 / 012 / 015 / 016 | Eventos ATP | Puntos críticos, factores de riesgo, edición (HU-55) y borrado lógico (HU-56). |
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
 | **Reporte Terreno** | `reporte_terreno` | Migración 011 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
@@ -462,7 +463,7 @@ Cuadrillas operativas municipales pesadas de intervención en terreno.
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de registro. |
 
 #### Tabla: `cuadrilla_recurso`
-Asignación temporal de recursos a cuadrillas para ejecución de tareas.
+Asignación temporal de recursos a cuadrillas para ejecución de tareas (Migración 006 y 032).
 
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
 |---|---|---|---|---|
@@ -471,6 +472,22 @@ Asignación temporal de recursos a cuadrillas para ejecución de tareas.
 | `recurso_id` | `UUID` | NO | — | FK a `recurso.id` (ON DELETE RESTRICT). |
 | `cantidad_asignada`| `INTEGER` | NO | `1` | Cantidad entregada a la cuadrilla. |
 | `asignado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de despacho del recurso. |
+| `activo` | `BOOLEAN` | NO | `true` | Indicador de asignación vigente. |
+| `desvinculado_en` | `TIMESTAMPTZ` | SÍ | `NULL` | Fecha de devolución al inventario central. |
+
+#### Tabla: `cuadrilla_personal` (y Vista `cuadrilla_integrante`)
+Dotación humana operativa y asignación de funcionarios de terreno a cuadrillas (Migraciones 031, 032 y 035).
+
+| Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
+|---|---|---|---|---|
+| `id` | `UUID` | NO | `gen_random_uuid()` | Identificador de la asignación de integrante. |
+| `cuadrilla_id` | `UUID` | NO | — | FK a `cuadrilla.id` (ON DELETE CASCADE). |
+| `personal_id` | `UUID` | NO | — | FK a `personal.id` (ON DELETE RESTRICT). |
+| `asignado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de incorporación a la cuadrilla. |
+| `activo` | `BOOLEAN` | NO | `true` | Estado activo de la asignación. |
+| `desvinculado_en` | `TIMESTAMPTZ` | SÍ | `NULL` | Fecha de desvinculación o baja de la brigada. |
+
+> **Nota:** La restricción de unicidad para asignaciones activas se asegura mediante el índice parcial `idx_cuadrilla_personal_activa (cuadrilla_id, personal_id) WHERE desvinculado_en IS NULL`. La vista `cuadrilla_integrante` provee compatibilidad directa sobre esta tabla.
 
 #### Tabla: `prevencion`
 Puntos críticos de mitigación y prevención geográfica comunal (Migraciones 006, 011 y 013).
