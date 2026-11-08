@@ -43,6 +43,7 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 |---|---|---|---|
 | `GET` | `/api/misiones` | `misiones:leer` / Sesión válida | Listar misiones tácticas con paginación estándar, metadatos `meta` y filtros multicriterio (H34). |
 | `GET` | `/api/misiones/{id}` | `misiones:leer` | Consultar detalle exhaustivo de una misión por su ID (incidente, cuadrilla/patrulla, tiempos y reportes con adjuntos - HU-17). |
+| `POST` | `/api/misiones/{id}/llegada` | `misiones:terreno:ejecutar` | Reportar arribo a terreno de la brigada operativa, registrar hito `LLEGADA_TERRENO`, actualizar ubicación de miembros y habilitar cálculo de tiempos de respuesta (HU-42). |
 
 ---
 
@@ -242,6 +243,63 @@ Obtiene la información exhaustiva de una misión operativa específica, incluye
 }
 ```
 
+### 3.3. `POST /api/misiones/{id}/llegada` (HU-42: Reporte de Llegada a Terreno por Delegado de Cuadrilla)
+
+Permite al Delegado de cuadrilla notificar a la central que la brigada operativa se encuentra físicamente en el lugar de los trabajos, capturando las coordenadas GPS y hora actual del arribo.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o cabecera `X-User-Id` en entornos de prueba interna).
+- **Permiso RBAC requerido:** `misiones:terreno:ejecutar`.
+- **Regla de pertenencia táctica:** El usuario autenticado debe ser el **delegado asignado a la cuadrilla** de la misión (`cuadrilla.usuario_delegado_id`) o poseer el rol `ADMIN`.
+
+#### Cuerpo de la Petición (`Content-Type: application/json`)
+
+```json
+{
+  "latitud": -39.81422,
+  "longitud": -73.24591,
+  "observaciones": "Equipo en el sector, evaluando afectación y despeje de calzada."
+}
+```
+
+#### Parámetros del Cuerpo
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `latitud` | `number` | Sí | Latitud WGS84 capturada mediante la Geolocation API (rango: -90 a 90). |
+| `longitud` | `number` | Sí | Longitud WGS84 capturada mediante la Geolocation API (rango: -180 a 180). |
+| `observaciones` | `string` | No | Comentarios u observaciones adicionales de arribo (máximo 500 caracteres). |
+
+#### Efectos Operativos y de Negocio
+1. **Bitácora Inmutable (`mision_hito`):** Inserta un registro de tipo `LLEGADA_TERRENO` con las coordenadas PostGIS `ST_SetSRID(ST_MakePoint(longitud, latitud), 4326)` y el usuario responsable en sesión.
+2. **Ciclo de Vida de Misión:** Si la misión se encuentra en `PLANIFICADA` o `DESPACHADA`, transiciona automáticamente su estado a `EN_CURSO`.
+3. **Cálculo de Tiempos de Respuesta:** Si `mision.fecha_inicio` es nula, se fija con `CURRENT_TIMESTAMP`, permitiendo calcular el tiempo transcurrido desde el despacho hasta el arribo efectivo.
+4. **Telemetría de la Cuadrilla (`personal`):** Actualiza en lote `personal.ultima_ubicacion` y `personal.ultima_actualizacion_ubicacion` para todos los miembros activos vinculados en `cuadrilla_personal` y para el delegado responsable.
+5. **Notificación en Tiempo Real:** Emite el evento WebSocket `mision:hito_registrado` impactando la línea de tiempo vertical del Encargado (H23) y la sala `mision:{id}`.
+
+#### Ejemplo de Respuesta Exitosa (`HTTP 201 Created`)
+
+```json
+{
+  "message": "Llegada a terreno reportada exitosamente.",
+  "data": {
+    "hitoId": "80000000-0000-4000-8000-000000000001",
+    "misionId": "60000000-0000-4000-8000-000000000001",
+    "codigoMision": "MIS-2026-001",
+    "hito": "LLEGADA_TERRENO",
+    "descripcion": "Llegada a terreno reportada. Equipo en el sector, evaluando afectación y despeje de calzada.",
+    "latitud": -39.81422,
+    "longitud": -73.24591,
+    "registradoEn": "2026-11-08T19:40:00.000Z",
+    "registradoPor": {
+      "id": "00000000-0000-4000-8000-000000000005",
+      "nombre": "Pedro Delegado"
+    },
+    "estadoMision": "EN_CURSO",
+    "miembrosActualizados": 4
+  }
+}
+```
+
 ---
 
 ## 4. Códigos de Estado y Errores Esperables
@@ -249,11 +307,16 @@ Obtiene la información exhaustiva de una misión operativa específica, incluye
 - **`400 Bad Request`:**
   - En `GET /api/misiones`: Parámetros de consulta no conformes al esquema Zod (ej. `page < 1`, `limit > 100`, valores de enum desconocidos o `delegacionId` no UUID).
   - En `GET /api/misiones/{id}`: El parámetro `id` no cumple el estándar UUID versión 4.
+  - En `POST /api/misiones/{id}/llegada`: Coordenadas geográficas fuera de rango (-90 a 90 / -180 a 180), JSON mal formado o la misión carece de cuadrilla asignada.
 - **`401 Unauthorized`:**
   - Petición sin token JWT Bearer, sesión expirada o cabecera `X-User-Id` no asociada a un usuario activo.
 - **`403 Forbidden`:**
-  - El usuario no cuenta con el permiso requerido (`misiones:leer`).
+  - Falta de permiso requerido (`misiones:leer` o `misiones:terreno:ejecutar`).
+  - En `POST /api/misiones/{id}/llegada`: El usuario no es el delegado asignado a la cuadrilla de esa misión en particular (y no posee rol de Administrador).
 - **`404 Not Found`:**
-  - En `GET /api/misiones/{id}`: No existe ninguna misión con el UUID proporcionado.
+  - La misión consultada no existe en el sistema.
+- **`409 Conflict`:**
+  - En `POST /api/misiones/{id}/llegada`: La llegada a terreno ya fue reportada previamente para esta misión (`hito = 'LLEGADA_TERRENO'` existente) o la misión se encuentra en un estado terminal que no admite arribo (`COMPLETADA`, `CANCELADA` o `RECHAZADA`).
 - **`500 Internal Server Error`:**
   - Error inesperado de persistencia o fallo de base de datos.
+

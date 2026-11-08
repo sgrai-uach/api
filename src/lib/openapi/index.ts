@@ -136,6 +136,11 @@ import {
 } from "@/modules/misiones/mision.schema";
 
 import {
+  ReportarLlegadaBodySchema,
+  ReportarLlegadaResponseSchema,
+} from "@/modules/misiones/mision-llegada.schema";
+
+import {
   CrearEventoAsistenciaSocialInputSchema,
   ListarEventosAsistenciaSocialQuerySchema,
   EventoAsistenciaSocialResponseSchema,
@@ -169,6 +174,8 @@ registry.register("ListarPersonalResponse", ListarPersonalResponseSchema);
 registry.register("PersonalItem", PersonalItemSchema);
 registry.register("ListarMisionesResponse", ListarMisionesResponseSchema);
 registry.register("MisionItem", MisionItemSchema);
+registry.register("ReportarLlegadaBody", ReportarLlegadaBodySchema);
+registry.register("ReportarLlegadaResponse", ReportarLlegadaResponseSchema);
 registry.register("DetalleEmpleadoResponse", DetalleEmpleadoResponseSchema);
 registry.register("EliminarEmpleadoResponse", EliminarEmpleadoResponseSchema);
 
@@ -1336,6 +1343,61 @@ registry.registerPath({
     500: { description: "Error interno del servidor" },
   },
 });
+
+// 22.b. POST /api/misiones/{id}/llegada (HU-42: Reporte de llegada a terreno por delegado de cuadrilla)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/llegada",
+  summary: "Reportar llegada a terreno de la cuadrilla (HU-42)",
+  description:
+    "Permite al Delegado de cuadrilla reportar el arribo del equipo a terreno capturando coordenadas GPS y hora actual mediante Geolocation API. Registra el hito LLEGADA_TERRENO en mision_hito, transiciona la misión a EN_CURSO, fija fecha_inicio para el cálculo de tiempos de respuesta, actualiza la última ubicación del personal de la cuadrilla y emite el evento en tiempo real mision:hito_registrado hacia la línea de tiempo del Centro de Mando.",
+  tags: ["Misiones"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .describe("ID del usuario delegado en sesión (opcional para desarrollo)"),
+    }),
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      description: "Coordenadas geográficas GPS actuales y observaciones de terreno",
+      content: {
+        "application/json": {
+          schema: ReportarLlegadaBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Llegada a terreno reportada exitosamente e hito registrado",
+      content: {
+        "application/json": {
+          schema: ReportarLlegadaResponseSchema,
+        },
+      },
+    },
+    400: { description: "Coordenadas inválidas, datos mal formados o misión sin cuadrilla" },
+    401: { description: "No autenticado o token ausente/inválido" },
+    403: {
+      description:
+        "Acceso denegado: se requiere permiso misiones:terreno:ejecutar y ser el delegado asignado",
+    },
+    404: { description: "Misión no encontrada" },
+    409: {
+      description:
+        "Conflicto: la llegada ya fue reportada previamente o la misión se encuentra en estado inválido (COMPLETADA/CANCELADA/RECHAZADA)",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
 
 // 22. GET /api/incidentes/kpis (HU-18)
 registry.registerPath({

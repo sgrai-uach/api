@@ -42,6 +42,14 @@ describe("Endpoint GET /openapi.json", () => {
     // Rutas de Misiones
     expect(spec.paths["/api/misiones"]).toBeDefined();
     expect(spec.paths["/api/misiones"].get).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/llegada"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/llegada"].post).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/llegada"].post.responses["201"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/llegada"].post.responses["400"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/llegada"].post.responses["401"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/llegada"].post.responses["403"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/llegada"].post.responses["404"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/llegada"].post.responses["409"]).toBeDefined();
 
     // Rutas de Incidentes
     expect(spec.paths["/api/incidentes/kpis"]).toBeDefined();
