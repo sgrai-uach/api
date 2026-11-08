@@ -185,6 +185,51 @@ describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
     expect(detalle?.patrulla?.nombre).toBe("Patrulla Costa-1");
     expect(detalle?.reportesTerreno).toEqual([]);
   });
+
+  it("debe incluir los hitos reales desde mision_hito en la bitácora de la misión", async () => {
+    vi.mocked(misionRepo.obtenerMisionDetallePorIdRepo).mockResolvedValueOnce({
+      mision: {
+        id: "60000000-0000-4000-8000-000000000001",
+        codigo: "MIS-2026-0001",
+        titulo: "Verificación de anegamiento",
+        descripcion: null,
+        tipo_mision: "VERIFICACION",
+        estado: "DESPACHADA",
+        prioridad: "ALTA",
+        justificacion_rechazo: null,
+        incidente_id: "a0000000-0000-4000-8000-000000000001",
+        prevencion_id: null,
+        cuadrilla_id: null,
+        patrulla_id: "f1000000-0000-4000-8000-000000000001",
+        encargado_id: "00000000-0000-4000-8000-000000000003",
+        creado_por_id: "00000000-0000-4000-8000-000000000003",
+        fecha_inicio: null,
+        fecha_cierre: null,
+        creado_en: new Date("2026-10-27T17:00:00Z"),
+        actualizado_en: new Date("2026-10-27T17:00:00Z"),
+      },
+      recursosCuadrilla: [],
+      reportesTerreno: [],
+      hitos: [
+        {
+          id: "70000000-0000-4000-8000-000000000001",
+          mision_id: "60000000-0000-4000-8000-000000000001",
+          hito: "DESPACHADA",
+          descripcion: "Misión de verificación asignada y despachada a la patrulla.",
+          registrado_por_id: "00000000-0000-4000-8000-000000000003",
+          latitud: null,
+          longitud: null,
+          creado_en: new Date("2026-10-27T17:00:00Z"),
+        },
+      ],
+    });
+
+    const detalle = await obtenerDetalleMisionService("60000000-0000-4000-8000-000000000001");
+    expect(detalle).not.toBeNull();
+    expect(detalle?.bitacoraTiempos).toHaveLength(1);
+    expect(detalle?.bitacoraTiempos[0].hito).toBe("DESPACHADA");
+    expect(detalle?.bitacoraTiempos[0].descripcion).toContain("despachada a la patrulla");
+  });
 });
 
 describe("Mision Service - asignarPatrullaVerificacionService (HU-20)", () => {
@@ -215,7 +260,7 @@ describe("Mision Service - asignarPatrullaVerificacionService (HU-20)", () => {
         incidenteId: inputMock.incidenteId,
         patrullaId: inputMock.patrullaId,
         encargadoId: operadorId,
-        fechaInicio: "2026-10-27T17:00:00.000Z",
+        fechaInicio: null,
         creadoEn: "2026-10-27T17:00:00.000Z",
       },
       incidente: {

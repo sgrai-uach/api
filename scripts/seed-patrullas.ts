@@ -146,7 +146,6 @@ export async function sembrarPatrullasVerificadoras() {
       codigo = 'PV-SUR-01',
       estado = 'DISPONIBLE',
       delegacion_id = ${delSur},
-      activo = true,
       eliminado_en = NULL
     WHERE id = 'f1000000-0000-4000-8000-000000000002';
   `.execute(db);
@@ -214,7 +213,7 @@ export async function sembrarPatrullasVerificadoras() {
     await sql`
       INSERT INTO patrulla_verificadora (
         id, codigo, nombre, estado, delegacion_id, usuario_lider_id, vehiculo_id,
-        latitud, longitud, ubicacion, activo, eliminado_en
+        latitud, longitud, ubicacion, eliminado_en
       )
       VALUES (
         ${p.id},
@@ -227,7 +226,6 @@ export async function sembrarPatrullasVerificadoras() {
         ${p.latitud},
         ${p.longitud},
         ST_SetSRID(ST_MakePoint(${p.longitud}, ${p.latitud}), 4326),
-        true,
         NULL
       )
       ON CONFLICT (id) DO UPDATE SET
@@ -240,7 +238,6 @@ export async function sembrarPatrullasVerificadoras() {
         latitud = EXCLUDED.latitud,
         longitud = EXCLUDED.longitud,
         ubicacion = EXCLUDED.ubicacion,
-        activo = true,
         eliminado_en = NULL;
     `.execute(db);
   }
