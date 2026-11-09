@@ -9,7 +9,7 @@
 > **Rama Git Evaluada:** `feature/H80-listar-cuadrillas`  
 > **Commits Evaluados (Conventional Commits):**  
 > * `feat(recursos-y-personal): implementar endpoints GET y POST de cuadrillas operativas H81 H79`  
-> * `feat(db): agregar migracion 032 con indices parciales de listado de cuadrillas (H80)`  
+> * `feat(db): agregar migracion 035 con indices parciales de listado de cuadrillas (H80)`  
 > * `test(cuadrillas): agregar suite de tests de schema ListarCuadrillasQuerySchema (H80)`  
 > * `test(cuadrillas): agregar casos de listarCuadrillas al suite del servicio (H80)`  
 > * `test(cuadrillas): ampliar casos de prueba del endpoint GET /api/cuadrillas (H80)`  
@@ -27,7 +27,7 @@ Durante la auditoría técnica de código, ejecución de pruebas automatizadas c
 
 | Métrica de Calidad | Resultado de Auditoría | Observaciones Técnicas |
 |---|:---:|---|
-| **Total de Casos de Prueba Evaluados** | **25** | Cobertura de esquema Zod, Route Handlers, Servicio, Repositorio Kysely, Migración 032 y Contrato OpenAPI |
+| **Total de Casos de Prueba Evaluados** | **25** | Cobertura de esquema Zod, Route Handlers, Servicio, Repositorio Kysely, Migración 035 y Contrato OpenAPI |
 | **Casos Aprobados (Passed)** | **20** | Filtros por delegación/estado, RBAC (`401`/`403`), validación Zod (`400`), detalle unitario e índices parciales |
 | **Casos Fallidos / Defectos Abiertos (Failed)** | **5** | `BUG-H80-API-01` al `BUG-H80-API-05` documentados con pasos de reproducción |
 | **Casos Bloqueados (Blocked)** | **0** | Entorno de base de datos PostgreSQL y servidor API operativos |
@@ -108,14 +108,14 @@ Durante la auditoría técnica de código, ejecución de pruebas automatizadas c
 * **Severidad:** ALTA
 * **Estado:** ABIERTO
 * **Módulo / Archivos Afectados:**
-  * `src/lib/db/migrations/032_indices_listado_cuadrillas.ts`
-  * `src/lib/db/migrations/__tests__/032_indices_listado_cuadrillas.test.ts`
+  * `src/lib/db/migrations/035_indices_listado_cuadrillas.ts`
+  * `src/lib/db/migrations/__tests__/035_indices_listado_cuadrillas.test.ts`
   * `src/modules/recursos-y-personal/cuadrilla.repository.ts`
   * `src/modules/recursos-y-personal/cuadrilla.schema.ts`
   * `src/modules/recursos-y-personal/cuadrilla.service.ts`
 * **Descripción Técnica:**
   1. La rama `feature/H80-listar-cuadrillas` registra un atraso de **55 commits respecto a `develop`** (`git rev-list --left-right --count develop...HEAD` = `55	8`).
-  2. En la rama `develop` ya se encuentran integradas las migraciones `032_cuadrilla_baja_logica_activo.ts` (HU-82), `033_patrullas_codigo_vehiculo.ts` (HU-83) y `034_patrulla_desactivacion_baja_logica.ts` (HU-85). La migración `032_indices_listado_cuadrillas.ts` creada en esta rama colisiona con el correlativo `032` de `develop`, por lo que debe rebasarse/mergearse con `develop` y renumerarse a `035_indices_listado_cuadrillas.ts`.
+  2. En la rama `develop` ya se encuentran integradas las migraciones `032_cuadrilla_baja_logica_activo.ts` (HU-82), `033_patrullas_codigo_vehiculo.ts` (HU-83) y `034_patrulla_desactivacion_baja_logica.ts` (HU-85). La migración `035_indices_listado_cuadrillas.ts` creada en esta rama colisiona con el correlativo `032` de `develop`, por lo que debe rebasarse/mergearse con `develop` y renumerarse a `035_indices_listado_cuadrillas.ts`.
   3. Al no integrar los cambios de HU-82 desde `develop`, `listarCuadrillasPaginadas` en esta rama no filtra `.where("cuadrilla_recurso.desvinculado_en", "is", null)` ni `.where("cuadrilla_personal.desvinculado_en", "is", null)`, ni incluye el soporte de `cuadrilla.activo` / `incluirInactivas` y `desactivarCuadrilla`, lo que provocaría regresiones funcionales y exposición de dotación históricamente desvinculada en el listado y en el drawer de detalle.
 * **Pasos para Reproducir:**
   1. Ejecutar `git rev-list --left-right --count develop...HEAD` y `git ls-tree -r --name-only develop src/lib/db/migrations/`.
@@ -164,8 +164,8 @@ Durante la auditoría técnica de código, ejecución de pruebas automatizadas c
 | `CP-H80-API-16` | Coerción numérica de strings en query params `pagina` y `limite` | Validación / Schema | Schema / Zod | Media | Query params recibidos como texto desde la URL (`pagina="2"`, `limite="5"`) | `ListarCuadrillasQuerySchema.safeParse({ pagina: "2", limite: "5" })` | Coerción exitosa a enteros `pagina: 2` y `limite: 5` | Coerción validada exitosamente en `cuadrilla.listado.schema.test.ts` | **APROBADO** | 09/11/2026 11:36 | - | test(cuadrillas): agregar suite de tests de schema ListarCuadrillasQuerySchema (H80) |
 | `CP-H80-API-17` | Propagación de paginación personalizada (`pagina=2`, `limite=5`) desde Route Handler al servicio | Unitaria / API | Route Handler | Media | Servicio mockeado retornando `total = 12` registros | `GET /api/cuadrillas?pagina=2&limite=5` en `route.test.ts` | Invoca `listarCuadrillas` con `{ pagina: 2, limite: 5 }` y retorna `paginasTotales: 3` | Test unitario aprobado en `src/app/api/cuadrillas/__tests__/route.test.ts` | **APROBADO** | 09/11/2026 11:36 | - | test(cuadrillas): ampliar casos de prueba del endpoint GET /api/cuadrillas (H80) |
 | `CP-H80-API-18` | Exclusión de cuadrillas dadas de baja lógica (`WHERE cuadrilla.eliminado_en IS NULL`) | Integridad / DB | Repository / Kysely | Alta | Cuadrillas activas e inactivas (con `eliminado_en` no nulo) | `listarCuadrillasPaginadas(filtros)` | Solo se contabilizan y listan registros con `eliminado_en IS NULL` | Cláusula `.where("cuadrilla.eliminado_en", "is", null)` presente en consulta base | **APROBADO** | 09/11/2026 11:36 | - | feat(recursos-y-personal): implementar endpoints GET y POST de cuadrillas operativas H81 H79 |
-| `CP-H80-API-19` | Creación de 4 índices parciales B-Tree en migración Kysely para optimizar filtros y ordenamiento (`up`) | Rendimiento / DB | Migración Kysely | Alta | Ejecución de función `up(db)` de la migración de índices | `idx_cuadrilla_delegacion_id`, `idx_cuadrilla_estado`, `idx_cuadrilla_delegacion_estado`, `idx_cuadrilla_creado_en_desc` | Ejecuta `CREATE INDEX IF NOT EXISTS ... WHERE eliminado_en IS NULL` para los 4 índices | Test unitario `032_indices_listado_cuadrillas.test.ts` aprobado verificando las 4 sentencias DDL | **APROBADO** | 09/11/2026 11:36 | - | feat(db): agregar migracion 032 con indices parciales de listado de cuadrillas (H80) |
-| `CP-H80-API-20` | Reversión limpia (`down`) eliminando los 4 índices parciales de listado de cuadrillas | Integridad / DB | Migración Kysely | Media | Ejecución de función `down(db)` de la migración de índices | `DROP INDEX IF EXISTS` para los 4 índices creados | Elimina sin errores los 4 índices en orden inverso | Test unitario `032_indices_listado_cuadrillas.test.ts` aprobado en `9ms` | **APROBADO** | 09/11/2026 11:36 | - | feat(db): agregar migracion 032 con indices parciales de listado de cuadrillas (H80) |
+| `CP-H80-API-19` | Creación de 4 índices parciales B-Tree en migración Kysely para optimizar filtros y ordenamiento (`up`) | Rendimiento / DB | Migración Kysely | Alta | Ejecución de función `up(db)` de la migración de índices | `idx_cuadrilla_delegacion_id`, `idx_cuadrilla_estado`, `idx_cuadrilla_delegacion_estado`, `idx_cuadrilla_creado_en_desc` | Ejecuta `CREATE INDEX IF NOT EXISTS ... WHERE eliminado_en IS NULL` para los 4 índices | Test unitario `035_indices_listado_cuadrillas.test.ts` aprobado verificando las 4 sentencias DDL | **APROBADO** | 09/11/2026 11:36 | - | feat(db): agregar migracion 035 con indices parciales de listado de cuadrillas (H80) |
+| `CP-H80-API-20` | Reversión limpia (`down`) eliminando los 4 índices parciales de listado de cuadrillas | Integridad / DB | Migración Kysely | Media | Ejecución de función `down(db)` de la migración de índices | `DROP INDEX IF EXISTS` para los 4 índices creados | Elimina sin errores los 4 índices en orden inverso | Test unitario `035_indices_listado_cuadrillas.test.ts` aprobado en `9ms` | **APROBADO** | 09/11/2026 11:36 | - | feat(db): agregar migracion 035 con indices parciales de listado de cuadrillas (H80) |
 
 ---
 
@@ -196,8 +196,8 @@ CP-H80-API-15	Validación Zod rechazando limite superior al máximo permitido de
 CP-H80-API-16	Coerción numérica de strings en query params pagina y limite	Validación / Schema	Schema / Zod	Media	Query params recibidos como texto desde la URL (pagina="2", limite="5")	ListarCuadrillasQuerySchema.safeParse({ pagina: "2", limite: "5" })	Coerción exitosa a enteros pagina: 2 y limite: 5	Coerción validada exitosamente en cuadrilla.listado.schema.test.ts	APROBADO	09/11/2026 11:36	-	test(cuadrillas): agregar suite de tests de schema ListarCuadrillasQuerySchema (H80)
 CP-H80-API-17	Propagación de paginación personalizada (pagina=2, limite=5) desde Route Handler al servicio	Unitaria / API	Route Handler	Media	Servicio mockeado retornando total = 12 registros	GET /api/cuadrillas?pagina=2&limite=5 en route.test.ts	Invoca listarCuadrillas con { pagina: 2, limite: 5 } y retorna paginasTotales: 3	Test unitario aprobado en src/app/api/cuadrillas/__tests__/route.test.ts	APROBADO	09/11/2026 11:36	-	test(cuadrillas): ampliar casos de prueba del endpoint GET /api/cuadrillas (H80)
 CP-H80-API-18	Exclusión de cuadrillas dadas de baja lógica (WHERE cuadrilla.eliminado_en IS NULL)	Integridad / DB	Repository / Kysely	Alta	Cuadrillas activas e inactivas (con eliminado_en no nulo)	listarCuadrillasPaginadas(filtros)	Solo se contabilizan y listan registros con eliminado_en IS NULL	Cláusula .where("cuadrilla.eliminado_en", "is", null) presente en consulta base	APROBADO	09/11/2026 11:36	-	feat(recursos-y-personal): implementar endpoints GET y POST de cuadrillas operativas H81 H79
-CP-H80-API-19	Creación de 4 índices parciales B-Tree en migración Kysely para optimizar filtros y ordenamiento (up)	Rendimiento / DB	Migración Kysely	Alta	Ejecución de función up(db) de la migración de índices	idx_cuadrilla_delegacion_id, idx_cuadrilla_estado, idx_cuadrilla_delegacion_estado, idx_cuadrilla_creado_en_desc	Ejecuta CREATE INDEX IF NOT EXISTS ... WHERE eliminado_en IS NULL para los 4 índices	Test unitario 032_indices_listado_cuadrillas.test.ts aprobado verificando las 4 sentencias DDL	APROBADO	09/11/2026 11:36	-	feat(db): agregar migracion 032 con indices parciales de listado de cuadrillas (H80)
-CP-H80-API-20	Reversión limpia (down) eliminando los 4 índices parciales de listado de cuadrillas	Integridad / DB	Migración Kysely	Media	Ejecución de función down(db) de la migración de índices	DROP INDEX IF EXISTS para los 4 índices creados	Elimina sin errores los 4 índices en orden inverso	Test unitario 032_indices_listado_cuadrillas.test.ts aprobado en 9ms	APROBADO	09/11/2026 11:36	-	feat(db): agregar migracion 032 con indices parciales de listado de cuadrillas (H80)
+CP-H80-API-19	Creación de 4 índices parciales B-Tree en migración Kysely para optimizar filtros y ordenamiento (up)	Rendimiento / DB	Migración Kysely	Alta	Ejecución de función up(db) de la migración de índices	idx_cuadrilla_delegacion_id, idx_cuadrilla_estado, idx_cuadrilla_delegacion_estado, idx_cuadrilla_creado_en_desc	Ejecuta CREATE INDEX IF NOT EXISTS ... WHERE eliminado_en IS NULL para los 4 índices	Test unitario 035_indices_listado_cuadrillas.test.ts aprobado verificando las 4 sentencias DDL	APROBADO	09/11/2026 11:36	-	feat(db): agregar migracion 035 con indices parciales de listado de cuadrillas (H80)
+CP-H80-API-20	Reversión limpia (down) eliminando los 4 índices parciales de listado de cuadrillas	Integridad / DB	Migración Kysely	Media	Ejecución de función down(db) de la migración de índices	DROP INDEX IF EXISTS para los 4 índices creados	Elimina sin errores los 4 índices en orden inverso	Test unitario 035_indices_listado_cuadrillas.test.ts aprobado en 9ms	APROBADO	09/11/2026 11:36	-	feat(db): agregar migracion 035 con indices parciales de listado de cuadrillas (H80)
 ```
 
 ---
@@ -208,7 +208,7 @@ CP-H80-API-20	Reversión limpia (down) eliminando los 4 índices parciales de li
 
 **Comando ejecutado (Esquema, Migración, Servicio, Route Handler y OpenAPI):**
 ```bash
-npm test -- --run src/app/openapi.json/__tests__/route.test.ts src/app/api/cuadrillas/__tests__/route.test.ts src/modules/recursos-y-personal/__tests__/cuadrilla.service.test.ts src/modules/recursos-y-personal/__tests__/cuadrilla.listado.schema.test.ts src/lib/db/migrations/__tests__/032_indices_listado_cuadrillas.test.ts
+npm test -- --run src/app/openapi.json/__tests__/route.test.ts src/app/api/cuadrillas/__tests__/route.test.ts src/modules/recursos-y-personal/__tests__/cuadrilla.service.test.ts src/modules/recursos-y-personal/__tests__/cuadrilla.listado.schema.test.ts src/lib/db/migrations/__tests__/035_indices_listado_cuadrillas.test.ts
 ```
 
 **Salida real obtenida:**
@@ -216,7 +216,7 @@ npm test -- --run src/app/openapi.json/__tests__/route.test.ts src/app/api/cuadr
  RUN  v3.2.7 /home/ds2fery/Documentos/Proyecto/sgrai-uach/api
 
  ✓ src/modules/recursos-y-personal/__tests__/cuadrilla.listado.schema.test.ts (9 tests) 12ms
- ✓ src/lib/db/migrations/__tests__/032_indices_listado_cuadrillas.test.ts (2 tests) 9ms
+ ✓ src/lib/db/migrations/__tests__/035_indices_listado_cuadrillas.test.ts (2 tests) 9ms
  ✓ src/modules/recursos-y-personal/__tests__/cuadrilla.service.test.ts (24 tests) 58ms
  ✓ src/app/api/cuadrillas/__tests__/route.test.ts (10 tests) 40ms
  ❯ src/app/openapi.json/__tests__/route.test.ts (1 test | 1 failed) 172ms
@@ -241,7 +241,7 @@ AssertionError: expected undefined to be defined
 ```bash
 npm test -- -t "Módulo Recursos y Personal - ListarCuadrillasQuerySchema"
 npm test -- -t "GET /api/cuadrillas"
-npm test -- -t "Migración 032 - Índices de listado de cuadrillas"
+npm test -- -t "Migración 035 - Índices de listado de cuadrillas"
 ```
 
 ---
@@ -439,5 +439,5 @@ HTTP_STATUS:400
 | **CA-1:** El sistema debe proveer una vista tabular en `/gestion/admin/cuadrillas` bajo estándar de contratos H34. | `GET /api/cuadrillas` (`src/app/api/cuadrillas/route.ts`) | `CP-H80-API-01`, `CP-H80-API-02`, `BUG-H80-API-03` | 🟡 **PARCIAL** (Falta subsanar `BUG-H80-API-03`) |
 | **CA-2:** La tabla debe mostrar: Nombre de la cuadrilla, Delegación base, Delegado responsable, Estado actual (`DISPONIBLE`, `EN_MISION`, `NO_DISPONIBLE`) y contador de personal/recursos vinculados. | `listarCuadrillas` (`cuadrilla.service.ts`), `CuadrillaItemResponseSchema` (`cuadrilla.schema.ts`) | `CP-H80-API-01`, `CP-H80-API-09`, `CP-H80-API-18` | 🟢 **CUMPLE** |
 | **CA-3:** Al hacer clic sobre una fila, se debe desplegar un drawer lateral con el detalle de miembros de personal asignados y equipos/vehículos vinculados (`cuadrilla_recurso`). | `GET /api/cuadrillas` y `GET /api/cuadrillas/[id]` (`obtenerCuadrillaDetalleUnitario`) | `CP-H80-API-09`, `CP-H80-API-10`, `BUG-H80-API-04` | 🟡 **PARCIAL** (Falta filtrar `desvinculado_en IS NULL` de HU-82 en `BUG-H80-API-04`) |
-| **CA-4:** Debe permitir filtrar por delegación municipal y estado operativo. | `listarCuadrillasPaginadas` (`cuadrilla.repository.ts`), `032_indices_listado_cuadrillas.ts` | `CP-H80-API-03`, `CP-H80-API-04`, `CP-H80-API-05`, `CP-H80-API-13`, `CP-H80-API-14`, `CP-H80-API-19` | 🟢 **CUMPLE** |
+| **CA-4:** Debe permitir filtrar por delegación municipal y estado operativo. | `listarCuadrillasPaginadas` (`cuadrilla.repository.ts`), `035_indices_listado_cuadrillas.ts` | `CP-H80-API-03`, `CP-H80-API-04`, `CP-H80-API-05`, `CP-H80-API-13`, `CP-H80-API-14`, `CP-H80-API-19` | 🟢 **CUMPLE** |
 | **CA-5:** El endpoint `GET /api/cuadrillas` debe responder bajo estándar H34. | `ListarCuadrillasQuerySchema`, `ListarCuadrillasResponseSchema`, `/openapi.json` | `BUG-H80-API-01`, `BUG-H80-API-02`, `BUG-H80-API-03`, `BUG-H80-API-05`, `CP-H80-API-06` a `CP-H80-API-17` | 🔴 **INCUMPLE** (Pendiente resolución de `BUG-H80-API-01`, `02`, `03` y `05`) |

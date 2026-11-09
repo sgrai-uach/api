@@ -7,8 +7,6 @@ import {
   UnauthorizedError,
   ForbiddenError,
   ConflictError,
-  NotFoundError,
-  BadRequestError,
 } from "@/modules/seguridad/errors";
 
 describe("Route Handlers /api/cuadrillas (GET / POST)", () => {
@@ -58,6 +56,11 @@ describe("Route Handlers /api/cuadrillas (GET / POST)", () => {
           pagina: 1,
           limite: 10,
           paginasTotales: 1,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+          hasNext: false,
+          hasPrev: false,
         },
       });
 
@@ -82,6 +85,11 @@ describe("Route Handlers /api/cuadrillas (GET / POST)", () => {
           pagina: 1,
           limite: 10,
           paginasTotales: 1,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+          hasNext: false,
+          hasPrev: false,
         },
       });
 
@@ -113,6 +121,11 @@ describe("Route Handlers /api/cuadrillas (GET / POST)", () => {
           pagina: 2,
           limite: 5,
           paginasTotales: 3,
+          page: 2,
+          limit: 5,
+          totalPages: 3,
+          hasNext: true,
+          hasPrev: true,
         },
       });
 

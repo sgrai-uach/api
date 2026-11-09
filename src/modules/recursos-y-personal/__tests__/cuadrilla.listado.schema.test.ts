@@ -2,12 +2,12 @@ import { describe, it, expect } from "vitest";
 import { ListarCuadrillasQuerySchema } from "../cuadrilla.schema";
 
 describe("Módulo Recursos y Personal - ListarCuadrillasQuerySchema (H80)", () => {
-  it("caso 1: sin parámetros asigna pagina=1 y limite=10 por defecto", () => {
+  it("caso 1: sin parámetros deja pagina y limite sin default para que el servicio aplique el fallback", () => {
     const resultado = ListarCuadrillasQuerySchema.safeParse({});
     expect(resultado.success).toBe(true);
     if (resultado.success) {
-      expect(resultado.data.pagina).toBe(1);
-      expect(resultado.data.limite).toBe(10);
+      expect(resultado.data.pagina).toBeUndefined();
+      expect(resultado.data.limite).toBeUndefined();
       expect(resultado.data.busqueda).toBeUndefined();
       expect(resultado.data.delegacionId).toBeUndefined();
       expect(resultado.data.estado).toBeUndefined();

@@ -199,10 +199,13 @@ export const CuadrillaResponseSchema = z
     trabajadores: z.array(CuadrillaTrabajadorDetalleSchema).default([]),
     totalRecursos: z.number().optional(),
     totalTrabajadores: z.number().optional(),
+    activo: z.boolean().default(true).optional(),
     creadoEn: z.string(),
     actualizadoEn: z.string().nullable().optional(),
     actualizadoPorId: z.string().uuid().nullable().optional(),
     creadoPorId: z.string().uuid().nullable().optional(),
+    eliminadoEn: z.string().nullable().optional(),
+    eliminadoPorId: z.string().uuid().nullable().optional(),
   })
   .openapi({
     title: "CuadrillaResponse",
@@ -217,6 +220,8 @@ export type CuadrillaResponse = z.infer<typeof CuadrillaResponseSchema>;
 export const CuadrillaItemResponseSchema = CuadrillaResponseSchema.extend({
   totalRecursos: z.number().openapi({ example: 1, description: "Cantidad total de recursos asignados" }),
   totalTrabajadores: z.number().openapi({ example: 1, description: "Cantidad total de trabajadores asignados" }),
+  activo: z.boolean().default(true).optional().openapi({ example: true, description: "Indica si la cuadrilla se encuentra activa operativamente" }),
+  eliminadoEn: z.string().nullable().optional().openapi({ example: null, description: "Fecha de baja lógica de la cuadrilla" }),
 }).openapi({
   title: "CuadrillaItemResponse",
   description: "Ítem de cuadrilla con datos consolidados y conteos para listado",
@@ -233,7 +238,6 @@ export const ListarCuadrillasQuerySchema = z
       .number()
       .int("El número de página debe ser un número entero")
       .positive("El número de página debe ser mayor a 0")
-      .default(1)
       .optional()
       .openapi({
         param: {
@@ -263,7 +267,6 @@ export const ListarCuadrillasQuerySchema = z
       .int("El límite debe ser un número entero")
       .positive("El límite debe ser mayor a 0")
       .max(100, "El límite por página no puede superar 100")
-      .default(10)
       .optional()
       .openapi({
         param: {
@@ -328,14 +331,48 @@ export const ListarCuadrillasQuerySchema = z
         },
         example: "30000000-0000-4000-8000-000000000001",
       }),
-    estado: EstadoCuadrillaSchema.optional().openapi({
+    estado: z
+      .enum(["DISPONIBLE", "EN_MISION", "NO_DISPONIBLE", "INACTIVAS", "TODAS"])
+      .optional()
+      .openapi({
+        param: {
+          name: "estado",
+          in: "query",
+          required: false,
+          description:
+            "Filtro por estado operativo (DISPONIBLE, EN_MISION, NO_DISPONIBLE) o vistas especiales (INACTIVAS, TODAS)",
+        },
+        example: "DISPONIBLE",
+      }),
+    activo: z
+      .union([z.boolean(), z.enum(["true", "false", "all"])])
+      .optional()
+      .openapi({
+        param: {
+          name: "activo",
+          in: "query",
+          required: false,
+          description: "Filtro de vigencia: true (activas), false (inactivas) o all (todas)",
+        },
+        example: "true",
+      }),
+    incluir_inactivas: z.coerce.boolean().optional().openapi({
       param: {
-        name: "estado",
+        name: "incluir_inactivas",
         in: "query",
         required: false,
-        description: "Filtro por estado operativo (DISPONIBLE, EN_MISION, NO_DISPONIBLE)",
+        description: "Incluye cuadrillas con baja lógica en el listado",
       },
-      example: "DISPONIBLE",
+      example: false,
+    }),
+    incluirInactivas: z.coerce.boolean().optional().openapi({
+      param: {
+        name: "incluirInactivas",
+        in: "query",
+        required: false,
+        description: "Alias de 'incluir_inactivas'",
+      },
+      example: false,
     }),
   })
   .openapi({
@@ -346,10 +383,17 @@ export const ListarCuadrillasQuerySchema = z
 export type ListarCuadrillasQuery = z.infer<typeof ListarCuadrillasQuerySchema>;
 
 export const PaginacionMetaSchema = z.object({
+  // Claves en español para compatibilidad con sgrai-web
   total: z.number(),
   pagina: z.number(),
   limite: z.number(),
   paginasTotales: z.number(),
+  // Claves del estándar H34
+  page: z.number(),
+  limit: z.number(),
+  totalPages: z.number(),
+  hasNext: z.boolean(),
+  hasPrev: z.boolean(),
 });
 
 export const ListarCuadrillasResponseSchema = z
@@ -400,3 +444,26 @@ export const EditarCuadrillaResponseSchema = z
   });
 
 export type EditarCuadrillaResponse = z.infer<typeof EditarCuadrillaResponseSchema>;
+
+export const DesactivarCuadrillaResponseSchema = z
+  .object({
+    message: z.string().openapi({ example: "Cuadrilla operativa desactivada exitosamente" }),
+    data: z.object({
+      id: z.string().uuid(),
+      nombre: z.string(),
+      activo: z.boolean().openapi({ example: false }),
+      estado: z.string().openapi({ example: "NO_DISPONIBLE" }),
+      recursosDesvinculados: z.number().openapi({ example: 2 }),
+      trabajadoresDesvinculados: z.number().openapi({ example: 3 }),
+      delegadoRevertido: z.boolean().openapi({ example: true }),
+      eliminadoEn: z.string(),
+      eliminadoPorId: z.string().uuid().nullable().optional(),
+    }),
+  })
+  .openapi({
+    title: "DesactivarCuadrillaResponse",
+    description: "Respuesta de confirmación tras desactivar mediante baja lógica una cuadrilla operativa",
+  });
+
+export type DesactivarCuadrillaResponse = z.infer<typeof DesactivarCuadrillaResponseSchema>;
+
