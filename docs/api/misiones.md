@@ -44,6 +44,8 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 | `GET` | `/api/misiones` | `misiones:leer` / Sesión válida | Listar misiones tácticas con paginación estándar, metadatos `meta` y filtros multicriterio (H34). |
 | `GET` | `/api/misiones/{id}` | `misiones:leer` | Consultar detalle exhaustivo de una misión por su ID (incidente, cuadrilla/patrulla, tiempos y reportes con adjuntos - HU-17). |
 | `POST` | `/api/misiones` | `misiones:asignar` | Despachar patrulla verificadora disponible a un incidente formal en estado REPORTADO (HU-20). |
+| `PATCH` | `/api/terreno/notificaciones/{id}/estado` | `misiones:terreno:verificar` | Confirmar de forma idempotente acuse de recibo técnico ('RECIBIDA') o lectura operativa ('LEIDA') desde terreno (HU-35). |
+| `GET` | `/api/terreno/misiones/pendientes` | `misiones:terreno:verificar` | Consultar misiones asignadas con notificaciones en PENDIENTE_ENVIO o ENVIADA para reconciliación offline (HU-35). |
 
 ---
 
@@ -317,8 +319,108 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
       "hito": "DESPACHADA",
       "descripcion": "Misión de verificación asignada y despachada a la patrulla Patrulla Ánimas Norte 1.",
       "creadoEn": "2026-10-27T17:00:00.000Z"
+    },
+    "notificacion": {
+      "id": "80000000-0000-4000-8000-000000000001",
+      "misionId": "60000000-0000-4000-8000-000000000050",
+      "patrullaId": "f1000000-0000-4000-8000-000000000001",
+      "estado": "ENVIADA",
+      "intentosEnvio": 1,
+      "creadaAt": "2026-10-27T17:00:00.000Z",
+      "enviadaAt": "2026-10-27T17:00:01.000Z",
+      "recibidaAt": null,
+      "leidaAt": null
     }
   }
+}
+```
+
+---
+
+### 3.4. `PATCH /api/terreno/notificaciones/{id}/estado` (HU-35: Acuse de Recibo y Lectura)
+
+Permite al cliente de terreno (`sgrai-pwa`) emitir de forma inmediata y transparente el acuse de recibo técnico (`RECIBIDA`) apenas ingresa el payload al dispositivo, o el acuse de lectura operativo (`LEIDA`) cuando el usuario toca la alerta o abre el detalle de la misión.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>`
+- **Permiso RBAC requerido:** `misiones:terreno:verificar` (asignado a `PATRULLA_VERIFICADORA` y `ADMIN`).
+- **Control de Acceso por Propiedad:** Valida que la notificación pertenezca a la patrulla asignada (el usuario debe ser el líder o integrante en `patrulla_personal`, salvo perfil `ADMIN`).
+
+#### Parámetros de Ruta (Path Parameters)
+| Parámetro | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `id` | `UUID` | **Sí** | Identificador único de la notificación de despacho (`notificaciones_mision.id`). |
+
+#### Cuerpo de la Petición (Request Body)
+```json
+{
+  "estado": "RECIBIDA"
+}
+```
+
+| Campo | Tipo | Requerido | Valores Permitidos | Descripción |
+|---|---|---|---|---|
+| `estado` | `string` | **Sí** | `"RECIBIDA"`, `"LEIDA"` | Nuevo estado de confirmación reportado. |
+
+#### Reglas de Idempotencia y No Retroceso
+1. **Idempotencia:** Si el dispositivo reenvía un acuse al mismo estado (ej. `RECIBIDA` dos veces por cortes de red), el backend retorna `200 OK` **sin modificar los timestamps originales** (`recibida_at`).
+2. **Prohibición de Retroceso:** Si la notificación ya transitó a `LEIDA`, enviar un acuse `RECIBIDA` retorna `200 OK` manteniendo el estado `LEIDA` intacto.
+3. **Completado Cronológico:** Si se recibe un acuse directo a `LEIDA`, se autocompleta `recibida_at = COALESCE(recibida_at, NOW())` y `enviada_at = COALESCE(enviada_at, NOW())`.
+
+#### Ejemplo de Respuesta Exitosa (`HTTP 200 OK`)
+```json
+{
+  "message": "Estado de notificación actualizado exitosamente.",
+  "data": {
+    "id": "80000000-0000-4000-8000-000000000001",
+    "misionId": "60000000-0000-4000-8000-000000000050",
+    "patrullaId": "f1000000-0000-4000-8000-000000000001",
+    "estado": "RECIBIDA",
+    "intentosEnvio": 1,
+    "creadaAt": "2026-10-27T17:00:00.000Z",
+    "enviadaAt": "2026-10-27T17:00:01.000Z",
+    "recibidaAt": "2026-10-27T17:00:04.000Z",
+    "leidaAt": null
+  }
+}
+```
+
+---
+
+### 3.5. `GET /api/terreno/misiones/pendientes` (HU-35: Reconciliación Offline)
+
+Permite al cliente móvil (`sgrai-pwa`) consultar las misiones asignadas cuyas notificaciones se encuentran en `PENDIENTE_ENVIO` o `ENVIADA` (no confirmadas) al momento de recuperar la cobertura de red tras operar en modo avión o fuera de señal.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>`
+- **Permiso RBAC requerido:** `misiones:terreno:verificar`
+
+#### Ejemplo de Respuesta Exitosa (`HTTP 200 OK`)
+```json
+{
+  "message": "Misiones pendientes obtenidas exitosamente.",
+  "total": 1,
+  "data": [
+    {
+      "notificacionId": "80000000-0000-4000-8000-000000000001",
+      "misionId": "60000000-0000-4000-8000-000000000050",
+      "codigoMision": "MIS-2026-0001",
+      "titulo": "Verificación técnica de anegamiento",
+      "descripcion": "Acudir al punto para evaluar riesgo de ingreso de agua",
+      "tipoMision": "VERIFICACION",
+      "prioridad": "ALTA",
+      "estadoMision": "DESPACHADA",
+      "estadoNotificacion": "PENDIENTE_ENVIO",
+      "patrullaId": "f1000000-0000-4000-8000-000000000001",
+      "incidenteId": "50000000-0000-4000-8000-000000000001",
+      "incidenteCodigo": "INC-2026-1042",
+      "incidenteFolio": "FOL-1042",
+      "tipoAfectacion": "Anegamiento de calzada",
+      "direccion": "Av. Ramón Picarte 1500",
+      "latitud": -39.819588,
+      "longitud": -73.245209,
+      "creadaAt": "2026-10-27T17:00:00.000Z",
+      "enviadaAt": null
+    }
+  ]
 }
 ```
 
@@ -327,20 +429,23 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
 ## 4. Códigos de Estado y Errores Esperables
 
 - **`400 Bad Request`:**
-  - En `GET /api/misiones`: Parámetros de consulta no conformes al esquema Zod (ej. `page < 1`, `limit > 100`, valores de enum desconocidos o `delegacionId` no UUID).
-  - En `GET /api/misiones/{id}`: El parámetro `id` no cumple el estándar UUID versión 4.
+  - En `GET /api/misiones`: Parámetros de consulta no conformes al esquema Zod.
+  - En `GET /api/misiones/{id}` y `PATCH /api/terreno/notificaciones/{id}/estado`: El parámetro `id` no cumple el estándar UUID versión 4.
+  - En `PATCH /api/terreno/notificaciones/{id}/estado`: Body no es JSON válido o el estado no es `"RECIBIDA"` ni `"LEIDA"`.
   - En `POST /api/misiones`: Body no es JSON válido o los identificadores no son UUIDs válidos.
 - **`401 Unauthorized`:**
   - Petición sin token JWT Bearer o sesión expirada.
 - **`403 Forbidden`:**
-  - El usuario no cuenta con el permiso requerido (`misiones:leer` para consulta, `misiones:asignar` para despacho).
+  - `misiones:leer`: Requerido para consultar `/api/misiones`.
+  - `misiones:asignar`: Requerido para despachar en `POST /api/misiones`.
+  - `misiones:terreno:verificar`: Requerido para endpoints de terreno.
+  - Pertenencia a patrulla ajena: En `PATCH /api/terreno/notificaciones/{id}/estado`, si la notificación pertenece a otra patrulla y el usuario no es `ADMIN`.
 - **`404 Not Found`:**
-  - En `GET /api/misiones/{id}`: No existe ninguna misión con el UUID proporcionado.
-  - En `POST /api/misiones`: El `incidenteId` o la `patrullaId` proporcionada no existe en la base de datos o la patrulla ha sido desactivada lógicamente.
+  - En `GET /api/misiones/{id}`: Misión inexistente.
+  - En `PATCH /api/terreno/notificaciones/{id}/estado`: Notificación inexistente.
+  - En `POST /api/misiones`: Incidente o patrulla inexistente/desactivada.
 - **`409 Conflict`:**
-  - En `POST /api/misiones`:
-    1. **Patrulla no disponible concurrentemente:** La patrulla seleccionada fue despachada o cambió de estado concurrentemente (`estado != 'DISPONIBLE'`).
-    2. **Incidente no en estado REPORTADO:** El incidente ya no se encuentra en estado `REPORTADO` (ej. ya está `VERIFICANDO`, `EN_ATENCION` o `RESUELTO`), por lo que no puede asignarse una patrulla verificadora.
+  - En `POST /api/misiones`: Patrulla no disponible o incidente no en estado REPORTADO.
 - **`500 Internal Server Error`:**
   - Error inesperado de persistencia o fallo de base de datos.
 
@@ -351,12 +456,22 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
 Al confirmarse la asignación de la misión de verificación mediante `POST /api/misiones`, el backend emite los siguientes eventos:
 
 1. **`mision:asignada`**:
-   - **Salas destino:** `patrulla:{patrullaId}` (app PWA del líder de patrulla en terreno) y `encargado`.
+   - **Salas destino:** `patrulla:{patrullaId}` (app PWA del líder de patrulla en terreno), `sala:encargados` y `supervisor`.
+   - **Payload:** `{ notificacionId, misionId, codigo, tipoMision, patrullaId, cuadrillaId, incidenteId, incidenteCodigo, incidenteFolio, tipoAfectacion, direccion, prioridad, asignadoEn }`.
    - **Propósito:** Notificar en tiempo real a la unidad en terreno su orden de verificación con georreferenciación e instrucciones tácticas.
-2. **`incidente:actualizado`**:
+2. **`notificacion:trazabilidad_actualizada`**:
+   - **Salas destino:** `sala:encargados`, `encargado`, `supervisor`.
+   - **Payload:** `{ notificacionId, misionId, patrullaId, estado, intentosEnvio, creadaAt, enviadaAt, recibidaAt, leidaAt, actualizadoEn }`.
+   - **Propósito:** Informa a la Central de Operaciones si el dispositivo de terreno cuenta con señal (`RECIBIDA`), si fue leída por el operador (`LEIDA`), o si permanece fuera de cobertura (`PENDIENTE_ENVIO`).
+3. **`notificacion:ack` (Client to Server)**:
+   - **Emitido por:** Cliente `sgrai-pwa` conectado al WebSocket hacia el servidor.
+   - **Payload:** `{ notificacionId, estado: "RECIBIDA" | "LEIDA" }`.
+   - **Propósito:** Permite enviar el acuse en tiempo real con callback de respuesta sin requerir llamada HTTP REST adicional.
+4. **`incidente:actualizado`**:
    - **Salas destino:** `encargado` y `mapa`.
-   - **Propósito:** Permite que el tablero Kanban del Encargado en `sgrai-web` mueva automáticamente la tarjeta del incidente desde la columna `REPORTADO` a la columna `VERIFICANDO` sin requerir recarga manual.
-3. **`patrulla:actualizada`**:
+   - **Propósito:** Permite que el tablero Kanban mueva la tarjeta del incidente a `VERIFICANDO`.
+5. **`patrulla:actualizada`**:
    - **Salas destino:** `encargado`, `supervisor` y `mapa`.
-   - **Propósito:** Actualiza en vivo el marcador del mapa y las tablas de disponibilidad operativa cambiando el estado de la patrulla a `EN_VERIFICACION`.
+   - **Propósito:** Actualiza en vivo el marcador del mapa cambiando la patrulla a `EN_VERIFICACION`.
+
 
