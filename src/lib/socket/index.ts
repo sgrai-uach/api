@@ -167,13 +167,21 @@ export function notificarActualizacionSeguimiento(datos: SeguimientoEstadoPayloa
  * el estado, prioridad o gestión operativa de un incidente.
  */
 export function notificarIncidenteActualizado(datos: IncidenteActualizadoPayload): boolean {
+  const payload = {
+    evento: "incidente:actualizado",
+    datos,
+    emitidoEn: new Date().toISOString(),
+  };
+
   if (ioInstance) {
     try {
-      ioInstance.to("sala:encargados").emit("incidente:actualizado", {
-        evento: "incidente:actualizado",
-        datos,
-        emitidoEn: new Date().toISOString(),
-      });
+      ioInstance.to("sala:encargados").emit("incidente:actualizado", payload);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to("encargado") as any).emit("incidente:actualizado", payload);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to("mapa") as any).emit("incidente:actualizado", payload);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance as any).emit("incidente:actualizado", payload);
       return true;
     } catch (error) {
       console.error("Error al emitir actualización de incidente vía Socket.io:", error);
@@ -188,7 +196,25 @@ export function notificarIncidenteActualizado(datos: IncidenteActualizadoPayload
       JSON.stringify({
         room: "sala:encargados",
         event: "incidente:actualizado",
-        payload: { evento: "incidente:actualizado", datos, emitidoEn: new Date().toISOString() },
+        payload,
+      })
+    ).catch(() => {});
+
+    publisher.publish(
+      REDIS_SOCKET_CHANNEL,
+      JSON.stringify({
+        room: "encargado",
+        event: "incidente:actualizado",
+        payload,
+      })
+    ).catch(() => {});
+
+    publisher.publish(
+      REDIS_SOCKET_CHANNEL,
+      JSON.stringify({
+        room: "mapa",
+        event: "incidente:actualizado",
+        payload,
       })
     ).catch(() => {});
     return true;
@@ -575,16 +601,19 @@ export function notificarPatrullaActualizada(payload: {
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "encargado",
-          event: "patrulla:actualizada",
-          payload,
-        })
-      )
-      .catch(() => {});
+    const rooms = ["encargado", "sala:encargados", "supervisor", "mapa", patrullaRoom];
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "patrulla:actualizada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 
@@ -692,6 +721,8 @@ export function notificarMisionAsignada(payload: {
   incidenteId?: string | null;
   asignadoEn: string;
 }): void {
+  const patrullaRoom = payload.patrullaId ? `patrulla:${payload.patrullaId}` : null;
+
   if (ioInstance) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (ioInstance.to("encargado") as any).emit("mision:asignada", payload);
@@ -699,6 +730,10 @@ export function notificarMisionAsignada(payload: {
     (ioInstance.to("sala:encargados") as any).emit("mision:asignada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (ioInstance.to("supervisor") as any).emit("mision:asignada", payload);
+    if (patrullaRoom) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to(patrullaRoom) as any).emit("mision:asignada", payload);
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (ioInstance as any).emit("mision:asignada", payload);
     return;
@@ -706,16 +741,22 @@ export function notificarMisionAsignada(payload: {
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "encargado",
-          event: "mision:asignada",
-          payload,
-        })
-      )
-      .catch(() => {});
+    const rooms = ["encargado", "sala:encargados", "supervisor"];
+    if (patrullaRoom) {
+      rooms.push(patrullaRoom);
+    }
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "mision:asignada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 
