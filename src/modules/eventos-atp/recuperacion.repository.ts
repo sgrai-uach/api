@@ -1,4 +1,5 @@
 import { sql, type Transaction } from "kysely";
+import { db } from "@/lib/db";
 import type { Database, EstadoRecurso, EstadoPatrulla, EstadoOperativo, PrioridadIncidente } from "@/lib/db/types";
 
 export type KyselyTrx = Transaction<Database>;
@@ -223,10 +224,155 @@ export async function actualizarEstadoPersonalLider(
     .execute();
 }
 
-export async function buscarDelegacionPorId(trx: KyselyTrx, delegacionId: string) {
+export async function buscarDelegacionPorId(trx: KyselyTrx | typeof db, delegacionId: string) {
   return trx
     .selectFrom("delegacion")
     .select(["id", "codigo", "codigo_delegacion", "nombre", "nombre_delegacion"])
     .where("id", "=", delegacionId)
     .executeTakeFirst();
 }
+
+export async function buscarRecuperacionPorId(trx: KyselyTrx | typeof db, recuperacionId: string) {
+  return trx
+    .selectFrom("recuperacion")
+    .selectAll()
+    .where("id", "=", recuperacionId)
+    .executeTakeFirst();
+}
+
+export async function actualizarRecursoGranelUso(
+  trx: KyselyTrx,
+  recursoId: string,
+  cantidadAsignada: number
+) {
+  const recurso = await trx
+    .selectFrom("recurso")
+    .select([
+      "id",
+      "nombre",
+      "cantidad_inventario",
+      "cantidad_en_uso",
+      "cantidad_minima",
+      "es_individual",
+    ])
+    .where("id", "=", recursoId)
+    .executeTakeFirstOrThrow();
+
+  const nuevoEnUso = Number(recurso.cantidad_en_uso ?? 0) + cantidadAsignada;
+  const inventario = Number(recurso.cantidad_inventario);
+  const cantidadMinima = Number(recurso.cantidad_minima ?? 0);
+  const nuevoDisponible = Math.max(0, inventario - nuevoEnUso);
+
+  let nuevoEstado: EstadoRecurso = "DISPONIBLE";
+  if (nuevoDisponible === 0) {
+    nuevoEstado = "NO_DISPONIBLE";
+  } else if (nuevoDisponible <= cantidadMinima) {
+    nuevoEstado = "BAJO_STOCK";
+  }
+
+  return trx
+    .updateTable("recurso")
+    .set({
+      cantidad_en_uso: nuevoEnUso,
+      estado: nuevoEstado,
+      actualizado_en: new Date(),
+    })
+    .where("id", "=", recursoId)
+    .returning([
+      "id",
+      "nombre",
+      "es_individual",
+      "estado",
+      "cantidad_inventario",
+      "cantidad_en_uso",
+      "cantidad_minima",
+    ])
+    .executeTakeFirstOrThrow();
+}
+
+export async function actualizarRecursoIndividualAsignado(
+  trx: KyselyTrx,
+  recursoId: string
+) {
+  return trx
+    .updateTable("recurso")
+    .set({
+      cantidad_en_uso: 1,
+      estado: "ASIGNADO",
+      actualizado_en: new Date(),
+    })
+    .where("id", "=", recursoId)
+    .returning([
+      "id",
+      "nombre",
+      "es_individual",
+      "estado",
+      "cantidad_inventario",
+      "cantidad_en_uso",
+      "cantidad_minima",
+    ])
+    .executeTakeFirstOrThrow();
+}
+
+export async function insertarRecursosRecuperacionConMision(
+  trx: KyselyTrx,
+  asignaciones: Array<{
+    recuperacionId: string;
+    recursoId: string;
+    misionId: string;
+    cantidad: number;
+  }>
+) {
+  if (asignaciones.length === 0) return;
+
+  await trx
+    .insertInto("recuperacion_recurso")
+    .values(
+      asignaciones.map((item) => ({
+        recuperacion_id: item.recuperacionId,
+        recurso_id: item.recursoId,
+        mision_id: item.misionId,
+        cantidad_asignada: item.cantidad,
+      }))
+    )
+    .execute();
+}
+
+export async function buscarMisionesPorRecuperacionId(recuperacionId: string) {
+  return db
+    .selectFrom("mision")
+    .leftJoin("patrulla_verificadora", "patrulla_verificadora.id", "mision.patrulla_id")
+    .select([
+      "mision.id",
+      "mision.codigo",
+      "mision.titulo",
+      "mision.estado",
+      "mision.tipo_mision",
+      "mision.creado_en",
+      "patrulla_verificadora.id as patrulla_id",
+      "patrulla_verificadora.nombre as patrulla_nombre",
+      "patrulla_verificadora.estado as patrulla_estado",
+    ])
+    .where("mision.recuperacion_id", "=", recuperacionId)
+    .orderBy("mision.creado_en", "desc")
+    .execute();
+}
+
+export async function buscarRecursosAsignadosPorRecuperacionId(recuperacionId: string) {
+  return db
+    .selectFrom("recuperacion_recurso")
+    .innerJoin("recurso", "recurso.id", "recuperacion_recurso.recurso_id")
+    .select([
+      "recuperacion_recurso.id",
+      "recuperacion_recurso.recurso_id",
+      "recuperacion_recurso.cantidad_asignada",
+      "recuperacion_recurso.mision_id",
+      "recuperacion_recurso.creado_en",
+      "recurso.nombre as recurso_nombre",
+      "recurso.es_individual as recurso_es_individual",
+    ])
+    .where("recuperacion_recurso.recuperacion_id", "=", recuperacionId)
+    .orderBy("recuperacion_recurso.creado_en", "desc")
+    .execute();
+}
+
