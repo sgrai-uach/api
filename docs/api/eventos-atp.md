@@ -61,6 +61,8 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
+| `GET` | `/api/eventos-atp/recuperacion/{id}` | Obtener el detalle estructurado de un evento de recuperación comunal, sus misiones operativas e insumos asignados (HU-32). |
+| `POST` | `/api/eventos-atp/recuperacion/{id}/asignar` | Asignar patrulla verificadora y recursos de bodega a un evento de recuperación con bloqueo transaccional `FOR UPDATE` (§3.6) y RBAC `misiones:asignar` (HU-32). |
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
 
@@ -961,3 +963,227 @@ Consulta los eventos de asistencia social con filtros de estado, delegación, pr
   "totalPaginas": 1
 }
 ```
+
+---
+
+## 12. Detalle de Endpoint: `GET /api/eventos-atp/recuperacion/{id}` (HU-32)
+
+Permite consultar la ficha completa y consolidada de un evento de recuperación comunal, incluyendo sus coordenadas geográficas, estado operativo, delegación municipal, misiones tácticas desplegadas y el historial de recursos logísticos asignados.
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `Authorization` | `string` | Sí | Token Bearer JWT (`Bearer <token>`). Requiere permiso `misiones:leer`, `recuperacion:crear` o `misiones:asignar` (Encargado, Administrador o Supervisor). |
+| `X-User-Id` | `UUID` | No | Identificador UUID opcional del usuario autenticado. |
+
+### Respuestas HTTP
+
+#### `200 OK` — Consulta Exitosa
+```json
+{
+  "message": "Detalle del evento de recuperación obtenido exitosamente.",
+  "data": {
+    "id": "70000000-0000-4000-8000-000000000001",
+    "codigo": "REC-2026-0001",
+    "nombre": "Entrega de frazadas y techumbre en Sector Collico",
+    "descripcion": "Familias afectadas por temporal de viento",
+    "sector": "Collico",
+    "direccionTexto": "Calle Balmaceda 1245 con Las Palmeras",
+    "prioridad": "ALTA",
+    "contactoNombre": "Juan Pérez (Presidente JJVV)",
+    "contactoTelefono": "+56912345678",
+    "latitud": -39.8142,
+    "longitud": -73.2459,
+    "estado": "PLANIFICADA",
+    "familiasAfectadas": 4,
+    "delegacion": {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "codigo": "DEL-SUR",
+      "nombre": "Delegación Sur"
+    },
+    "misiones": [
+      {
+        "id": "60000000-0000-4000-8000-000000000001",
+        "codigo": "MIS-2026-0045",
+        "titulo": "Despacho operativo: Entrega de frazadas",
+        "estado": "DESPACHADA",
+        "tipoMision": "RECUPERACION",
+        "patrulla": {
+          "id": "50000000-0000-4000-8000-000000000001",
+          "nombre": "Patrulla Verificadora Alfa",
+          "estado": "EN_RECUPERACION"
+        },
+        "creadoEn": "2026-10-04T12:30:00.000Z"
+      }
+    ],
+    "recursosAsignados": [
+      {
+        "id": "90000000-0000-4000-8000-000000000001",
+        "recursoId": "80000000-0000-4000-8000-000000000001",
+        "nombre": "Frazadas Térmicas",
+        "esIndividual": false,
+        "cantidadAsignada": 10,
+        "misionId": "60000000-0000-4000-8000-000000000001",
+        "creadoEn": "2026-10-04T12:30:00.000Z"
+      }
+    ],
+    "creadoPorId": "00000000-0000-4000-8000-000000000003",
+    "creadoEn": "2026-10-04T12:00:00.000Z",
+    "actualizadoEn": "2026-10-04T12:30:00.000Z"
+  }
+}
+```
+
+---
+
+## 13. Detalle de Endpoint: `POST /api/eventos-atp/recuperacion/{id}/asignar` (HU-32)
+
+Permite al **Encargado de Operaciones** asignar una patrulla verificadora disponible y materiales/herramientas del inventario logístico a un evento de recuperación previamente planificado.
+
+### Reglas de Negocio Aplicadas (§3.6 y Operaciones)
+
+1. **Permiso RBAC:** Requiere estrictamente el permiso `misiones:asignar` (asignado a los roles `Encargado de Operaciones` y `Administrador`).
+2. **Bloqueo Transaccional Concurrente (`SELECT ... FOR UPDATE`):**
+   - La API bloquea a nivel de fila todos los registros involucrados de la tabla `recurso` dentro de una transacción atómica de Kysely, impidiendo que peticiones concurrentes generen sobregiro de stock (colisiones de carrera).
+3. **Insumos a Granel (`es_individual = false`):**
+   - Se valida que exista stock disponible real: `cantidad_inventario - cantidad_en_uso >= cantidad_solicitada`.
+   - Si no alcanza, la transacción aborta inmediatamente retornando `409 Conflict`.
+   - Al confirmar, incrementa `cantidad_en_uso` en la tabla `recurso`. Si el remanente disponible llega a 0, transiciona a `NO_DISPONIBLE`; si es $\le$ `cantidad_minima`, transiciona a `BAJO_STOCK`.
+4. **Activos Individuales (`es_individual = true`, vehículos, bombas, motosierras):**
+   - La cantidad asignada debe ser exactamente 1 (`400 Bad Request` si es mayor).
+   - Se prohíbe la asignación si el activo se encuentra en estado `EN_MANTENCION`, `NO_DISPONIBLE` o `ASIGNADO` (`409 Conflict`).
+   - Al asignarse, transiciona a estado `ASIGNADO` con `cantidad_en_uso = 1`.
+5. **Transición Táctica de Misión y Patrulla:**
+   - La patrulla verificadora seleccionada debe estar en estado `'DISPONIBLE'` (`409 Conflict` si está ocupada o no disponible).
+   - Se genera una misión táctica con `tipo_mision = 'RECUPERACION'`, vinculada al `recuperacion_id` y al `patrulla_id`.
+   - La patrulla transiciona automáticamente al estado `'EN_RECUPERACION'`.
+   - El funcionario líder pasa a `usuario.estado_operativo = 'en_mision'`.
+   - Los materiales asignados se persisten en la tabla `recuperacion_recurso` vinculados a la `mision_id`.
+   - El evento de recuperación permanece en estado `PLANIFICADA` hasta que la patrulla confirme la llegada a terreno.
+6. **Sincronización en Tiempo Real:**
+   - Emite el evento WebSocket `recuperacion:actualizada` hacia las salas `"sala:encargados"`, `"encargado"` y `"mapa"`.
+   - Emite el evento WebSocket `recurso:actualizado` por cada recurso modificado en bodega hacia `"encargado"` y `"supervisor"`.
+   - Emite el evento WebSocket `patrulla:actualizada` con el estado `EN_RECUPERACION`.
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `Authorization` | `string` | Sí | Token Bearer JWT (`Bearer <token>`). Requiere permiso `misiones:asignar`. |
+| `X-User-Id` | `UUID` | No | Identificador UUID opcional del usuario autenticado. |
+
+### Cuerpo de la Petición (Request Body JSON)
+
+```json
+{
+  "patrullaId": "50000000-0000-4000-8000-000000000001",
+  "recursos": [
+    {
+      "recursoId": "80000000-0000-4000-8000-000000000001",
+      "cantidad": 10
+    },
+    {
+      "recursoId": "80000000-0000-4000-8000-000000000002",
+      "cantidad": 1
+    }
+  ]
+}
+```
+
+### Respuestas HTTP
+
+#### `200 OK` — Asignación Exitosa y Misión Creada
+```json
+{
+  "message": "Patrulla y recursos logísticos asignados exitosamente al evento de recuperación.",
+  "data": {
+    "evento": {
+      "id": "70000000-0000-4000-8000-000000000001",
+      "codigo": "REC-2026-0001",
+      "nombre": "Entrega de frazadas y techumbre en Sector Collico",
+      "estado": "PLANIFICADA"
+    },
+    "mision": {
+      "id": "60000000-0000-4000-8000-000000000001",
+      "codigo": "MIS-2026-0045",
+      "titulo": "Despacho operativo: Entrega de frazadas y techumbre en Sector Collico",
+      "estado": "DESPACHADA",
+      "tipoMision": "RECUPERACION"
+    },
+    "patrulla": {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "nombre": "Patrulla Verificadora Alfa",
+      "estado": "EN_RECUPERACION"
+    },
+    "recursos": [
+      {
+        "recursoId": "80000000-0000-4000-8000-000000000001",
+        "nombre": "Frazadas Térmicas",
+        "esIndividual": false,
+        "cantidadAsignada": 10,
+        "cantidadEnUso": 15,
+        "estadoRecurso": "DISPONIBLE"
+      },
+      {
+        "recursoId": "80000000-0000-4000-8000-000000000002",
+        "nombre": "Camioneta 4x4 Patrulla",
+        "esIndividual": true,
+        "cantidadAsignada": 1,
+        "cantidadEnUso": 1,
+        "estadoRecurso": "ASIGNADO"
+      }
+    ],
+    "asignadoEn": "2026-10-04T12:30:00.000Z"
+  }
+}
+```
+
+#### `400 Bad Request` — Datos de Entrada Inválidos
+```json
+{
+  "message": "El activo individual o vehículo \"Camioneta 4x4 Patrulla\" solo admite una cantidad asignada de 1 unidad."
+}
+```
+
+#### `401 Unauthorized` — No Autenticado
+```json
+{
+  "message": "Se requiere cabecera de autenticación Authorization: Bearer <token>."
+}
+```
+
+#### `403 Forbidden` — Permiso Insuficiente
+```json
+{
+  "message": "No posee el permiso requerido: misiones:asignar"
+}
+```
+
+#### `404 Not Found` — Entidad No Encontrada
+```json
+{
+  "message": "El evento de recuperación indicado no fue encontrado."
+}
+```
+
+#### `409 Conflict` — Conflicto Operativo de Stock o Estado
+* **Stock insuficiente a granel (§3.6):**
+```json
+{
+  "message": "Stock insuficiente para el recurso \"Frazadas Térmicas\". Solicitado: 10, Disponible: 3."
+}
+```
+* **Activo individual en mantención o no disponible (§3.6):**
+```json
+{
+  "message": "El activo individual \"Camioneta 4x4 Patrulla\" se encuentra en mantención y no puede ser asignado."
+}
+```
+* **Patrulla no disponible:**
+```json
+{
+  "message": "La patrulla \"Patrulla Verificadora Alfa\" no está disponible para asignación (estado actual: EN_VERIFICACION)."
+}
+```
+
