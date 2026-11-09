@@ -1343,6 +1343,75 @@ describe("Módulo de Seguridad — Route Handlers HTTP", () => {
       expect(body.data.permisos).toContain("seguridad:roles:gestionar");
     });
 
+    it("GET /api/seguridad/usuario-activo debe retornar 200 con unidadActiva=false si la patrulla fue dada de baja (HU-85)", async () => {
+      vi.spyOn(seguridadRepository, "obtenerUsuarioCompletoConPermisos").mockResolvedValueOnce({
+        id: "00000000-0000-4000-8000-000000000004",
+        rut: "44444444-4",
+        nombre: "Operador Patrulla",
+        email: "patrulla@valdivia.cl",
+        activo: true,
+        delegacionId: null,
+        rol: {
+          id: "20000000-0000-4000-8000-000000000004",
+          nombre: "Patrulla Verificadora",
+          codigo: "PATRULLA_VERIFICADORA",
+          esAdmin: false,
+        },
+        permisos: ["incidentes:leer", "misiones:patrulla:leer"],
+        unidadId: "40000000-0000-4000-8000-000000000001",
+        unidadNombre: "Patrulla Verificadora Alfa",
+        unidadActiva: false,
+      });
+
+      const request = new NextRequest("http://localhost:3000/api/seguridad/usuario-activo", {
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+
+      const response = await getUsuarioActivoHandler(request);
+      expect(response.status).toBe(200);
+
+      const body = await response.json();
+      expect(body.data.id).toBe("00000000-0000-4000-8000-000000000004");
+      expect(body.data.unidadId).toBe("40000000-0000-4000-8000-000000000001");
+      expect(body.data.unidadNombre).toBe("Patrulla Verificadora Alfa");
+      expect(body.data.unidadActiva).toBe(false);
+    });
+
+    it("GET /api/seguridad/usuario-activo debe retornar 200 con unidadActiva=true si la patrulla está activa (HU-85)", async () => {
+      vi.spyOn(seguridadRepository, "obtenerUsuarioCompletoConPermisos").mockResolvedValueOnce({
+        id: "00000000-0000-4000-8000-000000000004",
+        rut: "44444444-4",
+        nombre: "Operador Patrulla",
+        email: "patrulla@valdivia.cl",
+        activo: true,
+        delegacionId: null,
+        rol: {
+          id: "20000000-0000-4000-8000-000000000004",
+          nombre: "Patrulla Verificadora",
+          codigo: "PATRULLA_VERIFICADORA",
+          esAdmin: false,
+        },
+        permisos: ["incidentes:leer", "misiones:patrulla:leer"],
+        unidadId: "40000000-0000-4000-8000-000000000001",
+        unidadNombre: "Patrulla Verificadora Alfa",
+        unidadActiva: true,
+      });
+
+      const request = new NextRequest("http://localhost:3000/api/seguridad/usuario-activo", {
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+
+      const response = await getUsuarioActivoHandler(request);
+      expect(response.status).toBe(200);
+
+      const body = await response.json();
+      expect(body.data.unidadActiva).toBe(true);
+    });
+
     it("GET /api/seguridad/usuario-activo debe retornar 401 si falta cabecera de autenticación", async () => {
       const request = new NextRequest("http://localhost:3000/api/seguridad/usuario-activo");
       const response = await getUsuarioActivoHandler(request);

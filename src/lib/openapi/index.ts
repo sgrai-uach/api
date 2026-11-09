@@ -48,6 +48,7 @@ import {
   ListarCuadrillasResponseSchema,
   DetalleCuadrillaResponseSchema,
   CuadrillaIdParamSchema,
+  DesactivarCuadrillaResponseSchema,
 } from "@/modules/recursos-y-personal/cuadrilla.schema";
 
 import {
@@ -2067,18 +2068,24 @@ registry.registerPath({
     },
   },
 });
-
 registry.registerPath({
   method: "delete",
   path: "/api/patrullas/{id}",
   summary: "Desactivar patrulla verificadora mediante baja lógica (HU-85)",
   description:
-    "Desactiva una patrulla verificadora marcándola inactiva (eliminado_en), liberando de forma atómica su vehículo institucional y funcionarios de dotación a estado disponible. Bloquea con 409 Conflict si está en verificación o con misión activa.",
+    "Desactiva una patrulla verificadora marcándola inactiva (eliminado_en), liberando de forma atómica su vehículo institucional y funcionarios de dotación a estado disponible. Bloquea con 409 Conflict si está desplegada en terreno o con misión activa.",
   tags: ["Recursos y Personal"],
   security: [{ bearerAuth: [] }],
   request: {
     params: z.object({
       id: PatrullaIdParamSchema,
+    }),
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (opcional si se envía Bearer token)" }),
     }),
   },
   responses: {
@@ -2111,14 +2118,6 @@ registry.registerPath({
     },
   },
 });
-
-// --- Módulo: Cuadrillas Operativas (Recursos y Personal - H81 / H79) ---
-registry.register("CrearCuadrillaInput", CrearCuadrillaInputSchema);
-registry.register("CrearCuadrillaResponse", CrearCuadrillaResponseSchema);
-registry.register("EditarCuadrillaInput", EditarCuadrillaInputSchema);
-registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
-registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
-registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
 
 // H81 / H79: Listar Cuadrillas Operativas Paginadas con Filtros
 registry.registerPath({
@@ -2284,6 +2283,48 @@ registry.registerPath({
     },
     409: {
       description: "Conflicto: cuadrilla en misión activa o nombre duplicado",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// H82: Desactivar Cuadrilla Operativa (Baja Lógica)
+registry.registerPath({
+  method: "delete",
+  path: "/api/cuadrillas/{id}",
+  summary: "Desactivar cuadrilla operativa mediante baja lógica (H82)",
+  description:
+    "Aplica baja lógica a una cuadrilla disuelta o retirada de servicio (activo = false, eliminado_en). Desvincula recursos y brigadistas al inventario central preservando trazabilidad histórica. Rechaza con 409 Conflict si posee misiones activas.",
+  tags: ["Cuadrillas", "Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: CuadrillaIdParamSchema,
+  },
+  responses: {
+    200: {
+      description: "Cuadrilla operativa desactivada exitosamente",
+      content: {
+        "application/json": {
+          schema: DesactivarCuadrillaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de cuadrilla inválido",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'cuadrillas:eliminar' o rol Administrador",
+    },
+    404: {
+      description: "Cuadrilla operativa no encontrada o ya desactivada",
+    },
+    409: {
+      description: "Conflicto: la cuadrilla se encuentra en misión activa o posee misiones en curso",
     },
     500: {
       description: "Error interno del servidor",

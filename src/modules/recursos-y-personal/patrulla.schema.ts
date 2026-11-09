@@ -46,6 +46,28 @@ export const ListarPatrullasQuerySchema = PaginationQuerySchema.extend({
       description: "Búsqueda textual sobre el nombre de la patrulla o nombre del líder",
       example: "Costa",
     }),
+  activo: z
+    .preprocess((val) => {
+      if (val === "true" || val === true) return true;
+      if (val === "false" || val === false) return false;
+      return val;
+    }, z.boolean())
+    .optional()
+    .openapi({
+      description: "Filtrar por patrullas activas o inactivas (baja lógica)",
+      example: true,
+    }),
+  incluirInactivas: z
+    .preprocess((val) => {
+      if (val === "true" || val === true) return true;
+      if (val === "false" || val === false) return false;
+      return val;
+    }, z.boolean())
+    .optional()
+    .openapi({
+      description: "Permite incluir patrullas inactivas/desactivadas en el listado",
+      example: false,
+    }),
 });
 
 export type ListarPatrullasQuery = z.infer<typeof ListarPatrullasQuerySchema>;
@@ -156,6 +178,9 @@ export const PatrullaItemResponseSchema = z.object({
   }),
   creadoEn: z.string().openapi({ description: "Fecha ISO de conformación de la patrulla" }),
   actualizadoEn: z.string().openapi({ description: "Fecha ISO de última actualización" }),
+  activo: z.boolean().default(true).openapi({ description: "Indica si la patrulla se encuentra activa operacionalmente" }),
+  eliminadoEn: z.string().nullable().optional().openapi({ description: "Timestamp ISO de baja lógica si fue desactivada" }),
+  eliminadoPorId: z.string().uuid().nullable().optional().openapi({ description: "UUID del usuario que realizó la baja lógica" }),
 });
 
 export type PatrullaItemResponseDTO = z.infer<typeof PatrullaItemResponseSchema>;
@@ -259,6 +284,9 @@ export const CrearPatrullaInputSchema = z.object({
   personalIds: z
     .array(z.string().uuid("Cada integrante debe ser un UUID válido."))
     .min(1, "Debe asignar al menos un funcionario con rol PATRULLA_VERIFICADORA.")
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: "No se pueden ingresar funcionarios duplicados en la dotación de la patrulla.",
+    })
     .openapi({
       description: "Lista de UUIDs de personal asignado a la dotación de la patrulla",
       example: ["b1000000-0000-4000-8000-000000000001"],

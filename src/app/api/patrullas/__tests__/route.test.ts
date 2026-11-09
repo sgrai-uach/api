@@ -51,6 +51,7 @@ describe("Route Handlers /api/patrullas", () => {
     },
     creadoEn: "2026-10-20T10:00:00.000Z",
     actualizadoEn: "2026-10-20T22:30:00.000Z",
+    activo: true,
   };
 
   beforeEach(() => {
@@ -151,6 +152,29 @@ describe("Route Handlers /api/patrullas", () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.data.id).toBe(validPatrullaId);
+    });
+
+    it("debe retornar 200 y el detalle histórico con activo: false para patrullas desactivadas (BUG-H85-API-04)", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+      vi.spyOn(patrullaService, "obtenerDetallePatrullaService").mockResolvedValueOnce({
+        message: "Detalle obtenido exitosamente",
+        data: {
+          ...dummyPatrullaDTO,
+          activo: false,
+          estado: "NO_DISPONIBLE",
+          eliminadoEn: "2026-10-26T15:00:00.000Z",
+          eliminadoPorId: adminId,
+        },
+      });
+
+      const req = new NextRequest(`http://localhost:3000/api/patrullas/${validPatrullaId}`);
+      const res = await GET_BY_ID(req, { params: Promise.resolve({ id: validPatrullaId }) });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.activo).toBe(false);
+      expect(json.data.eliminadoEn).toBe("2026-10-26T15:00:00.000Z");
+      expect(json.data.eliminadoPorId).toBe(adminId);
     });
   });
 
