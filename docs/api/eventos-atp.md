@@ -970,7 +970,7 @@ Consulta los eventos de asistencia social con filtros de estado, delegación, pr
 
 ---
 
-## 10. Detalle de Endpoint: `POST /api/eventos-atp` (H61)
+## 11. Detalle de Endpoint: `POST /api/eventos-atp` (H61)
 
 Registra el marco oficial de un **Evento de Alerta Temprana Preventiva** y su alcance territorial. El evento queda disponible de inmediato para la coordinación operativa y la visualización cartográfica.
 
