@@ -6,10 +6,18 @@ export async function sembrarDatosKanban() {
 
   // 1. Obtener IDs de delegaciones maestras
   const delegaciones = await db.selectFrom("delegacion").selectAll().execute();
-  const delNorte = delegaciones.find((d) => d.nombre === "Norte")?.id;
-  const delSur = delegaciones.find((d) => d.nombre === "Sur")?.id;
-  const delCosta = delegaciones.find((d) => d.nombre === "Costa")?.id;
-  const delCalleCalle = delegaciones.find((d) => d.nombre === "Calle Calle")?.id;
+  const delNorte =
+    delegaciones.find((d) => d.codigo === "DEL_NORTE" || d.nombre?.includes("Norte"))?.id ??
+    "30000000-0000-4000-8000-000000000001";
+  const delSur =
+    delegaciones.find((d) => d.codigo === "DEL_SUR" || d.nombre?.includes("Sur"))?.id ??
+    "30000000-0000-4000-8000-000000000002";
+  const delCosta =
+    delegaciones.find((d) => d.codigo === "DEL_COSTA" || d.nombre?.includes("Costa"))?.id ??
+    "30000000-0000-4000-8000-000000000003";
+  const delCalleCalle =
+    delegaciones.find((d) => d.codigo === "DEL_CALLE_CALLE" || d.nombre?.includes("Calle"))?.id ??
+    "30000000-0000-4000-8000-000000000004";
 
   // 2. Obtener IDs de tipos de incidente
   const tipos = await db.selectFrom("tipo_incidente").selectAll().execute();
@@ -39,6 +47,39 @@ export async function sembrarDatosKanban() {
     .selectAll()
     .executeTakeFirst();
   const encargadoId = usuarioEncargado?.id ?? "00000000-0000-4000-8000-000000000003";
+
+  // 4.b. Usuario Delegado de Cuadrilla (para pruebas operativas de H42 en PWA)
+  const delegadoId = "00000000-0000-4000-8000-000000000005";
+  await sql`
+    INSERT INTO usuario (id, rut, nombres, apellidos, email, rol_id, delegacion_id, password_hash, activo)
+    VALUES (
+      ${delegadoId},
+      '15555555-5',
+      'Pedro',
+      'Delegado Cuadrilla',
+      'delegado@valdivia.cl',
+      '20000000-0000-4000-8000-000000000005',
+      ${delSur ?? null},
+      '$2b$10$dMlhpX4QFpPonWcTHVNo0usyfRLusunVKj6LsxLc9PaZ9JZkN5asm',
+      true
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      password_hash = EXCLUDED.password_hash,
+      rol_id = EXCLUDED.rol_id;
+  `.execute(db);
+
+  await sql`
+    INSERT INTO personal (id, usuario_id, delegacion_id, especialidad, cargo, disponible_terreno)
+    VALUES (
+      '70000000-0000-4000-8000-000000000005',
+      ${delegadoId},
+      ${delSur ?? null},
+      'Emergencias y Despeje',
+      'Delegado de Cuadrilla',
+      true
+    )
+    ON CONFLICT (usuario_id) DO NOTHING;
+  `.execute(db);
 
   // 5. Informantes Ciudadanos
   await sql`
@@ -130,9 +171,17 @@ export async function sembrarDatosKanban() {
   await sql`
     INSERT INTO cuadrilla (id, nombre, estado, delegacion_id, usuario_delegado_id)
     VALUES
-      ('c1000000-0000-4000-8000-000000000001', 'Cuadrilla Aguas Lluvias Alfa', 'EN_MISION', ${delSur ?? null}, ${encargadoId}),
+      ('c1000000-0000-4000-8000-000000000001', 'Cuadrilla Aguas Lluvias Alfa', 'EN_MISION', ${delSur ?? null}, ${delegadoId}),
       ('c1000000-0000-4000-8000-000000000002', 'Cuadrilla Vías y Despeje Urbano', 'EN_MISION', ${delNorte ?? null}, ${encargadoId})
-    ON CONFLICT (id) DO NOTHING;
+    ON CONFLICT (id) DO UPDATE SET
+      usuario_delegado_id = EXCLUDED.usuario_delegado_id;
+  `.execute(db);
+
+  await sql`
+    INSERT INTO cuadrilla_personal (cuadrilla_id, personal_id)
+    VALUES
+      ('c1000000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-000000000005')
+    ON CONFLICT DO NOTHING;
   `.execute(db);
 
   // 8. Asignación de Recursos a Cuadrillas
@@ -442,6 +491,54 @@ export async function sembrarDatosKanban() {
         ${encargadoId},
         CURRENT_TIMESTAMP - interval '4 days 2 hours',
         CURRENT_TIMESTAMP - interval '4 days 2 hours'
+      ),
+      -- 13. INCIDENTE ACTIVO DESPACHADO (HU-42: Misión despachada en trayecto a terreno)
+      (
+        'a1000000-0000-4000-8000-000000000013',
+        'INC-2026-0013',
+        '10000013',
+        'b1000000-0000-4000-8000-000000000001',
+        ${tipoAnegamiento ?? null},
+        ${delSur ?? null},
+        ${fuenteChatbot ?? null},
+        'Anegamiento de calzada',
+        'Colapso de rejillas colectoras en Av. Picarte con ingreso de agua lluvia hacia acera comercial. Cuadrilla despachada en camino.',
+        'Av. Ramón Picarte 2450, Valdivia',
+        -39.8320000,
+        -73.2310000,
+        ST_SetSRID(ST_MakePoint(-73.2310000, -39.8320000), 4326),
+        'EN_ATENCION',
+        'ALTA',
+        false,
+        'CHATBOT',
+        ${adminId},
+        ${encargadoId},
+        CURRENT_TIMESTAMP - interval '30 minutes',
+        CURRENT_TIMESTAMP - interval '10 minutes'
+      ),
+      -- 14. INCIDENTE CRÍTICO DESPACHADO (HU-42: Misión despachada para tala y despeje)
+      (
+        'a1000000-0000-4000-8000-000000000014',
+        'INC-2026-0014',
+        '10000014',
+        'b1000000-0000-4000-8000-000000000002',
+        ${tipoArbol ?? null},
+        ${delSur ?? null},
+        ${fuenteLlamada ?? null},
+        'Caída de árbol',
+        'Especie arbórea de gran tamaño caída sobre calzada principal, corte de tránsito total. Cuadrilla despachada con motosierras.',
+        'Los Robles 620, Isla Teja, Valdivia',
+        -39.8142000,
+        -73.2459000,
+        ST_SetSRID(ST_MakePoint(-73.2459000, -39.8142000), 4326),
+        'EN_ATENCION',
+        'CRITICA',
+        false,
+        'LLAMADA_TELEFONICA',
+        ${adminId},
+        ${encargadoId},
+        CURRENT_TIMESTAMP - interval '45 minutes',
+        CURRENT_TIMESTAMP - interval '15 minutes'
       )
     ON CONFLICT (id) DO UPDATE SET
       creado_en = EXCLUDED.creado_en,
@@ -532,8 +629,46 @@ export async function sembrarDatosKanban() {
         CURRENT_TIMESTAMP - interval '4 hours',
         CURRENT_TIMESTAMP - interval '1 hour',
         CURRENT_TIMESTAMP - interval '4 hours 30 minutes'
+      ),
+      -- Misión 5: Despachada para incidente 13 (Caso principal HU-42 - Llegada a terreno de cuadrilla)
+      (
+        'd1000000-0000-4000-8000-000000000005',
+        'MIS-2026-0005',
+        'Despeje de sumidero y vía anegada en Av. Picarte',
+        'Cuadrilla despachada con camión tolva y herramientas de despeje. En trayecto hacia el lugar.',
+        'ATENCION_CUADRILLA',
+        'DESPACHADA',
+        'ALTA',
+        'a1000000-0000-4000-8000-000000000013',
+        NULL,
+        'c1000000-0000-4000-8000-000000000001',
+        ${encargadoId},
+        ${adminId},
+        NULL,
+        NULL,
+        CURRENT_TIMESTAMP - interval '15 minutes'
+      ),
+      -- Misión 6: Despachada para incidente 14 (Segundo caso de prueba HU-42 - Cuadrilla con motosierras)
+      (
+        'd1000000-0000-4000-8000-000000000006',
+        'MIS-2026-0006',
+        'Corte y retiro de árbol caído en Los Robles',
+        'Cuadrilla despachada con motosierras y equipo de seguridad. En trayecto hacia el lugar.',
+        'ATENCION_CUADRILLA',
+        'DESPACHADA',
+        'CRITICA',
+        'a1000000-0000-4000-8000-000000000014',
+        NULL,
+        'c1000000-0000-4000-8000-000000000001',
+        ${encargadoId},
+        ${adminId},
+        NULL,
+        NULL,
+        CURRENT_TIMESTAMP - interval '25 minutes'
       )
-    ON CONFLICT (id) DO NOTHING;
+    ON CONFLICT (id) DO UPDATE SET
+      estado = EXCLUDED.estado,
+      fecha_inicio = EXCLUDED.fecha_inicio;
   `.execute(db);
 
   console.log("¡Datos de prueba para el Tablero Kanban sembrados exitosamente!");
