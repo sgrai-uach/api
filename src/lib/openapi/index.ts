@@ -72,6 +72,13 @@ import {
 } from "@/modules/misiones/mision.schema";
 
 import {
+  NotificacionIdParamSchema,
+  ActualizarEstadoNotificacionInputSchema,
+  ActualizarEstadoNotificacionResponseSchema,
+  ListarMisionesPendientesResponseSchema,
+} from "@/modules/misiones/notificacion-mision.schema";
+
+import {
   CrearAvisoIncidenteInputSchema,
   AvisoIncidenteResponseSchema,
   ConsultaSeguimientoResponseSchema,
@@ -2386,13 +2393,96 @@ registry.registerPath({
   },
 });
 
+// PATCH /api/terreno/notificaciones/{id}/estado (HU-35: Confirmar acuse de recibo o lectura)
+registry.registerPath({
+  method: "patch",
+  path: "/api/terreno/notificaciones/{id}/estado",
+  summary: "Confirmar acuse de recibo o lectura de notificación de misión (HU-35)",
+  description:
+    "Registra de forma idempotente la confirmación técnica automática ('RECIBIDA') o la interacción operativa ('LEIDA') emitida por sgrai-pwa. Emite el evento WebSocket 'notificacion:trazabilidad_actualizada' hacia la Central de Operaciones. Requiere permiso 'misiones:terreno:verificar' y pertenencia a la patrulla destinataria (salvo rol Administrador).",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: NotificacionIdParamSchema,
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: ActualizarEstadoNotificacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Estado de notificación actualizado exitosamente de forma idempotente",
+      content: {
+        "application/json": {
+          schema: ActualizarEstadoNotificacionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador no es UUID válido o cuerpo con estado distinto a 'RECIBIDA' o 'LEIDA'",
+    },
+    401: {
+      description: "No autenticado o token ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:terreno:verificar' y pertenecer a la patrulla asignada",
+    },
+    404: {
+      description: "Notificación no encontrada",
+    },
+    500: {
+      description: "Error interno del servidor al actualizar acuse de notificación",
+    },
+  },
+});
+
+// GET /api/terreno/misiones/pendientes (HU-35: Reconciliación offline de misiones asignadas)
+registry.registerPath({
+  method: "get",
+  path: "/api/terreno/misiones/pendientes",
+  summary: "Consultar órdenes de misión pendientes de acuse para terreno (HU-35)",
+  description:
+    "Consulta las misiones asignadas a la patrulla del usuario autenticado cuyas notificaciones se encuentran en 'PENDIENTE_ENVIO' o 'ENVIADA'. Utilizado por sgrai-pwa al recuperar conectividad tras operar fuera de cobertura (Arquitectura Offline-First). Requiere permiso 'misiones:terreno:verificar'.",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    query: z.object({
+      patrullaId: z.string().uuid().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Listado de misiones pendientes obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarMisionesPendientesResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "No autenticado o token ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:terreno:verificar' y pertenecer a una patrulla activa",
+    },
+    500: {
+      description: "Error interno del servidor al consultar misiones pendientes",
+    },
+  },
+});
+
 export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.10.0",
+      version: "0.11.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",
