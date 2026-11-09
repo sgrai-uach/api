@@ -347,7 +347,7 @@ export interface MisionVerificacionCreadaResult {
  * 1. Verifica que el incidente exista y esté en estado 'REPORTADO'.
  * 2. Actualiza atómicamente la patrulla verificadora a 'EN_VERIFICACION' asegurando que esté 'DISPONIBLE'.
  * 3. Crea la misión con tipo 'VERIFICACION' y estado 'DESPACHADA'.
- * 4. Actualiza el estado del incidente a 'VERIFICANDO'.
+ * 4. Mantiene el estado del incidente en 'REPORTADO' (pendiente de confirmación).
  * 5. Registra el hito inicial 'DESPACHADA' en la bitácora de la misión ('mision_hito').
  */
 export async function crearMisionVerificacionRepo(
@@ -369,6 +369,20 @@ export async function crearMisionVerificacionRepo(
     if (incidente.estado !== "REPORTADO") {
       throw new ConflictError(
         `El incidente se encuentra en estado '${incidente.estado}', por lo que no puede ser asignado a una patrulla verificadora. Solo se pueden verificar incidentes en estado 'REPORTADO'.`
+      );
+    }
+
+    // Validar que no posea ya una misión activa en curso o pendiente de confirmación
+    const misionActiva = await trx
+      .selectFrom("mision")
+      .select(["id", "codigo", "estado"])
+      .where("incidente_id", "=", input.incidenteId)
+      .where("estado", "in", ["PLANIFICADA", "DESPACHADA", "EN_CURSO"])
+      .executeTakeFirst();
+
+    if (misionActiva) {
+      throw new ConflictError(
+        `El incidente ya posee una misión activa (${misionActiva.codigo} en estado '${misionActiva.estado}').`
       );
     }
 
@@ -445,11 +459,10 @@ export async function crearMisionVerificacionRepo(
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    // 5. Actualizar incidente a VERIFICANDO
+    // 5. Mantener incidente en estado 'REPORTADO' hasta confirmación de patrulla en terreno
     const incidenteActualizado = await trx
       .updateTable("incidente")
       .set({
-        estado: "VERIFICANDO",
         actualizado_en: new Date(),
       })
       .where("id", "=", input.incidenteId)

@@ -257,7 +257,7 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
 1. Verifica que el incidente exista y su estado sea exactamente `REPORTADO`.
 2. Actualiza atómicamente la patrulla verificadora seleccionada a `estado = 'EN_VERIFICACION'` verificando que se encuentre en estado `DISPONIBLE` y activa (`eliminado_en IS NULL`). Si fue tomada concurrentemente por otro operador, aborta la transacción con `HTTP 409 Conflict`.
 3. Crea el registro en `mision` con `tipo_mision = 'VERIFICACION'`, `estado = 'DESPACHADA'` y código autogenerado correlativo único (`MIS-YYYY-NNNN`).
-4. Actualiza el incidente a `estado = 'VERIFICANDO'`.
+4. Mantiene el incidente en `estado = 'REPORTADO'` (pendiente de confirmación de la patrulla).
 5. Inserta el hito inicial en la bitácora `mision_hito` (`hito = 'DESPACHADA'`).
 6. Emite notificaciones WebSocket reactivas a través del broker Redis.
 
@@ -306,7 +306,7 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
     "incidente": {
       "id": "50000000-0000-4000-8000-000000000001",
       "codigo": "INC-2026-1042",
-      "estado": "VERIFICANDO"
+      "estado": "REPORTADO"
     },
     "patrulla": {
       "id": "f1000000-0000-4000-8000-000000000001",
