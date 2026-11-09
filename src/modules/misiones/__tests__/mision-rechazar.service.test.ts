@@ -43,6 +43,7 @@ describe("HU-69: Servicio de Negocio rechazarMisionService", () => {
       id: incidenteId,
       codigo: "INC-2026-1042",
       estado: "REPORTADO",
+      prioridad: "ALTA",
     },
     hito: {
       id: "70000000-0000-4000-8000-000000000002",
@@ -99,6 +100,7 @@ describe("HU-69: Servicio de Negocio rechazarMisionService", () => {
         id: incidenteId,
         codigo: "INC-2026-1042",
         nuevoEstado: "REPORTADO",
+        prioridad: "ALTA",
       })
     );
 

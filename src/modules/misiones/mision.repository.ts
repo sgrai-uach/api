@@ -536,6 +536,7 @@ export interface RechazarMisionPatrullaResult {
     id: string;
     codigo: string;
     estado: string;
+    prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
   };
   hito: {
     id: string;
@@ -584,6 +585,7 @@ export async function rechazarMisionPatrullaRepo(
         "rol_lider.nombre as lider_rol_nombre",
         "incidente.codigo as incidente_codigo",
         "incidente.estado as incidente_estado",
+        "incidente.prioridad as incidente_prioridad",
       ])
       .where("mision.id", "=", misionId)
       .executeTakeFirst();
@@ -674,6 +676,7 @@ export async function rechazarMisionPatrullaRepo(
     // 6. Revertir incidente a estado 'REPORTADO' para permitir reasignación inmediata
     let incidenteCodigo = misionExistente.incidente_codigo ?? "";
     let incidenteEstado = "REPORTADO";
+    let incidentePrioridad = (misionExistente.incidente_prioridad ?? "MEDIA") as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
     if (misionExistente.incidente_id) {
       const incidenteRes = await trx
         .updateTable("incidente")
@@ -682,12 +685,15 @@ export async function rechazarMisionPatrullaRepo(
           actualizado_en: sql`CURRENT_TIMESTAMP`,
         })
         .where("id", "=", misionExistente.incidente_id)
-        .returning(["id", "codigo", "estado"])
+        .returning(["id", "codigo", "estado", "prioridad"])
         .executeTakeFirst();
 
       if (incidenteRes) {
         incidenteCodigo = incidenteRes.codigo;
         incidenteEstado = incidenteRes.estado;
+        if (incidenteRes.prioridad) {
+          incidentePrioridad = incidenteRes.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+        }
       }
     }
 
@@ -722,6 +728,7 @@ export async function rechazarMisionPatrullaRepo(
         id: misionExistente.incidente_id || "",
         codigo: incidenteCodigo,
         estado: incidenteEstado,
+        prioridad: incidentePrioridad,
       },
       hito: {
         id: hito.id,

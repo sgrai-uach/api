@@ -368,7 +368,7 @@ export async function rechazarMisionService(
         id: resultado.incidente.id,
         codigo: resultado.incidente.codigo,
         nuevoEstado: resultado.incidente.estado,
-        prioridad: "MEDIA",
+        prioridad: resultado.incidente.prioridad,
         actualizadoEn: new Date().toISOString(),
       });
     }
