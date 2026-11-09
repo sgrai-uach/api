@@ -38,6 +38,9 @@ export interface FilaPatrullaConsulta {
   incidente_folio: string | null;
   incidente_tipo_afectacion: string | null;
   incidente_direccion: string | null;
+  patrulla_activo?: boolean | null;
+  patrulla_eliminado_en?: Date | string | null;
+  patrulla_eliminado_por_id?: string | null;
 }
 
 export interface FilaIntegranteConsulta {
@@ -66,8 +69,13 @@ export async function listarPatrullasRepo(filtros: ListarPatrullasQuery) {
     .selectFrom("patrulla_verificadora as pv")
     .leftJoin("delegacion as del", "del.id", "pv.delegacion_id")
     .leftJoin("usuario as u", "u.id", "pv.usuario_lider_id")
-    .leftJoin("recurso as r", "r.id", "pv.vehiculo_id")
-    .where("pv.eliminado_en", "is", null);
+    .leftJoin("recurso as r", "r.id", "pv.vehiculo_id");
+
+  if (filtros.activo !== undefined) {
+    baseQuery = baseQuery.where("pv.activo", "=", filtros.activo);
+  } else if (!filtros.incluirInactivas) {
+    baseQuery = baseQuery.where("pv.eliminado_en", "is", null).where("pv.activo", "=", true);
+  }
 
   if (filtros.delegacionId) {
     baseQuery = baseQuery.where("pv.delegacion_id", "=", filtros.delegacionId);
@@ -135,6 +143,9 @@ export async function listarPatrullasRepo(filtros: ListarPatrullasQuery) {
       "inc.folio as incidente_folio",
       "inc.tipo_afectacion as incidente_tipo_afectacion",
       "inc.direccion_texto as incidente_direccion",
+      "pv.activo as patrulla_activo",
+      "pv.eliminado_en as patrulla_eliminado_en",
+      "pv.eliminado_por_id as patrulla_eliminado_por_id",
     ])
     .orderBy("pv.nombre", "asc")
     .limit(limit)
@@ -200,7 +211,6 @@ export async function obtenerPatrullaPorIdRepo(id: string) {
     )
     .leftJoin("incidente as inc", "inc.id", "m.incidente_id")
     .where("pv.id", "=", id)
-    .where("pv.eliminado_en", "is", null)
     .select([
       "pv.id as patrulla_id",
       "pv.codigo as patrulla_codigo",
@@ -234,6 +244,9 @@ export async function obtenerPatrullaPorIdRepo(id: string) {
       "inc.folio as incidente_folio",
       "inc.tipo_afectacion as incidente_tipo_afectacion",
       "inc.direccion_texto as incidente_direccion",
+      "pv.activo as patrulla_activo",
+      "pv.eliminado_en as patrulla_eliminado_en",
+      "pv.eliminado_por_id as patrulla_eliminado_por_id",
     ])
     .executeTakeFirst();
 
@@ -677,21 +690,50 @@ export async function desactivarPatrullaTransaccionalRepo(
   usuarioId?: string | null
 ): Promise<ResultadoDesactivacionPatrullaRepo> {
   return await db.transaction().execute(async (trx) => {
-    // 1. Obtener la patrulla actual para recuperar vehiculo_id, código y nombre
+    // 1. Obtener la patrulla actual con bloqueo pesimista FOR UPDATE (BUG-H85-API-01)
     const patrullaActual = await trx
       .selectFrom("patrulla_verificadora")
       .where("id", "=", id)
       .where("eliminado_en", "is", null)
-      .select(["id", "codigo", "nombre", "vehiculo_id"])
+      .select(["id", "codigo", "nombre", "estado", "vehiculo_id", "usuario_lider_id"])
+      .forUpdate()
       .executeTakeFirst();
 
     if (!patrullaActual) {
       throw new Error("Patrulla verificadora no encontrada para dar de baja.");
     }
 
+    // Validación atómica de estados en terreno (BUG-H85-API-01)
+    const estadosEnTerreno = [
+      "EN_VERIFICACION",
+      "EN_PREVENCION",
+      "EN_RECUPERACION",
+      "EN_MISION",
+    ];
+    if (estadosEnTerreno.includes(patrullaActual.estado)) {
+      throw new Error(
+        `CONFLICT:No es posible desactivar la patrulla verificadora '${patrullaActual.nombre}' porque se encuentra actualmente en terreno en estado '${patrullaActual.estado}'.`
+      );
+    }
+
+    // Validación atómica de misiones tácticas activas (BUG-H85-API-01)
+    const misionesActivas = await trx
+      .selectFrom("mision")
+      .where("patrulla_id", "=", id)
+      .where("estado", "in", ["PLANIFICADA", "DESPACHADA", "EN_CURSO"])
+      .select(["id", "codigo", "titulo"])
+      .execute();
+
+    if (misionesActivas.length > 0) {
+      const codigos = misionesActivas.map((m) => m.codigo || m.titulo).join(", ");
+      throw new Error(
+        `CONFLICT:No es posible desactivar la patrulla verificadora '${patrullaActual.nombre}' porque cuenta con misiones tácticas activas en curso (${codigos}).`
+      );
+    }
+
     const vehiculoLiberadoId = patrullaActual.vehiculo_id;
 
-    // 2. Liberar vehículo asignado si existe
+    // 2. Liberar vehículo asignado si existe (BUG-H85-API-03: liberar recurso sin borrar vehiculo_id de patrulla)
     if (vehiculoLiberadoId) {
       await trx
         .updateTable("recurso")
@@ -704,39 +746,76 @@ export async function desactivarPatrullaTransaccionalRepo(
         .execute();
     }
 
-    // 3. Obtener los integrantes de la dotación y liberarlos en personal
+    // 3. Obtener los integrantes de la dotación y consolidar con usuario_lider_id (BUG-H85-API-02)
     const integrantes = await trx
-      .selectFrom("patrulla_personal")
-      .where("patrulla_id", "=", id)
-      .select("personal_id")
+      .selectFrom("patrulla_personal as pp")
+      .innerJoin("personal as p", "p.id", "pp.personal_id")
+      .where("pp.patrulla_id", "=", id)
+      .select(["pp.personal_id", "p.usuario_id"])
       .execute();
 
     const personalLiberadoIds = integrantes.map((i) => i.personal_id);
-
-    if (personalLiberadoIds.length > 0) {
-      await trx
-        .updateTable("usuario")
-        .set({
-          estado_operativo: "disponible",
-        })
-        .where(
-          "id",
-          "in",
-          trx
-            .selectFrom("personal")
-            .select("usuario_id")
-            .where("id", "in", personalLiberadoIds)
-        )
-        .execute();
+    const usuarioIdsCandidatos = new Set<string>();
+    for (const i of integrantes) {
+      if (i.usuario_id) usuarioIdsCandidatos.add(i.usuario_id);
+    }
+    if (patrullaActual.usuario_lider_id) {
+      usuarioIdsCandidatos.add(patrullaActual.usuario_lider_id);
     }
 
-    // 4. Actualizar patrulla_verificadora aplicando baja lógica y marcándola como NO_DISPONIBLE
+    const listaUsuarioIds = Array.from(usuarioIdsCandidatos);
+
+    // Liberar estado_operativo a 'disponible' únicamente para funcionarios activos, en estado 'en_patrulla'
+    // y que no pertenezcan a ninguna otra patrulla o cuadrilla activa
+    if (listaUsuarioIds.length > 0) {
+      await sql`
+        UPDATE usuario
+        SET estado_operativo = 'disponible',
+            actualizado_en = CURRENT_TIMESTAMP
+        WHERE id IN (${sql.join(listaUsuarioIds.map((uid) => sql`${uid}::uuid`))})
+          AND activo = true
+          AND estado_operativo = 'en_patrulla'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM patrulla_personal pp2
+            JOIN patrulla_verificadora pv2 ON pv2.id = pp2.patrulla_id
+            JOIN personal p2 ON p2.id = pp2.personal_id
+            WHERE pv2.eliminado_en IS NULL
+              AND pv2.id != ${id}::uuid
+              AND p2.usuario_id = usuario.id
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM patrulla_verificadora pv3
+            WHERE pv3.eliminado_en IS NULL
+              AND pv3.id != ${id}::uuid
+              AND pv3.usuario_lider_id = usuario.id
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM cuadrilla_personal cp
+            JOIN cuadrilla c ON c.id = cp.cuadrilla_id
+            JOIN personal p3 ON p3.id = cp.personal_id
+            WHERE c.eliminado_en IS NULL
+              AND c.activo = true
+              AND p3.usuario_id = usuario.id
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM cuadrilla c2
+            WHERE c2.eliminado_en IS NULL
+              AND c2.activo = true
+              AND c2.usuario_delegado_id = usuario.id
+          );
+      `.execute(trx);
+    }
+
+    // 4. Actualizar patrulla_verificadora aplicando baja lógica (conservando vehiculo_id - BUG-H85-API-03)
     const patrullaActualizada = await trx
       .updateTable("patrulla_verificadora")
       .set({
         activo: false,
         estado: "NO_DISPONIBLE",
-        vehiculo_id: null,
         eliminado_en: sql`CURRENT_TIMESTAMP`,
         eliminado_por_id: usuarioId ?? null,
         actualizado_en: sql`CURRENT_TIMESTAMP`,

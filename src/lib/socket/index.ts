@@ -602,16 +602,19 @@ export function notificarPatrullaActualizada(payload: {
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "encargado",
-          event: "patrulla:actualizada",
-          payload,
-        })
-      )
-      .catch(() => {});
+    const rooms = ["encargado", "sala:encargados", "supervisor", "mapa", patrullaRoom];
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "patrulla:actualizada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 
@@ -739,23 +742,16 @@ export function notificarMisionAsignada(payload: {
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "encargado",
-          event: "mision:asignada",
-          payload,
-        })
-      )
-      .catch(() => {});
-
+    const rooms = ["encargado", "sala:encargados", "supervisor"];
     if (patrullaRoom) {
+      rooms.push(patrullaRoom);
+    }
+    for (const room of rooms) {
       publisher
         .publish(
           REDIS_SOCKET_CHANNEL,
           JSON.stringify({
-            room: patrullaRoom,
+            room,
             event: "mision:asignada",
             payload,
           })

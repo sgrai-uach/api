@@ -102,6 +102,16 @@ export interface MisionDetalleQueryResult {
       creado_en: Date | string;
     }>;
   }>;
+  hitos?: Array<{
+    id: string;
+    mision_id: string;
+    hito: string;
+    descripcion: string;
+    registrado_por_id: string | null;
+    latitud: number | string | null;
+    longitud: number | string | null;
+    creado_en: Date | string;
+  }>;
 }
 
 /**
@@ -299,10 +309,28 @@ export async function obtenerMisionDetallePorIdRepo(
       })),
   }));
 
+  // Consultar bitácora cronológica de hitos operacionales
+  const hitosFilas = await db
+    .selectFrom("mision_hito")
+    .select([
+      "id",
+      "mision_id",
+      "hito",
+      "descripcion",
+      "registrado_por_id",
+      "latitud",
+      "longitud",
+      "creado_en",
+    ])
+    .where("mision_id", "=", id)
+    .orderBy("creado_en", "asc")
+    .execute();
+
   return {
     mision,
     recursosCuadrilla,
     reportesTerreno,
+    hitos: hitosFilas,
   };
 }
 
@@ -355,11 +383,12 @@ export async function crearMisionVerificacionRepo(
   operadorId: string
 ): Promise<MisionVerificacionCreadaResult> {
   return await db.transaction().execute(async (trx) => {
-    // 1. Validar existencia y estado del incidente
+    // 1. Validar existencia y estado del incidente con bloqueo pesimista (FOR UPDATE)
     const incidente = await trx
       .selectFrom("incidente")
       .select(["id", "codigo", "estado", "prioridad", "tipo_afectacion", "delegacion_id"])
       .where("id", "=", input.incidenteId)
+      .forUpdate()
       .executeTakeFirst();
 
     if (!incidente) {
@@ -418,28 +447,34 @@ export async function crearMisionVerificacionRepo(
       );
     }
 
-    // 3. Generar código correlativo único para la misión
+    // 3. Generar código correlativo único secuencial protegido contra colisiones concurrentes (advisory lock)
+    await sql`SELECT pg_advisory_xact_lock(hashtext('mision_codigo_seq'))`.execute(trx);
+
     const year = new Date().getFullYear();
-    let codigo = "";
-    let colision = true;
-    while (colision) {
-      const randomNum = Math.floor(1000 + Math.random() * 9000);
-      codigo = `MIS-${year}-${randomNum}`;
-      const existe = await trx
-        .selectFrom("mision")
-        .select("id")
-        .where("codigo", "=", codigo)
-        .executeTakeFirst();
-      if (!existe) {
-        colision = false;
+    const prefijo = `MIS-${year}-`;
+
+    const ultimaMision = await trx
+      .selectFrom("mision")
+      .select("codigo")
+      .where("codigo", "like", `${prefijo}%`)
+      .orderBy("codigo", "desc")
+      .limit(1)
+      .executeTakeFirst();
+
+    let correlativo = 1;
+    if (ultimaMision?.codigo) {
+      const partes = ultimaMision.codigo.split("-");
+      const num = parseInt(partes[2] || "0", 10);
+      if (!isNaN(num) && num >= 1) {
+        correlativo = num + 1;
       }
     }
+    const codigo = `${prefijo}${String(correlativo).padStart(4, "0")}`;
 
-    // 4. Crear registro en la tabla mision
+    // 4. Crear registro en la tabla mision (fecha_inicio en null para estado DESPACHADA)
     const titulo = input.titulo?.trim() || `Verificación de Incidente ${incidente.codigo}`;
     const descripcion = input.descripcion?.trim() || null;
     const prioridad = (input.prioridad || incidente.prioridad || "MEDIA") as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
-    const fechaInicio = new Date();
 
     const nuevaMision = await trx
       .insertInto("mision")
@@ -454,7 +489,7 @@ export async function crearMisionVerificacionRepo(
         patrulla_id: input.patrullaId,
         encargado_id: operadorId,
         creado_por_id: operadorId,
-        fecha_inicio: fechaInicio,
+        fecha_inicio: null,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -466,8 +501,15 @@ export async function crearMisionVerificacionRepo(
         actualizado_en: new Date(),
       })
       .where("id", "=", input.incidenteId)
+      .where("estado", "=", "REPORTADO")
       .returning(["id", "codigo", "estado", "prioridad"])
-      .executeTakeFirstOrThrow();
+      .executeTakeFirst();
+
+    if (!incidenteActualizado) {
+      throw new ConflictError(
+        `El incidente con ID '${input.incidenteId}' ya no se encuentra en estado 'REPORTADO' (fue modificado concurrentemente).`
+      );
+    }
 
     // 6. Registrar hito inicial en mision_hito
     const hitoInicial = await trx

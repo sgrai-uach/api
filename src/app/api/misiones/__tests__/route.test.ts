@@ -228,7 +228,7 @@ describe("Route Handler POST /api/misiones (HU-20: Asignar Patrulla Verificadora
           incidenteId: payloadValido.incidenteId,
           patrullaId: payloadValido.patrullaId,
           encargadoId: usuarioEncargadoMock.id,
-          fechaInicio: "2026-10-27T17:00:00.000Z",
+          fechaInicio: null,
           creadoEn: "2026-10-27T17:00:00.000Z",
         },
         incidente: {

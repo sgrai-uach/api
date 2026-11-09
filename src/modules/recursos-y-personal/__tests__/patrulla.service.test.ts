@@ -29,6 +29,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     nombre: "Administrador",
     rolId: "20000000-0000-4000-8000-000000000001",
     rolNombre: "Administrador",
+    rol: "ADMINISTRADOR",
     activo: true,
   };
 
@@ -42,6 +43,9 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     patrulla_ultima_actualizacion_ubicacion: new Date("2026-10-20T22:00:00.000Z"),
     patrulla_creado_en: new Date("2026-10-20T10:00:00.000Z"),
     patrulla_actualizado_en: new Date("2026-10-20T22:30:00.000Z"),
+    patrulla_activo: true,
+    patrulla_eliminado_en: null,
+    patrulla_eliminado_por_id: null,
     delegacion_id: "30000000-0000-4000-8000-000000000003",
     delegacion_nombre: "Delegación Municipal Costa",
     delegacion_codigo: "DEL_COSTA",
@@ -660,6 +664,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
   });
 
+
   describe("modificarPatrullaService (Edición de Patrulla - HU-84)", () => {
     const inputModificar = {
       nombre: "Patrulla Costa Renovada",
@@ -667,16 +672,6 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
       vehiculoId: "e1000000-0000-4000-8000-000000000002",
       personalIds: ["b1000000-0000-4000-8000-000000000001"],
       usuarioLiderId: "c1000000-0000-4000-8000-000000000001",
-    };
-
-    const mockAdminUsuario = {
-      id: adminUserId,
-      rut: "11111111-1",
-      email: "admin@valdivia.cl",
-      nombre: "Administrador",
-      rolId: "rol-admin",
-      rolNombre: "Administrador",
-      activo: true,
     };
 
     const mockFilaDisponible: patrullaRepo.FilaPatrullaConsulta = {
@@ -730,7 +725,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     };
 
     it("debe rechazar con ForbiddenError si no cuenta con permiso recursos:editar", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValueOnce(
+      vi.spyOn(authService, "verificarPermiso").mockRejectedValueOnce(
         new ForbiddenError("Acceso denegado. Se requiere el permiso recursos:editar.")
       );
 
@@ -740,7 +735,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe rechazar con NotFoundError si la patrulla verificadora no existe", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce(null);
 
       await expect(
@@ -749,7 +744,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe rechazar con ConflictError si la patrulla está en estado EN_VERIFICACION", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
         fila: {
           ...mockFila,
@@ -765,7 +760,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe rechazar con ConflictError si la patrulla tiene una misión táctica activa en terreno", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
         fila: {
           ...mockFila,
@@ -781,7 +776,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe rechazar con NotFoundError si la delegación base no existe", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
         fila: mockFilaDisponible,
         integrantes: [mockIntegrante],
@@ -794,7 +789,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("BUG-H84-API-02: debe preservar el vehículo actual y no desasignarlo si vehiculoId es undefined", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo")
         .mockResolvedValueOnce({
           fila: mockFilaDisponible, // vehiculo_id: "e1000000-0000-4000-8000-000000000002"
@@ -831,7 +826,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("BUG-H84-API-02 y BUG-H84-API-04: debe pasar vehiculoId: null y coordenadas null si se solicita explícitamente null", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo")
         .mockResolvedValueOnce({
           fila: mockFilaDisponible,
@@ -874,7 +869,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe rechazar con BadRequestError si el nuevo vehículo asignado no es individual", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
         fila: mockFilaDisponible,
         integrantes: [mockIntegrante],
@@ -900,7 +895,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe rechazar con ConflictError si el nuevo vehículo asignado está en mantención o no disponible", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
         fila: mockFilaDisponible,
         integrantes: [mockIntegrante],
@@ -927,7 +922,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("BUG-H84-API-03: debe rechazar con ConflictError si un NUEVO integrante se encuentra en licencia o descanso", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
         fila: mockFilaDisponible,
         integrantes: [mockIntegrante], // personal_id: "b1000000-..."
@@ -956,7 +951,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("BUG-H84-API-03: debe permitir conservar integrantes actuales aunque tengan estado operativo en_patrulla", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo")
         .mockResolvedValueOnce({
           fila: mockFilaDisponible,
@@ -991,7 +986,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("BUG-H84-API-01: debe enviar personalLiderId correspondiente al usuarioLiderId suministrado", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo")
         .mockResolvedValueOnce({
           fila: mockFilaDisponible,
@@ -1032,7 +1027,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe modificar exitosamente la patrulla y emitir notificación WebSocket patrulla:actualizada", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
 
       const filaModificada: patrullaRepo.FilaPatrullaConsulta = {
         ...mockFilaDisponible,
@@ -1086,7 +1081,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     };
 
     it("debe lanzar ForbiddenError si el usuario no tiene permiso de administrador o recursos:eliminar", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValueOnce(
+      vi.spyOn(authService, "verificarPermiso").mockRejectedValueOnce(
         new ForbiddenError("Acceso denegado. Se requiere el perfil de Administrador.")
       );
 
@@ -1096,7 +1091,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe lanzar NotFoundError si la patrulla no existe o ya fue dada de baja", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
 
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce(null);
 
@@ -1105,16 +1100,48 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
       ).rejects.toThrow(NotFoundError);
     });
 
-    it("debe rechazar con ConflictError si la patrulla se encuentra en estado EN_VERIFICACION", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+    it("debe rechazar con ConflictError si la patrulla se encuentra en estados de terreno (EN_VERIFICACION, EN_PREVENCION, EN_RECUPERACION, EN_MISION) (BUG-H85-API-01)", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValue(mockAdminUsuario);
+
+      for (const estadoTerreno of ["EN_VERIFICACION", "EN_PREVENCION", "EN_RECUPERACION", "EN_MISION"] as const) {
+        vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
+          fila: {
+            ...mockFila,
+            patrulla_estado: estadoTerreno,
+          },
+          integrantes: [mockIntegrante],
+        });
+
+        await expect(
+          desactivarPatrullaService(patrullaId, adminUserId)
+        ).rejects.toThrow(ConflictError);
+      }
+    });
+
+    it("debe rechazar con NotFoundError si la patrulla ya fue desactivada por baja lógica (BUG-H85-API-04)", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
 
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
         fila: {
           ...mockFila,
-          patrulla_estado: "EN_VERIFICACION",
+          patrulla_activo: false,
+          patrulla_eliminado_en: "2026-10-26T10:00:00.000Z",
         },
         integrantes: [mockIntegrante],
       });
+
+      await expect(
+        desactivarPatrullaService(patrullaId, adminUserId)
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it("debe propagar ConflictError si la transacción atómica detecta colisión concurrente (BUG-H85-API-01)", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce(mockPatrullaDisponible);
+      vi.spyOn(patrullaRepo, "verificarMisionesActivasPatrullaRepo").mockResolvedValueOnce([]);
+      vi.spyOn(patrullaRepo, "desactivarPatrullaTransaccionalRepo").mockRejectedValueOnce(
+        new Error("CONFLICT:No es posible desactivar la patrulla porque se encuentra actualmente en terreno.")
+      );
 
       await expect(
         desactivarPatrullaService(patrullaId, adminUserId)
@@ -1122,7 +1149,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe rechazar con ConflictError si la patrulla cuenta con misiones tácticas activas", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
 
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce({
         fila: {
@@ -1148,7 +1175,7 @@ describe("Módulo Recursos y Personal - Servicio de Patrullas Verificadoras", ()
     });
 
     it("debe desactivar exitosamente la patrulla, liberar personal/vehículo y emitir eventos socket", async () => {
-      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce(mockAdminUsuario);
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockAdminUsuario);
 
       vi.spyOn(patrullaRepo, "obtenerPatrullaPorIdRepo").mockResolvedValueOnce(mockPatrullaDisponible);
       vi.spyOn(patrullaRepo, "verificarMisionesActivasPatrullaRepo").mockResolvedValueOnce([]);

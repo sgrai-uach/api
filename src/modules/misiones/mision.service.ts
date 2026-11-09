@@ -59,48 +59,56 @@ export async function obtenerDetalleMisionService(
 
   const { mision, recursosCuadrilla, reportesTerreno: reportesRaw } = resultado;
 
-  // 1. Bitácora de tiempos simplificada (Opción 1 - hitos basados en timestamps de misión)
+  // 1. Bitácora de tiempos (incorporando hitos reales de mision_hito o fallback a timestamps)
   const bitacoraTiempos: MisionBitacoraHito[] = [];
 
-  if (mision.creado_en) {
-    bitacoraTiempos.push(
-      desglosarHitoTiempo(
-        mision.creado_en,
-        "CREACION",
-        "Misión planificada y registrada en el sistema"
-      )
-    );
-  }
+  if (resultado.hitos && resultado.hitos.length > 0) {
+    for (const h of resultado.hitos) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(h.creado_en, h.hito, h.descripcion)
+      );
+    }
+  } else {
+    if (mision.creado_en) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          mision.creado_en,
+          "CREACION",
+          "Misión planificada y registrada en el sistema"
+        )
+      );
+    }
 
-  if (mision.fecha_inicio) {
-    bitacoraTiempos.push(
-      desglosarHitoTiempo(
-        mision.fecha_inicio,
-        "DESPLIEGUE_INICIO",
-        "Inicio formal de operaciones y traslado a terreno"
-      )
-    );
-  }
+    if (mision.fecha_inicio) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          mision.fecha_inicio,
+          "DESPLIEGUE_INICIO",
+          "Inicio formal de operaciones y traslado a terreno"
+        )
+      );
+    }
 
-  if (mision.fecha_cierre) {
-    bitacoraTiempos.push(
-      desglosarHitoTiempo(
-        mision.fecha_cierre,
-        "CIERRE_MISION",
-        "Cierre operacional de la misión tras repliegue"
-      )
-    );
-  } else if (
-    mision.actualizado_en &&
-    new Date(mision.actualizado_en).getTime() !== new Date(mision.creado_en).getTime()
-  ) {
-    bitacoraTiempos.push(
-      desglosarHitoTiempo(
-        mision.actualizado_en,
-        "ACTUALIZACION_ESTADO",
-        `Última actualización de estado registrada (${mision.estado})`
-      )
-    );
+    if (mision.fecha_cierre) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          mision.fecha_cierre,
+          "CIERRE_MISION",
+          "Cierre operacional de la misión tras repliegue"
+        )
+      );
+    } else if (
+      mision.actualizado_en &&
+      new Date(mision.actualizado_en).getTime() !== new Date(mision.creado_en).getTime()
+    ) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          mision.actualizado_en,
+          "ACTUALIZACION_ESTADO",
+          `Última actualización de estado registrada (${mision.estado})`
+        )
+      );
+    }
   }
 
   // 2. Mapeo de Reportes de Terreno y Evidencias Multimedia

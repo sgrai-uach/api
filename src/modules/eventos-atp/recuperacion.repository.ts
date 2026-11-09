@@ -63,6 +63,8 @@ export async function buscarPatrullaPorId(trx: KyselyTrx, patrullaId: string) {
     .selectFrom("patrulla_verificadora")
     .select(["id", "nombre", "estado", "delegacion_id", "usuario_lider_id"])
     .where("id", "=", patrullaId)
+    .where("eliminado_en", "is", null)
+    .where("activo", "=", true)
     .executeTakeFirst();
 }
 

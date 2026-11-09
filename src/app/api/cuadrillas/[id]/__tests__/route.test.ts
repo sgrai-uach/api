@@ -140,7 +140,7 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
         activo: false,
         eliminadoEn: "2026-10-26T12:00:00.000Z",
       };
-      vi.spyOn(cuadrillaService, "obtenerCuadrillaPorId").mockResolvedValue(cuadrillaInactivaMock as any);
+      vi.spyOn(cuadrillaService, "obtenerCuadrillaPorId").mockResolvedValue(cuadrillaInactivaMock as unknown as Awaited<ReturnType<typeof cuadrillaService.obtenerCuadrillaPorId>>);
 
       const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`);
       const res = await GET(req, contextValido);
@@ -440,7 +440,7 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
           personalLiberado: 1,
         },
       };
-      vi.spyOn(cuadrillaService, "desactivarCuadrilla").mockResolvedValue(resultadoMock as any);
+      vi.spyOn(cuadrillaService, "desactivarCuadrilla").mockResolvedValue(resultadoMock as unknown as Awaited<ReturnType<typeof cuadrillaService.desactivarCuadrilla>>);
 
       const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`, {
         method: "DELETE",

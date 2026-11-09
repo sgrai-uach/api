@@ -607,7 +607,7 @@ Permite al Administrador adecuar la composición del equipo verificador ante rot
     - Si se desasigna el vehículo previo (`vehiculoId: null`) o se reemplaza por otro, el vehículo anterior se libera automáticamente (`estado = 'DISPONIBLE'`, `cantidad_en_uso = 0`).
     - Si se especifica un nuevo vehículo, este debe existir, ser un recurso individual (`es_individual: true`) y encontrarse disponible (`estado === 'DISPONIBLE'`). Al asignarse, pasa a estado `ASIGNADO` con `cantidad_en_uso = 1`.
   - **Dotación de Personal:**
-    - Los funcionarios desvinculados de la patrulla retornan a `estado_operativo = 'disponible'` en la tabla `personal`.
+    - Los funcionarios desvinculados de la patrulla retornan a `estado_operativo = 'disponible'` en la tabla `usuario`.
     - Los nuevos funcionarios asignados deben contar con rol `PATRULLA_VERIFICADORA` y pasan a `estado_operativo = 'en_patrulla'`.
   - **Auditoría:** Cada modificación registra la fecha y hora de actualización en la columna `actualizado_en = CURRENT_TIMESTAMP`.
   - **Sincronización en Tiempo Real:** Emite el evento WebSocket `patrulla:actualizada` a las salas `"encargado"`, `"supervisor"`, `"mapa"` y `"patrulla:{patrullaId}"`.
@@ -683,15 +683,16 @@ Desactiva mediante **baja lógica (soft delete)** una patrulla verificadora que 
 - **Perfiles y permisos autorizados:** Perfil `Administrador` o usuarios que cuenten con el permiso `recursos:eliminar`.
 
 #### Reglas de Negocio Críticas Aplicadas:
-1. **Validación de Bloqueo por Misiones o Verificación en Terreno (`HTTP 409 Conflict`):**
-   - Si la patrulla se encuentra en estado `EN_VERIFICACION`, la baja es rechazada inmediatamente con `409 Conflict`.
-   - Si la patrulla cuenta con misiones activas en curso (`PLANIFICADA`, `DESPACHADA` o `EN_CURSO`), la baja es rechazada con `409 Conflict`.
-2. **Aplicación Estricta de Baja Lógica (Regla Crítica §3.7):**
+1. **Validación de Bloqueo por Misiones o Despliegue en Terreno (`HTTP 409 Conflict`):**
+   - Si la patrulla se encuentra en cualquiera de los estados de despliegue en terreno (`EN_VERIFICACION`, `EN_PREVENCION`, `EN_RECUPERACION` o `EN_MISION`), la baja es rechazada inmediatamente con `409 Conflict`.
+   - Si la patrulla cuenta con misiones activas en curso (`PLANIFICADA`, `DESPACHADA` o `EN_CURSO`), la baja es rechazada con `409 Conflict` bajo bloqueo pesimista `SELECT ... FOR UPDATE`.
+2. **Aplicación Estricta de Baja Lógica y Preservación de Trazabilidad (Regla Crítica §3.7):**
    - No se realiza eliminación física (`DELETE`) en la base de datos relacional.
    - Se actualizan los atributos: `activo = false`, `eliminado_en = CURRENT_TIMESTAMP`, `eliminado_por_id = usuarioId` y `estado = 'NO_DISPONIBLE'`.
+   - Se preserva el atributo `vehiculo_id` en la fila inactiva de `patrulla_verificadora` para no perder la trazabilidad histórica del móvil con el que operó la patrulla.
 3. **Liberación Inmediata de Inventario y Dotación Comunal:**
-   - **Vehículo:** Si la patrulla tenía un vehículo institucional asignado (`vehiculo_id`), este se desasocia y en la tabla `recurso` pasa inmediatamente a `estado = 'DISPONIBLE'` y `cantidad_en_uso = 0`.
-   - **Personal de Terreno:** Los funcionarios asignados a la dotación en `patrulla_personal` pasan en la tabla `personal` a `estado_operativo = 'disponible'`, quedando listos para conformar nuevas dotaciones o asignaciones.
+   - **Vehículo:** Si la patrulla tenía un vehículo institucional asignado (`vehiculo_id`), este se libera en la tabla `recurso` pasando inmediatamente a `estado = 'DISPONIBLE'` y `cantidad_en_uso = 0`.
+   - **Personal de Terreno y Líder:** Los funcionarios activos asignados a la dotación en `patrulla_personal` y el `usuario_lider_id` cuyo estado sea `'en_patrulla'` retornan en la tabla `usuario` a `estado_operativo = 'disponible'`, siempre que no integren otra patrulla o cuadrilla activa.
 4. **Preservación Inmutable de Evidencia e Informes Técnicos:**
    - Los registros de `reporte_terreno` vinculados a misiones históricas ejecutadas por esta patrulla no sufren ninguna alteración, garantizando trazabilidad para auditorías y fiscalizaciones comunales (SENAPRED / DGRD).
 5. **Sincronización en Tiempo Real:**

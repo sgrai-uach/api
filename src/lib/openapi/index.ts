@@ -63,6 +63,7 @@ import {
   CrearPatrullaResponseSchema,
   ModificarPatrullaInputSchema,
   ModificarPatrullaResponseSchema,
+  DesactivarPatrullaResponseSchema,
 } from "@/modules/recursos-y-personal/patrulla.schema";
 
 import {
@@ -1849,7 +1850,7 @@ registry.registerPath({
   },
 });
 
-// --- Módulo: Patrullas Verificadoras (Recursos y Personal - HU-16 & HU-83) ---
+// --- Módulo: Patrullas Verificadoras (Recursos y Personal - HU-16, HU-83, HU-84 & HU-85) ---
 registry.register("PatrullaItemResponse", PatrullaItemResponseSchema);
 registry.register("ListarPatrullasResponse", ListarPatrullasResponseSchema);
 registry.register("PatrullaDetalleResponse", PatrullaDetalleResponseSchema);
@@ -1857,6 +1858,9 @@ registry.register("ActualizarEstadoPatrullaInput", ActualizarEstadoPatrullaInput
 registry.register("ActualizarEstadoPatrullaResponse", ActualizarEstadoPatrullaResponseSchema);
 registry.register("CrearPatrullaInput", CrearPatrullaInputSchema);
 registry.register("CrearPatrullaResponse", CrearPatrullaResponseSchema);
+registry.register("ModificarPatrullaInput", ModificarPatrullaInputSchema);
+registry.register("ModificarPatrullaResponse", ModificarPatrullaResponseSchema);
+registry.register("DesactivarPatrullaResponse", DesactivarPatrullaResponseSchema);
 
 registry.registerPath({
   method: "post",
@@ -2071,6 +2075,56 @@ registry.registerPath({
     409: {
       description:
         "Conflicto operativo: la patrulla está en estado EN_VERIFICACION o en misión activa, o el vehículo ya se encuentra asignado",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/patrullas/{id}",
+  summary: "Desactivar patrulla verificadora mediante baja lógica (HU-85)",
+  description:
+    "Desactiva una patrulla verificadora marcándola inactiva (eliminado_en), liberando de forma atómica su vehículo institucional y funcionarios de dotación a estado disponible. Bloquea con 409 Conflict si está desplegada en terreno o con misión activa.",
+  tags: ["Recursos y Personal"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: PatrullaIdParamSchema,
+    }),
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (opcional si se envía Bearer token)" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Patrulla verificadora desactivada exitosamente y recursos liberados",
+      content: {
+        "application/json": {
+          schema: DesactivarPatrullaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de patrulla inválido",
+    },
+    401: {
+      description: "No autenticado o token ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recursos:eliminar'",
+    },
+    404: {
+      description: "Patrulla verificadora no encontrada",
+    },
+    409: {
+      description:
+        "Conflicto: la patrulla se encuentra en estado EN_VERIFICACION o posee misiones activas",
     },
     500: {
       description: "Error interno del servidor",

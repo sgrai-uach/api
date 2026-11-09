@@ -129,6 +129,9 @@ function mapearFilaAPatrullaDTO(
     misionActiva,
     creadoEn: formatearIso(fila.patrulla_creado_en) || new Date().toISOString(),
     actualizadoEn: formatearIso(fila.patrulla_actualizado_en) || new Date().toISOString(),
+    activo: fila.patrulla_activo ?? true,
+    eliminadoEn: formatearIso(fila.patrulla_eliminado_en),
+    eliminadoPorId: fila.patrulla_eliminado_por_id ?? null,
   };
 }
 
@@ -348,7 +351,7 @@ export async function actualizarEstadoPatrullaService(
   await verificarPermiso(usuarioId, PERMISO_LEER_MISION);
 
   const existe = await obtenerPatrullaPorIdRepo(id);
-  if (!existe) {
+  if (!existe || existe.fila.patrulla_activo === false || Boolean(existe.fila.patrulla_eliminado_en)) {
     return null;
   }
 
@@ -403,11 +406,15 @@ export async function modificarPatrullaService(
   usuarioId?: string | null
 ): Promise<ModificarPatrullaResponseDTO> {
   // 1. Validar autorización RBAC (requiere permiso recursos:editar o perfil Administrador)
-  await seguridadService.validarAccesoAdministrador(usuarioId, [PERMISO_EDITAR_RECURSO]);
+  await verificarPermiso(usuarioId, PERMISO_EDITAR_RECURSO);
 
   // 2. Validar existencia de la patrulla
   const patrullaExistente = await obtenerPatrullaPorIdRepo(id);
-  if (!patrullaExistente) {
+  if (
+    !patrullaExistente ||
+    patrullaExistente.fila.patrulla_activo === false ||
+    Boolean(patrullaExistente.fila.patrulla_eliminado_en)
+  ) {
     throw new NotFoundError(
       `La patrulla verificadora con ID '${id}' no existe o ha sido eliminada.`
     );
@@ -586,22 +593,35 @@ export async function desactivarPatrullaService(
   usuarioId?: string | null
 ): Promise<DesactivarPatrullaResponseDTO> {
   // 1. Validar autorización RBAC (requiere permiso recursos:eliminar o perfil Administrador)
-  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [
-    PERMISO_ELIMINAR_RECURSO,
-  ]);
+  const usuario = await verificarPermiso(usuarioId, PERMISO_ELIMINAR_RECURSO);
 
   // 2. Validar existencia de la patrulla
   const patrullaExistente = await obtenerPatrullaPorIdRepo(id);
-  if (!patrullaExistente) {
+  if (
+    !patrullaExistente ||
+    patrullaExistente.fila.patrulla_activo === false ||
+    Boolean(patrullaExistente.fila.patrulla_eliminado_en)
+  ) {
     throw new NotFoundError(
       `La patrulla verificadora con ID '${id}' no existe o ya ha sido desactivada.`
     );
   }
 
-  // 3. Regla crítica de conflicto: estado EN_VERIFICACION
-  if (patrullaExistente.fila.patrulla_estado === "EN_VERIFICACION") {
+  // 3. Regla crítica de conflicto: estados en terreno (BUG-H85-API-01)
+  const ESTADOS_PATRULLA_EN_TERRENO = [
+    "EN_VERIFICACION",
+    "EN_PREVENCION",
+    "EN_RECUPERACION",
+    "EN_MISION",
+  ] as const;
+
+  if (
+    (ESTADOS_PATRULLA_EN_TERRENO as readonly string[]).includes(
+      patrullaExistente.fila.patrulla_estado
+    )
+  ) {
     throw new ConflictError(
-      `No es posible desactivar la patrulla verificadora '${patrullaExistente.fila.patrulla_nombre}' porque se encuentra actualmente en terreno en estado 'EN_VERIFICACION'.`
+      `No es posible desactivar la patrulla verificadora '${patrullaExistente.fila.patrulla_nombre}' porque se encuentra actualmente en terreno en estado '${patrullaExistente.fila.patrulla_estado}'.`
     );
   }
 
@@ -615,7 +635,22 @@ export async function desactivarPatrullaService(
   }
 
   // 5. Ejecutar la desactivación transaccional con liberación de recursos y personal
-  const resultado = await desactivarPatrullaTransaccionalRepo(id, usuario.id);
+  let resultado;
+  try {
+    resultado = await desactivarPatrullaTransaccionalRepo(id, usuario.id);
+  } catch (error: unknown) {
+    if (error instanceof ConflictError || error instanceof NotFoundError) {
+      throw error;
+    }
+    const mensaje = error instanceof Error ? error.message : String(error);
+    if (mensaje.startsWith("CONFLICT:")) {
+      throw new ConflictError(mensaje.replace("CONFLICT:", ""));
+    }
+    if (mensaje.includes("no encontrada para dar de baja")) {
+      throw new NotFoundError(mensaje);
+    }
+    throw error;
+  }
 
   // 6. Notificar en tiempo real a las salas de Centro de Mando
   notificarPatrullaDesactivada({

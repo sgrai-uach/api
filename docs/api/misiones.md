@@ -291,7 +291,7 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
   "data": {
     "mision": {
       "id": "60000000-0000-4000-8000-000000000050",
-      "codigo": "MIS-2026-8341",
+      "codigo": "MIS-2026-0001",
       "titulo": "Verificación técnica de anegamiento en Las Ánimas",
       "descripcion": "Acudir al punto para evaluar riesgo de ingreso de agua a viviendas y requerimiento de motobomba.",
       "tipoMision": "VERIFICACION",
@@ -300,7 +300,7 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
       "incidenteId": "50000000-0000-4000-8000-000000000001",
       "patrullaId": "f1000000-0000-4000-8000-000000000001",
       "encargadoId": "00000000-0000-4000-8000-000000000003",
-      "fechaInicio": "2026-10-27T17:00:00.000Z",
+      "fechaInicio": null,
       "creadoEn": "2026-10-27T17:00:00.000Z"
     },
     "incidente": {
