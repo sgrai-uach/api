@@ -710,15 +710,39 @@ export function notificarPatrullaCreada(payload: {
 }
 
 /**
+ * Verifica si existen sockets activos conectados a una sala específica.
+ */
+export async function tieneConexionEnSala(room: string): Promise<boolean> {
+  if (ioInstance) {
+    try {
+      const sockets = await ioInstance.in(room).fetchSockets();
+      return sockets.length > 0;
+    } catch {
+      // Fallback a adapter local
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const roomSet = (ioInstance as any).sockets?.adapter?.rooms?.get(room);
+      return (roomSet && roomSet.size > 0) || false;
+    }
+  }
+  return false;
+}
+
+/**
  * Emite una notificación en tiempo real cuando se asigna una misión a una patrulla o cuadrilla.
  */
 export function notificarMisionAsignada(payload: {
+  notificacionId?: string;
   misionId: string;
   codigo: string;
   tipoMision: string;
   patrullaId?: string | null;
   cuadrillaId?: string | null;
   incidenteId?: string | null;
+  incidenteCodigo?: string | null;
+  incidenteFolio?: string | null;
+  tipoAfectacion?: string | null;
+  direccion?: string | null;
+  prioridad?: string;
   asignadoEn: string;
 }): void {
   const patrullaRoom = payload.patrullaId ? `patrulla:${payload.patrullaId}` : null;
@@ -759,6 +783,50 @@ export function notificarMisionAsignada(payload: {
     }
   }
 }
+
+/**
+ * Emite el evento de trazabilidad de notificación hacia las salas de monitoreo de la Central.
+ */
+export function notificarTrazabilidadActualizada(payload: {
+  notificacionId: string;
+  misionId: string;
+  patrullaId: string;
+  estado: "PENDIENTE_ENVIO" | "ENVIADA" | "RECIBIDA" | "LEIDA";
+  intentosEnvio: number;
+  creadaAt: string;
+  enviadaAt?: string | null;
+  recibidaAt?: string | null;
+  leidaAt?: string | null;
+  actualizadoEn: string;
+}): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("notificacion:trazabilidad_actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("notificacion:trazabilidad_actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("notificacion:trazabilidad_actualizada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    const rooms = ["encargado", "sala:encargados", "supervisor"];
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "notificacion:trazabilidad_actualizada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
+  }
+}
+
 
 export * from "./types";
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import { NotificacionMisionDetalleSchema } from "./notificacion-mision.schema";
 
 extendZodWithOpenApi(z);
 
@@ -284,6 +285,7 @@ export const CrearMisionResponseSchema = z.object({
       descripcion: z.string(),
       creadoEn: z.string(),
     }),
+    notificacion: NotificacionMisionDetalleSchema.optional(),
   }),
 });
 
