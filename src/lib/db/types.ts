@@ -264,6 +264,7 @@ export interface RecuperacionTable {
   >;
   familias_afectadas: ColumnType<number, number | undefined, number>;
   delegacion_id: string | null;
+  evento_atp_id: string | null;
   creado_por_id: string;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
@@ -311,11 +312,47 @@ export interface EventoAsistenciaSocialTable {
   incidente_id: string | null;
   delegacion_id: string | null;
   asistente_social_id: string | null;
+  evento_atp_id: string | null;
   creado_por_id: string;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
   eliminado_en: Date | null;
   eliminado_por_id: string | null;
+}
+
+export type TipoAmenazaEventoAtp =
+  | "METEOROLOGICA"
+  | "MAREJADAS"
+  | "REMOCION_EN_MASA"
+  | "INUNDACION"
+  | "INCENDIO_FORESTAL"
+  | "SISMICA"
+  | "OTRO";
+
+export type NivelAlertaEventoAtp = "VERDE" | "AMARILLA" | "ROJA";
+
+export type EstadoEventoAtp = "ACTIVO" | "CERRADO" | "CANCELADO";
+
+export interface EventoAtpTable {
+  id: Generated<string>;
+  codigo: string;
+  nombre: string;
+  descripcion: string;
+  tipo_amenaza: TipoAmenazaEventoAtp;
+  nivel_alerta: NivelAlertaEventoAtp;
+  fecha_inicio: Date;
+  fecha_termino: Date;
+  estado: ColumnType<EstadoEventoAtp, EstadoEventoAtp | undefined, EstadoEventoAtp>;
+  creado_por_id: string | null;
+  creado_en: Generated<Date>;
+  actualizado_en: Generated<Date>;
+}
+
+export interface EventoAtpDelegacionTable {
+  id: Generated<string>;
+  evento_atp_id: string;
+  delegacion_id: string;
+  creado_en: Generated<Date>;
 }
 
 export interface PatrullaVerificadoraTable {
@@ -444,6 +481,7 @@ export interface IncidenteTable {
   operador_id?: string | null;
   encargado_id: string | null;
   aviso_id?: string | null;
+  evento_atp_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }
@@ -522,6 +560,7 @@ export interface EventoPrevencionTable {
   latitud: ColumnType<number, number | string, number | string>;
   longitud: ColumnType<number, number | string, number | string>;
   ubicacion: unknown;
+  evento_atp_id: string | null;
   creado_por_id: string;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
@@ -576,6 +615,8 @@ export interface Database {
   log_cambios_usuarios: LogCambiosUsuariosTable;
   evento_prevencion: EventoPrevencionTable;
   evento_prevencion_recurso: EventoPrevencionRecursoTable;
+  evento_atp: EventoAtpTable;
+  evento_atp_delegacion: EventoAtpDelegacionTable;
   token_recuperacion_contrasena: TokenRecuperacionContrasenaTable;
 
   // Aliases plurales para compatibilidad transversal con servicios de H12 y consultas directas
@@ -598,6 +639,8 @@ export interface Database {
   reportes_terreno: ReporteTerrenoTable;
   eventos_prevencion: EventoPrevencionTable;
   eventos_prevencion_recursos: EventoPrevencionRecursoTable;
+  eventos_atp: EventoAtpTable;
+  eventos_atp_delegaciones: EventoAtpDelegacionTable;
   tokens_recuperacion_contrasena: TokenRecuperacionContrasenaTable;
 }
 
