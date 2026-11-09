@@ -162,3 +162,132 @@ export const CrearEventoRecuperacionResponseSchema = z.object({
 });
 
 export type CrearEventoRecuperacionResponse = z.infer<typeof CrearEventoRecuperacionResponseSchema>;
+
+/**
+ * Parámetro UUID de ruta para /api/eventos-atp/recuperacion/[id]
+ */
+export const RecuperacionIdParamSchema = z.object({
+  id: z.string().uuid("El identificador del evento de recuperación debe ser un UUID válido").openapi({
+    description: "UUID del evento de recuperación",
+    example: "70000000-0000-4000-8000-000000000001",
+  }),
+});
+
+export type RecuperacionIdParam = z.infer<typeof RecuperacionIdParamSchema>;
+
+/**
+ * Esquema de entrada para asignar patrulla y recursos a un evento de recuperación existente (HU-32).
+ */
+export const AsignarRecursosRecuperacionInputSchema = z.object({
+  patrullaId: z.string().uuid("El UUID de la patrulla verificadora es obligatorio y debe ser válido").openapi({
+    description: "Identificador de la patrulla verificadora disponible a asignar",
+    example: "50000000-0000-4000-8000-000000000001",
+  }),
+  recursos: z.array(ItemRecursoSolicitadoSchema).min(1, "Debe asignar al menos un recurso al evento de recuperación").openapi({
+    description: "Listado de insumos y recursos logísticos a entregar",
+  }),
+});
+
+export type AsignarRecursosRecuperacionInput = z.infer<typeof AsignarRecursosRecuperacionInputSchema>;
+
+/**
+ * Detalle del recurso asignado devuelto en la asignación HU-32.
+ */
+export const RecursoAsignadoDetalleSchema = z.object({
+  recursoId: z.string().uuid().openapi({ example: "00000000-0000-4000-8000-000000000001" }),
+  nombre: z.string().openapi({ example: "Sacos de Arena 25kg" }),
+  esIndividual: z.boolean().openapi({ example: false }),
+  cantidadAsignada: z.number().openapi({ example: 10 }),
+  cantidadEnUso: z.number().openapi({ example: 10 }),
+  estadoRecurso: z.string().openapi({ example: "DISPONIBLE" }),
+});
+
+export type RecursoAsignadoDetalle = z.infer<typeof RecursoAsignadoDetalleSchema>;
+
+/**
+ * Datos de respuesta para la asignación de recursos y patrulla (HU-32).
+ */
+export const AsignarRecursosRecuperacionResponseDataSchema = z.object({
+  evento: z.object({
+    id: z.string().uuid().openapi({ example: "70000000-0000-4000-8000-000000000001" }),
+    codigo: z.string().openapi({ example: "REC-2026-0001" }),
+    nombre: z.string().openapi({ example: "Entrega de frazadas y techumbre en Sector Collico" }),
+    estado: EstadoRecuperacionSchema.openapi({ example: "PLANIFICADA" }),
+  }),
+  mision: MisionRecuperacionResumenSchema.openapi({ description: "Misión táctica despachada a terreno" }),
+  patrulla: PatrullaAsignadaResumenSchema.openapi({ description: "Patrulla transicionada a EN_RECUPERACION" }),
+  recursos: z.array(RecursoAsignadoDetalleSchema).openapi({ description: "Recursos asignados con stock en uso actualizado" }),
+  asignadoEn: z.string().openapi({ description: "Fecha de asignación ISO 8601" }),
+});
+
+export type AsignarRecursosRecuperacionResponseData = z.infer<typeof AsignarRecursosRecuperacionResponseDataSchema>;
+
+export const AsignarRecursosRecuperacionResponseSchema = z.object({
+  message: z.string().openapi({ example: "Patrulla y recursos logísticos asignados exitosamente al evento de recuperación." }),
+  data: AsignarRecursosRecuperacionResponseDataSchema,
+});
+
+export type AsignarRecursosRecuperacionResponse = z.infer<typeof AsignarRecursosRecuperacionResponseSchema>;
+
+/**
+ * Esquema de detalle del evento de recuperación (GET /api/eventos-atp/recuperacion/[id]).
+ */
+export const RecuperacionDetalleResponseDataSchema = z.object({
+  id: z.string().uuid().openapi({ example: "70000000-0000-4000-8000-000000000001" }),
+  codigo: z.string().openapi({ example: "REC-2026-0001" }),
+  nombre: z.string().openapi({ example: "Entrega de frazadas y techumbre en Sector Collico" }),
+  descripcion: z.string().nullable().openapi({ example: "Familias afectadas por temporal de viento" }),
+  sector: z.string().openapi({ example: "Collico" }),
+  direccionTexto: z.string().nullable().openapi({ example: "Calle Balmaceda 1245 con Las Palmeras" }),
+  prioridad: PrioridadRecuperacionSchema.openapi({ example: "ALTA" }),
+  contactoNombre: z.string().nullable().openapi({ example: "Juan Pérez (Presidente JJVV)" }),
+  contactoTelefono: z.string().nullable().openapi({ example: "+56912345678" }),
+  latitud: z.number().openapi({ example: -39.8142 }),
+  longitud: z.number().openapi({ example: -73.2459 }),
+  estado: EstadoRecuperacionSchema.openapi({ example: "PLANIFICADA" }),
+  familiasAfectadas: z.number().openapi({ example: 4 }),
+  delegacion: z.object({
+    id: z.string().uuid(),
+    codigo: z.string(),
+    nombre: z.string(),
+  }).nullable().openapi({ description: "Delegación territorial asignada" }),
+  misiones: z.array(
+    z.object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      titulo: z.string(),
+      estado: z.string(),
+      tipoMision: z.string(),
+      patrulla: z.object({
+        id: z.string().uuid(),
+        nombre: z.string(),
+        estado: z.string(),
+      }).nullable().optional(),
+      creadoEn: z.string(),
+    })
+  ).openapi({ description: "Misiones tácticas vinculadas al evento" }),
+  recursosAsignados: z.array(
+    z.object({
+      id: z.string().uuid(),
+      recursoId: z.string().uuid(),
+      nombre: z.string(),
+      esIndividual: z.boolean(),
+      cantidadAsignada: z.number(),
+      misionId: z.string().uuid().nullable().optional(),
+      creadoEn: z.string(),
+    })
+  ).openapi({ description: "Historial de insumos y herramientas asignados" }),
+  creadoPorId: z.string().uuid().openapi({ description: "Identificador del creador" }),
+  creadoEn: z.string().openapi({ description: "Fecha de registro ISO 8601" }),
+  actualizadoEn: z.string().openapi({ description: "Fecha de última actualización ISO 8601" }),
+});
+
+export type RecuperacionDetalleResponseData = z.infer<typeof RecuperacionDetalleResponseDataSchema>;
+
+export const RecuperacionDetalleResponseSchema = z.object({
+  message: z.string().openapi({ example: "Detalle del evento de recuperación obtenido exitosamente." }),
+  data: RecuperacionDetalleResponseDataSchema,
+});
+
+export type RecuperacionDetalleResponse = z.infer<typeof RecuperacionDetalleResponseSchema>;
+
