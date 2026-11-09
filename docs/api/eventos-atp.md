@@ -49,6 +49,11 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
     - En la misma transacción atómica de Kysely, se descuentan los recursos del inventario disponible (`cantidad_inventario`), se actualiza la patrulla al estado `'EN_RECUPERACION'`, se genera una misión táctica en estado `'DESPACHADA'` y se emite el evento WebSocket `recuperacion:creada` en tiempo real.
 12. **Sincronización Reactiva en Tiempo Real (Socket.io):**
     - Al crearse, modificarse o eliminarse lógicamente un punto crítico, o registrarse un evento de recuperación, la API emite eventos dedicados (`"punto_critico:creado"`, `"punto_critico:actualizado"`, `"punto_critico:eliminado"`, `"recuperacion:creada"`) a las salas correspondientes (`"administrador"`, `"encargado"`, `"supervisor"`, `"mapa"`), permitiendo al visor cartográfico de `sgrai-web` actualizar el mapa interactivo y las tablas instantáneamente sin recargar la página.
+13. **Marco Oficial del Fenómeno y Alcance Territorial (H61):**
+    - El Administrador (o un usuario con el permiso `eventos_atp:crear`) registra un **Evento ATP** con código único, nombre, descripción, tipo de amenaza, nivel de alerta (`VERDE`, `AMARILLA`, `ROJA`), fecha de inicio y término estimado.
+    - El evento se persiste en estado `ACTIVO` junto a sus delegaciones afectadas en la tabla puente `evento_atp_delegacion`, dentro de una sola transacción PostgreSQL. Un arreglo vacío de delegaciones representa **alcance comunal centralizado**.
+    - El correlativo `ATP-AAAA-####` se genera de forma atómica mediante un advisory lock anual; también se admite un código manual único normalizado a mayúsculas.
+    - La creación emite el evento WebSocket `evento_atp:creado` a las salas operativas y administrativas.
 
 ---
 
@@ -63,6 +68,7 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
+| `POST` | `/api/eventos-atp` | Registrar el marco oficial de un Evento de Alerta Temprana Preventiva con alcance territorial, estado `ACTIVO` y notificación Socket.io (H61). |
 
 > Nota: Los contratos OpenAPI 3.0 se autogeneran a partir de los esquemas Zod y están expuestos públicamente en `GET /openapi.json`.
 
@@ -961,3 +967,209 @@ Consulta los eventos de asistencia social con filtros de estado, delegación, pr
   "totalPaginas": 1
 }
 ```
+
+---
+
+## 10. Detalle de Endpoint: `POST /api/eventos-atp` (H61)
+
+Registra el marco oficial de un **Evento de Alerta Temprana Preventiva** y su alcance territorial. El evento queda disponible de inmediato para la coordinación operativa y la visualización cartográfica.
+
+### Reglas de Negocio del Endpoint
+
+1. **Control de acceso:** requiere un usuario autenticado con rol **Administrador** o el permiso explícito **`eventos_atp:crear`**. La validación se realiza con `validarAccesoAdministrador(usuarioId, [PERMISO_CREAR_EVENTO_ATP])`.
+2. **Estado inicial:** todo evento nuevo se persiste como **`ACTIVO`**; el cliente no puede enviar otro estado.
+3. **Código único:**
+   - Si se omite `codigo`, el backend genera el correlativo anual `ATP-AAAA-####` (ej. `ATP-2026-0001`).
+   - Si se envía manualmente, se normaliza a mayúsculas, debe cumplir `^[A-Za-z0-9-]+$` y ser único. Un duplicado retorna `409 Conflict`.
+   - La generación automática usa un advisory lock por año para evitar colisiones concurrentes.
+4. **Alcance territorial:** `delegacionIds` es opcional. Un arreglo vacío u omitido representa alcance comunal centralizado. Se permiten una, varias o ninguna delegación, sin duplicados.
+5. **Validación de delegaciones:** todos los UUID enviados deben existir en la tabla `delegacion`; de lo contrario se retorna `400 Bad Request` con el listado de IDs faltantes.
+6. **Vigencia:** `fechaTermino` debe ser mayor o igual a `fechaInicio`. Ambas fechas se aceptan en formato ISO-8601 o `datetime-local` y se normalizan a `Date` en la capa de servicio.
+7. **Transacción:** el evento (`evento_atp`) y sus delegaciones (`evento_atp_delegacion`) se insertan en una única transacción PostgreSQL. Si falla cualquier inserción, se revierte todo el conjunto.
+8. **Auditoría:** se registra `creado_por_id` con el UUID del usuario autenticado.
+9. **Tiempo real:** tras el commit se emite `evento_atp:creado` a las salas operativas y administrativas.
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `Authorization` | `Bearer <token>` | Sí | Token de sesión del usuario Administrador o portador del permiso `eventos_atp:crear`. |
+
+### Cuerpo de la Petición (JSON Body)
+
+| Campo | Tipo | Obligatorio | Reglas |
+|---|---|---|---|
+| `codigo` | `string` | No | 3–30 caracteres, solo letras, números y guiones. Si se omite, se autogenera `ATP-AAAA-####`. |
+| `nombre` | `string` | Sí | 3–150 caracteres. |
+| `descripcion` | `string` | Sí | 10–2.000 caracteres. |
+| `tipoAmenaza` | `string` | Sí | `METEOROLOGICA`, `MAREJADAS`, `REMOCION_EN_MASA`, `INUNDACION`, `INCENDIO_FORESTAL`, `SISMICA` u `OTRO`. |
+| `nivelAlerta` | `string` | Sí | `VERDE`, `AMARILLA` o `ROJA`. |
+| `fechaInicio` | `string` | Sí | Fecha/hora parseable; se recomienda ISO-8601. |
+| `fechaTermino` | `string` | Sí | Fecha/hora parseable; debe ser `>= fechaInicio`. |
+| `delegacionIds` | `string[]` | No | UUIDs de delegaciones existentes, sin duplicados. Vacío u omitido = alcance comunal. |
+
+#### Ejemplo de Petición
+
+```http
+POST /api/eventos-atp HTTP/1.1
+Host: localhost:3001
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "codigo": "ATP-2026-0001",
+  "nombre": "Sistema Frontal Mayo 2026",
+  "descripcion": "Sistema frontal con precipitaciones intensas y vientos moderados a fuertes durante 48 horas.",
+  "tipoAmenaza": "METEOROLOGICA",
+  "nivelAlerta": "AMARILLA",
+  "fechaInicio": "2026-05-01T10:00",
+  "fechaTermino": "2026-05-03T18:00",
+  "delegacionIds": [
+    "30000000-0000-4000-8000-000000000001",
+    "30000000-0000-4000-8000-000000000003"
+  ]
+}
+```
+
+#### Ejemplo de Petición con Alcance Comunal y Código Automático
+
+```json
+{
+  "nombre": "Alerta Comunal por Marejadas",
+  "descripcion": "Oleaje anormal con riesgo de sobrepaso en el borde costero comunal durante las próximas 24 horas.",
+  "tipoAmenaza": "MAREJADAS",
+  "nivelAlerta": "ROJA",
+  "fechaInicio": "2026-06-10T18:00",
+  "fechaTermino": "2026-06-11T18:00"
+}
+```
+
+### Respuestas HTTP Esperadas
+
+#### `201 Created`
+
+```json
+{
+  "message": "Evento ATP registrado exitosamente.",
+  "data": {
+    "id": "50000000-0000-4000-8000-000000000001",
+    "codigo": "ATP-2026-0001",
+    "nombre": "Sistema Frontal Mayo 2026",
+    "descripcion": "Sistema frontal con precipitaciones intensas y vientos moderados a fuertes durante 48 horas.",
+    "tipoAmenaza": "METEOROLOGICA",
+    "nivelAlerta": "AMARILLA",
+    "fechaInicio": "2026-05-01T10:00:00.000Z",
+    "fechaTermino": "2026-05-03T18:00:00.000Z",
+    "estado": "ACTIVO",
+    "delegaciones": [
+      {
+        "id": "30000000-0000-4000-8000-000000000003",
+        "codigo": "DEL_COSTA",
+        "nombre": "Delegación Municipal Costa"
+      },
+      {
+        "id": "30000000-0000-4000-8000-000000000001",
+        "codigo": "DEL_NORTE",
+        "nombre": "Delegación Municipal Norte"
+      }
+    ],
+    "creadoPorId": "00000000-0000-4000-8000-000000000001",
+    "creadoEn": "2026-05-01T09:55:00.000Z",
+    "actualizadoEn": "2026-05-01T09:55:00.000Z"
+  }
+}
+```
+
+#### `400 Bad Request` — Validación de esquema
+
+```json
+{
+  "message": "Datos de creación de Evento ATP inválidos.",
+  "errors": [
+    {
+      "campo": "fechaTermino",
+      "mensaje": "La fecha y hora de término debe ser mayor o igual a la fecha y hora de inicio"
+    }
+  ]
+}
+```
+
+#### `400 Bad Request` — JSON malformado
+
+```json
+{
+  "message": "El cuerpo de la solicitud no es un JSON válido."
+}
+```
+
+#### `400 Bad Request` — Delegaciones inexistentes
+
+```json
+{
+  "message": "Las siguientes delegaciones no existen en el sistema: 30000000-0000-4000-8000-999999999999."
+}
+```
+
+#### `401 Unauthorized`
+
+```json
+{
+  "message": "Se requiere cabecera de autenticación Authorization: Bearer <token>."
+}
+```
+
+#### `403 Forbidden`
+
+```json
+{
+  "message": "Acceso denegado. Se requiere el perfil de Administrador o el permiso eventos_atp:crear."
+}
+```
+
+#### `409 Conflict` — Código duplicado
+
+```json
+{
+  "message": "Ya existe un Evento ATP registrado con el código 'ATP-2026-0001'."
+}
+```
+
+#### `500 Internal Server Error`
+
+```json
+{
+  "message": "Error interno del servidor al procesar la creación del Evento ATP."
+}
+```
+
+### Evento WebSocket: `evento_atp:creado`
+
+Al completar exitosamente la transacción, el backend emite:
+
+- **Evento:** `evento_atp:creado`
+- **Salas:** `sala:encargados`, `encargado`, `supervisor`, `mapa`, `admin`, `administrador`, además del broadcast global.
+- **Payload:** objeto idéntico a la propiedad `data` de la respuesta `201 Created`.
+- **Propósito en Frontend (`sgrai-web`):**
+  - Incorporar el nuevo evento ATP a los tableros operativos y administrativos sin recargar la página.
+  - Actualizar el contexto territorial y el mapa comunal con el nivel de alerta vigente.
+  - Notificar a Encargados, Supervisores y Administradores para la coordinación de acciones preventivas.
+
+#### Consumo en Frontend
+
+```typescript
+socket.on("evento_atp:creado", (eventoAtp) => {
+  // 1. Registrar el evento en el estado global de alertas activas
+  alertasAtp.agregar(eventoAtp);
+  // 2. Refrescar el indicador de nivel de alerta comunal
+  mapa.actualizarNivelAlerta(eventoAtp.nivelAlerta, eventoAtp.delegaciones);
+});
+```
+
+### Contrato OpenAPI
+
+La ruta y sus esquemas quedan publicados en `GET /openapi.json`:
+
+- Operación: `post` sobre `/api/eventos-atp`.
+- Seguridad: `security: [{ bearerAuth: [] }]`.
+- Esquemas: `CrearEventoAtpInput`, `EventoAtpResponse` y `CrearEventoAtpResponse`.
+- Respuestas documentadas: `201`, `400`, `401`, `403`, `409` y `500`.
