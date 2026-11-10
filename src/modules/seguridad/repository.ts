@@ -315,29 +315,29 @@ export class SeguridadRepository {
       try {
         const patrullaLider = await db
           .selectFrom("patrulla_verificadora")
-          .select(["id", "nombre", "estado", "activo"])
+          .select(["id", "nombre", "estado"])
           .where("usuario_lider_id", "=", usuario.id)
-          .where("activo", "=", true)
+          .where("eliminado_en", "is", null)
           .executeTakeFirst();
 
         if (patrullaLider) {
           unidadId = patrullaLider.id;
           unidadNombre = patrullaLider.nombre;
-          unidadActiva = patrullaLider.activo !== false && patrullaLider.estado !== "NO_DISPONIBLE";
+          unidadActiva = patrullaLider.estado !== "NO_DISPONIBLE";
         } else {
           const patrullaIntegrante = await db
             .selectFrom("patrulla_personal as pp")
             .innerJoin("personal as p", "p.id", "pp.personal_id")
             .innerJoin("patrulla_verificadora as pv", "pv.id", "pp.patrulla_id")
-            .select(["pv.id", "pv.nombre", "pv.estado", "pv.activo"])
+            .select(["pv.id", "pv.nombre", "pv.estado"])
             .where("p.usuario_id", "=", usuario.id)
-            .where("pv.activo", "=", true)
+            .where("pv.eliminado_en", "is", null)
             .executeTakeFirst();
 
           if (patrullaIntegrante) {
             unidadId = patrullaIntegrante.id;
             unidadNombre = patrullaIntegrante.nombre;
-            unidadActiva = patrullaIntegrante.activo !== false && patrullaIntegrante.estado !== "NO_DISPONIBLE";
+            unidadActiva = patrullaIntegrante.estado !== "NO_DISPONIBLE";
           }
         }
       } catch {
@@ -347,29 +347,29 @@ export class SeguridadRepository {
       try {
         const cuadrillaLider = await db
           .selectFrom("cuadrilla")
-          .select(["id", "nombre", "estado", "activo"])
-          .where("usuario_lider_id", "=", usuario.id)
-          .where("activo", "=", true)
+          .select(["id", "nombre", "estado"])
+          .where("usuario_delegado_id", "=", usuario.id)
+          .where("eliminado_en", "is", null)
           .executeTakeFirst();
 
         if (cuadrillaLider) {
           unidadId = cuadrillaLider.id;
           unidadNombre = cuadrillaLider.nombre;
-          unidadActiva = cuadrillaLider.activo !== false && cuadrillaLider.estado !== "NO_DISPONIBLE";
+          unidadActiva = cuadrillaLider.estado !== "NO_DISPONIBLE";
         } else {
           const cuadrillaIntegrante = await db
             .selectFrom("cuadrilla_personal as cp")
             .innerJoin("personal as p", "p.id", "cp.personal_id")
             .innerJoin("cuadrilla as c", "c.id", "cp.cuadrilla_id")
-            .select(["c.id", "c.nombre", "c.estado", "c.activo"])
+            .select(["c.id", "c.nombre", "c.estado"])
             .where("p.usuario_id", "=", usuario.id)
-            .where("c.activo", "=", true)
+            .where("c.eliminado_en", "is", null)
             .executeTakeFirst();
 
           if (cuadrillaIntegrante) {
             unidadId = cuadrillaIntegrante.id;
             unidadNombre = cuadrillaIntegrante.nombre;
-            unidadActiva = cuadrillaIntegrante.activo !== false && cuadrillaIntegrante.estado !== "NO_DISPONIBLE";
+            unidadActiva = cuadrillaIntegrante.estado !== "NO_DISPONIBLE";
           }
         }
       } catch {

@@ -38,12 +38,12 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
         actualizado_en: sql`CURRENT_TIMESTAMP`,
       })
       .where("estado", "=", "REPORTADO")
-      .whereExists((eb) =>
+      .where("id", "in", (eb) =>
         eb
           .selectFrom("mision")
-          .select("mision.id")
-          .whereRef("mision.incidente_id", "=", "incidente.id")
+          .select("mision.incidente_id")
           .where("mision.estado", "=", "EN_CURSO")
+          .where("mision.incidente_id", "is not", null)
       )
       .execute();
   } catch {
