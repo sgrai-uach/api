@@ -11,12 +11,22 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.info.title).toContain("SGRAI API");
     expect(spec.info.version).toBe("0.10.0");
 
-    // Rutas de Patrullas Verificadoras (HU-16)
+    // Rutas de Patrullas Verificadoras (HU-16, HU-84, HU-85)
     expect(spec.paths["/api/patrullas"]).toBeDefined();
     expect(spec.paths["/api/patrullas"].get).toBeDefined();
     expect(spec.paths["/api/patrullas/{id}"]).toBeDefined();
     expect(spec.paths["/api/patrullas/{id}"].get).toBeDefined();
     expect(spec.paths["/api/patrullas/{id}"].patch).toBeDefined();
+    expect(spec.paths["/api/patrullas/{id}"].put).toBeDefined();
+    expect(spec.paths["/api/patrullas/{id}"].delete).toBeDefined();
+
+    // Rutas de Cuadrillas Operativas (H79 / H81)
+    expect(spec.paths["/api/cuadrillas"]).toBeDefined();
+    expect(spec.paths["/api/cuadrillas"].get).toBeDefined();
+    expect(spec.paths["/api/cuadrillas"].post).toBeDefined();
+    expect(spec.paths["/api/cuadrillas/{id}"]).toBeDefined();
+    expect(spec.paths["/api/cuadrillas/{id}"].get).toBeDefined();
+    expect(spec.paths["/api/cuadrillas/{id}"].put).toBeDefined();
 
     // Rutas de Puntos Críticos (Eventos ATP - HU-57 / HU-55 / HU-56)
     expect(spec.paths["/api/puntos-criticos"]).toBeDefined();

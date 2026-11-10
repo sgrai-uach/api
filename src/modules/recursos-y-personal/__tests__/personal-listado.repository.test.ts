@@ -4,16 +4,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * Mock de la capa de datos para verificar las cláusulas generadas por el repositorio
  * de listado de personal (H11).
  */
-const mockQuery = {
-  where: vi.fn(),
-  select: vi.fn(),
-  orderBy: vi.fn(),
-  limit: vi.fn(),
-  offset: vi.fn(),
-  execute: vi.fn(),
-  executeTakeFirst: vi.fn(),
-};
-
 const mockBuilder = {
   selectFrom: vi.fn(),
   leftJoin: vi.fn(),
@@ -74,6 +64,29 @@ describe("Repositorio de listado de personal (H11)", () => {
     expect(columnas).toContain("usuario.estado_operativo");
     expect(columnas).toContain("personal.disponible_terreno");
     expect(columnas).not.toContain("personal.estado_operativo");
+  });
+
+  it("debe referenciar la tabla canónica 'usuario' en la subconsulta de casos FIBE", async () => {
+    await listarPersonalPaginadoRepo({
+      page: 1,
+      limit: 20,
+      ordenarPor: "apellidos",
+      orden: "asc",
+    });
+
+    const columnas = mockBuilder.select.mock.calls.at(-1)?.[0] as unknown[];
+    const expresionRaw = columnas.find(
+      (columna): columna is { toOperationNode: () => { node?: { sqlFragments?: string[] } } } =>
+        typeof columna === "object" &&
+        columna !== null &&
+        "toOperationNode" in columna
+    );
+
+    expect(expresionRaw).toBeDefined();
+
+    const fragmentos = expresionRaw?.toOperationNode().node?.sqlFragments?.join(" ") ?? "";
+    expect(fragmentos).toContain("usuario.id");
+    expect(fragmentos).not.toContain("usuarios.id");
   });
 
   it("debe filtrar el estado operativo contra usuario.estado_operativo", async () => {

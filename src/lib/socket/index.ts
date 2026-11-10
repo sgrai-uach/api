@@ -167,13 +167,21 @@ export function notificarActualizacionSeguimiento(datos: SeguimientoEstadoPayloa
  * el estado, prioridad o gestión operativa de un incidente.
  */
 export function notificarIncidenteActualizado(datos: IncidenteActualizadoPayload): boolean {
+  const payload = {
+    evento: "incidente:actualizado",
+    datos,
+    emitidoEn: new Date().toISOString(),
+  };
+
   if (ioInstance) {
     try {
-      ioInstance.to("sala:encargados").emit("incidente:actualizado", {
-        evento: "incidente:actualizado",
-        datos,
-        emitidoEn: new Date().toISOString(),
-      });
+      ioInstance.to("sala:encargados").emit("incidente:actualizado", payload);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to("encargado") as any).emit("incidente:actualizado", payload);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to("mapa") as any).emit("incidente:actualizado", payload);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance as any).emit("incidente:actualizado", payload);
       return true;
     } catch (error) {
       console.error("Error al emitir actualización de incidente vía Socket.io:", error);
@@ -188,7 +196,25 @@ export function notificarIncidenteActualizado(datos: IncidenteActualizadoPayload
       JSON.stringify({
         room: "sala:encargados",
         event: "incidente:actualizado",
-        payload: { evento: "incidente:actualizado", datos, emitidoEn: new Date().toISOString() },
+        payload,
+      })
+    ).catch(() => {});
+
+    publisher.publish(
+      REDIS_SOCKET_CHANNEL,
+      JSON.stringify({
+        room: "encargado",
+        event: "incidente:actualizado",
+        payload,
+      })
+    ).catch(() => {});
+
+    publisher.publish(
+      REDIS_SOCKET_CHANNEL,
+      JSON.stringify({
+        room: "mapa",
+        event: "incidente:actualizado",
+        payload,
       })
     ).catch(() => {});
     return true;
@@ -533,6 +559,15 @@ export function emitirCuadrillaActualizada(payload: unknown): void {
 }
 
 /**
+ * Emite la notificación de cuadrilla desactivada (baja lógica) a las salas operativas (H82).
+ */
+export function emitirCuadrillaDesactivada(payload: unknown): void {
+  emitirEvento("operaciones", "cuadrilla:desactivada", payload);
+  emitirEvento("encargado", "cuadrilla:desactivada", payload);
+  emitirEvento("supervisor", "cuadrilla:desactivada", payload);
+}
+
+/**
  * Emite una notificación en tiempo real a las salas de 'encargado', 'supervisor' y mapa
  * cuando se actualiza el estado o información de una patrulla verificadora.
  */
@@ -566,16 +601,117 @@ export function notificarPatrullaActualizada(payload: {
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "encargado",
-          event: "patrulla:actualizada",
-          payload,
-        })
-      )
-      .catch(() => {});
+    const rooms = ["encargado", "sala:encargados", "supervisor", "mapa", patrullaRoom];
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "patrulla:actualizada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
+  }
+}
+
+/**
+ * Emite una notificación en tiempo real a las salas de 'encargado', 'supervisor', 'mapa' y 'administrador'
+ * cuando se desactiva (baja lógica) una patrulla verificadora (HU-85).
+ */
+export function notificarPatrullaDesactivada(payload: {
+  patrullaId: string;
+  nombre: string;
+  eliminadoPorId?: string | null;
+  eliminadoEn: string;
+}): void {
+  const patrullaRoom = `patrulla:${payload.patrullaId}`;
+
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("patrulla:desactivada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("patrulla:desactivada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("patrulla:desactivada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("administrador") as any).emit("patrulla:desactivada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("mapa") as any).emit("patrulla:desactivada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to(patrullaRoom) as any).emit("patrulla:desactivada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("patrulla:desactivada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    const rooms = ["encargado", "sala:encargados", "supervisor", "administrador", "mapa", patrullaRoom];
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "patrulla:desactivada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
+  }
+}
+
+/**
+ * Emite una notificación en tiempo real a las salas de 'encargado', 'supervisor' y 'mapa'
+ * cuando se registra una nueva patrulla verificadora en el sistema.
+ */
+export function notificarPatrullaCreada(payload: {
+  patrullaId: string;
+  codigo?: string | null;
+  nombre: string;
+  estado: string;
+  delegacionId: string | null;
+  vehiculoId?: string | null;
+  usuarioLiderId: string | null;
+  creadoEn: string;
+}): void {
+  const patrullaRoom = `patrulla:${payload.patrullaId}`;
+
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("patrulla:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("patrulla:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("patrulla:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("mapa") as any).emit("patrulla:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to(patrullaRoom) as any).emit("patrulla:creada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("patrulla:creada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    const rooms = ["encargado", "sala:encargados", "supervisor", "mapa", patrullaRoom];
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "patrulla:creada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 
@@ -591,7 +727,7 @@ export function notificarMisionAsignada(payload: {
   incidenteId?: string | null;
   asignadoEn: string;
 }): void {
-  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  const rooms = ["encargado", "sala:encargados", "supervisor", "mapa"];
   if (payload.cuadrillaId) {
     rooms.push(`cuadrilla:${payload.cuadrillaId}`);
   }
@@ -599,20 +735,19 @@ export function notificarMisionAsignada(payload: {
     rooms.push(`patrulla:${payload.patrullaId}`);
   }
 
-  const io = ioInstance;
-  if (io) {
-    rooms.forEach((room) => {
+  if (ioInstance) {
+    for (const room of rooms) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (io.to(room) as any).emit("mision:asignada", payload);
-    });
+      (ioInstance.to(room) as any).emit("mision:asignada", payload);
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io as any).emit("mision:asignada", payload);
+    (ioInstance as any).emit("mision:asignada", payload);
     return;
   }
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    rooms.forEach((room) => {
+    for (const room of rooms) {
       publisher
         .publish(
           REDIS_SOCKET_CHANNEL,
@@ -623,7 +758,7 @@ export function notificarMisionAsignada(payload: {
           })
         )
         .catch(() => {});
-    });
+    }
   }
 }
 
@@ -640,22 +775,21 @@ export function notificarPatrullaLiberada(payload: {
   liberadaEn: string;
 }): void {
   const patrullaRoom = `patrulla:${payload.patrullaId}`;
-  const rooms = [patrullaRoom, "encargado", "supervisor"];
+  const rooms = ["encargado", "sala:encargados", "supervisor", "mapa", patrullaRoom];
 
-  const io = ioInstance;
-  if (io) {
-    rooms.forEach((room) => {
+  if (ioInstance) {
+    for (const room of rooms) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (io.to(room) as any).emit("patrulla:liberada", payload);
-    });
+      (ioInstance.to(room) as any).emit("patrulla:liberada", payload);
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io as any).emit("patrulla:liberada", payload);
+    (ioInstance as any).emit("patrulla:liberada", payload);
     return;
   }
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    rooms.forEach((room) => {
+    for (const room of rooms) {
       publisher
         .publish(
           REDIS_SOCKET_CHANNEL,
@@ -666,7 +800,7 @@ export function notificarPatrullaLiberada(payload: {
           })
         )
         .catch(() => {});
-    });
+    }
   }
 }
 

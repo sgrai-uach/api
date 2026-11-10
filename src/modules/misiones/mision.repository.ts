@@ -1,7 +1,10 @@
 import { db } from "@/lib/db";
 import { sql } from "kysely";
 import { NotFoundError, ConflictError } from "@/modules/seguridad/errors";
-import type { AsignarCuadrillaMisionInput } from "./mision.schema";
+import type {
+  CrearMisionVerificacionInput,
+  AsignarCuadrillaMisionInput,
+} from "./mision.schema";
 
 export interface MisionDetalleQueryResult {
   mision: {
@@ -101,6 +104,16 @@ export interface MisionDetalleQueryResult {
       tamano_bytes: number | string | bigint;
       creado_en: Date | string;
     }>;
+  }>;
+  hitos?: Array<{
+    id: string;
+    mision_id: string;
+    hito: string;
+    descripcion: string;
+    registrado_por_id: string | null;
+    latitud: number | string | null;
+    longitud: number | string | null;
+    creado_en: Date | string;
   }>;
 }
 
@@ -299,59 +312,248 @@ export async function obtenerMisionDetallePorIdRepo(
       })),
   }));
 
+  // Consultar bitácora cronológica de hitos operacionales
+  const hitosFilas = await db
+    .selectFrom("mision_hito")
+    .select([
+      "id",
+      "mision_id",
+      "hito",
+      "descripcion",
+      "registrado_por_id",
+      "latitud",
+      "longitud",
+      "creado_en",
+    ])
+    .where("mision_id", "=", id)
+    .orderBy("creado_en", "asc")
+    .execute();
+
   return {
     mision,
     recursosCuadrilla,
     reportesTerreno,
+    hitos: hitosFilas,
   };
+}
+
+export interface MisionVerificacionCreadaResult {
+  mision: {
+    id: string;
+    codigo: string;
+    titulo: string;
+    descripcion: string | null;
+    tipoMision: "VERIFICACION" | "ATENCION_CUADRILLA" | "PREVENCION" | "RECUPERACION" | "ASISTENCIA_SOCIAL";
+    estado: "PLANIFICADA" | "DESPACHADA" | "EN_CURSO" | "COMPLETADA" | "CANCELADA" | "RECHAZADA";
+    prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+    incidenteId: string;
+    patrullaId: string;
+    encargadoId: string | null;
+    fechaInicio: string | null;
+    creadoEn: string;
+  };
+  incidente: {
+    id: string;
+    codigo: string;
+    estado: string;
+    prioridad: string;
+  };
+  patrulla: {
+    id: string;
+    nombre: string;
+    estado: string;
+    delegacionId: string | null;
+    usuarioLiderId: string | null;
+  };
+  hitoInicial: {
+    id: string;
+    hito: string;
+    descripcion: string;
+    creadoEn: string;
+  };
+}
+
+/**
+ * HU-20 - Ejecuta la transacción atómica de asignación y despacho de patrulla verificadora.
+ * 1. Verifica que el incidente exista y esté en estado 'REPORTADO'.
+ * 2. Actualiza atómicamente la patrulla verificadora a 'EN_VERIFICACION' asegurando que esté 'DISPONIBLE'.
+ * 3. Crea la misión con tipo 'VERIFICACION' y estado 'DESPACHADA'.
+ * 4. Actualiza el estado del incidente a 'VERIFICANDO'.
+ * 5. Registra el hito inicial 'DESPACHADA' en la bitácora de la misión ('mision_hito').
+ */
+export async function crearMisionVerificacionRepo(
+  input: CrearMisionVerificacionInput,
+  operadorId: string
+): Promise<MisionVerificacionCreadaResult> {
+  return await db.transaction().execute(async (trx) => {
+    // 1. Validar existencia y estado del incidente con bloqueo pesimista (FOR UPDATE)
+    const incidente = await trx
+      .selectFrom("incidente")
+      .select(["id", "codigo", "estado", "prioridad", "tipo_afectacion", "delegacion_id"])
+      .where("id", "=", input.incidenteId)
+      .forUpdate()
+      .executeTakeFirst();
+
+    if (!incidente) {
+      throw new NotFoundError(`Incidente con ID '${input.incidenteId}' no encontrado.`);
+    }
+
+    if (incidente.estado !== "REPORTADO") {
+      throw new ConflictError(
+        `El incidente se encuentra en estado '${incidente.estado}', por lo que no puede ser asignado a una patrulla verificadora. Solo se pueden verificar incidentes en estado 'REPORTADO'.`
+      );
+    }
+
+    // 2. Bloqueo y actualización atómica de la patrulla verificadora
+    const patrullaActualizada = await trx
+      .updateTable("patrulla_verificadora")
+      .set({
+        estado: "EN_VERIFICACION",
+        actualizado_en: new Date(),
+      })
+      .where("id", "=", input.patrullaId)
+      .where("estado", "=", "DISPONIBLE")
+      .where("eliminado_en", "is", null)
+      .returning(["id", "nombre", "estado", "delegacion_id", "usuario_lider_id"])
+      .executeTakeFirst();
+
+    if (!patrullaActualizada) {
+      // Diferenciar entre inexistencia y conflicto concurrente
+      const patrullaExistente = await trx
+        .selectFrom("patrulla_verificadora")
+        .select(["id", "nombre", "estado", "eliminado_en"])
+        .where("id", "=", input.patrullaId)
+        .executeTakeFirst();
+
+      if (!patrullaExistente || patrullaExistente.eliminado_en !== null) {
+        throw new NotFoundError(
+          `Patrulla verificadora con ID '${input.patrullaId}' no existe o ha sido desactivada.`
+        );
+      }
+
+      throw new ConflictError(
+        `La patrulla verificadora '${patrullaExistente.nombre}' ya no se encuentra en estado 'DISPONIBLE' (estado actual: '${patrullaExistente.estado}').`
+      );
+    }
+
+    // 3. Generar código correlativo único secuencial protegido contra colisiones concurrentes (advisory lock)
+    await sql`SELECT pg_advisory_xact_lock(hashtext('mision_codigo_seq'))`.execute(trx);
+
+    const year = new Date().getFullYear();
+    const prefijo = `MIS-${year}-`;
+
+    const ultimaMision = await trx
+      .selectFrom("mision")
+      .select("codigo")
+      .where("codigo", "like", `${prefijo}%`)
+      .orderBy("codigo", "desc")
+      .limit(1)
+      .executeTakeFirst();
+
+    let correlativo = 1;
+    if (ultimaMision?.codigo) {
+      const partes = ultimaMision.codigo.split("-");
+      const num = parseInt(partes[2] || "0", 10);
+      if (!isNaN(num) && num >= 1) {
+        correlativo = num + 1;
+      }
+    }
+    const codigo = `${prefijo}${String(correlativo).padStart(4, "0")}`;
+
+    // 4. Crear registro en la tabla mision (fecha_inicio en null para estado DESPACHADA)
+    const titulo = input.titulo?.trim() || `Verificación de Incidente ${incidente.codigo}`;
+    const descripcion = input.descripcion?.trim() || null;
+    const prioridad = (input.prioridad || incidente.prioridad || "MEDIA") as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+
+    const nuevaMision = await trx
+      .insertInto("mision")
+      .values({
+        codigo,
+        titulo,
+        descripcion,
+        tipo_mision: "VERIFICACION",
+        estado: "DESPACHADA",
+        prioridad,
+        incidente_id: input.incidenteId,
+        patrulla_id: input.patrullaId,
+        encargado_id: operadorId,
+        creado_por_id: operadorId,
+        fecha_inicio: null,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // 5. Actualizar incidente a VERIFICANDO validando que se mantenga en REPORTADO
+    const incidenteActualizado = await trx
+      .updateTable("incidente")
+      .set({
+        estado: "VERIFICANDO",
+        actualizado_en: new Date(),
+      })
+      .where("id", "=", input.incidenteId)
+      .where("estado", "=", "REPORTADO")
+      .returning(["id", "codigo", "estado", "prioridad"])
+      .executeTakeFirst();
+
+    if (!incidenteActualizado) {
+      throw new ConflictError(
+        `El incidente con ID '${input.incidenteId}' ya no se encuentra en estado 'REPORTADO' (fue modificado concurrentemente).`
+      );
+    }
+
+    // 6. Registrar hito inicial en mision_hito
+    const hitoInicial = await trx
+      .insertInto("mision_hito")
+      .values({
+        mision_id: nuevaMision.id,
+        hito: "DESPACHADA",
+        descripcion: `Misión de verificación asignada y despachada a la patrulla ${patrullaActualizada.nombre}.`,
+        registrado_por_id: operadorId,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    return {
+      mision: {
+        id: nuevaMision.id,
+        codigo: nuevaMision.codigo,
+        titulo: nuevaMision.titulo,
+        descripcion: nuevaMision.descripcion,
+        tipoMision: nuevaMision.tipo_mision as MisionVerificacionCreadaResult["mision"]["tipoMision"],
+        estado: nuevaMision.estado as MisionVerificacionCreadaResult["mision"]["estado"],
+        prioridad: nuevaMision.prioridad as MisionVerificacionCreadaResult["mision"]["prioridad"],
+        incidenteId: input.incidenteId,
+        patrullaId: input.patrullaId,
+        encargadoId: nuevaMision.encargado_id,
+        fechaInicio: nuevaMision.fecha_inicio ? new Date(nuevaMision.fecha_inicio).toISOString() : null,
+        creadoEn: new Date(nuevaMision.creado_en).toISOString(),
+      },
+      incidente: {
+        id: incidenteActualizado.id,
+        codigo: incidenteActualizado.codigo,
+        estado: incidenteActualizado.estado,
+        prioridad: incidenteActualizado.prioridad,
+      },
+      patrulla: {
+        id: patrullaActualizada.id,
+        nombre: patrullaActualizada.nombre,
+        estado: patrullaActualizada.estado,
+        delegacionId: patrullaActualizada.delegacion_id,
+        usuarioLiderId: patrullaActualizada.usuario_lider_id,
+      },
+      hitoInicial: {
+        id: hitoInicial.id,
+        hito: hitoInicial.hito,
+        descripcion: hitoInicial.descripcion,
+        creadoEn: new Date(hitoInicial.creado_en).toISOString(),
+      },
+    };
+  });
 }
 
 // ========================================================
 // HU-21: Asignar Cuadrilla a Incidente y Liberar Patrulla
 // ========================================================
-
-import type { Transaction } from "kysely";
-import type { Database } from "@/lib/db/types";
-
-type KyselyTrx = Transaction<Database>;
-
-export async function generarSiguienteCodigoMision(trx: KyselyTrx): Promise<string> {
-  const anio = new Date().getFullYear();
-  const prefijo = `MIS-${anio}-`;
-
-  const misiones = await trx
-    .selectFrom("mision")
-    .select("codigo")
-    .where("codigo", "like", `${prefijo}%`)
-    .execute();
-
-  let maxCorrelativo = 0;
-  for (const m of misiones) {
-    if (m.codigo) {
-      const partes = m.codigo.split("-");
-      const num = parseInt(partes[partes.length - 1], 10);
-      if (!isNaN(num) && num > maxCorrelativo) {
-        maxCorrelativo = num;
-      }
-    }
-  }
-
-  let correlativo = maxCorrelativo + 1;
-  let codigoCandidato = `${prefijo}${String(correlativo).padStart(4, "0")}`;
-
-  while (
-    await trx
-      .selectFrom("mision")
-      .select("id")
-      .where("codigo", "=", codigoCandidato)
-      .executeTakeFirst()
-  ) {
-    correlativo++;
-    codigoCandidato = `${prefijo}${String(correlativo).padStart(4, "0")}`;
-  }
-
-  return codigoCandidato;
-}
 
 export interface AsignarCuadrillaResult {
   mision: {
@@ -373,6 +575,7 @@ export interface AsignarCuadrillaResult {
     id: string;
     nombre: string;
     estado: "EN_MISION";
+    delegacionId?: string | null;
   };
   incidente: {
     id: string;
@@ -407,11 +610,12 @@ export async function asignarCuadrillaIncidenteRepo(
   usuarioId: string
 ): Promise<AsignarCuadrillaResult> {
   return await db.transaction().execute(async (trx) => {
-    // 1. Consultar incidente
+    // 1. Bloqueo pesimista en lecturas iniciales (BUG-H21-API-01)
     const incidente = await trx
       .selectFrom("incidente")
       .select(["id", "codigo", "estado", "prioridad", "delegacion_id", "tipo_afectacion"])
       .where("id", "=", input.incidenteId)
+      .forUpdate()
       .executeTakeFirst();
 
     if (!incidente) {
@@ -424,12 +628,14 @@ export async function asignarCuadrillaIncidenteRepo(
       );
     }
 
-    // 2. Consultar cuadrilla
+    // 2. Bloqueo pesimista y validación de cuadrilla activa (BUG-H21-API-01, BUG-H21-API-02)
     const cuadrilla = await trx
       .selectFrom("cuadrilla")
       .select(["id", "nombre", "estado", "delegacion_id"])
       .where("id", "=", input.cuadrillaId)
       .where("eliminado_en", "is", null)
+      .where("activo", "=", true)
+      .forUpdate()
       .executeTakeFirst();
 
     if (!cuadrilla) {
@@ -505,8 +711,29 @@ export async function asignarCuadrillaIncidenteRepo(
       "MEDIA"
     ) as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
 
-    // 5. Generar código correlativo de misión
-    const nuevoCodigo = await generarSiguienteCodigoMision(trx);
+    // 5. Generar código correlativo de misión protegido contra colisiones concurrentes (advisory lock) (BUG-H21-API-01)
+    await sql`SELECT pg_advisory_xact_lock(hashtext('mision_codigo_seq'))`.execute(trx);
+
+    const year = new Date().getFullYear();
+    const prefijo = `MIS-${year}-`;
+
+    const ultimaMision = await trx
+      .selectFrom("mision")
+      .select("codigo")
+      .where("codigo", "like", `${prefijo}%`)
+      .orderBy("codigo", "desc")
+      .limit(1)
+      .executeTakeFirst();
+
+    let correlativo = 1;
+    if (ultimaMision?.codigo) {
+      const partes = ultimaMision.codigo.split("-");
+      const num = parseInt(partes[2] || "0", 10);
+      if (!isNaN(num) && num >= 1) {
+        correlativo = num + 1;
+      }
+    }
+    const nuevoCodigo = `${prefijo}${String(correlativo).padStart(4, "0")}`;
     const tituloFinal = input.titulo?.trim() || `Atención táctica - Incidente ${incidente.codigo}`;
 
     // 6. Crear misión para la cuadrilla (DESPACHADA, fecha_inicio = null)
@@ -528,8 +755,8 @@ export async function asignarCuadrillaIncidenteRepo(
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    // 7. Actualizar cuadrilla a 'EN_MISION'
-    await trx
+    // 7. Transición atómica de cuadrilla a 'EN_MISION' con precondición de estado (BUG-H21-API-01)
+    const cuadrillaActualizada = await trx
       .updateTable("cuadrilla")
       .set({
         estado: "EN_MISION",
@@ -537,17 +764,31 @@ export async function asignarCuadrillaIncidenteRepo(
         actualizado_por_id: usuarioId,
       })
       .where("id", "=", input.cuadrillaId)
-      .execute();
+      .where("estado", "=", "DISPONIBLE")
+      .returning("id")
+      .executeTakeFirst();
 
-    // 8. Actualizar incidente a 'EN_ATENCION'
-    await trx
+    if (!cuadrillaActualizada) {
+      throw new ConflictError(
+        `La cuadrilla '${cuadrilla.nombre}' ya fue asignada concurrentemente a otra misión.`
+      );
+    }
+
+    // 8. Transición atómica de incidente a 'EN_ATENCION' con precondición de estado (BUG-H21-API-01)
+    const incidenteActualizado = await trx
       .updateTable("incidente")
       .set({
         estado: "EN_ATENCION",
         actualizado_en: sql`CURRENT_TIMESTAMP`,
       })
       .where("id", "=", input.incidenteId)
-      .execute();
+      .where("estado", "in", ["REPORTADO", "VERIFICANDO"])
+      .returning(["id", "codigo", "estado", "prioridad"])
+      .executeTakeFirst();
+
+    if (!incidenteActualizado) {
+      throw new ConflictError(`El incidente ya fue actualizado concurrentemente a otro estado.`);
+    }
 
     // 9. Registrar hito en mision_hito para la nueva misión de cuadrilla
     const hitoCuadrillaRow = await trx
@@ -561,58 +802,71 @@ export async function asignarCuadrillaIncidenteRepo(
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    // 10. Regla §3.2 ICS: Liberar patrulla verificadora y completar su misión si existía
+    // 10. Regla §3.2 ICS: Liberar patrulla verificadora y completar su misión si existía (BUG-H21-API-03)
     let patrullaLiberada: AsignarCuadrillaResult["patrullaLiberada"] = null;
     let hitoPatrulla: AsignarCuadrillaResult["hitoPatrulla"] = null;
 
     if (misionVerificacionActiva) {
-      // a) Cerrar misión de verificación previa
-      await trx
-        .updateTable("mision")
-        .set({
-          estado: "COMPLETADA",
-          fecha_cierre: sql`CURRENT_TIMESTAMP`,
-          actualizado_en: sql`CURRENT_TIMESTAMP`,
-        })
-        .where("id", "=", misionVerificacionActiva.mision_id)
-        .execute();
+      // a) Solo cerrar la misión de verificación previa e insertar hito si NO estaba ya COMPLETADA
+      if (misionVerificacionActiva.mision_estado !== "COMPLETADA") {
+        await trx
+          .updateTable("mision")
+          .set({
+            estado: "COMPLETADA",
+            fecha_cierre: sql`CURRENT_TIMESTAMP`,
+            actualizado_en: sql`CURRENT_TIMESTAMP`,
+          })
+          .where("id", "=", misionVerificacionActiva.mision_id)
+          .execute();
 
-      // b) Registrar hito en la misión de verificación cerrada: VERIFICACION_FINALIZADA
-      const hitoPatrullaRow = await trx
-        .insertInto("mision_hito")
-        .values({
-          mision_id: misionVerificacionActiva.mision_id,
-          hito: "VERIFICACION_FINALIZADA",
-          descripcion: "Misión de verificación concluida automáticamente por asignación y relevo de cuadrilla operativa",
-          registrado_por_id: usuarioId,
-        })
-        .returningAll()
-        .executeTakeFirstOrThrow();
+        const hitoPatrullaRow = await trx
+          .insertInto("mision_hito")
+          .values({
+            mision_id: misionVerificacionActiva.mision_id,
+            hito: "VERIFICACION_FINALIZADA",
+            descripcion:
+              "Misión de verificación concluida automáticamente por asignación y relevo de cuadrilla operativa",
+            registrado_por_id: usuarioId,
+          })
+          .returningAll()
+          .executeTakeFirstOrThrow();
 
-      // c) Liberar patrulla verificadora -> DISPONIBLE
-      await trx
-        .updateTable("patrulla_verificadora")
-        .set({
+        hitoPatrulla = {
+          id: hitoPatrullaRow.id,
+          misionId: hitoPatrullaRow.mision_id,
+          hito: hitoPatrullaRow.hito,
+          descripcion: hitoPatrullaRow.descripcion,
+          creadoEn: new Date(hitoPatrullaRow.creado_en).toISOString(),
+        };
+      }
+
+      // b) Verificar si la patrulla tiene otra misión activa (DESPACHADA o EN_CURSO) en otro incidente
+      const otraMisionActiva = await trx
+        .selectFrom("mision")
+        .select("id")
+        .where("patrulla_id", "=", misionVerificacionActiva.patrulla_id)
+        .where("id", "!=", misionVerificacionActiva.mision_id)
+        .where("estado", "in", ["DESPACHADA", "EN_CURSO"])
+        .executeTakeFirst();
+
+      // c) Liberar patrulla verificadora solo si no tiene otra misión activa y no está NO_DISPONIBLE
+      if (!otraMisionActiva && misionVerificacionActiva.patrulla_estado !== "NO_DISPONIBLE") {
+        await trx
+          .updateTable("patrulla_verificadora")
+          .set({
+            estado: "DISPONIBLE",
+            actualizado_en: sql`CURRENT_TIMESTAMP`,
+          })
+          .where("id", "=", misionVerificacionActiva.patrulla_id)
+          .execute();
+
+        patrullaLiberada = {
+          id: misionVerificacionActiva.patrulla_id,
+          nombre: misionVerificacionActiva.patrulla_nombre,
           estado: "DISPONIBLE",
-          actualizado_en: sql`CURRENT_TIMESTAMP`,
-        })
-        .where("id", "=", misionVerificacionActiva.patrulla_id)
-        .execute();
-
-      patrullaLiberada = {
-        id: misionVerificacionActiva.patrulla_id,
-        nombre: misionVerificacionActiva.patrulla_nombre,
-        estado: "DISPONIBLE",
-        misionPreviaId: misionVerificacionActiva.mision_id,
-      };
-
-      hitoPatrulla = {
-        id: hitoPatrullaRow.id,
-        misionId: hitoPatrullaRow.mision_id,
-        hito: hitoPatrullaRow.hito,
-        descripcion: hitoPatrullaRow.descripcion,
-        creadoEn: new Date(hitoPatrullaRow.creado_en).toISOString(),
-      };
+          misionPreviaId: misionVerificacionActiva.mision_id,
+        };
+      }
     }
 
     return {
@@ -635,12 +889,13 @@ export async function asignarCuadrillaIncidenteRepo(
         id: cuadrilla.id,
         nombre: cuadrilla.nombre,
         estado: "EN_MISION",
+        delegacionId: cuadrilla.delegacion_id,
       },
       incidente: {
-        id: incidente.id,
-        codigo: incidente.codigo,
+        id: incidenteActualizado.id,
+        codigo: incidenteActualizado.codigo,
         estado: "EN_ATENCION",
-        prioridad: incidente.prioridad,
+        prioridad: incidenteActualizado.prioridad,
       },
       patrullaLiberada,
       hitoCuadrilla: {

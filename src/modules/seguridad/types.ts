@@ -67,6 +67,9 @@ export interface UsuarioActivoDTO {
     esAdmin: boolean;
   };
   permisos: string[];
+  unidadId?: string | null;
+  unidadNombre?: string | null;
+  unidadActiva?: boolean;
 }
 
 export interface UsuarioLoginRaw {

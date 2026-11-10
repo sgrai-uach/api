@@ -21,6 +21,7 @@ export interface ServerToClientEvents {
     "punto_critico:actualizado": (payload: unknown) => void;
     "cuadrilla:creada": (payload: unknown) => void;
     "cuadrilla:actualizada": (payload: unknown) => void;
+    "cuadrilla:desactivada": (payload: unknown) => void;
     "patrulla:actualizada": (payload: {
         patrullaId: string;
         nombre: string;
@@ -38,6 +39,12 @@ export interface ServerToClientEvents {
         incidenteId: string;
         estado: string;
         liberadaEn: string;
+    }) => void;
+    "patrulla:desactivada": (payload: {
+        patrullaId: string;
+        nombre: string;
+        eliminadoPorId?: string | null;
+        eliminadoEn: string;
     }) => void;
     "mision:asignada": (payload: {
         misionId: string;

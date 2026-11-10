@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ListarMisionesQuerySchema } from "@/modules/misiones/mision-listado.schema";
 import { listarMisionesService } from "@/modules/misiones/mision-listado.service";
-import { AsignarCuadrillaMisionInputSchema } from "@/modules/misiones/mision.schema";
-import { asignarCuadrillaMisionService } from "@/modules/misiones/mision.service";
-import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
-import { verificarPermiso } from "@/modules/seguridad/auth.service";
-import { PERMISO_ASIGNAR_MISION } from "@/modules/seguridad/permisos.constants";
+import {
+  AsignarCuadrillaMisionInputSchema,
+  CrearMisionVerificacionSchema,
+} from "@/modules/misiones/mision.schema";
+import {
+  asignarCuadrillaMisionService,
+  asignarPatrullaVerificacionService,
+} from "@/modules/misiones/mision.service";
+import { extraerUsuarioId, verificarAsignarMision } from "@/modules/seguridad/auth.guard";
 import {
   UnauthorizedError,
   ForbiddenError,
@@ -74,64 +78,79 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/misiones (HU-21)
+ * POST /api/misiones
  *
- * Asigna y despacha una cuadrilla operativa a un incidente en estado REPORTADO o VERIFICANDO,
- * ejecutando una transacción atómica que:
- * 1. Crea la misión con tipo_mision = 'ATENCION_CUADRILLA', cuadrilla_id y estado = 'DESPACHADA'.
- * 2. Actualiza cuadrilla.estado = 'EN_MISION'.
- * 3. Actualiza incidente.estado = 'EN_ATENCION'.
- * 4. Aplica la Regla de Negocio Crítica §3.2 (ICS): Si el incidente tenía una patrulla verificadora
- *    asignada en terreno, su misión de verificación concluye (COMPLETADA) con hito 'VERIFICACION_FINALIZADA'
- *    y la patrulla queda automáticamente liberada a estado 'DISPONIBLE'.
- * 5. Registra el hito 'CUADRILLA_DESPACHADA' en mision_hito.
- * 6. Emite notificaciones WebSocket reactivas a cuadrilla, patrulla liberada y Centro de Mando.
+ * Despacho y asignación de misión operativa a terreno:
+ * 1. HU-20: Verificación primaria ICS con patrulla verificadora (tipo_mision = 'VERIFICACION').
+ * 2. HU-21: Atención operativa con cuadrilla (tipo_mision = 'ATENCION_CUADRILLA') y liberación de patrulla previa.
  *
- * Requiere el permiso RBAC 'misiones:asignar'.
+ * Flujo:
+ * 1. Exige permiso RBAC 'misiones:asignar' (Encargado o Administrador) mediante JWT Bearer token validado.
+ * 2. Parsea JSON del body.
+ * 3. Si incluye cuadrillaId o tipoMision 'ATENCION_CUADRILLA', despacha cuadrilla (HU-21).
+ *    De lo contrario, despacha patrulla verificadora (HU-20).
+ * 4. Ejecuta transacción atómica y emite notificaciones WebSocket reactivas.
  */
 export async function POST(request: NextRequest) {
   try {
-    const tokenUserId = await extraerUsuarioId(request);
-    const headerUserId = request.headers.get("x-user-id");
-    const usuarioId = tokenUserId || headerUserId;
+    // 1. Validar RBAC 'misiones:asignar' mediante JWT estricto
+    const usuarioAutenticado = await verificarAsignarMision(request);
 
-    if (!usuarioId) {
-      return NextResponse.json(
-        { message: "Se requiere cabecera de autenticación Authorization: Bearer <token>." },
-        { status: 401 }
-      );
-    }
-
-    // Validación de permisos RBAC
-    await verificarPermiso(usuarioId, PERMISO_ASIGNAR_MISION);
-
-    let bodyRaw: unknown;
+    // 2. Parsear JSON del body
+    let bodyRaw: Record<string, unknown>;
     try {
       bodyRaw = await request.json();
     } catch {
       return NextResponse.json(
-        { message: "El cuerpo de la petición debe ser un formato JSON válido." },
+        { message: "El cuerpo de la solicitud debe ser un formato JSON válido." },
         { status: 400 }
       );
     }
 
-    const validacion = AsignarCuadrillaMisionInputSchema.safeParse(bodyRaw);
-    if (!validacion.success) {
-      return NextResponse.json(
-        {
-          message: "Parámetros de entrada inválidos para asignar cuadrilla a la misión.",
-          errors: validacion.error.issues.map((issue) => ({
-            campo: issue.path.join("."),
-            mensaje: issue.message,
-          })),
-        },
-        { status: 400 }
+    // 3. Evaluar y despachar según tipo de asignación (Cuadrilla vs Patrulla Verificadora)
+    if (bodyRaw && (bodyRaw.cuadrillaId || bodyRaw.tipoMision === "ATENCION_CUADRILLA")) {
+      const validacion = AsignarCuadrillaMisionInputSchema.safeParse(bodyRaw);
+      if (!validacion.success) {
+        return NextResponse.json(
+          {
+            message: "Parámetros de entrada inválidos para asignar cuadrilla a la misión.",
+            errors: validacion.error.issues.map((issue) => ({
+              campo: issue.path.join("."),
+              mensaje: issue.message,
+            })),
+          },
+          { status: 400 }
+        );
+      }
+
+      const resultado = await asignarCuadrillaMisionService(
+        validacion.data,
+        usuarioAutenticado.id
       );
+
+      return NextResponse.json(resultado, { status: 201 });
+    } else {
+      const validacion = CrearMisionVerificacionSchema.safeParse(bodyRaw);
+      if (!validacion.success) {
+        return NextResponse.json(
+          {
+            message: "Datos de misión inválidos.",
+            errors: validacion.error.issues.map((issue) => ({
+              campo: issue.path.join("."),
+              mensaje: issue.message,
+            })),
+          },
+          { status: 400 }
+        );
+      }
+
+      const resultado = await asignarPatrullaVerificacionService(
+        validacion.data,
+        usuarioAutenticado.id
+      );
+
+      return NextResponse.json(resultado, { status: 201 });
     }
-
-    const resultado = await asignarCuadrillaMisionService(validacion.data, usuarioId);
-
-    return NextResponse.json(resultado, { status: 201 });
   } catch (error: unknown) {
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ message: error.message }, { status: 401 });
@@ -161,9 +180,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: error.message }, { status: 400 });
     }
 
-    console.error("Error inesperado en POST /api/misiones:", error);
+    console.error("Error en POST /api/misiones:", error);
     return NextResponse.json(
-      { message: "Error interno del servidor al asignar la cuadrilla a la misión." },
+      { message: "Error interno del servidor al procesar la misión." },
       { status: 500 }
     );
   }

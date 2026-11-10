@@ -26,7 +26,7 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
 
   it("lanza EmpleadoNotFoundError si el ID no existe en personal ni en usuario", async () => {
     const mockTrx = {
-      selectFrom: vi.fn().mockImplementation((table: string) => ({
+      selectFrom: vi.fn().mockImplementation(() => ({
         selectAll: () => ({
           where: () => ({
             executeTakeFirst: vi.fn().mockResolvedValue(null),
@@ -123,7 +123,7 @@ describe("HU-13: Baja Lógica de Empleados (eliminarEmpleadoLogico)", () => {
         if (table === "cuadrilla") {
           return {
             select: () => ({
-              where: (col: string, op: string, val: string) => ({
+              where: () => ({
                 where: () => ({
                   executeTakeFirst: vi.fn().mockResolvedValue({
                     id: "cuadrilla-1",
