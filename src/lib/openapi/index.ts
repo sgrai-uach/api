@@ -128,6 +128,7 @@ import {
 import {
   CrearEventoRecuperacionInputSchema,
   CrearEventoRecuperacionResponseSchema,
+  ListarEventosRecuperacionResponseSchema,
   EventoRecuperacionResponseSchema,
   AsignarRecursosRecuperacionInputSchema,
   AsignarRecursosRecuperacionResponseSchema,
@@ -1642,6 +1643,43 @@ registry.registerPath({
 registry.register("CrearEventoRecuperacionInput", CrearEventoRecuperacionInputSchema);
 registry.register("EventoRecuperacion", EventoRecuperacionResponseSchema);
 registry.register("CrearEventoRecuperacionResponse", CrearEventoRecuperacionResponseSchema);
+registry.register("ListarEventosRecuperacionResponse", ListarEventosRecuperacionResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion",
+  summary: "Listar eventos de recuperación territorial para el mapa operativo",
+  description:
+    "Consulta todos los eventos de recuperación comunales registrados con sus misiones tácticas desplegadas, patrullas asignadas y recursos para su renderizado táctico georreferenciado en el mapa operativo.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    headers: z.object({
+      authorization: z.string().openapi({
+        description: "Token JWT en formato 'Bearer <token>'",
+        example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Listado de eventos de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarEventosRecuperacionResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:leer', 'recuperacion:crear' o 'misiones:asignar'",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
 
 registry.registerPath({
   method: "post",

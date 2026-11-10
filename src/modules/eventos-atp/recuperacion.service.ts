@@ -6,6 +6,8 @@ import type {
   AsignarRecursosRecuperacionResponseData,
   RecuperacionDetalleResponseData,
   RecursoAsignadoDetalle,
+  PrioridadRecuperacion,
+  EstadoRecuperacion,
 } from "./recuperacion.schema";
 import * as repo from "./recuperacion.repository";
 import {
@@ -216,11 +218,11 @@ export async function crearEventoRecuperacionService(
       },
       recursos: recursosRespuesta,
       creadoPorId: usuarioId,
-      creadoEn: nuevaRecuperacion.creado_en instanceof Date 
-        ? nuevaRecuperacion.creado_en.toISOString() 
+      creadoEn: nuevaRecuperacion.creado_en instanceof Date
+        ? nuevaRecuperacion.creado_en.toISOString()
         : String(nuevaRecuperacion.creado_en),
-      actualizadoEn: nuevaRecuperacion.actualizado_en instanceof Date 
-        ? nuevaRecuperacion.actualizado_en.toISOString() 
+      actualizadoEn: nuevaRecuperacion.actualizado_en instanceof Date
+        ? nuevaRecuperacion.actualizado_en.toISOString()
         : String(nuevaRecuperacion.actualizado_en),
     };
 
@@ -487,17 +489,17 @@ export async function obtenerDetalleRecuperacionService(
       tipoMision: m.tipo_mision,
       patrulla: m.patrulla_id
         ? {
-            id: m.patrulla_id,
-            nombre: m.patrulla_nombre || "Patrulla",
-            estado: m.patrulla_estado || "EN_RECUPERACION",
-          }
+          id: m.patrulla_id,
+          nombre: m.patrulla_nombre || "Patrulla",
+          estado: m.patrulla_estado || "EN_RECUPERACION",
+        }
         : null,
       creadoEn: m.creado_en instanceof Date ? m.creado_en.toISOString() : String(m.creado_en),
     })),
     recursosAsignados: recursosDb.map((r) => ({
       id: r.id,
       recursoId: r.recurso_id,
-      nombre: r.recurso_nombre,
+      nombre: r.recurso_nombre ?? "Recurso",
       esIndividual: Boolean(r.recurso_es_individual),
       cantidadAsignada: Number(r.cantidad_asignada),
       misionId: r.mision_id ?? null,
@@ -507,4 +509,95 @@ export async function obtenerDetalleRecuperacionService(
     creadoEn: evento.creado_en instanceof Date ? evento.creado_en.toISOString() : String(evento.creado_en),
     actualizadoEn: evento.actualizado_en instanceof Date ? evento.actualizado_en.toISOString() : String(evento.actualizado_en),
   };
+}
+
+/**
+ * Lista todos los eventos de recuperación territoriales registrados con sus misiones tácticas,
+ * patrulla asignada y recursos logísticos despachados para visualización táctica en el mapa operativo.
+ */
+export async function listarEventosRecuperacionService(): Promise<EventoRecuperacionResponse[]> {
+  const eventosDb = await repo.listarRecuperacionesRepo(db);
+  if (eventosDb.length === 0) return [];
+
+  const ids = eventosDb.map((e) => e.id);
+  const misionesDb = await repo.listarMisionesPorRecuperacionIds(ids);
+  const recursosDb = await repo.listarRecursosPorRecuperacionIds(ids);
+
+  const misionesPorRecuperacion = new Map<string, typeof misionesDb>();
+  for (const m of misionesDb) {
+    if (!m.recuperacion_id) continue;
+    const lista = misionesPorRecuperacion.get(m.recuperacion_id) || [];
+    lista.push(m);
+    misionesPorRecuperacion.set(m.recuperacion_id, lista);
+  }
+
+  const recursosPorRecuperacion = new Map<string, typeof recursosDb>();
+  for (const r of recursosDb) {
+    const lista = recursosPorRecuperacion.get(r.recuperacion_id) || [];
+    lista.push(r);
+    recursosPorRecuperacion.set(r.recuperacion_id, lista);
+  }
+
+  return eventosDb.map((ev) => {
+    const misiones = misionesPorRecuperacion.get(ev.id) || [];
+    const primeraMision = misiones[0];
+    const recursos = recursosPorRecuperacion.get(ev.id) || [];
+
+    return {
+      id: ev.id,
+      codigo: ev.codigo,
+      nombre: ev.nombre,
+      descripcion: ev.descripcion,
+      sector: ev.sector,
+      direccionTexto: ev.direccion_texto,
+      prioridad: ev.prioridad as PrioridadRecuperacion,
+      contactoNombre: ev.contacto_nombre,
+      contactoTelefono: ev.contacto_telefono,
+      latitud: Number(ev.latitud),
+      longitud: Number(ev.longitud),
+      estado: ev.estado as EstadoRecuperacion,
+      familiasAfectadas: Number(ev.familias_afectadas),
+      delegacion: ev.delegacion_id
+        ? {
+          id: ev.delegacion_id,
+          codigo: ev.delegacion_codigo || "",
+          nombre: ev.delegacion_nombre || "",
+        }
+        : null,
+      mision: primeraMision
+        ? {
+          id: primeraMision.id,
+          codigo: primeraMision.codigo,
+          titulo: primeraMision.titulo,
+          estado: primeraMision.estado,
+          tipoMision: primeraMision.tipo_mision,
+        }
+        : {
+          id: "00000000-0000-0000-0000-000000000000",
+          codigo: "SIN-MISION",
+          titulo: "Sin misión táctica asignada",
+          estado: "PLANIFICADA",
+          tipoMision: "RECUPERACION",
+        },
+      patrulla: primeraMision?.patrulla_id
+        ? {
+          id: primeraMision.patrulla_id,
+          nombre: primeraMision.patrulla_nombre || "Patrulla",
+          estado: primeraMision.patrulla_estado || "EN_RECUPERACION",
+        }
+        : {
+          id: "00000000-0000-0000-0000-000000000000",
+          nombre: "Sin patrulla asignada",
+          estado: "DISPONIBLE",
+        },
+      recursos: recursos.map((r) => ({
+        recursoId: r.recurso_id,
+        nombre: r.recurso_nombre,
+        cantidadAsignada: Number(r.cantidad_asignada),
+      })),
+      creadoPorId: ev.creado_por_id,
+      creadoEn: ev.creado_en instanceof Date ? ev.creado_en.toISOString() : String(ev.creado_en),
+      actualizadoEn: ev.actualizado_en instanceof Date ? ev.actualizado_en.toISOString() : String(ev.actualizado_en),
+    };
+  });
 }

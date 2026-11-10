@@ -10,12 +10,16 @@ export const EstadoRecuperacionSchema = z.enum([
   "CANCELADA",
 ]);
 
+export type EstadoRecuperacion = z.infer<typeof EstadoRecuperacionSchema>;
+
 export const PrioridadRecuperacionSchema = z.enum([
   "BAJA",
   "MEDIA",
   "ALTA",
   "CRITICA",
 ]);
+
+export type PrioridadRecuperacion = z.infer<typeof PrioridadRecuperacionSchema>;
 
 /**
  * Recurso solicitado con su cantidad para la entrega en terreno.
@@ -162,6 +166,17 @@ export const CrearEventoRecuperacionResponseSchema = z.object({
 });
 
 export type CrearEventoRecuperacionResponse = z.infer<typeof CrearEventoRecuperacionResponseSchema>;
+
+/**
+ * Respuesta JSON exitosa HTTP 200 para GET /api/eventos-atp/recuperacion
+ */
+export const ListarEventosRecuperacionResponseSchema = z.object({
+  message: z.string().openapi({ example: "Eventos de recuperación obtenidos exitosamente." }),
+  total: z.number().openapi({ example: 4 }),
+  data: z.array(EventoRecuperacionResponseSchema),
+});
+
+export type ListarEventosRecuperacionResponse = z.infer<typeof ListarEventosRecuperacionResponseSchema>;
 
 /**
  * Parámetro UUID de ruta para /api/eventos-atp/recuperacion/[id]
