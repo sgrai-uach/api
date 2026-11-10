@@ -35,6 +35,9 @@ export interface IncidenteActualizadoPayload {
   nuevoEstado: string;
   prioridad: string;
   actualizadoEn: string;
+  tipoIncidenteId?: string | null;
+  tipoAfectacion?: string;
+  justificacion?: string | null;
 }
 
 export type TypedSocketServer = SocketIOServer<

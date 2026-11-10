@@ -57,7 +57,8 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 | `POST` | `/api/incidentes/avisos/{id}/verificar` | `incidentes:avisos:verificar` | Verificar y promover un aviso preliminar a incidente formal ICS (`REPORTADO`). |
 | `POST` | `/api/incidentes/avisos/{id}/descartar` | `incidentes:avisos:descartar` | Descartar un aviso con justificación obligatoria. |
 | `GET` | `/api/incidentes/avisos/seguimiento/{codigo}` | Público | Consultar estado amigable de seguimiento ciudadano por código de 8 dígitos. |
-| `GET` | `/api/incidentes/tipos` | Público | Catálogo oficial de tipos de afectación. |
+| `GET` | `/api/incidentes/tipos` | Público | Catálogo oficial de tipos de afectación. Sin parámetros retorna array de nombres (`string[]`); con `?catalogo=true` retorna objetos completos con `id`, `nombre`, `descripcion` y `activo` (HU-37). |
+| `PATCH` | `/api/incidentes/{id}/tipologia` | `misiones:terreno:verificar` | Reclasificar técnicamente la tipología del incidente tras la evaluación presencial en terreno (HU-37). Requiere que la misión esté en `EN_CURSO` y justificación obligatoria. |
 | `POST` | `/api/incidentes/manual` | `crear_incidente_manual` | Ingreso manual de incidente desde Call Center o terreno. |
 | `POST` | `/api/incidentes/verificar-duplicado` | `crear_incidente_manual` | Consultar coincidencias de incidentes cercanos en Valdivia. |
 | `GET` | `/api/incidentes/kpis` | `incidentes:kanban` | Contadores numéricos de incidentes del día agrupados por estado para el panel del Encargado (HU-18). |
@@ -71,14 +72,18 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 - **`409 Conflict`:**
   - En `POST /api/incidentes/manual`: Se detectaron reportes similares en la zona (requiere confirmación `forzarCreacion: true`).
   - En `POST /api/incidentes/avisos/{id}/verificar` o `descartar`: El aviso ya fue gestionado concurrentemente por otro operador.
+  - En `PATCH /api/incidentes/{id}/tipologia`: La patrulla debe haber aceptado la misión previamente (`estado = EN_CURSO`). Si la misión está en `DESPACHADA` o no existe misión de verificación para el incidente, se rechaza la operación.
 - **`400 Bad Request`:**
   - Cuerpo JSON inválido, datos requeridos ausentes, o motivo de descarte menor a 5 caracteres.
+  - En `PATCH /api/incidentes/{id}/tipologia`: Justificación ausente o menor a 5 caracteres, o tipo de incidente inactivo en base de datos.
 - **`401 Unauthorized`:**
-  - Cabecera `X-User-Id` ausente o no registrada en el sistema.
+  - Cabecera `Authorization: Bearer <token>` o `X-User-Id` ausente o no registrada en el sistema.
 - **`403 Forbidden`:**
-  - El usuario no posee el rol ni permiso necesario para la operación solicitada.
+  - El usuario no posee el rol ni permiso necesario para la operación solicitada (`misiones:terreno:verificar`).
+  - En `PATCH /api/incidentes/{id}/tipologia`: El funcionario autenticado no forma parte de la patrulla verificadora asignada a la misión.
 - **`404 Not Found`:**
   - No existe el recurso o código de seguimiento consultado.
+  - En `PATCH /api/incidentes/{id}/tipologia`: Incidente, tipo de incidente o misión especificada no existen.
 - **`500 Internal Server Error`:**
   - Error no controlado o fallo de conexión a la base de datos.
 
@@ -92,7 +97,7 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
   - `aviso:descartado`: Notifica descarte del aviso `{ avisoId, motivoDescarte }`.
 - **`sala:encargados`:**
   - `incidente:creado`: Nueva tarjeta para la columna "Reportado" en el tablero Kanban. Invalida la caché del dashboard y gatilla el refresco automático de `GET /api/incidentes/kpis`.
-  - `incidente:actualizado`: Notifica cambio de estado en tiempo real (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, etc.). Invalida y actualiza los contadores de `GET /api/incidentes/kpis` (patrón reactivo SWR) y mueve la tarjeta en el tablero.
+  - `incidente:actualizado`: Notifica cambio de estado o reclasificación tipológica en tiempo real (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, etc.). Incluye `{ id, codigo, nuevoEstado, prioridad, tipoIncidenteId, tipoAfectacion, justificacion, actualizadoEn }` para actualizar reactivamente la tarjeta en el tablero Kanban.
 - **`sala:seguimiento:{codigoSeguimiento}`:**
   - `incidente:estado_actualizado`: Actualiza el panel ciudadano con la nueva descripción y etiqueta comprensible.
 
