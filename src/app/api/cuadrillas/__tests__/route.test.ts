@@ -7,8 +7,6 @@ import {
   UnauthorizedError,
   ForbiddenError,
   ConflictError,
-  NotFoundError,
-  BadRequestError,
 } from "@/modules/seguridad/errors";
 
 describe("Route Handlers /api/cuadrillas (GET / POST)", () => {

@@ -21,6 +21,7 @@ vi.mock("@/modules/misiones/mision-listado.service", () => ({
 }));
 
 vi.mock("@/modules/misiones/mision.service", () => ({
+  asignarCuadrillaMisionService: vi.fn(),
   asignarPatrullaVerificacionService: vi.fn(),
 }));
 
@@ -263,5 +264,202 @@ describe("Route Handler POST /api/misiones (HU-20: Asignar Patrulla Verificadora
     expect(body.data.incidente.estado).toBe("VERIFICANDO");
     expect(body.data.patrulla.estado).toBe("EN_VERIFICACION");
     expect(body.data.hitoInicial.hito).toBe("DESPACHADA");
+  });
+});
+
+describe("Route Handler POST /api/misiones (Asignar Cuadrilla y Liberar Patrulla - HU-21)", () => {
+  const usuarioEncargadoMock = {
+    id: "10000000-0000-4000-8000-000000000002",
+    email: "encargado@valdivia.cl",
+    rut: "12.345.678-9",
+    nombre: "Encargado Operaciones",
+    rolId: "20000000-0000-4000-8000-000000000003",
+    rolNombre: "Encargado",
+    activo: true,
+  };
+  const incidenteValidoId = "30000000-0000-4000-8000-000000000001";
+  const cuadrillaValidaId = "50000000-0000-4000-8000-000000000001";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("debe responder 400 Bad Request si los datos de asignación de cuadrilla son inválidos", async () => {
+    vi.mocked(authGuard.verificarAsignarMision).mockResolvedValueOnce(usuarioEncargadoMock);
+
+    const req = new NextRequest("http://localhost:3000/api/misiones", {
+      method: "POST",
+      headers: { authorization: "Bearer token_valido" },
+      body: JSON.stringify({
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId: "no-es-uuid",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("Parámetros de entrada inválidos");
+  });
+
+  it("debe responder 404 Not Found si el incidente o la cuadrilla no existen", async () => {
+    vi.mocked(authGuard.verificarAsignarMision).mockResolvedValueOnce(usuarioEncargadoMock);
+
+    vi.mocked(misionService.asignarCuadrillaMisionService).mockRejectedValueOnce(
+      new NotFoundError("No se encontró ningún incidente con el identificador proporcionado.")
+    );
+
+    const req = new NextRequest("http://localhost:3000/api/misiones", {
+      method: "POST",
+      headers: { authorization: "Bearer token_valido" },
+      body: JSON.stringify({
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId: incidenteValidoId,
+        cuadrillaId: cuadrillaValidaId,
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.message).toContain("No se encontró ningún incidente");
+  });
+
+  it("debe responder 409 Conflict si la cuadrilla no está disponible", async () => {
+    vi.mocked(authGuard.verificarAsignarMision).mockResolvedValueOnce(usuarioEncargadoMock);
+
+    vi.mocked(misionService.asignarCuadrillaMisionService).mockRejectedValueOnce(
+      new ConflictError("La cuadrilla 'Cuadrilla 1' no está disponible para asignación (estado actual: 'EN_MISION').")
+    );
+
+    const req = new NextRequest("http://localhost:3000/api/misiones", {
+      method: "POST",
+      headers: { authorization: "Bearer token_valido" },
+      body: JSON.stringify({
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId: incidenteValidoId,
+        cuadrillaId: cuadrillaValidaId,
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.message).toContain("no está disponible");
+  });
+
+  it("debe responder 409 Conflict con estructura de negocio 'VERIFICACION_EN_CURSO' si la patrulla no ha finalizado evaluación", async () => {
+    vi.mocked(authGuard.verificarAsignarMision).mockResolvedValueOnce(usuarioEncargadoMock);
+
+    vi.mocked(misionService.asignarCuadrillaMisionService).mockRejectedValueOnce(
+      new ConflictError(
+        "No es posible despachar una cuadrilla operativa: la patrulla verificadora asignada ('Patrulla Alfa-1') aún no ha finalizado la evaluación técnica en terreno.",
+        "VERIFICACION_EN_CURSO",
+        {
+          incidenteId: incidenteValidoId,
+          misionVerificacionId: "60000000-0000-4000-8000-000000000001",
+          patrullaId: "f1000000-0000-4000-8000-000000000001",
+          patrullaNombre: "Patrulla Alfa-1",
+          estadoMision: "EN_CURSO",
+        }
+      )
+    );
+
+    const req = new NextRequest("http://localhost:3000/api/misiones", {
+      method: "POST",
+      headers: { authorization: "Bearer token_valido" },
+      body: JSON.stringify({
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId: incidenteValidoId,
+        cuadrillaId: cuadrillaValidaId,
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.statusCode).toBe(409);
+    expect(body.error).toBe("Conflict");
+    expect(body.codigo).toBe("VERIFICACION_EN_CURSO");
+    expect(body.message).toContain("aún no ha finalizado la evaluación técnica en terreno");
+    expect(body.detalles.patrullaNombre).toBe("Patrulla Alfa-1");
+  });
+
+  it("debe responder 201 Created cuando la cuadrilla se asigna exitosamente y libera la patrulla", async () => {
+    vi.mocked(authGuard.verificarAsignarMision).mockResolvedValueOnce(usuarioEncargadoMock);
+
+    vi.mocked(misionService.asignarCuadrillaMisionService).mockResolvedValueOnce({
+      message: "Cuadrilla 'Cuadrilla Vías y Canales 1' asignada exitosamente al incidente INC-2026-0001. La patrulla verificadora previa ha sido liberada a estado DISPONIBLE.",
+      data: {
+        mision: {
+          id: "70000000-0000-4000-8000-000000000001",
+          codigo: "MIS-2026-0005",
+          titulo: "Atención táctica - Incidente INC-2026-0001",
+          descripcion: "Despeje de calzada",
+          tipoMision: "ATENCION_CUADRILLA",
+          estado: "DESPACHADA",
+          prioridad: "ALTA",
+          incidenteId: incidenteValidoId,
+          cuadrillaId: cuadrillaValidaId,
+          encargadoId: usuarioEncargadoMock.id,
+          creadoPorId: usuarioEncargadoMock.id,
+          fechaInicio: null,
+          creadoEn: "2026-10-04T12:30:00.000Z",
+        },
+        cuadrilla: {
+          id: cuadrillaValidaId,
+          nombre: "Cuadrilla Vías y Canales 1",
+          estado: "EN_MISION",
+        },
+        incidente: {
+          id: incidenteValidoId,
+          codigo: "INC-2026-0001",
+          estado: "EN_ATENCION",
+          prioridad: "ALTA",
+        },
+        patrullaLiberada: {
+          id: "f1000000-0000-4000-8000-000000000001",
+          nombre: "Patrulla Rápida Costa-1",
+          estado: "DISPONIBLE",
+          misionPreviaId: "60000000-0000-4000-8000-000000000001",
+        },
+        hitoCuadrilla: {
+          id: "80000000-0000-4000-8000-000000000001",
+          misionId: "70000000-0000-4000-8000-000000000001",
+          hito: "CUADRILLA_DESPACHADA",
+          descripcion: "Cuadrilla despachada a terreno para resolución táctica del incidente",
+          creadoEn: "2026-10-04T12:30:00.000Z",
+        },
+        hitoPatrulla: {
+          id: "80000000-0000-4000-8000-000000000002",
+          misionId: "60000000-0000-4000-8000-000000000001",
+          hito: "VERIFICACION_FINALIZADA",
+          descripcion: "Misión de verificación concluida automáticamente por asignación y relevo de cuadrilla operativa",
+          creadoEn: "2026-10-04T12:30:00.000Z",
+        },
+      },
+    });
+
+    const req = new NextRequest("http://localhost:3000/api/misiones", {
+      method: "POST",
+      headers: { authorization: "Bearer token_valido" },
+      body: JSON.stringify({
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId: incidenteValidoId,
+        cuadrillaId: cuadrillaValidaId,
+        titulo: "Atención táctica - Incidente INC-2026-0001",
+        descripcion: "Despeje de calzada",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.data.mision.estado).toBe("DESPACHADA");
+    expect(body.data.cuadrilla.estado).toBe("EN_MISION");
+    expect(body.data.incidente.estado).toBe("EN_ATENCION");
+    expect(body.data.patrullaLiberada.estado).toBe("DISPONIBLE");
+    expect(body.data.hitoCuadrilla.hito).toBe("CUADRILLA_DESPACHADA");
+    expect(body.data.hitoPatrulla.hito).toBe("VERIFICACION_FINALIZADA");
   });
 });

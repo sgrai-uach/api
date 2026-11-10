@@ -22,12 +22,12 @@ export interface FilaCuadrillaDetalleConsolidado {
   actualizado_por_id: string | null;
   eliminado_en?: Date | null;
   eliminado_por_id?: string | null;
-  delegacion_id: string;
-  delegacion_nombre: string;
+  delegacion_id: string | null;
+  delegacion_nombre: string | null;
   delegacion_codigo?: string | null;
-  delegado_id: string;
-  delegado_nombre: string;
-  delegado_email: string;
+  delegado_id: string | null;
+  delegado_nombre: string | null;
+  delegado_email: string | null;
   delegado_rut: string | null;
   recursos: Array<{
     id: string;
@@ -122,8 +122,8 @@ export async function obtenerCuadrillaDetalleUnitario(
 ): Promise<FilaCuadrillaDetalleConsolidado | undefined> {
   const cuadrillaFila = await db
     .selectFrom("cuadrilla")
-    .innerJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
-    .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
+    .leftJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
+    .leftJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
     .select([
       "cuadrilla.id as id",
       "cuadrilla.nombre as nombre",
@@ -517,8 +517,8 @@ export async function insertarCuadrillaConDelegado(
     // 3. Consultar datos consolidados para la respuesta
     const filaConsolidada = await trx
       .selectFrom("cuadrilla")
-      .innerJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
-      .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
+      .leftJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
+    .leftJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
       .select([
         "cuadrilla.id as id",
         "cuadrilla.nombre as nombre",
@@ -1068,8 +1068,8 @@ export async function actualizarCuadrillaConDotacionTransaccional(
     // 5. Consultar entidad consolidada para la respuesta
     const cuadrillaFila = await trx
       .selectFrom("cuadrilla")
-      .innerJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
-      .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
+      .leftJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
+    .leftJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
       .select([
         "cuadrilla.id as id",
         "cuadrilla.nombre as nombre",

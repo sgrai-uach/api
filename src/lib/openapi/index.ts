@@ -139,6 +139,8 @@ import {
 import {
   MisionDetalleResponseSchema,
   MisionIdParamSchema,
+  AsignarCuadrillaMisionInputSchema,
+  AsignarCuadrillaMisionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -1253,6 +1255,50 @@ registry.registerPath({
     },
     400: { description: "Parámetros de consulta inválidos" },
     401: { description: "No autenticado o token ausente/inválido" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// POST /api/misiones (HU-21: Asignar cuadrilla y liberar patrulla)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones",
+  summary: "Asignar cuadrilla operativa a incidente y liberar patrulla (HU-21)",
+  description:
+    "Crea una misión de tipo ATENCION_CUADRILLA en estado DESPACHADA, actualiza la cuadrilla a EN_MISION y el incidente a EN_ATENCION. Aplica la Regla §3.2 (ICS): si el incidente contaba con una patrulla verificadora en terreno, concluye su misión (COMPLETADA) con hito 'VERIFICACION_FINALIZADA' y libera la patrulla a estado 'DISPONIBLE'. Emite eventos WebSocket a la cuadrilla, patrulla y Centro de Mando.",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado con permiso misiones:asignar" }),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: AsignarCuadrillaMisionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Cuadrilla asignada exitosamente y patrulla previa liberada",
+      content: {
+        "application/json": {
+          schema: AsignarCuadrillaMisionResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada inválidos o faltantes" },
+    401: { description: "No autenticado / token ausente o inválido" },
+    403: { description: "Permisos insuficientes (requiere misiones:asignar)" },
+    404: { description: "Incidente o cuadrilla no encontrados" },
+    409: { description: "Conflicto: la cuadrilla no está disponible o el incidente no es apto" },
     500: { description: "Error interno del servidor" },
   },
 });

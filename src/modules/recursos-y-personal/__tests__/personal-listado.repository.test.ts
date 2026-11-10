@@ -4,16 +4,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * Mock de la capa de datos para verificar las cláusulas generadas por el repositorio
  * de listado de personal (H11).
  */
-const mockQuery = {
-  where: vi.fn(),
-  select: vi.fn(),
-  orderBy: vi.fn(),
-  limit: vi.fn(),
-  offset: vi.fn(),
-  execute: vi.fn(),
-  executeTakeFirst: vi.fn(),
-};
-
 const mockBuilder = {
   selectFrom: vi.fn(),
   leftJoin: vi.fn(),
