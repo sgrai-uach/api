@@ -1,10 +1,13 @@
 import { db } from "@/lib/db";
-import { sql } from "kysely";
+import { sql, type Transaction } from "kysely";
 import { NotFoundError, ConflictError } from "@/modules/seguridad/errors";
+import type { Database } from "@/lib/db/types";
 import type {
   CrearMisionVerificacionInput,
   AsignarCuadrillaMisionInput,
 } from "./mision.schema";
+
+export type MisionTrx = Transaction<Database>;
 
 export interface MisionDetalleQueryResult {
   mision: {
@@ -605,6 +608,61 @@ export interface AsignarCuadrillaResult {
   } | null;
 }
 
+/**
+ * Sincroniza la disponibilidad operativa de la dotación humana de una cuadrilla.
+ *
+ * Cuando una cuadrilla es despachada a terreno, su dotación (integrantes activos de
+ * `cuadrilla_personal` y el delegado de la cuadrilla) debe quedar en estado 'en_mision',
+ * que es el atributo que consume la vista de personal del SGRAI
+ * (`usuario.estado_operativo`, única fuente de verdad desde la migración 025).
+ *
+ * Reglas:
+ * - Solo se actualizan usuarios activos.
+ * - No se sobrescriben estados no operativos ('licencia', 'descanso', 'inactivo').
+ * - No se altera `personal.disponible_terreno` (aptitud para terreno, no disponibilidad).
+ */
+export async function marcarDotacionCuadrillaEnMision(
+  trx: MisionTrx,
+  cuadrillaId: string,
+  usuarioDelegadoId: string | null
+): Promise<void> {
+  // 1. Integrantes activos de la cuadrilla
+  await trx
+    .updateTable("usuario")
+    .set({
+      estado_operativo: "en_mision",
+      actualizado_en: sql`CURRENT_TIMESTAMP`,
+    })
+    .where("activo", "=", true)
+    .where("estado_operativo", "in", ["disponible", "en_mision"])
+    .where(
+      "id",
+      "in",
+      trx
+        .selectFrom("cuadrilla_personal")
+        .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+        .select("personal.usuario_id")
+        .where("cuadrilla_personal.cuadrilla_id", "=", cuadrillaId)
+        .where("cuadrilla_personal.activo", "=", true)
+        .where("cuadrilla_personal.desvinculado_en", "is", null)
+    )
+    .execute();
+
+  // 2. Delegado de la cuadrilla (puede no estar registrado en cuadrilla_personal)
+  if (usuarioDelegadoId) {
+    await trx
+      .updateTable("usuario")
+      .set({
+        estado_operativo: "en_mision",
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", usuarioDelegadoId)
+      .where("activo", "=", true)
+      .where("estado_operativo", "in", ["disponible", "en_mision"])
+      .execute();
+  }
+}
+
 export async function asignarCuadrillaIncidenteRepo(
   input: AsignarCuadrillaMisionInput,
   usuarioId: string
@@ -631,7 +689,7 @@ export async function asignarCuadrillaIncidenteRepo(
     // 2. Bloqueo pesimista y validación de cuadrilla activa (BUG-H21-API-01, BUG-H21-API-02)
     const cuadrilla = await trx
       .selectFrom("cuadrilla")
-      .select(["id", "nombre", "estado", "delegacion_id"])
+      .select(["id", "nombre", "estado", "delegacion_id", "usuario_delegado_id"])
       .where("id", "=", input.cuadrillaId)
       .where("eliminado_en", "is", null)
       .where("activo", "=", true)
@@ -773,6 +831,13 @@ export async function asignarCuadrillaIncidenteRepo(
         `La cuadrilla '${cuadrilla.nombre}' ya fue asignada concurrentemente a otra misión.`
       );
     }
+
+    // 7.1. Sincronizar la disponibilidad de la dotación humana de la cuadrilla ('en_mision')
+    await marcarDotacionCuadrillaEnMision(
+      trx,
+      input.cuadrillaId,
+      cuadrilla.usuario_delegado_id
+    );
 
     // 8. Transición atómica de incidente a 'EN_ATENCION' con precondición de estado (BUG-H21-API-01)
     const incidenteActualizado = await trx
