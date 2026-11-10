@@ -112,6 +112,12 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
       rolNombre: "Administrador",
       activo: true,
     });
+    // Por defecto el funcionario candidato no está asignado a ninguna cuadrilla activa
+    vi.spyOn(repo, "verificarDelegadoAsignadoAOtraCuadrilla").mockResolvedValue({
+      asignado: false,
+      rolEnOtra: null,
+      cuadrillaNombre: null,
+    });
     vi.spyOn(socketModule, "emitirCuadrillaCreada").mockImplementation(() => {});
     vi.spyOn(socketModule, "emitirCuadrillaActualizada").mockImplementation(() => {});
   });
@@ -334,6 +340,21 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
       await expect(crearCuadrilla(inputCrear, usuarioAdminId)).rejects.toThrow(NotFoundError);
     });
 
+    it("debe rechazar con ConflictError si el delegado ya lidera o integra otra cuadrilla activa", async () => {
+      vi.spyOn(repo, "buscarCuadrillaPorNombre").mockResolvedValue(undefined);
+      vi.spyOn(repo, "obtenerDelegacionPorId").mockResolvedValue(delegacionMock);
+      vi.spyOn(repo, "obtenerUsuarioPorId").mockResolvedValue(delegadoMock);
+      vi.spyOn(repo, "verificarDelegadoAsignadoAOtraCuadrilla").mockResolvedValue({
+        asignado: true,
+        rolEnOtra: "delegado",
+        cuadrillaNombre: "Cuadrilla Existente",
+      });
+      const spyInsertar = vi.spyOn(repo, "insertarCuadrillaConDelegado");
+
+      await expect(crearCuadrilla(inputCrear, usuarioAdminId)).rejects.toThrow(ConflictError);
+      expect(spyInsertar).not.toHaveBeenCalled();
+    });
+
     it("debe rechazar con BadRequestError si el delegado no tiene rol brigadista ni delegado de cuadrilla", async () => {
       vi.spyOn(repo, "buscarCuadrillaPorNombre").mockResolvedValue(undefined);
       vi.spyOn(repo, "obtenerDelegacionPorId").mockResolvedValue(delegacionMock);
@@ -363,7 +384,10 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
       const res = await crearCuadrilla(inputCrear, usuarioAdminId);
 
       expect(res.nombre).toBe(inputCrear.nombre);
-      expect(res.delegado.id).toBe(delegadoId);
+      expect(repo.verificarDelegadoAsignadoAOtraCuadrilla).toHaveBeenCalledWith(
+        inputCrear.usuarioDelegadoId,
+        null
+      );
     });
   });
 

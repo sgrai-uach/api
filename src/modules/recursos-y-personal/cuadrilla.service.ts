@@ -284,6 +284,17 @@ export async function crearCuadrilla(
   }
   validarRolAptoParaDelegado(usuarioDelegado.rol_codigo);
 
+  // 4.1. Regla ICS: el delegado no puede liderar ni integrar otra cuadrilla operativa activa
+  const estadoDelegadoAlCrear = await verificarDelegadoAsignadoAOtraCuadrilla(
+    input.usuarioDelegadoId,
+    null
+  );
+  if (estadoDelegadoAlCrear.asignado) {
+    throw new ConflictError(
+      `El usuario designado como Delegado ya se encuentra asignado a otra cuadrilla operativa activa ('${estadoDelegadoAlCrear.cuadrillaNombre}').`
+    );
+  }
+
   // 5. Obtener el rol institucional DELEGADO_CUADRILLA para asignación
   const rolDelegado = await obtenerRolPorCodigo("DELEGADO_CUADRILLA");
   if (!rolDelegado) {

@@ -744,17 +744,21 @@ export async function obtenerRecursosIndividualesAsignadosAOtrasCuadrillas(
  */
 export async function verificarDelegadoAsignadoAOtraCuadrilla(
   usuarioDelegadoId: string,
-  excluirCuadrillaId: string
+  excluirCuadrillaId: string | null
 ) {
   // 1. ¿Lidera otra cuadrilla activa?
-  const cuadrillaComoLider = await db
+  let queryLider = db
     .selectFrom("cuadrilla")
     .select(["id", "nombre"])
     .where("usuario_delegado_id", "=", usuarioDelegadoId)
-    .where("id", "!=", excluirCuadrillaId)
     .where("activo", "=", true)
-    .where("eliminado_en", "is", null)
-    .executeTakeFirst();
+    .where("eliminado_en", "is", null);
+
+  if (excluirCuadrillaId) {
+    queryLider = queryLider.where("id", "!=", excluirCuadrillaId);
+  }
+
+  const cuadrillaComoLider = await queryLider.executeTakeFirst();
 
   if (cuadrillaComoLider) {
     return {
@@ -765,18 +769,22 @@ export async function verificarDelegadoAsignadoAOtraCuadrilla(
   }
 
   // 2. ¿Es trabajador en otra cuadrilla activa?
-  const cuadrillaComoTrabajador = await db
+  let queryTrabajador = db
     .selectFrom("cuadrilla_personal")
     .innerJoin("cuadrilla", "cuadrilla.id", "cuadrilla_personal.cuadrilla_id")
     .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
     .select(["cuadrilla.id", "cuadrilla.nombre"])
     .where("personal.usuario_id", "=", usuarioDelegadoId)
-    .where("cuadrilla.id", "!=", excluirCuadrillaId)
     .where("cuadrilla.activo", "=", true)
     .where("cuadrilla.eliminado_en", "is", null)
     .where("cuadrilla_personal.activo", "=", true)
-    .where("cuadrilla_personal.desvinculado_en", "is", null)
-    .executeTakeFirst();
+    .where("cuadrilla_personal.desvinculado_en", "is", null);
+
+  if (excluirCuadrillaId) {
+    queryTrabajador = queryTrabajador.where("cuadrilla.id", "!=", excluirCuadrillaId);
+  }
+
+  const cuadrillaComoTrabajador = await queryTrabajador.executeTakeFirst();
 
   if (cuadrillaComoTrabajador) {
     return {
