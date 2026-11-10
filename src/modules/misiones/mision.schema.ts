@@ -288,3 +288,80 @@ export const CrearMisionResponseSchema = z.object({
 });
 
 export type CrearMisionResponse = z.infer<typeof CrearMisionResponseSchema>;
+
+// HU-69: Esquema de entrada para rechazo de misión por patrulla verificadora
+export const RechazarMisionBodySchema = z.object({
+  justificacion_rechazo: z
+    .string()
+    .min(5, "El motivo de rechazo debe contener al menos 5 caracteres.")
+    .openapi({
+      description: "Motivo obligatorio del rechazo de la misión (mínimo 5 caracteres según Regla Crítica §3.3)",
+      example: "Desperfecto mecánico en el neumático delantero del vehículo institucional.",
+    }),
+  latitud: z.number().optional().openapi({ description: "Latitud WGS84 de la patrulla", example: -39.81422 }),
+  longitud: z.number().optional().openapi({ description: "Longitud WGS84 de la patrulla", example: -73.24589 }),
+});
+
+export const RechazarMisionInputSchema = z
+  .object({
+    justificacion_rechazo: z.string().optional(),
+    justificacionRechazo: z.string().optional(),
+    latitud: z.number().optional(),
+    longitud: z.number().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const motivo = (data.justificacion_rechazo ?? data.justificacionRechazo ?? "").trim();
+    if (motivo.length < 5) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "El motivo de rechazo (justificacion_rechazo) debe contener al menos 5 caracteres.",
+        path: ["justificacion_rechazo"],
+      });
+    }
+  })
+  .transform((data) => ({
+    justificacionRechazo: (data.justificacion_rechazo ?? data.justificacionRechazo ?? "").trim(),
+    latitud: data.latitud,
+    longitud: data.longitud,
+  }));
+
+export type RechazarMisionInput = {
+  justificacionRechazo: string;
+  latitud?: number;
+  longitud?: number;
+};
+
+// HU-69: Respuesta de rechazo de misión
+export const RechazarMisionResponseSchema = z.object({
+  message: z.string().openapi({
+    example: "Misión rechazada exitosamente. El incidente ha vuelto a estado REPORTADO para su reasignación.",
+  }),
+  data: z.object({
+    mision: z.object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      estado: z.string(),
+      justificacionRechazo: z.string(),
+      actualizadoEn: z.string(),
+    }),
+    patrulla: z.object({
+      id: z.string().uuid(),
+      nombre: z.string(),
+      estado: z.string(),
+    }),
+    incidente: z.object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      estado: z.string(),
+    }),
+    hito: z.object({
+      id: z.string().uuid(),
+      hito: z.string(),
+      descripcion: z.string(),
+      creadoEn: z.string(),
+    }),
+  }),
+});
+
+export type RechazarMisionResponse = z.infer<typeof RechazarMisionResponseSchema>;
+

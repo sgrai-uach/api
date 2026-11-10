@@ -1,6 +1,7 @@
 import {
   obtenerMisionDetallePorIdRepo,
   crearMisionVerificacionRepo,
+  rechazarMisionPatrullaRepo,
 } from "./mision.repository";
 import type {
   MisionDetalleCompleto,
@@ -9,11 +10,14 @@ import type {
   AdjuntoEvidencia,
   CrearMisionVerificacionInput,
   CrearMisionResponse,
+  RechazarMisionInput,
+  RechazarMisionResponse,
 } from "./mision.schema";
 import {
   notificarMisionAsignada,
   notificarIncidenteActualizado,
   notificarPatrullaActualizada,
+  notificarMisionRechazada,
 } from "@/lib/socket";
 
 function formatearFechaIso(fecha: Date | string | null | undefined): string | null {
@@ -262,7 +266,7 @@ export async function obtenerDetalleMisionService(
  * 1. Ejecuta la transacción atómica en persistencia.
  * 2. Emite eventos reactivos Socket.io a través del broker Redis:
  *    - 'mision:asignada' a la sala de la patrulla ('patrulla:{id}') y 'encargado'.
- *    - 'incidente:actualizado' a las salas 'encargado' y 'mapa' (mueve Kanban a 'VERIFICANDO').
+ *    - 'incidente:actualizado' a las salas 'encargado' y 'mapa'.
  *    - 'patrulla:actualizada' para actualizar la disponibilidad en el mapa y listados.
  */
 export async function asignarPatrullaVerificacionService(
@@ -322,4 +326,87 @@ export async function asignarPatrullaVerificacionService(
     },
   };
 }
+
+/**
+ * HU-69 - Servicio de negocio para rechazar una misión asignada a una patrulla verificadora.
+ *
+ * 1. Invoca la transacción atómica en repositorio (mision.estado = 'RECHAZADA',
+ *    patrulla.estado = 'DISPONIBLE', incidente.estado = 'REPORTADO', registro de hito).
+ * 2. Emite eventos WebSocket a través de Socket.io / Redis:
+ *    - 'mision:rechazada' a la sala 'encargado' (y 'sala:encargados').
+ *    - 'incidente:actualizado' a 'encargado', 'sala:encargados' y 'mapa' para revertir a 'REPORTADO' en Kanban.
+ *    - 'patrulla:actualizada' para actualizar la disponibilidad operativa a 'DISPONIBLE' en el mapa.
+ * 3. Retorna la respuesta unificada DTO.
+ */
+export async function rechazarMisionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: RechazarMisionInput
+): Promise<RechazarMisionResponse> {
+  const resultado = await rechazarMisionPatrullaRepo(
+    misionId,
+    usuarioId,
+    input.justificacionRechazo,
+    esAdmin,
+    {
+      latitud: input.latitud,
+      longitud: input.longitud,
+    }
+  );
+
+  // Emitir eventos en tiempo real
+  try {
+    notificarMisionRechazada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      tipoMision: "VERIFICACION",
+      motivo: resultado.mision.justificacionRechazo,
+      justificacionRechazo: resultado.mision.justificacionRechazo,
+      patrullaId: resultado.patrulla.id || null,
+      patrullaNombre: resultado.patrulla.nombre,
+      incidenteId: resultado.incidente.id || null,
+      incidenteCodigo: resultado.incidente.codigo,
+      rechazadoPorId: usuarioId,
+      rechazadoEn: resultado.mision.actualizadoEn,
+    });
+
+    if (resultado.incidente.id) {
+      notificarIncidenteActualizado({
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        nuevoEstado: resultado.incidente.estado,
+        prioridad: resultado.incidente.prioridad,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
+
+    if (resultado.patrulla.id) {
+      notificarPatrullaActualizada({
+        patrullaId: resultado.patrulla.id,
+        nombre: resultado.patrulla.nombre,
+        estado: resultado.patrulla.estado,
+        delegacionId: null,
+        usuarioLiderId: null,
+        misionActivaId: null,
+        incidenteId: null,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras rechazar misión:", error);
+  }
+
+  return {
+    message:
+      "Misión rechazada exitosamente. El incidente ha vuelto a estado REPORTADO para su reasignación.",
+    data: {
+      mision: resultado.mision,
+      patrulla: resultado.patrulla,
+      incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
+
 

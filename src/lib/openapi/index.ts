@@ -69,6 +69,8 @@ import {
 import {
   CrearMisionVerificacionSchema,
   CrearMisionResponseSchema,
+  RechazarMisionBodySchema,
+  RechazarMisionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -228,6 +230,12 @@ registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSc
 registry.register("CrearEventoAsistenciaSocialInput", CrearEventoAsistenciaSocialInputSchema);
 registry.register("EventoAsistenciaSocialResponse", EventoAsistenciaSocialResponseSchema);
 registry.register("ListarEventosAsistenciaSocialResponse", ListarEventosAsistenciaSocialResponseSchema);
+
+// Registrar esquemas de Misiones
+registry.register("CrearMisionVerificacionInput", CrearMisionVerificacionSchema);
+registry.register("CrearMisionResponse", CrearMisionResponseSchema);
+registry.register("RechazarMisionBody", RechazarMisionBodySchema);
+registry.register("RechazarMisionResponse", RechazarMisionResponseSchema);
 
 // ==========================================
 // RUTAS RECURSOS Y PERSONAL
@@ -2343,7 +2351,7 @@ registry.registerPath({
   path: "/api/misiones",
   summary: "Asignar y despachar patrulla verificadora a un incidente (HU-20)",
   description:
-    "Despacha una patrulla verificadora disponible a un incidente formal en estado REPORTADO. Ejecuta una transacción atómica que: (1) crea la misión con tipo VERIFICACION y estado DESPACHADA, (2) actualiza el incidente a estado VERIFICANDO, (3) actualiza la patrulla a estado EN_VERIFICACION, y (4) registra el hito inicial en mision_hito. Emite eventos WebSocket a las salas 'patrulla:{id}', 'encargado' y 'mapa'. Requiere permiso 'misiones:asignar'.",
+    "Despacha una patrulla verificadora disponible a un incidente formal en estado REPORTADO. Ejecuta una transacción atómica que: (1) crea la misión con tipo VERIFICACION y estado DESPACHADA, (2) mantiene el incidente en estado REPORTADO (pendiente de confirmación de la patrulla), (3) actualiza la patrulla a estado EN_VERIFICACION, y (4) registra el hito inicial en mision_hito. Emite eventos WebSocket a las salas 'patrulla:{id}', 'encargado' y 'mapa'. Requiere permiso 'misiones:asignar'.",
   tags: ["Misiones"],
   security: [{ bearerAuth: [] }],
   request: {
@@ -2371,7 +2379,7 @@ registry.registerPath({
       description: "No autenticado o token ausente",
     },
     403: {
-      description: "Acceso denegado. Se requiere permiso 'misiones:asignar'.",
+      description: "Acceso denegado. Se requiere permiso 'misiones:asignar'",
     },
     404: {
       description: "Incidente o patrulla no encontrado",
@@ -2382,6 +2390,57 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor al crear y despachar la misión",
+    },
+  },
+});
+
+// POST /api/misiones/{id}/rechazar (HU-69: Rechazo de misión por patrulla verificadora)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/rechazar",
+  summary: "Rechazar misión de verificación por patrulla en terreno (HU-69)",
+  description:
+    "Permite a una patrulla verificadora rechazar una misión asignada ingresando una justificación obligatoria (mínimo 5 caracteres según Regla Crítica §3.3). Ejecuta una transacción atómica que: (1) actualiza la misión a estado RECHAZADA y persiste la justificación, (2) transiciona la patrulla a DISPONIBLE, (3) revierte el incidente a REPORTADO para su inmediata reasignación, y (4) registra el hito en mision_hito. Emite la notificación WebSocket mision:rechazada hacia la sala encargado.",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: RechazarMisionBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Misión rechazada exitosamente y devuelta a estado REPORTADO para reasignación",
+      content: {
+        "application/json": {
+          schema: RechazarMisionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos o justificación menor a 5 caracteres",
+    },
+    401: {
+      description: "No autenticado o token ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere pertenecer a la patrulla asignada o rol Administrador",
+    },
+    404: {
+      description: "Misión no encontrada",
+    },
+    409: {
+      description: "Conflicto: la misión ya fue rechazada o no se encuentra en estado DESPACHADA",
+    },
+    500: {
+      description: "Error interno del servidor al procesar el rechazo de la misión",
     },
   },
 });

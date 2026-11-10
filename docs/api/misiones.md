@@ -44,6 +44,7 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 | `GET` | `/api/misiones` | `misiones:leer` / Sesión válida | Listar misiones tácticas con paginación estándar, metadatos `meta` y filtros multicriterio (H34). |
 | `GET` | `/api/misiones/{id}` | `misiones:leer` | Consultar detalle exhaustivo de una misión por su ID (incidente, cuadrilla/patrulla, tiempos y reportes con adjuntos - HU-17). |
 | `POST` | `/api/misiones` | `misiones:asignar` | Despachar patrulla verificadora disponible a un incidente formal en estado REPORTADO (HU-20). |
+| `POST` | `/api/misiones/{id}/rechazar` | `misiones:terreno:verificar` | Rechazar asignación de misión por patrulla verificadora en terreno con justificación obligatoria (HU-69). |
 
 ---
 
@@ -256,7 +257,7 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
 1. Verifica que el incidente exista y su estado sea exactamente `REPORTADO`.
 2. Actualiza atómicamente la patrulla verificadora seleccionada a `estado = 'EN_VERIFICACION'` verificando que se encuentre en estado `DISPONIBLE` y activa (`eliminado_en IS NULL`). Si fue tomada concurrentemente por otro operador, aborta la transacción con `HTTP 409 Conflict`.
 3. Crea el registro en `mision` con `tipo_mision = 'VERIFICACION'`, `estado = 'DESPACHADA'` y código autogenerado correlativo único (`MIS-YYYY-NNNN`).
-4. Actualiza el incidente a `estado = 'VERIFICANDO'`.
+4. Mantiene el incidente en `estado = 'REPORTADO'` (pendiente de confirmación de la patrulla).
 5. Inserta el hito inicial en la bitácora `mision_hito` (`hito = 'DESPACHADA'`).
 6. Emite notificaciones WebSocket reactivas a través del broker Redis.
 
@@ -305,7 +306,7 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
     "incidente": {
       "id": "50000000-0000-4000-8000-000000000001",
       "codigo": "INC-2026-1042",
-      "estado": "VERIFICANDO"
+      "estado": "REPORTADO"
     },
     "patrulla": {
       "id": "f1000000-0000-4000-8000-000000000001",
@@ -324,23 +325,100 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
 
 ---
 
+### 3.4. `POST /api/misiones/{id}/rechazar` (HU-69: Rechazo de Misión por Patrulla Verificadora)
+
+Permite a la patrulla verificadora en terreno rechazar una misión táctica despachada, ingresando de forma obligatoria el motivo del rechazo conforme a la **Regla de Negocio Crítica §3.3** (mínimo 5 caracteres).
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `x-user-id` en cabeceras).
+- **Permiso requerido:** `misiones:terreno:verificar` y pertenencia a la patrulla asignada (o rol `Administrador`).
+
+#### Parámetros de Ruta (`Path Params`)
+
+| Parámetro | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `id` | `UUID` | **Sí** | Identificador único de la misión táctica asignada. |
+
+#### Cuerpo de la Solicitud (`Request Body`)
+
+```json
+{
+  "justificacion_rechazo": "Desperfecto mecánico en el neumático delantero del vehículo institucional.",
+  "latitud": -39.81422,
+  "longitud": -73.24589
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `justificacion_rechazo` (o `justificacionRechazo`) | `string` | **Sí** | Motivo obligatorio del rechazo. Tras aplicar `.trim()`, debe contener al menos 5 caracteres. |
+| `latitud` | `number` | No | Latitud WGS84 de la patrulla al registrar el rechazo. |
+| `longitud` | `number` | No | Longitud WGS84 de la patrulla al registrar el rechazo. |
+
+#### Comportamiento Transaccional Atómico
+
+1. `mision.estado` transiciona a `'RECHAZADA'`.
+2. Se persiste `mision.justificacion_rechazo` y se fija `fecha_cierre = CURRENT_TIMESTAMP`.
+3. `patrulla_verificadora.estado` transiciona a `'DISPONIBLE'` (liberada para nuevas asignaciones).
+4. `incidente.estado` revierte a `'REPORTADO'` para que el Encargado pueda reasignar de inmediato.
+5. Se inserta un nuevo registro en `mision_hito` (`hito = 'RECHAZADA'`).
+
+#### Ejemplo de Respuesta Exitosa (`HTTP 200 OK`)
+
+```json
+{
+  "message": "Misión rechazada exitosamente. El incidente ha vuelto a estado REPORTADO para su reasignación.",
+  "data": {
+    "mision": {
+      "id": "60000000-0000-4000-8000-000000000050",
+      "codigo": "MIS-2026-8341",
+      "estado": "RECHAZADA",
+      "justificacionRechazo": "Desperfecto mecánico en el neumático delantero del vehículo institucional.",
+      "actualizadoEn": "2026-11-03T18:45:00.000Z"
+    },
+    "patrulla": {
+      "id": "f1000000-0000-4000-8000-000000000001",
+      "nombre": "Patrulla Ánimas Norte 1",
+      "estado": "DISPONIBLE"
+    },
+    "incidente": {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "codigo": "INC-2026-1042",
+      "estado": "REPORTADO"
+    },
+    "hito": {
+      "id": "70000000-0000-4000-8000-000000000002",
+      "hito": "RECHAZADA",
+      "descripcion": "Misión rechazada por patrulla: Desperfecto mecánico en el neumático delantero del vehículo institucional.",
+      "creadoEn": "2026-11-03T18:45:00.000Z"
+    }
+  }
+}
+```
+
+---
+
 ## 4. Códigos de Estado y Errores Esperables
 
 - **`400 Bad Request`:**
   - En `GET /api/misiones`: Parámetros de consulta no conformes al esquema Zod (ej. `page < 1`, `limit > 100`, valores de enum desconocidos o `delegacionId` no UUID).
   - En `GET /api/misiones/{id}`: El parámetro `id` no cumple el estándar UUID versión 4.
   - En `POST /api/misiones`: Body no es JSON válido o los identificadores no son UUIDs válidos.
+  - En `POST /api/misiones/{id}/rechazar`: Motivo de rechazo ausente o con menos de 5 caracteres útiles, formato JSON inválido o UUID no válido.
 - **`401 Unauthorized`:**
   - Petición sin token JWT Bearer o sesión expirada.
 - **`403 Forbidden`:**
-  - El usuario no cuenta con el permiso requerido (`misiones:leer` para consulta, `misiones:asignar` para despacho).
+  - El usuario no cuenta con el permiso requerido (`misiones:leer`, `misiones:asignar` o `misiones:terreno:verificar`).
+  - En `POST /api/misiones/{id}/rechazar`: El usuario autenticado no pertenece a la patrulla verificadora asignada a la misión.
 - **`404 Not Found`:**
-  - En `GET /api/misiones/{id}`: No existe ninguna misión con el UUID proporcionado.
+  - En `GET /api/misiones/{id}` y `POST /api/misiones/{id}/rechazar`: No existe ninguna misión con el UUID proporcionado.
   - En `POST /api/misiones`: El `incidenteId` o la `patrullaId` proporcionada no existe en la base de datos o la patrulla ha sido desactivada lógicamente.
 - **`409 Conflict`:**
   - En `POST /api/misiones`:
     1. **Patrulla no disponible concurrentemente:** La patrulla seleccionada fue despachada o cambió de estado concurrentemente (`estado != 'DISPONIBLE'`).
     2. **Incidente no en estado REPORTADO:** El incidente ya no se encuentra en estado `REPORTADO` (ej. ya está `VERIFICANDO`, `EN_ATENCION` o `RESUELTO`), por lo que no puede asignarse una patrulla verificadora.
+  - En `POST /api/misiones/{id}/rechazar`:
+    1. La misión ya fue previamente rechazada.
+    2. La misión no se encuentra en estado `DESPACHADA` (ej. ya está `EN_CURSO`, `COMPLETADA` o `CANCELADA`).
 - **`500 Internal Server Error`:**
   - Error inesperado de persistencia o fallo de base de datos.
 
@@ -348,15 +426,19 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
 
 ## 5. Eventos en Tiempo Real (Socket.io & Broker Redis)
 
-Al confirmarse la asignación de la misión de verificación mediante `POST /api/misiones`, el backend emite los siguientes eventos:
+Al confirmarse eventos sobre misiones, el backend emite los siguientes eventos:
 
 1. **`mision:asignada`**:
-   - **Salas destino:** `patrulla:{patrullaId}` (app PWA del líder de patrulla en terreno) y `encargado`.
+   - **Salas destino:** `patrulla:{patrullaId}`, `encargado` y `sala:encargados`.
    - **Propósito:** Notificar en tiempo real a la unidad en terreno su orden de verificación con georreferenciación e instrucciones tácticas.
-2. **`incidente:actualizado`**:
-   - **Salas destino:** `encargado` y `mapa`.
-   - **Propósito:** Permite que el tablero Kanban del Encargado en `sgrai-web` mueva automáticamente la tarjeta del incidente desde la columna `REPORTADO` a la columna `VERIFICANDO` sin requerir recarga manual.
-3. **`patrulla:actualizada`**:
+2. **`mision:rechazada` (HU-69)**:
+   - **Salas destino:** `encargado` y `sala:encargados`.
+   - **Propósito:** Alerta inmediata al Centro de Mando sobre la imposibilidad de atención por parte de la patrulla asignada junto con el motivo justificado.
+3. **`incidente:actualizado`**:
+   - **Salas destino:** `encargado`, `sala:encargados` y `mapa`.
+   - **Propósito:** Permite que el tablero Kanban del Encargado en `sgrai-web` mueva automáticamente la tarjeta del incidente (a `VERIFICANDO` al despachar, o devuelta a `REPORTADO` al rechazar) sin requerir recarga manual.
+4. **`patrulla:actualizada`**:
    - **Salas destino:** `encargado`, `supervisor` y `mapa`.
-   - **Propósito:** Actualiza en vivo el marcador del mapa y las tablas de disponibilidad operativa cambiando el estado de la patrulla a `EN_VERIFICACION`.
+   - **Propósito:** Actualiza en vivo el marcador del mapa y las tablas de disponibilidad operativa cambiando el estado de la patrulla (`EN_VERIFICACION` al asignar, `DISPONIBLE` al rechazar).
+
 

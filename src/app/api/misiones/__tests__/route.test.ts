@@ -234,7 +234,7 @@ describe("Route Handler POST /api/misiones (HU-20: Asignar Patrulla Verificadora
         incidente: {
           id: payloadValido.incidenteId,
           codigo: "INC-2026-0001",
-          estado: "VERIFICANDO",
+          estado: "REPORTADO",
         },
         patrulla: {
           id: payloadValido.patrullaId,
@@ -260,7 +260,7 @@ describe("Route Handler POST /api/misiones (HU-20: Asignar Patrulla Verificadora
     const body = await res.json();
     expect(body.message).toContain("Misión de verificación creada y patrulla despachada exitosamente");
     expect(body.data.mision.estado).toBe("DESPACHADA");
-    expect(body.data.incidente.estado).toBe("VERIFICANDO");
+    expect(body.data.incidente.estado).toBe("REPORTADO");
     expect(body.data.patrulla.estado).toBe("EN_VERIFICACION");
     expect(body.data.hitoInicial.hito).toBe("DESPACHADA");
   });

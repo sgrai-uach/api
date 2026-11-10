@@ -266,7 +266,7 @@ describe("Mision Service - asignarPatrullaVerificacionService (HU-20)", () => {
       incidente: {
         id: inputMock.incidenteId,
         codigo: "INC-2026-0001",
-        estado: "VERIFICANDO",
+        estado: "REPORTADO",
         prioridad: "ALTA",
       },
       patrulla: {
@@ -288,7 +288,7 @@ describe("Mision Service - asignarPatrullaVerificacionService (HU-20)", () => {
 
     expect(misionRepo.crearMisionVerificacionRepo).toHaveBeenCalledWith(inputMock, operadorId);
     expect(respuesta.data.mision.estado).toBe("DESPACHADA");
-    expect(respuesta.data.incidente.estado).toBe("VERIFICANDO");
+    expect(respuesta.data.incidente.estado).toBe("REPORTADO");
     expect(respuesta.data.patrulla.estado).toBe("EN_VERIFICACION");
 
     // Verificar emisión de eventos Socket.io
@@ -303,7 +303,7 @@ describe("Mision Service - asignarPatrullaVerificacionService (HU-20)", () => {
     expect(socketLib.notificarIncidenteActualizado).toHaveBeenCalledWith(
       expect.objectContaining({
         id: inputMock.incidenteId,
-        nuevoEstado: "VERIFICANDO",
+        nuevoEstado: "REPORTADO",
       })
     );
 

@@ -6,6 +6,7 @@ import type {
   InterServerEvents,
   SocketData,
   RedisSocketMessage,
+  MisionRechazadaPayload,
 } from "./types";
 
 export interface IncidenteNotificacionPayload {
@@ -757,6 +758,53 @@ export function notificarMisionAsignada(payload: {
         )
         .catch(() => {});
     }
+  }
+}
+
+/**
+ * Emite una notificación en tiempo real hacia la sala 'encargado' del Centro de Mando
+ * cuando una patrulla verificadora rechaza una misión asignada (HU-69).
+ */
+export function notificarMisionRechazada(payload: MisionRechazadaPayload): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("mision:rechazada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("mision:rechazada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("mision:rechazada", payload);
+    if (payload.patrullaId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to(`patrulla:${payload.patrullaId}`) as any).emit("mision:rechazada", payload);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("mision:rechazada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "encargado",
+          event: "mision:rechazada",
+          payload,
+        })
+      )
+      .catch(() => {});
+
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "sala:encargados",
+          event: "mision:rechazada",
+          payload,
+        })
+      )
+      .catch(() => {});
   }
 }
 
