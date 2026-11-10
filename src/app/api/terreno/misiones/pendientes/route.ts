@@ -25,9 +25,7 @@ export async function GET(request: NextRequest) {
     // 1. Validar autenticación y permiso RBAC 'misiones:terreno:verificar'
     const usuarioAutenticado = await verificarTerrenoMisiones(request);
 
-    const esAdmin =
-      usuarioAutenticado.rolNombre === "Administrador" ||
-      usuarioAutenticado.rolCodigo === "ADMIN";
+    const esAdmin = usuarioAutenticado.rolNombre === "Administrador";
 
     // 2. Parámetro opcional para filtrado administrativo
     const searchParams = request.nextUrl.searchParams;

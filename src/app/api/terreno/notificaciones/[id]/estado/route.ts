@@ -71,9 +71,7 @@ export async function PATCH(
       );
     }
 
-    const esAdmin =
-      usuarioAutenticado.rolNombre === "Administrador" ||
-      usuarioAutenticado.rolCodigo === "ADMIN";
+    const esAdmin = usuarioAutenticado.rolNombre === "Administrador";
 
     // 4. Procesar actualización idempotente
     const resultado = await actualizarEstadoNotificacionService(

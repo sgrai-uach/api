@@ -36,7 +36,7 @@ describe("Route Handler GET /api/terreno/misiones/pendientes (HU-35)", () => {
     email: "lider.norte@valdivia.cl",
     rolId: "20000000-0000-4000-8000-000000000004",
     rolNombre: "Patrulla Verificadora",
-    rolCodigo: "PATRULLA_VERIFICADORA",
+    activo: true,
     delegacionId: "30000000-0000-4000-8000-000000000001",
     permisos: ["misiones:terreno:verificar"],
   };
