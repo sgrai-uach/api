@@ -10,7 +10,7 @@ import {
   type Driver,
   type QueryResult,
 } from "kysely";
-import { up, down } from "../035_indices_listado_cuadrillas";
+import { up, down } from "../071_indices_listado_cuadrillas";
 
 class CapturingConnection implements DatabaseConnection {
   constructor(public queries: CompiledQuery[]) {}
@@ -58,7 +58,7 @@ function crearDbDePruebas() {
   return { db, sql: () => driver.queries.map((q) => q.sql).join("\n") };
 }
 
-describe("Migración 035 - Índices de listado de cuadrillas (H80)", () => {
+describe("Migración 071 - Índices de listado de cuadrillas (H80)", () => {
   it("debe crear los índices parciales para delegacion, estado, delegacion+estado y orden DESC en registros activos", async () => {
     const { db, sql } = crearDbDePruebas();
 
