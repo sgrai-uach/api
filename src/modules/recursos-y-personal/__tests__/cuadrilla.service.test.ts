@@ -333,6 +333,38 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
 
       await expect(crearCuadrilla(inputCrear, usuarioAdminId)).rejects.toThrow(NotFoundError);
     });
+
+    it("debe rechazar con BadRequestError si el delegado no tiene rol brigadista ni delegado de cuadrilla", async () => {
+      vi.spyOn(repo, "buscarCuadrillaPorNombre").mockResolvedValue(undefined);
+      vi.spyOn(repo, "obtenerDelegacionPorId").mockResolvedValue(delegacionMock);
+      vi.spyOn(repo, "obtenerUsuarioPorId").mockResolvedValue({
+        ...delegadoMock,
+        rol_codigo: "ENCARGADO",
+      });
+      const spyInsertar = vi.spyOn(repo, "insertarCuadrillaConDelegado");
+
+      await expect(crearCuadrilla(inputCrear, usuarioAdminId)).rejects.toThrow(BadRequestError);
+      expect(spyInsertar).not.toHaveBeenCalled();
+    });
+
+    it("debe permitir designar como delegado a un delegado de cuadrilla ya constituido", async () => {
+      vi.spyOn(repo, "buscarCuadrillaPorNombre").mockResolvedValue(undefined);
+      vi.spyOn(repo, "obtenerDelegacionPorId").mockResolvedValue(delegacionMock);
+      vi.spyOn(repo, "obtenerUsuarioPorId").mockResolvedValue({
+        ...delegadoMock,
+        rol_codigo: "DELEGADO_CUADRILLA",
+      });
+      vi.spyOn(repo, "obtenerRolPorCodigo").mockResolvedValue(rolDelegadoMock);
+      vi.spyOn(repo, "insertarCuadrillaConDelegado").mockResolvedValue({
+        ...resultadoConsolidadoMock,
+        nombre: inputCrear.nombre,
+      });
+
+      const res = await crearCuadrilla(inputCrear, usuarioAdminId);
+
+      expect(res.nombre).toBe(inputCrear.nombre);
+      expect(res.delegado.id).toBe(delegadoId);
+    });
   });
 
   describe("editarCuadrilla", () => {
