@@ -7,7 +7,7 @@
 > **Servicio API:** `sgrai-api` (Next.js 16 Route Handlers + TypeScript + Kysely + PostgreSQL 16 + Socket.io + Vitest).  
 > **Rama Git Evaluada:** `feature/H61-crear-evento-atp`.  
 > **Endpoint Evaluado:** `POST /api/eventos-atp`.  
-> **Migración Evaluada:** `035_evento_atp_base.ts`.
+> **Migración Evaluada:** `072_evento_atp_base.ts`.
 
 ---
 
@@ -22,7 +22,7 @@
 | **Casos Bloqueados (Blocked)** | **0** |
 | **Defectos Detectados (Bugs)** | **0** |
 | **Tasa de Aprobación Global (% Pass)** | **100%** |
-| **Suite Automatizada del Módulo (Vitest)** | **29/29 tests** (`route.test.ts` + `schema.test.ts` + `service.test.ts` + `repository.test.ts` + migración 035) |
+| **Suite Automatizada del Módulo (Vitest)** | **29/29 tests** (`route.test.ts` + `schema.test.ts` + `service.test.ts` + `repository.test.ts` + migración 072) |
 | **Suite Completa de la API** | **64 archivos / 765 tests aprobados** |
 | **Chequeo de Tipos Estáticos (TypeScript)** | **0 errores (`npx tsc --noEmit`)** |
 | **Análisis Estático de Código (ESLint)** | **0 errores (`npm run lint`)** |
@@ -36,7 +36,7 @@
 
 ### Incluido en H61 (Backend)
 
-- Migración Kysely `035_evento_atp_base.ts` con tablas `evento_atp` y `evento_atp_delegacion`.
+- Migración Kysely `072_evento_atp_base.ts` con tablas `evento_atp` y `evento_atp_delegacion`.
 - Columnas nullable `evento_atp_id` en entidades vinculables para H60.
 - Permiso `eventos_atp:crear` reasegurado para el rol Administrador.
 - Esquema Zod estricto con catálogos de amenaza, nivel de alerta y estado.
@@ -90,16 +90,16 @@
 | `CP-H61-API-12` | Petición sin autenticación | Seguridad | Route Handler | Crítica | Sin cabecera Bearer | `POST /api/eventos-atp` sin `Authorization` | HTTP 401 Unauthorized | Verificado; test `debe responder 401 si no se proporciona usuario autenticado` | APROBADO |
 | `CP-H61-API-13` | Usuario sin permiso `eventos_atp:crear` | Seguridad | Route Handler / RBAC | Crítica | Usuario autenticado sin permiso | `POST` con token de usuario sin permiso | HTTP 403 Forbidden | Verificado; test `debe responder 403 si el usuario carece del permiso...` | APROBADO |
 | `CP-H61-API-14` | Rechazo RBAC en capa de servicio | Seguridad | Service | Crítica | `validarAccesoAdministrador` deniega | Llamada directa a `crearEventoAtpService` | `ForbiddenError` antes de cualquier persistencia | Verificado; test `debe rechazar con ForbiddenError si el usuario no tiene acceso` | APROBADO |
-| `CP-H61-API-15` | Estructura de tabla `evento_atp` | Integridad BD | Migración | Crítica | Migración 035 ejecutada | Inspección de columnas y restricciones | Columnas, defaults, checks e índices esperados | Verificado; test `debe crear evento_atp con restricciones de fechas, alerta y estado` | APROBADO |
-| `CP-H61-API-16` | Tabla puente `evento_atp_delegacion` | Integridad BD | Migración | Crítica | Migración 035 ejecutada | Inspección de tabla puente | FK a evento y delegación, PK compuesta y unicidad | Verificado; test `debe crear la tabla puente evento_atp_delegacion con unicidad` | APROBADO |
-| `CP-H61-API-17` | Columnas nullable `evento_atp_id` | Integridad BD | Migración | Alta | Migración 035 ejecutada | Inspección de `incidente`, `evento_prevencion`, `recuperacion`, `evento_asistencia_social` | Columnas nullable con FK e índice | Verificado; test `debe agregar las columnas nullable evento_atp_id...` | APROBADO |
+| `CP-H61-API-15` | Estructura de tabla `evento_atp` | Integridad BD | Migración | Crítica | Migración 072 ejecutada | Inspección de columnas y restricciones | Columnas, defaults, checks e índices esperados | Verificado; test `debe crear evento_atp con restricciones de fechas, alerta y estado` | APROBADO |
+| `CP-H61-API-16` | Tabla puente `evento_atp_delegacion` | Integridad BD | Migración | Crítica | Migración 072 ejecutada | Inspección de tabla puente | FK a evento y delegación, PK compuesta y unicidad | Verificado; test `debe crear la tabla puente evento_atp_delegacion con unicidad` | APROBADO |
+| `CP-H61-API-17` | Columnas nullable `evento_atp_id` | Integridad BD | Migración | Alta | Migración 072 ejecutada | Inspección de `incidente`, `evento_prevencion`, `recuperacion`, `evento_asistencia_social` | Columnas nullable con FK e índice | Verificado; test `debe agregar las columnas nullable evento_atp_id...` | APROBADO |
 | `CP-H61-API-18` | Inserción atómica evento + delegaciones | Persistencia | Repository / Transacción | Crítica | Transacción disponible | Inserción válida | Ambas tablas se escriben en la misma transacción y el estado es `ACTIVO` | Verificado; tests de transacción y `debe insertar el estado ACTIVO por defecto` | APROBADO |
 | `CP-H61-API-19` | Generación de correlativo anual | Lógica de Negocio | Repository | Alta | Sin eventos previos del año | Creación sin código | Código `ATP-AAAA-0001` y correlativo incremental con advisory lock | Verificado por implementación y pruebas de repositorio | APROBADO |
 | `CP-H61-API-20` | Reversión ante fallo en tabla puente | Persistencia | Repository / Transacción | Crítica | Falla simulada en inserción de delegaciones | Inserción con error | Se revierte también el registro de `evento_atp` | Verificado; test `debe propagar el error y revertir la transacción...` | APROBADO |
 | `CP-H61-API-21` | Delegación inexistente | Validación | Service / DB | Alta | ID de delegación no registrado | `delegacionIds: ["30000000-0000-4000-8000-999999999999"]` | HTTP 400 con listado de delegaciones faltantes | Verificado; test `debe rechazar con BadRequestError delegaciones inexistentes` | APROBADO |
 | `CP-H61-API-22` | Emisión WebSocket `evento_atp:creado` | Tiempo Real | Service / Socket.io | Crítica | Creación exitosa | Payload creado | Se emite a `sala:encargados`, `encargado`, `supervisor`, `mapa`, `admin`, `administrador` y broadcast global | Verificado; test `debe crear el Evento ATP, mapear la respuesta y emitir el WebSocket` | APROBADO |
-| `CP-H61-API-23` | Permiso `eventos_atp:crear` asignado a Administrador | Seguridad / Configuración | Migración | Alta | Migración 035 ejecutada | Inspección de permisos y rol | Permiso existente y asignado de forma idempotente | Verificado; test `debe reasegurar el permiso eventos_atp:crear para Administrador` | APROBADO |
-| `CP-H61-API-24` | Reversibilidad de la migración | Integridad BD | Migración | Alta | Migración 035 aplicada | Ejecutar `down` | Se eliminan columnas, tabla puente y tabla `evento_atp` | Verificado; test `down debe eliminar las columnas, la tabla puente y evento_atp` | APROBADO |
+| `CP-H61-API-23` | Permiso `eventos_atp:crear` asignado a Administrador | Seguridad / Configuración | Migración | Alta | Migración 072 ejecutada | Inspección de permisos y rol | Permiso existente y asignado de forma idempotente | Verificado; test `debe reasegurar el permiso eventos_atp:crear para Administrador` | APROBADO |
+| `CP-H61-API-24` | Reversibilidad de la migración | Integridad BD | Migración | Alta | Migración 072 aplicada | Ejecutar `down` | Se eliminan columnas, tabla puente y tabla `evento_atp` | Verificado; test `down debe eliminar las columnas, la tabla puente y evento_atp` | APROBADO |
 
 ---
 
@@ -127,7 +127,7 @@ npx vitest run \
   src/modules/eventos-atp/__tests__/evento-atp.schema.test.ts \
   src/modules/eventos-atp/__tests__/evento-atp.service.test.ts \
   src/modules/eventos-atp/__tests__/evento-atp.repository.test.ts \
-  src/lib/db/migrations/__tests__/035_evento_atp_base.test.ts
+  src/lib/db/migrations/__tests__/072_evento_atp_base.test.ts
 ```
 
 **Salida obtenida:**
@@ -136,7 +136,7 @@ npx vitest run \
  ✓ src/modules/eventos-atp/__tests__/evento-atp.schema.test.ts (9 tests)
  ✓ src/modules/eventos-atp/__tests__/evento-atp.service.test.ts (6 tests)
  ✓ src/modules/eventos-atp/__tests__/evento-atp.repository.test.ts (4 tests)
- ✓ src/lib/db/migrations/__tests__/035_evento_atp_base.test.ts (5 tests)
+ ✓ src/lib/db/migrations/__tests__/072_evento_atp_base.test.ts (5 tests)
  ✓ src/app/api/eventos-atp/__tests__/route.test.ts (5 tests)
 
  Test Files  5 passed (5)

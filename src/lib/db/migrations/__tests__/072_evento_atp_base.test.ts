@@ -10,7 +10,7 @@ import {
   type Driver,
   type QueryResult,
 } from "kysely";
-import { up, down } from "../035_evento_atp_base";
+import { up, down } from "../072_evento_atp_base";
 
 class CapturingConnection implements DatabaseConnection {
   constructor(public queries: CompiledQuery[]) {}
@@ -59,7 +59,7 @@ function crearDbDePruebas() {
   return { db, sql: () => driver.queries.map((q) => q.sql).join("\n") };
 }
 
-describe("Migración 035 - Base de Eventos ATP (H61)", () => {
+describe("Migración 072 - Base de Eventos ATP (H61)", () => {
   it("debe crear evento_atp con restricciones de fechas, alerta y estado", async () => {
     const { db, sql } = crearDbDePruebas();
 
