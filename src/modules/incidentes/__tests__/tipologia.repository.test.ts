@@ -379,3 +379,4 @@ describe("TipologiaRepository (HU-37)", () => {
     );
   });
 });
+

@@ -295,3 +295,4 @@ describe("Route Handler PATCH /api/incidentes/[id]/tipologia (HU-37)", () => {
     expect(json.data.hito.descripcion).toContain("Constatación de anegamiento total");
   });
 });
+

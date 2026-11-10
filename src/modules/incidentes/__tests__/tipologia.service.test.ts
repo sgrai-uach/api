@@ -130,3 +130,4 @@ describe("TipologiaService (HU-37)", () => {
     expect(resultado.data.incidente.id).toBe(incidenteId);
   });
 });
+

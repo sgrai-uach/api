@@ -236,3 +236,4 @@ export class TipologiaRepository {
 }
 
 export const tipologiaRepository = new TipologiaRepository();
+
