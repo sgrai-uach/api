@@ -110,3 +110,4 @@ export async function down(db: Kysely<unknown>): Promise<void> {
     DELETE FROM permiso WHERE codigo = 'misiones:terreno:verificar';
   `.execute(db);
 }
+

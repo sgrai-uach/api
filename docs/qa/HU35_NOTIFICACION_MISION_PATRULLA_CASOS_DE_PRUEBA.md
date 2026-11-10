@@ -86,3 +86,4 @@ El desarrollo de la **HU-35** en el repositorio monolítico `sgrai-api` da cumpl
 - ✅ Control de acceso granular por permisos RBAC (`misiones:terreno:verificar`) y propiedad de patrulla.
 - ✅ Integración completa con la especificación OpenAPI 3.0 (`GET /openapi.json`).
 - ✅ 100% de la suite de pruebas unitarias y de integración superada exitosamente (772/772 tests).
+

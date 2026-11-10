@@ -231,3 +231,4 @@ describe("Route Handler PATCH /api/terreno/notificaciones/[id]/estado (HU-35)", 
     expect(body.data.leidaAt).toBeDefined();
   });
 });
+

@@ -101,7 +101,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Asistencia Social** | `evento_asistencia_social` | Migración 022 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social y requerimientos para levantamiento de ficha FIBE (HU-28). |
 | **Disponibilidad (enum)** | `estado_operativo` | Migración 002 / 025 | Operaciones | Enum de disponibilidad del funcionario (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`), normalizado a `usuario.estado_operativo` (H11). |
 | **Permisos de Personal** | `permiso` / `rol_permiso` | Migración 030 | Seguridad | `personal:leer`, `personal:crear`, `personal:editar` y `personal:gestionar` (H11). |
-| **Notificaciones de Misión** | `notificaciones_mision` | Migración 035 | Misiones / Terreno | Trazabilidad y máquina de estados auditable (`PENDIENTE_ENVIO`, `ENVIADA`, `RECIBIDA`, `LEIDA`) para órdenes de terreno (HU-35). |
+| **Notificaciones de Misión** | `notificaciones_mision` | Migración 061 | Misiones / Terreno | Trazabilidad y máquina de estados auditable (`PENDIENTE_ENVIO`, `ENVIADA`, `RECIBIDA`, `LEIDA`) para órdenes de terreno (HU-35). |
 | **EventoATP** | *`evento_atp`* | Hoja de Ruta (Roadmap) | Eventos ATP | Agrupación macro de incidentes / eventos climáticos mayores. |
 | **Log de Misión** | *`log_mision`* | Hoja de Ruta (Roadmap) | Misiones | Bitácora cronológica detallada de hitos de misión. |
 | **Beneficio** | *`beneficio`* | Hoja de Ruta (Roadmap) | Asistencia Social | Ayudas sociales entregadas a damnificados (FIBE / DIDECO). |
@@ -535,7 +535,7 @@ Informes técnicos y diagnósticos estructurados levantados por patrullas verifi
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de emisión del informe. |
 | `actualizado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Última modificación del informe. |
 
-#### Tabla: `notificaciones_mision` (Trazabilidad y ACKs de Terreno - HU-35 / Migración 035)
+#### Tabla: `notificaciones_mision` (Trazabilidad y ACKs de Terreno - HU-35 / Migración 061)
 Almacena el ciclo de vida auditable de las notificaciones de despacho táctico emitidas a patrullas verificadoras, gestionando los acuses de recibo técnicos automáticos y los acuses de lectura operativa para garantizar la trazabilidad ante situaciones de pérdida de cobertura (Offline-First).
 
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Restricciones |

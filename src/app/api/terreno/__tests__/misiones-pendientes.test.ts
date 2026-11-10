@@ -134,3 +134,4 @@ describe("Route Handler GET /api/terreno/misiones/pendientes (HU-35)", () => {
     expect(body.data[0].estadoNotificacion).toBe("PENDIENTE_ENVIO");
   });
 });
+
