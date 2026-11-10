@@ -14,7 +14,8 @@
     "db:seed": "tsx src/lib/db/seed-kanban.ts",
     "seed": "tsx scripts/seed.ts",
     "seed:puntos-criticos": "tsx scripts/seed-puntos-criticos.ts",
-    "seed:recuperacion": "tsx scripts/seed-recuperacion.ts"
+    "seed:recuperacion": "tsx scripts/seed-recuperacion.ts",
+    "seed:patrullas": "tsx scripts/seed-patrullas.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
