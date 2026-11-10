@@ -306,6 +306,77 @@ export class SeguridadRepository {
       codigosPermisos = await this.obtenerPermisosDeRol(usuario.rol_id);
     }
 
+    let unidadId: string | null = null;
+    let unidadNombre: string | null = null;
+    let unidadActiva: boolean | undefined = undefined;
+
+    const rolCodigo = (usuario.rol_codigo ?? "").toUpperCase();
+    if (rolCodigo === "PATRULLA_VERIFICADORA") {
+      try {
+        const patrullaLider = await db
+          .selectFrom("patrulla_verificadora")
+          .select(["id", "nombre", "estado", "activo"])
+          .where("usuario_lider_id", "=", usuario.id)
+          .where("activo", "=", true)
+          .executeTakeFirst();
+
+        if (patrullaLider) {
+          unidadId = patrullaLider.id;
+          unidadNombre = patrullaLider.nombre;
+          unidadActiva = patrullaLider.activo !== false && patrullaLider.estado !== "NO_DISPONIBLE";
+        } else {
+          const patrullaIntegrante = await db
+            .selectFrom("patrulla_personal as pp")
+            .innerJoin("personal as p", "p.id", "pp.personal_id")
+            .innerJoin("patrulla_verificadora as pv", "pv.id", "pp.patrulla_id")
+            .select(["pv.id", "pv.nombre", "pv.estado", "pv.activo"])
+            .where("p.usuario_id", "=", usuario.id)
+            .where("pv.activo", "=", true)
+            .executeTakeFirst();
+
+          if (patrullaIntegrante) {
+            unidadId = patrullaIntegrante.id;
+            unidadNombre = patrullaIntegrante.nombre;
+            unidadActiva = patrullaIntegrante.activo !== false && patrullaIntegrante.estado !== "NO_DISPONIBLE";
+          }
+        }
+      } catch {
+        // En entornos sin tablas de patrulla, continúa con unidad nula
+      }
+    } else if (rolCodigo === "DELEGADO_CUADRILLA") {
+      try {
+        const cuadrillaLider = await db
+          .selectFrom("cuadrilla")
+          .select(["id", "nombre", "estado", "activo"])
+          .where("usuario_lider_id", "=", usuario.id)
+          .where("activo", "=", true)
+          .executeTakeFirst();
+
+        if (cuadrillaLider) {
+          unidadId = cuadrillaLider.id;
+          unidadNombre = cuadrillaLider.nombre;
+          unidadActiva = cuadrillaLider.activo !== false && cuadrillaLider.estado !== "NO_DISPONIBLE";
+        } else {
+          const cuadrillaIntegrante = await db
+            .selectFrom("cuadrilla_personal as cp")
+            .innerJoin("personal as p", "p.id", "cp.personal_id")
+            .innerJoin("cuadrilla as c", "c.id", "cp.cuadrilla_id")
+            .select(["c.id", "c.nombre", "c.estado", "c.activo"])
+            .where("p.usuario_id", "=", usuario.id)
+            .where("c.activo", "=", true)
+            .executeTakeFirst();
+
+          if (cuadrillaIntegrante) {
+            unidadId = cuadrillaIntegrante.id;
+            unidadNombre = cuadrillaIntegrante.nombre;
+            unidadActiva = cuadrillaIntegrante.activo !== false && cuadrillaIntegrante.estado !== "NO_DISPONIBLE";
+          }
+        }
+      } catch {
+        // En entornos sin tablas de cuadrilla, continúa con unidad nula
+      }
+    }
+
     return {
       id: usuario.id,
       rut: usuario.rut,
@@ -320,6 +391,9 @@ export class SeguridadRepository {
         esAdmin: usuario.rol_nombre === "Administrador",
       },
       permisos: codigosPermisos,
+      unidadId,
+      unidadNombre,
+      unidadActiva,
     };
   }
 

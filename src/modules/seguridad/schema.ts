@@ -277,6 +277,18 @@ export const UsuarioActivoItemSchema = z
       description: "Lista de códigos de permisos asignados en tiempo real al usuario",
       example: ["seguridad:roles:leer", "seguridad:roles:gestionar"],
     }),
+    unidadId: z.string().uuid().nullable().optional().openapi({
+      description: "UUID de la patrulla o cuadrilla asignada activamente (si aplica)",
+      example: "40000000-0000-4000-8000-000000000001",
+    }),
+    unidadNombre: z.string().nullable().optional().openapi({
+      description: "Nombre de la patrulla o cuadrilla asignada",
+      example: "Patrulla Calle Calle",
+    }),
+    unidadActiva: z.boolean().optional().openapi({
+      description: "Indica si la patrulla o cuadrilla asignada se encuentra activa operativamente",
+      example: true,
+    }),
   })
   .openapi("UsuarioActivoItem");
 
