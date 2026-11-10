@@ -46,6 +46,27 @@ import type {
 const PERMISOS_LECTURA = [PERMISO_LEER_RECURSO, "recursos:gestionar"];
 
 /**
+ * Roles institucionales aptos para la delegación de una cuadrilla operativa.
+ * - BRIGADISTA: se promueve automáticamente a DELEGADO_CUADRILLA al crear la cuadrilla.
+ * - DELEGADO_CUADRILLA: conserva su rol y asume el liderazgo de la nueva unidad.
+ */
+const ROLES_APTOS_PARA_DELEGADO = ["BRIGADISTA", "DELEGADO_CUADRILLA"] as const;
+
+/**
+ * Valida que el funcionario seleccionado como delegado tenga un rol institucional apto.
+ * Evita promover roles ajenos (por ejemplo ENCARGADO o SUPERVISOR) por invocación directa de la API.
+ */
+function validarRolAptoParaDelegado(rolCodigo: string | null | undefined): void {
+  const rol = (rolCodigo ?? "").trim().toUpperCase();
+  if (!rol) return;
+  if (!(ROLES_APTOS_PARA_DELEGADO as readonly string[]).includes(rol)) {
+    throw new BadRequestError(
+      `El funcionario designado como delegado debe tener rol 'BRIGADISTA' o 'DELEGADO_CUADRILLA' (rol actual: '${rol}').`
+    );
+  }
+}
+
+/**
  * Consulta el listado paginado de cuadrillas operativas aplicando filtros y control RBAC.
  */
 export async function listarCuadrillas(
@@ -73,6 +94,7 @@ export async function listarCuadrillas(
     incluirInactivas: query.incluir_inactivas ?? query.incluirInactivas,
   });
 
+  const totalPages = total > 0 ? Math.ceil(total / limite) : 0;
   const paginasTotales = Math.ceil(total / limite) || 1;
 
   // 4. Mapear datos al contrato de respuesta
@@ -138,6 +160,11 @@ export async function listarCuadrillas(
       pagina,
       limite,
       paginasTotales,
+      page: pagina,
+      limit: limite,
+      totalPages,
+      hasNext: pagina < totalPages,
+      hasPrev: pagina > 1,
     },
   };
 }
@@ -254,6 +281,18 @@ export async function crearCuadrilla(
   }
   if (usuarioDelegado.activo === false) {
     throw new BadRequestError("El usuario designado como delegado de cuadrilla se encuentra inactivo.");
+  }
+  validarRolAptoParaDelegado(usuarioDelegado.rol_codigo);
+
+  // 4.1. Regla ICS: el delegado no puede liderar ni integrar otra cuadrilla operativa activa
+  const estadoDelegadoAlCrear = await verificarDelegadoAsignadoAOtraCuadrilla(
+    input.usuarioDelegadoId,
+    null
+  );
+  if (estadoDelegadoAlCrear.asignado) {
+    throw new ConflictError(
+      `El usuario designado como Delegado ya se encuentra asignado a otra cuadrilla operativa activa ('${estadoDelegadoAlCrear.cuadrillaNombre}').`
+    );
   }
 
   // 5. Obtener el rol institucional DELEGADO_CUADRILLA para asignación
@@ -379,6 +418,7 @@ export async function editarCuadrilla(
   if (usuarioDelegado.activo === false) {
     throw new BadRequestError("El usuario designado como delegado de cuadrilla se encuentra inactivo.");
   }
+  validarRolAptoParaDelegado(usuarioDelegado.rol_codigo);
 
   // 7. Roles del sistema para gestión de delegados y brigadistas
   const rolDelegado = await obtenerRolPorCodigo("DELEGADO_CUADRILLA");
