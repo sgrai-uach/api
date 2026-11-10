@@ -174,4 +174,72 @@ describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
     expect(detalle?.patrulla?.nombre).toBe("Patrulla Costa-1");
     expect(detalle?.reportesTerreno).toEqual([]);
   });
+
+  it("debe incluir hitos de trazabilidad real (ej. TIPOLOGIA_RECLASIFICADA) en bitacoraTiempos", async () => {
+    vi.mocked(misionRepo.obtenerMisionDetallePorIdRepo).mockResolvedValueOnce({
+      mision: {
+        id: "60000000-0000-4000-8000-000000000003",
+        codigo: "MIS-2026-7700",
+        titulo: "Verificación: Anegamiento - INC-592395-562",
+        descripcion: "Evaluar anegamiento",
+        tipo_mision: "VERIFICACION",
+        estado: "EN_CURSO",
+        prioridad: "MEDIA",
+        justificacion_rechazo: null,
+        incidente_id: "50000000-0000-4000-8000-000000000001",
+        prevencion_id: null,
+        cuadrilla_id: null,
+        patrulla_id: "70000000-0000-4000-8000-000000000001",
+        encargado_id: "00000000-0000-4000-8000-000000000003",
+        creado_por_id: "00000000-0000-4000-8000-000000000002",
+        fecha_inicio: new Date("2026-11-10T05:08:54Z"),
+        fecha_cierre: null,
+        creado_en: new Date("2026-11-10T01:03:24Z"),
+        actualizado_en: new Date("2026-11-10T05:08:54Z"),
+
+        incidente_codigo: "INC-592395-562",
+        incidente_codigo_seguimiento: "17780027",
+        incidente_tipo_afectacion: "Corte de agua potable",
+        incidente_descripcion: "Corte imprevisto",
+        incidente_direccion: "Arauco 642, Villa Coltauco",
+        incidente_latitud: "-39.82",
+        incidente_longitud: "-73.24",
+        incidente_estado: "VERIFICANDO",
+        incidente_prioridad: "MEDIA",
+        incidente_requiere_asistencia_social: false,
+        incidente_delegacion_nombre: "Calle Calle",
+
+        patrulla_nombre: "papappap",
+        patrulla_estado: "EN_VERIFICACION",
+        patrulla_delegacion_nombre: "Calle Calle",
+      },
+      recursosCuadrilla: [],
+      reportesTerreno: [],
+      hitos: [
+        {
+          id: "hito-1",
+          hito: "TIPOLOGIA_RECLASIFICADA",
+          descripcion:
+            "Tipología reclasificada en terreno a: Corte de agua potable. Justificación: Se constata matriz rota y sin suministro de agua en el sector.",
+          latitud: -39.82,
+          longitud: -73.24,
+          creado_en: new Date("2026-11-10T05:15:00Z"),
+          registrador_nombre: "Cristóbal Felipe Veas Huequemán",
+        },
+      ],
+    });
+
+    const detalle = await obtenerDetalleMisionService("60000000-0000-4000-8000-000000000003");
+    expect(detalle).not.toBeNull();
+    // Título actualizado dinámicamente con nueva tipología del incidente
+    expect(detalle?.titulo).toBe("Verificación: Corte de agua potable - INC-592395-562");
+
+    // Bitácora cronológica debe contener el hito de reclasificación
+    const hitoReclasificacion = detalle?.bitacoraTiempos.find(
+      (h) => h.hito === "TIPOLOGIA_RECLASIFICADA"
+    );
+    expect(hitoReclasificacion).toBeDefined();
+    expect(hitoReclasificacion?.descripcion).toContain("Corte de agua potable");
+    expect(hitoReclasificacion?.descripcion).toContain("matriz rota");
+  });
 });

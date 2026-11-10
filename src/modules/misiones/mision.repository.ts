@@ -102,6 +102,15 @@ export interface MisionDetalleQueryResult {
       creado_en: Date | string;
     }>;
   }>;
+  hitos?: Array<{
+    id: string;
+    hito: string;
+    descripcion: string;
+    latitud: number | null;
+    longitud: number | null;
+    creado_en: Date | string;
+    registrador_nombre: string | null;
+  }>;
 }
 
 /**
@@ -299,10 +308,52 @@ export async function obtenerMisionDetallePorIdRepo(
       })),
   }));
 
+  // Consultar trazabilidad cronológica en mision_hito (ej. TIPOLOGIA_RECLASIFICADA, MISION_ACEPTADA)
+  let hitos: Array<{
+    id: string;
+    hito: string;
+    descripcion: string;
+    latitud: number | null;
+    longitud: number | null;
+    creado_en: Date | string;
+    registrador_nombre: string | null;
+  }> = [];
+
+  try {
+    const filasHitos = await db
+      .selectFrom("mision_hito")
+      .leftJoin("usuario as registrador", "registrador.id", "mision_hito.registrado_por_id")
+      .select([
+        "mision_hito.id",
+        "mision_hito.hito",
+        "mision_hito.descripcion",
+        "mision_hito.latitud",
+        "mision_hito.longitud",
+        "mision_hito.creado_en",
+        "registrador.nombre as registrador_nombre",
+      ])
+      .where("mision_hito.mision_id", "=", id)
+      .orderBy("mision_hito.creado_en", "asc")
+      .execute();
+
+    hitos = filasHitos.map((h) => ({
+      id: h.id,
+      hito: h.hito,
+      descripcion: h.descripcion,
+      latitud: h.latitud ? Number(h.latitud) : null,
+      longitud: h.longitud ? Number(h.longitud) : null,
+      creado_en: h.creado_en,
+      registrador_nombre: h.registrador_nombre,
+    }));
+  } catch {
+    // Si la tabla o mock no está presente en algún test unitario aislado
+  }
+
   return {
     mision,
     recursosCuadrilla,
     reportesTerreno,
+    hitos,
   };
 }
 

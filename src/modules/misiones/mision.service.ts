@@ -49,9 +49,9 @@ export async function obtenerDetalleMisionService(
     return null;
   }
 
-  const { mision, recursosCuadrilla, reportesTerreno: reportesRaw } = resultado;
+  const { mision, recursosCuadrilla, reportesTerreno: reportesRaw, hitos = [] } = resultado;
 
-  // 1. Bitácora de tiempos simplificada (Opción 1 - hitos basados en timestamps de misión)
+  // 1. Bitácora de tiempos y trazabilidad de hitos cronológicos
   const bitacoraTiempos: MisionBitacoraHito[] = [];
 
   if (mision.creado_en) {
@@ -74,6 +74,22 @@ export async function obtenerDetalleMisionService(
     );
   }
 
+  // Integrar hitos registrados formalmente en mision_hito (ej. TIPOLOGIA_RECLASIFICADA, MISION_ACEPTADA)
+  if (hitos && hitos.length > 0) {
+    for (const h of hitos) {
+      if (h.hito === "MISION_ACEPTADA" && mision.fecha_inicio) {
+        continue;
+      }
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          h.creado_en,
+          h.hito,
+          h.descripcion
+        )
+      );
+    }
+  }
+
   if (mision.fecha_cierre) {
     bitacoraTiempos.push(
       desglosarHitoTiempo(
@@ -84,16 +100,33 @@ export async function obtenerDetalleMisionService(
     );
   } else if (
     mision.actualizado_en &&
-    new Date(mision.actualizado_en).getTime() !== new Date(mision.creado_en).getTime()
+    new Date(mision.actualizado_en).getTime() !== new Date(mision.creado_en).getTime() &&
+    (!hitos || hitos.length === 0)
   ) {
+    const estadoLegible =
+      mision.estado === "EN_CURSO"
+        ? "En curso"
+        : mision.estado === "DESPACHADA"
+        ? "Despachada"
+        : mision.estado === "COMPLETADA"
+        ? "Completada"
+        : mision.estado === "RECHAZADA"
+        ? "Rechazada"
+        : mision.estado === "PLANIFICADA"
+        ? "Planificada"
+        : mision.estado;
+
     bitacoraTiempos.push(
       desglosarHitoTiempo(
         mision.actualizado_en,
         "ACTUALIZACION_ESTADO",
-        `Última actualización de estado registrada (${mision.estado})`
+        `Última actualización de estado registrada: ${estadoLegible}`
       )
     );
   }
+
+  // Ordenar cronológicamente por timestamp
+  bitacoraTiempos.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   // 2. Mapeo de Reportes de Terreno y Evidencias Multimedia
   const reportesMapeados: ReporteTerrenoDetalle[] = reportesRaw.map((rep) => {
@@ -222,7 +255,10 @@ export async function obtenerDetalleMisionService(
   return {
     id: mision.id,
     codigo: mision.codigo,
-    titulo: mision.titulo,
+    titulo:
+      mision.tipo_mision === "VERIFICACION" && mision.incidente_tipo_afectacion && mision.incidente_codigo
+        ? `Verificación: ${mision.incidente_tipo_afectacion} - ${mision.incidente_codigo}`
+        : mision.titulo,
     descripcion: mision.descripcion,
     tipoMision: mision.tipo_mision as MisionDetalleCompleto["tipoMision"],
     estado: mision.estado as MisionDetalleCompleto["estado"],
