@@ -37,6 +37,7 @@ export async function listarIncidentesKanbanService(
     delegacionNombre: fila.delegacion_nombre,
     totalMisiones: Number(fila.total_misiones ?? 0),
     tieneMisionDespachada: Boolean(fila.tiene_mision_despachada),
+    tieneMisionEnCurso: Boolean(fila.tiene_mision_en_curso),
     creadoEn:
       typeof fila.creado_en === "string"
         ? fila.creado_en
