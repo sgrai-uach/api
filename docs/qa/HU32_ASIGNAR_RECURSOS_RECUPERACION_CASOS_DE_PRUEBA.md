@@ -7,7 +7,7 @@
 > **Servicio API:** `sgrai-api` (Next.js 16 Route Handlers + TypeScript + Kysely + PostgreSQL 16 + PostGIS + Socket.io + Vitest v3.2.7).  
 > **Rama Git Evaluada:** `feature/H32-asignar-recursos-recuperacion` (creada a partir de `develop`).  
 > **Commits Clave Evaluados (Conventional Commits sin hash):**
-> * `feat(db): migracion 035 y tipos kysely agregando mision_id a recuperacion_recurso (HU-32)`
+> * `feat(db): migracion 041 y tipos kysely agregando mision_id a recuperacion_recurso (HU-32)`
 > * `feat(eventos-atp): esquemas zod y contratos openapi para asignacion de recuperacion (HU-32)`
 > * `feat(eventos-atp): logica transaccional for update e inventario hibrido para recuperacion (HU-32)`
 > * `feat(api): route handlers GET /api/eventos-atp/recuperacion/[id] y POST /asignar (HU-32)`
@@ -48,7 +48,7 @@
 | `BUG-H32-API-02` | **Aceptación errónea de activos individuales con cantidad superior a 1:** Cuando se enviaba un activo individual (`es_individual = true`, como camionetas) con `cantidad: 2`, el sistema no rechazaba la petición en validación de dominio. | Alta | `src/modules/eventos-atp/recuperacion.service.ts` | 09/11/2026 13:02 | feat(eventos-atp): logica transaccional for update e inventario hibrido para recuperacion (HU-32) | 09/11/2026 13:10 | 🟢 CORREGIDO (Validación estricta que exige `cantidad === 1` para activos individuales, arrojando `BadRequestError` HTTP 400) |
 | `BUG-H32-API-03` | **Permitida asignación de maquinaria individual en estado `EN_MANTENCION`:** Activos con falla mecánica en taller eran asignados al evento de recuperación violando la regla de negocio §3.6. | Crítica | `src/modules/eventos-atp/recuperacion.service.ts` | 09/11/2026 13:04 | feat(eventos-atp): logica transaccional for update e inventario hibrido para recuperacion (HU-32) | 09/11/2026 13:11 | 🟢 CORREGIDO (Verificación obligatoria de `estado !== 'EN_MANTENCION' && estado !== 'NO_DISPONIBLE' && estado !== 'ASIGNADO'` con retorno HTTP 409 Conflict) |
 | `BUG-H32-API-04` | **Inexistencia del evento WebSocket `recuperacion:actualizada` en tipos de socket:** `ServerToClientEvents` no contenía la firma del evento, arrojando warning de tipado al emitir la notificación hacia las salas operativas. | Media | `src/lib/socket/types.ts` | 09/11/2026 12:58 | feat(eventos-atp): logica transaccional for update e inventario hibrido para recuperacion (HU-32) | 09/11/2026 13:06 | 🟢 CORREGIDO (Evento registrado en `types.ts` y función `emitirRecuperacionActualizada` en `socket/index.ts`) |
-| `BUG-H32-API-05` | **Falta de columna `mision_id` en tabla `recuperacion_recurso`:** Las asignaciones quedaban asociadas al evento pero sin vínculo trazable con la misión táctica de despacho específica. | Alta | `src/lib/db/migrations/035_recuperacion_recurso_mision_id.ts` | 09/11/2026 12:56 | feat(db): migracion 035 y tipos kysely agregando mision_id a recuperacion_recurso (HU-32) | 09/11/2026 13:01 | 🟢 CORREGIDO (Migración 035 agregando `mision_id UUID REFERENCES mision(id)` e índice correspondiente) |
+| `BUG-H32-API-05` | **Falta de columna `mision_id` en tabla `recuperacion_recurso`:** Las asignaciones quedaban asociadas al evento pero sin vínculo trazable con la misión táctica de despacho específica. | Alta | `src/lib/db/migrations/041_recuperacion_recurso_mision_id.ts` | 09/11/2026 12:56 | feat(db): migracion 041 y tipos kysely agregando mision_id a recuperacion_recurso (HU-32) | 09/11/2026 13:01 | 🟢 CORREGIDO (Migración 041 agregando `mision_id UUID REFERENCES mision(id)` e índice correspondiente) |
 
 ---
 
