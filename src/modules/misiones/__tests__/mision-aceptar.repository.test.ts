@@ -37,6 +37,7 @@ describe("Mision Repository - aceptarMisionPatrullaRepo (HU-36)", () => {
           chain.leftJoin = vi.fn(() => chain);
           chain.select = vi.fn(() => chain);
           chain.where = vi.fn(() => chain);
+          chain.forUpdate = vi.fn(() => chain);
           chain.executeTakeFirst = vi.fn(async () =>
             currentCall === 1 ? config.misionExistente : config.misionReciente
           );
@@ -180,6 +181,81 @@ describe("Mision Repository - aceptarMisionPatrullaRepo (HU-36)", () => {
 
     await expect(aceptarMisionPatrullaRepo(misionId, liderId, false)).rejects.toThrow(
       NotFoundError
+    );
+  });
+
+  it("debe lanzar ConflictError si la misión no tiene patrulla verificadora asignada (BUG-H36-API-01)", async () => {
+    crearMockTrx({
+      misionExistente: {
+        id: misionId,
+        codigo: "MIS-2026-0001",
+        estado: "DESPACHADA",
+        patrulla_id: null,
+        incidente_id: incidenteId,
+      },
+    });
+
+    await expect(aceptarMisionPatrullaRepo(misionId, liderId, false)).rejects.toThrow(
+      ConflictError
+    );
+  });
+
+  it("debe lanzar ForbiddenError si un patrullero ajeno intenta aceptar misión cuyo líder tiene rol ENCARGADO (BUG-H36-API-01)", async () => {
+    const otroPatrulleroId = "00000000-0000-4000-8000-000000000099";
+    crearMockTrx({
+      misionExistente: {
+        id: misionId,
+        codigo: "MIS-2026-0007",
+        estado: "DESPACHADA",
+        patrulla_id: patrullaId,
+        incidente_id: incidenteId,
+        patrulla_lider_id: "00000000-0000-4000-8000-000000000003",
+        lider_rol_codigo: "ENCARGADO",
+        lider_rol_nombre: "Encargado",
+      },
+      integrante: undefined,
+    });
+
+    await expect(aceptarMisionPatrullaRepo(misionId, otroPatrulleroId, false)).rejects.toThrow(
+      ForbiddenError
+    );
+  });
+
+  it("debe lanzar ConflictError si la patrulla está dada de baja o el incidente está RESUELTO (BUG-H36-API-04)", async () => {
+    crearMockTrx({
+      misionExistente: {
+        id: misionId,
+        codigo: "MIS-2026-0001",
+        estado: "DESPACHADA",
+        patrulla_id: patrullaId,
+        incidente_id: incidenteId,
+        patrulla_lider_id: liderId,
+        patrulla_estado: "NO_DISPONIBLE",
+        patrulla_eliminado_en: new Date(),
+        incidente_estado: "VERIFICANDO",
+      },
+    });
+
+    await expect(aceptarMisionPatrullaRepo(misionId, liderId, false)).rejects.toThrow(
+      ConflictError
+    );
+
+    crearMockTrx({
+      misionExistente: {
+        id: misionId,
+        codigo: "MIS-2026-0001",
+        estado: "DESPACHADA",
+        patrulla_id: patrullaId,
+        incidente_id: incidenteId,
+        patrulla_lider_id: liderId,
+        patrulla_estado: "EN_VERIFICACION",
+        patrulla_eliminado_en: null,
+        incidente_estado: "RESUELTO",
+      },
+    });
+
+    await expect(aceptarMisionPatrullaRepo(misionId, liderId, false)).rejects.toThrow(
+      ConflictError
     );
   });
 });

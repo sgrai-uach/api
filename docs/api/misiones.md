@@ -43,6 +43,7 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 |---|---|---|---|
 | `GET` | `/api/misiones` | `misiones:leer` / Sesión válida | Listar misiones tácticas con paginación estándar, metadatos `meta` y filtros multicriterio (H34). |
 | `GET` | `/api/misiones/{id}` | `misiones:leer` | Consultar detalle exhaustivo de una misión por su ID (incidente, cuadrilla/patrulla, tiempos y reportes con adjuntos - HU-17). |
+| `POST` | `/api/misiones` | `misiones:asignar` | Despachar patrulla verificadora disponible a un incidente formal en estado REPORTADO (HU-20). |
 | `POST` | `/api/misiones/{id}/aceptar` | `misiones:terreno:verificar` | Confirmar y aceptar misión asignada desde terreno (PWA), transicionando de `DESPACHADA` a `EN_CURSO`, registrando `fecha_inicio` y el hito `'Misión Aceptada por Patrulla'` en `mision_hito` (HU-36). |
 
 ---
@@ -245,21 +246,100 @@ Obtiene la información exhaustiva de una misión operativa específica, incluye
 
 ---
 
-### 3.3. `POST /api/misiones/{id}/aceptar` (HU-36: Aceptación de Misión por Patrulla Verificadora en PWA)
+### 3.3. `POST /api/misiones` (HU-20: Asignación de Patrulla Verificadora a Incidente)
+
+Permite al Encargado de Operaciones despachar de inmediato una patrulla verificadora disponible hacia un incidente en estado `REPORTADO` para realizar el diagnóstico y evaluación preliminar en terreno.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>`
+- **Permiso RBAC requerido:** `misiones:asignar` (perfiles `ENCARGADO` y `ADMIN`).
+
+#### Transacción Atómica Ejecutada
+1. Verifica que el incidente exista y su estado sea exactamente `REPORTADO`.
+2. Actualiza atómicamente la patrulla verificadora seleccionada a `estado = 'EN_VERIFICACION'` verificando que se encuentre en estado `DISPONIBLE` y activa (`eliminado_en IS NULL`). Si fue tomada concurrentemente por otro operador, aborta la transacción con `HTTP 409 Conflict`.
+3. Crea el registro en `mision` con `tipo_mision = 'VERIFICACION'`, `estado = 'DESPACHADA'` y código autogenerado correlativo único (`MIS-YYYY-NNNN`).
+4. Actualiza el incidente a `estado = 'VERIFICANDO'`.
+5. Inserta el hito inicial en la bitácora `mision_hito` (`hito = 'DESPACHADA'`).
+6. Emite notificaciones WebSocket reactivas a través del broker Redis.
+
+#### Cuerpo de la Petición (Request Body)
+
+```json
+{
+  "incidenteId": "50000000-0000-4000-8000-000000000001",
+  "patrullaId": "f1000000-0000-4000-8000-000000000001",
+  "tipoMision": "VERIFICACION",
+  "titulo": "Verificación técnica de anegamiento en Las Ánimas",
+  "descripcion": "Acudir al punto para evaluar riesgo de ingreso de agua a viviendas y requerimiento de motobomba.",
+  "prioridad": "ALTA"
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `incidenteId` | `UUID` | **Sí** | Identificador único del incidente a verificar. Debe encontrarse en estado `REPORTADO`. |
+| `patrullaId` | `UUID` | **Sí** | Identificador único de la patrulla verificadora a despachar. Debe encontrarse en estado `DISPONIBLE`. |
+| `tipoMision` | `string` | No (default: `VERIFICACION`) | Tipo de misión táctica. |
+| `titulo` | `string` | No | Título descriptivo (3 a 150 caracteres). Si se omite, se autogenera: `"Verificación de Incidente [CODIGO]"`. |
+| `descripcion` | `string` | No | Instrucciones tácticas preliminares para la patrulla (máx. 1000 caracteres). |
+| `prioridad` | `string` | No | Severidad (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). Si se omite, hereda la prioridad del incidente. |
+
+#### Ejemplo de Respuesta Exitosa (`HTTP 201 Created`)
+
+```json
+{
+  "message": "Misión de verificación creada y patrulla despachada exitosamente.",
+  "data": {
+    "mision": {
+      "id": "60000000-0000-4000-8000-000000000050",
+      "codigo": "MIS-2026-0001",
+      "titulo": "Verificación técnica de anegamiento en Las Ánimas",
+      "descripcion": "Acudir al punto para evaluar riesgo de ingreso de agua a viviendas y requerimiento de motobomba.",
+      "tipoMision": "VERIFICACION",
+      "estado": "DESPACHADA",
+      "prioridad": "ALTA",
+      "incidenteId": "50000000-0000-4000-8000-000000000001",
+      "patrullaId": "f1000000-0000-4000-8000-000000000001",
+      "encargadoId": "00000000-0000-4000-8000-000000000003",
+      "fechaInicio": null,
+      "creadoEn": "2026-10-27T17:00:00.000Z"
+    },
+    "incidente": {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "codigo": "INC-2026-1042",
+      "estado": "VERIFICANDO"
+    },
+    "patrulla": {
+      "id": "f1000000-0000-4000-8000-000000000001",
+      "nombre": "Patrulla Ánimas Norte 1",
+      "estado": "EN_VERIFICACION"
+    },
+    "hitoInicial": {
+      "id": "70000000-0000-4000-8000-000000000001",
+      "hito": "DESPACHADA",
+      "descripcion": "Misión de verificación asignada y despachada a la patrulla Patrulla Ánimas Norte 1.",
+      "creadoEn": "2026-10-27T17:00:00.000Z"
+    }
+  }
+}
+```
+
+---
+
+### 3.4. `POST /api/misiones/{id}/aceptar` (HU-36: Aceptación de Misión por Patrulla Verificadora en PWA)
 
 Permite a la patrulla verificadora en terreno confirmar desde su dispositivo móvil (`sgrai-pwa`) que ha tomado conocimiento de la misión asignada y se dirige al lugar para iniciar la evaluación primaria.
 
 #### Reglas de Negocio y Transición Atómica
-1. **Validación de Estado Inicial (`DESPACHADA`):** Solo se pueden aceptar misiones que se encuentren actualmente en estado `DESPACHADA`. Si la misión ya está `EN_CURSO` o en otro estado, responde `409 Conflict`.
-2. **Transición Atómica (Kysely Transaction):**
+1. **Validación de Estado Inicial (`DESPACHADA`) y Pertenencia:** Solo se pueden aceptar misiones con patrulla verificadora asignada que se encuentren en estado `DESPACHADA`. El operador debe ser el líder de la patrulla o integrante activo en `patrulla_personal` (salvo `ADMIN`).
+2. **Transición Atómica (Kysely Transaction con `FOR UPDATE OF mision`):**
    - Actualiza `mision.estado` de `DESPACHADA` a `EN_CURSO`.
    - Fija `mision.fecha_inicio = CURRENT_TIMESTAMP` y `mision.actualizado_en = CURRENT_TIMESTAMP`.
-   - Inserta en la tabla `mision_hito` el registro con código `hito = 'MISION_ACEPTADA'`, glosa `descripcion = 'Misión Aceptada por Patrulla'`, `registrado_por_id` del funcionario en sesión y coordenadas GPS opcionales (`latitud`, `longitud`).
+   - Inserta en la tabla `mision_hito` el registro con código `hito = 'MISION_ACEPTADA'`, glosa `descripcion = 'Misión Aceptada por Patrulla'`, `registrado_por_id` del funcionario en sesión y coordenadas GPS opcionales (`latitud` y `longitud` en paridad).
 3. **Invariantes del Sistema de Comando de Incidentes (ICS):**
-   - El estado de la patrulla verificadora se mantiene en `EN_VERIFICACION`.
-   - El estado del incidente permanece en `VERIFICANDO` (nunca se utiliza el estado ambiguo no canónico `'En camino'`).
+   - La patrulla verificadora asignada debe estar activa (`eliminado_en IS NULL`) y mantenerse en estado `EN_VERIFICACION`.
+   - El incidente asociado permanece en `VERIFICANDO` (nunca se utiliza el estado ambiguo no canónico `'En camino'`).
 4. **Tiempo Real (Socket.io / Redis):**
-   - Emite el evento `mision:actualizada` hacia la sala `encargado` del Centro de Mando.
+   - Emite el evento `mision:actualizada` hacia las salas `encargado`, `sala:encargados` y `supervisor` del Centro de Mando.
 
 #### Cuerpo de la Petición (Opcional)
 ```json
@@ -317,14 +397,38 @@ Permite a la patrulla verificadora en terreno confirmar desde su dispositivo mó
 
 - **`400 Bad Request`:**
   - En `GET /api/misiones`: Parámetros de consulta no conformes al esquema Zod (ej. `page < 1`, `limit > 100`, valores de enum desconocidos o `delegacionId` no UUID).
-  - En `GET /api/misiones/{id}`: El parámetro `id` no cumple el estándar UUID versión 4.
+  - En `GET /api/misiones/{id}` y `POST /api/misiones/{id}/aceptar`: El parámetro `id` no cumple el estándar UUID versión 4 o se envía una coordenada GPS incompleta (`latitud` sin `longitud` o viceversa).
+  - En `POST /api/misiones`: Body no es JSON válido o los identificadores no son UUIDs válidos.
 - **`401 Unauthorized`:**
-  - Petición sin token JWT Bearer, sesión expirada o cabecera `X-User-Id` no asociada a un usuario activo.
+  - Petición sin token JWT Bearer o sesión expirada.
 - **`403 Forbidden`:**
-  - El usuario no cuenta con el permiso requerido (`misiones:leer` en consultas de detalle o `misiones:terreno:verificar` al aceptar misión desde terreno), o intenta aceptar una misión asignada a otra patrulla verificadora.
+  - El usuario no cuenta con el permiso requerido (`misiones:leer` para consulta, `misiones:asignar` para despacho, `misiones:terreno:verificar` para aceptación en terreno), o intenta aceptar una misión asignada a otra patrulla verificadora.
 - **`404 Not Found`:**
   - En `GET /api/misiones/{id}` y `POST /api/misiones/{id}/aceptar`: No existe ninguna misión con el UUID proporcionado.
+  - En `POST /api/misiones`: El `incidenteId` o la `patrullaId` proporcionada no existe en la base de datos o la patrulla ha sido desactivada lógicamente.
 - **`409 Conflict`:**
-  - En `POST /api/misiones/{id}/aceptar`: La misión no se encuentra en estado `DESPACHADA` (ej. ya fue aceptada previamente y está `EN_CURSO`, o fue `CANCELADA`).
+  - En `POST /api/misiones`:
+    1. **Patrulla no disponible concurrentemente:** La patrulla seleccionada fue despachada o cambió de estado concurrentemente (`estado != 'DISPONIBLE'`).
+    2. **Incidente no en estado REPORTADO:** El incidente ya no se encuentra en estado `REPORTADO` (ej. ya está `VERIFICANDO`, `EN_ATENCION` o `RESUELTO`), por lo que no puede asignarse una patrulla verificadora.
+  - En `POST /api/misiones/{id}/aceptar`:
+    1. La misión no se encuentra en estado `DESPACHADA` (ej. ya está `EN_CURSO` o `COMPLETADA`) o no tiene una patrulla verificadora asignada.
+    2. La patrulla verificadora fue desactivada o no está en estado `EN_VERIFICACION`, o el incidente asociado no se encuentra en estado `VERIFICANDO`.
 - **`500 Internal Server Error`:**
   - Error inesperado de persistencia o fallo de base de datos.
+
+---
+
+## 5. Eventos en Tiempo Real (Socket.io & Broker Redis)
+
+Al confirmarse la asignación de la misión de verificación mediante `POST /api/misiones`, el backend emite los siguientes eventos:
+
+1. **`mision:asignada`**:
+   - **Salas destino:** `patrulla:{patrullaId}` (app PWA del líder de patrulla en terreno) y `encargado`.
+   - **Propósito:** Notificar en tiempo real a la unidad en terreno su orden de verificación con georreferenciación e instrucciones tácticas.
+2. **`incidente:actualizado`**:
+   - **Salas destino:** `encargado` y `mapa`.
+   - **Propósito:** Permite que el tablero Kanban del Encargado en `sgrai-web` mueva automáticamente la tarjeta del incidente desde la columna `REPORTADO` a la columna `VERIFICANDO` sin requerir recarga manual.
+3. **`patrulla:actualizada`**:
+   - **Salas destino:** `encargado`, `supervisor` y `mapa`.
+   - **Propósito:** Actualiza en vivo el marcador del mapa y las tablas de disponibilidad operativa cambiando el estado de la patrulla a `EN_VERIFICACION`.
+

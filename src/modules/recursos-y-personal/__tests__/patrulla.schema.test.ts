@@ -5,6 +5,9 @@ import {
   ActualizarEstadoPatrullaInputSchema,
   PatrullaIdParamSchema,
   PatrullaItemResponseSchema,
+  CrearPatrullaInputSchema,
+  CrearPatrullaResponseSchema,
+  DesactivarPatrullaResponseSchema,
 } from "../patrulla.schema";
 
 describe("Módulo Recursos y Personal - Patrullas Verificadoras Schemas", () => {
@@ -84,6 +87,18 @@ describe("Módulo Recursos y Personal - Patrullas Verificadoras Schemas", () => 
         limit: "150",
       });
       expect(resultado.success).toBe(false);
+    });
+
+    it("debe aceptar y coercionar filtros activo e incluirInactivas (BUG-H85-API-04)", () => {
+      const resultado = ListarPatrullasQuerySchema.safeParse({
+        activo: "false",
+        incluirInactivas: "true",
+      });
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.activo).toBe(false);
+        expect(resultado.data.incluirInactivas).toBe(true);
+      }
     });
   });
 
@@ -183,6 +198,181 @@ describe("Módulo Recursos y Personal - Patrullas Verificadoras Schemas", () => 
 
       const resultado = PatrullaItemResponseSchema.safeParse(dummyPatrulla);
       expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.activo).toBe(true);
+      }
+    });
+
+    it("debe validar correctamente una patrulla dada de baja con datos de auditoría histórica (BUG-H85-API-04)", () => {
+      const patrullaInactiva = {
+        id: "f1000000-0000-4000-8000-000000000001",
+        nombre: "Patrulla Disuelta",
+        estado: "NO_DISPONIBLE",
+        latitud: null,
+        longitud: null,
+        ultimaActualizacionUbicacion: null,
+        delegacion: null,
+        vehiculo: null,
+        lider: null,
+        integrantes: [],
+        misionActiva: null,
+        creadoEn: "2026-10-20T10:00:00.000Z",
+        actualizadoEn: "2026-10-26T15:00:00.000Z",
+        activo: false,
+        eliminadoEn: "2026-10-26T15:00:00.000Z",
+        eliminadoPorId: "00000000-0000-4000-8000-000000000001",
+      };
+
+      const resultado = PatrullaItemResponseSchema.safeParse(patrullaInactiva);
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.activo).toBe(false);
+        expect(resultado.data.eliminadoEn).toBe("2026-10-26T15:00:00.000Z");
+        expect(resultado.data.eliminadoPorId).toBe("00000000-0000-4000-8000-000000000001");
+      }
+    });
+  });
+
+  describe("CrearPatrullaInputSchema (Alta de Patrulla - HU-83)", () => {
+    const payloadValido = {
+      codigo: "PV-NORTE-01",
+      nombre: "Patrulla Rápida Norte 1",
+      delegacionId: "30000000-0000-4000-8000-000000000001",
+      vehiculoId: "e1000000-0000-4000-8000-000000000002",
+      personalIds: ["b1000000-0000-4000-8000-000000000001"],
+      usuarioLiderId: "c1000000-0000-4000-8000-000000000001",
+    };
+
+    it("debe validar exitosamente un payload completo y válido", () => {
+      const resultado = CrearPatrullaInputSchema.safeParse(payloadValido);
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.codigo).toBe("PV-NORTE-01");
+        expect(resultado.data.personalIds).toHaveLength(1);
+      }
+    });
+
+    it("debe aceptar payload válido sin vehiculoId ni usuarioLiderId opcionales", () => {
+      const payloadMinimo = {
+        codigo: "PV-SUR-02",
+        delegacionId: "30000000-0000-4000-8000-000000000002",
+        personalIds: ["b1000000-0000-4000-8000-000000000002"],
+      };
+      const resultado = CrearPatrullaInputSchema.safeParse(payloadMinimo);
+      expect(resultado.success).toBe(true);
+    });
+
+    it("debe rechazar código vacío o menor a 3 caracteres", () => {
+      const resultado = CrearPatrullaInputSchema.safeParse({
+        ...payloadValido,
+        codigo: "PV",
+      });
+      expect(resultado.success).toBe(false);
+    });
+
+    it("debe rechazar código con caracteres inválidos (ej. espacios o símbolos raros)", () => {
+      const resultado = CrearPatrullaInputSchema.safeParse({
+        ...payloadValido,
+        codigo: "PV NORTE #01",
+      });
+      expect(resultado.success).toBe(false);
+    });
+
+    it("debe rechazar si personalIds está vacío", () => {
+      const resultado = CrearPatrullaInputSchema.safeParse({
+        ...payloadValido,
+        personalIds: [],
+      });
+      expect(resultado.success).toBe(false);
+    });
+
+    it("debe rechazar si personalIds contiene UUIDs duplicados", () => {
+      const resultado = CrearPatrullaInputSchema.safeParse({
+        ...payloadValido,
+        personalIds: [
+          "b1000000-0000-4000-8000-000000000001",
+          "b1000000-0000-4000-8000-000000000001",
+        ],
+      });
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(resultado.error.issues[0].message).toBe(
+          "No se pueden ingresar funcionarios duplicados en la dotación de la patrulla."
+        );
+      }
+    });
+
+    it("debe rechazar delegacionId con formato UUID inválido", () => {
+      const resultado = CrearPatrullaInputSchema.safeParse({
+        ...payloadValido,
+        delegacionId: "invalido-no-uuid",
+      });
+      expect(resultado.success).toBe(false);
+    });
+
+    it("debe validar CrearPatrullaResponseSchema correctamente", () => {
+      const dummyRes = {
+        message: "Patrulla registrada exitosamente.",
+        data: {
+          id: "f1000000-0000-4000-8000-000000000001",
+          codigo: "PV-NORTE-01",
+          nombre: "Patrulla Norte",
+          estado: "DISPONIBLE",
+          latitud: null,
+          longitud: null,
+          ultimaActualizacionUbicacion: null,
+          delegacion: null,
+          vehiculo: null,
+          lider: null,
+          integrantes: [],
+          misionActiva: null,
+          creadoEn: "2026-10-24T18:00:00.000Z",
+          actualizadoEn: "2026-10-24T18:00:00.000Z",
+        },
+      };
+      const res = CrearPatrullaResponseSchema.safeParse(dummyRes);
+      expect(res.success).toBe(true);
+    });
+  });
+
+  describe("DesactivarPatrullaResponseSchema (HU-85)", () => {
+    it("debe validar correctamente la estructura de respuesta tras la baja lógica", () => {
+      const payloadBaja = {
+        message: "Patrulla verificadora desactivada exitosamente.",
+        data: {
+          id: "f1000000-0000-4000-8000-000000000001",
+          codigo: "PV-COSTA-01",
+          nombre: "Patrulla Costa 01",
+          estado: "NO_DISPONIBLE",
+          activo: false,
+          eliminadoEn: "2026-10-26T15:00:00.000Z",
+          eliminadoPorId: "00000000-0000-4000-8000-000000000001",
+          vehiculoLiberadoId: "e1000000-0000-4000-8000-000000000002",
+          personalLiberadoIds: [
+            "b1000000-0000-4000-8000-000000000001",
+            "b1000000-0000-4000-8000-000000000002",
+          ],
+        },
+      };
+
+      const res = DesactivarPatrullaResponseSchema.safeParse(payloadBaja);
+      expect(res.success).toBe(true);
+    });
+
+    it("debe rechazar si falta el campo activo o no es booleano", () => {
+      const payloadInvalido = {
+        message: "Patrulla verificadora desactivada exitosamente.",
+        data: {
+          id: "f1000000-0000-4000-8000-000000000001",
+          nombre: "Patrulla Costa 01",
+          estado: "NO_DISPONIBLE",
+          eliminadoEn: "2026-10-26T15:00:00.000Z",
+          personalLiberadoIds: [],
+        },
+      };
+
+      const res = DesactivarPatrullaResponseSchema.safeParse(payloadInvalido);
+      expect(res.success).toBe(false);
     });
   });
 });

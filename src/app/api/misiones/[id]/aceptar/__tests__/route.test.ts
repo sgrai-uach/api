@@ -111,6 +111,30 @@ describe("Route Handler POST /api/misiones/[id]/aceptar (HU-36)", () => {
     expect(json.message).toBe("Datos de entrada inválidos.");
   });
 
+  it("debe retornar 400 si se envía latitud sin longitud o viceversa (BUG-H36-API-05)", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUserId);
+    vi.mocked(authService.verificarPermiso).mockResolvedValueOnce({
+      id: patrullaUserId,
+      nombre: "Líder Patrulla Costa",
+      rol: "Patrulla Verificadora",
+    });
+
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionId}/aceptar`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer valid-jwt",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ latitud: -39.819588 }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: misionId }) });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.message).toBe("Datos de entrada inválidos.");
+    expect(json.errors[0].mensaje).toContain("tanto latitud como longitud");
+  });
+
   it("debe retornar 404 si la misión no existe", async () => {
     vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUserId);
     vi.mocked(authService.verificarPermiso).mockResolvedValueOnce({

@@ -1,5 +1,6 @@
 import {
   obtenerMisionDetallePorIdRepo,
+  crearMisionVerificacionRepo,
   aceptarMisionPatrullaRepo,
 } from "./mision.repository";
 import type {
@@ -7,10 +8,17 @@ import type {
   MisionBitacoraHito,
   ReporteTerrenoDetalle,
   AdjuntoEvidencia,
+  CrearMisionVerificacionInput,
+  CrearMisionResponse,
   AceptarMisionInput,
   AceptarMisionResponse,
 } from "./mision.schema";
-import { notificarMisionActualizada } from "@/lib/socket";
+import {
+  notificarMisionAsignada,
+  notificarIncidenteActualizado,
+  notificarPatrullaActualizada,
+  notificarMisionActualizada,
+} from "@/lib/socket";
 
 function formatearFechaIso(fecha: Date | string | null | undefined): string | null {
   if (!fecha) return null;
@@ -51,48 +59,56 @@ export async function obtenerDetalleMisionService(
 
   const { mision, recursosCuadrilla, reportesTerreno: reportesRaw } = resultado;
 
-  // 1. Bitácora de tiempos simplificada (Opción 1 - hitos basados en timestamps de misión)
+  // 1. Bitácora de tiempos (incorporando hitos reales de mision_hito o fallback a timestamps)
   const bitacoraTiempos: MisionBitacoraHito[] = [];
 
-  if (mision.creado_en) {
-    bitacoraTiempos.push(
-      desglosarHitoTiempo(
-        mision.creado_en,
-        "CREACION",
-        "Misión planificada y registrada en el sistema"
-      )
-    );
-  }
+  if (resultado.hitos && resultado.hitos.length > 0) {
+    for (const h of resultado.hitos) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(h.creado_en, h.hito, h.descripcion)
+      );
+    }
+  } else {
+    if (mision.creado_en) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          mision.creado_en,
+          "CREACION",
+          "Misión planificada y registrada en el sistema"
+        )
+      );
+    }
 
-  if (mision.fecha_inicio) {
-    bitacoraTiempos.push(
-      desglosarHitoTiempo(
-        mision.fecha_inicio,
-        "DESPLIEGUE_INICIO",
-        "Inicio formal de operaciones y traslado a terreno"
-      )
-    );
-  }
+    if (mision.fecha_inicio) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          mision.fecha_inicio,
+          "DESPLIEGUE_INICIO",
+          "Inicio formal de operaciones y traslado a terreno"
+        )
+      );
+    }
 
-  if (mision.fecha_cierre) {
-    bitacoraTiempos.push(
-      desglosarHitoTiempo(
-        mision.fecha_cierre,
-        "CIERRE_MISION",
-        "Cierre operacional de la misión tras repliegue"
-      )
-    );
-  } else if (
-    mision.actualizado_en &&
-    new Date(mision.actualizado_en).getTime() !== new Date(mision.creado_en).getTime()
-  ) {
-    bitacoraTiempos.push(
-      desglosarHitoTiempo(
-        mision.actualizado_en,
-        "ACTUALIZACION_ESTADO",
-        `Última actualización de estado registrada (${mision.estado})`
-      )
-    );
+    if (mision.fecha_cierre) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          mision.fecha_cierre,
+          "CIERRE_MISION",
+          "Cierre operacional de la misión tras repliegue"
+        )
+      );
+    } else if (
+      mision.actualizado_en &&
+      new Date(mision.actualizado_en).getTime() !== new Date(mision.creado_en).getTime()
+    ) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          mision.actualizado_en,
+          "ACTUALIZACION_ESTADO",
+          `Última actualización de estado registrada (${mision.estado})`
+        )
+      );
+    }
   }
 
   // 2. Mapeo de Reportes de Terreno y Evidencias Multimedia
@@ -240,6 +256,74 @@ export async function obtenerDetalleMisionService(
     patrulla,
     bitacoraTiempos,
     reportesTerreno: reportesMapeados,
+  };
+}
+
+/**
+ * HU-20 - Servicio de negocio para asignar y despachar una patrulla verificadora disponible
+ * a un incidente en estado REPORTADO.
+ *
+ * 1. Ejecuta la transacción atómica en persistencia.
+ * 2. Emite eventos reactivos Socket.io a través del broker Redis:
+ *    - 'mision:asignada' a la sala de la patrulla ('patrulla:{id}') y 'encargado'.
+ *    - 'incidente:actualizado' a las salas 'encargado' y 'mapa' (mueve Kanban a 'VERIFICANDO').
+ *    - 'patrulla:actualizada' para actualizar la disponibilidad en el mapa y listados.
+ */
+export async function asignarPatrullaVerificacionService(
+  input: CrearMisionVerificacionInput,
+  operadorId: string
+): Promise<CrearMisionResponse> {
+  const resultado = await crearMisionVerificacionRepo(input, operadorId);
+
+  // Emitir eventos WebSocket en segundo plano
+  try {
+    notificarMisionAsignada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      tipoMision: resultado.mision.tipoMision,
+      patrullaId: resultado.patrulla.id,
+      incidenteId: resultado.incidente.id,
+      asignadoEn: resultado.mision.creadoEn,
+    });
+
+    notificarIncidenteActualizado({
+      id: resultado.incidente.id,
+      codigo: resultado.incidente.codigo,
+      nuevoEstado: resultado.incidente.estado,
+      prioridad: resultado.incidente.prioridad,
+      actualizadoEn: new Date().toISOString(),
+    });
+
+    notificarPatrullaActualizada({
+      patrullaId: resultado.patrulla.id,
+      nombre: resultado.patrulla.nombre,
+      estado: resultado.patrulla.estado,
+      delegacionId: resultado.patrulla.delegacionId,
+      usuarioLiderId: resultado.patrulla.usuarioLiderId,
+      misionActivaId: resultado.mision.id,
+      incidenteId: resultado.incidente.id,
+      actualizadoEn: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras asignar patrulla:", error);
+  }
+
+  return {
+    message: "Misión de verificación creada y patrulla despachada exitosamente.",
+    data: {
+      mision: resultado.mision,
+      incidente: {
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        estado: resultado.incidente.estado,
+      },
+      patrulla: {
+        id: resultado.patrulla.id,
+        nombre: resultado.patrulla.nombre,
+        estado: resultado.patrulla.estado,
+      },
+      hitoInicial: resultado.hitoInicial,
+    },
   };
 }
 
