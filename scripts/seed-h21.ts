@@ -68,16 +68,21 @@ const IDS = {
   incidentes: {
     reportado: "a2100000-0000-4000-8000-000000000001",
     verificado: "a2100000-0000-4000-8000-000000000002",
+    verificado2: "a2100000-0000-4000-8000-000000000003",
   },
   misionVerificacion: "f3100000-0000-4000-8000-000000000001",
+  misionVerificacion2: "f3100000-0000-4000-8000-000000000002",
   reporteTerreno: "e3100000-0000-4000-8000-000000000001",
+  reporteTerreno2: "e3100000-0000-4000-8000-000000000002",
   hitoEvaluacion: "c3100000-0000-4000-8000-000000000001",
+  hitoEvaluacion2: "c3100000-0000-4000-8000-000000000002",
 } as const;
 
 const USUARIOS_QA = Object.values(IDS.usuarios);
 const PATRULLAS_QA = Object.values(IDS.patrullas);
 const RECURSOS_QA = Object.values(IDS.recursos);
 const INCIDENTES_QA = Object.values(IDS.incidentes);
+const MISIONES_VERIFICACION_QA = [IDS.misionVerificacion, IDS.misionVerificacion2];
 
 const SOLO_LIMPIEZA = process.argv.includes("--clean");
 
@@ -91,8 +96,9 @@ async function limpiarFixture(): Promise<void> {
     WHERE mision_id IN (
       SELECT id FROM mision
       WHERE incidente_id IN (${sql.join(INCIDENTES_QA)})
-         OR id = ${IDS.misionVerificacion}
+         OR id IN (${sql.join(MISIONES_VERIFICACION_QA)})
     )
+       OR registrado_por_id IN (${sql.join(USUARIOS_QA)})
   `.execute(db);
 
   await sql`
@@ -100,14 +106,16 @@ async function limpiarFixture(): Promise<void> {
     WHERE mision_id IN (
       SELECT id FROM mision
       WHERE incidente_id IN (${sql.join(INCIDENTES_QA)})
-         OR id = ${IDS.misionVerificacion}
+         OR id IN (${sql.join(MISIONES_VERIFICACION_QA)})
     )
+       OR evaluador_id IN (${sql.join(USUARIOS_QA)})
   `.execute(db);
 
   await sql`
     DELETE FROM mision
     WHERE incidente_id IN (${sql.join(INCIDENTES_QA)})
-       OR id = ${IDS.misionVerificacion}
+       OR id IN (${sql.join(MISIONES_VERIFICACION_QA)})
+       OR creado_por_id IN (${sql.join(USUARIOS_QA)})
   `.execute(db);
 
   await sql`DELETE FROM cuadrilla_recurso WHERE cuadrilla_id = ${IDS.cuadrilla}`.execute(db);
@@ -536,6 +544,105 @@ export async function sembrarFixtureH21(): Promise<void> {
   console.log("Incidentes creados (uno REPORTADO y otro VERIFICANDO con reporte de terreno).");
 
   // -------------------------------------------------------------------------
+  // 10.1. Incidente C — VERIFICANDO con evaluación cerrada (para probar el rechazo
+  //      de doble asignación de una misma cuadrilla ya despachada)
+  // -------------------------------------------------------------------------
+  await sql`
+    INSERT INTO incidente (
+      id, codigo, codigo_seguimiento, folio, informante_id, tipo_incidente_id, delegacion_id,
+      fuente_incidente_id, tipo_afectacion, descripcion, direccion_texto, latitud, longitud,
+      ubicacion, estado, prioridad, requiere_asistencia_social, fuente_origen,
+      creado_por_id, encargado_id, creado_en, actualizado_en
+    )
+    VALUES (
+      ${IDS.incidentes.verificado2},
+      'INC-H21-QA-003',
+      '21000003',
+      'FOL-H21-QA-003',
+      ${IDS.informante},
+      ${tipoAnegamiento.id},
+      ${delegacionSur.id},
+      ${fuenteChatbot.id},
+      'Anegamiento',
+      'Segundo incidente verificado para QA: sirve para comprobar que una cuadrilla ya despachada no puede volver a asignarse.',
+      'Av. Alemania 780, Sector Centro-Norte, Valdivia',
+      -39.8170,
+      -73.2420,
+      ST_SetSRID(ST_MakePoint(-73.2420, -39.8170), 4326),
+      'VERIFICANDO',
+      'ALTA',
+      false,
+      'CHATBOT',
+      ${admin.id},
+      ${encargado.id},
+      CURRENT_TIMESTAMP - interval '30 minutes',
+      CURRENT_TIMESTAMP - interval '5 minutes'
+    )
+  `.execute(db);
+
+  await sql`
+    INSERT INTO mision (
+      id, codigo, titulo, descripcion, tipo_mision, estado, prioridad,
+      incidente_id, patrulla_id, cuadrilla_id, encargado_id, creado_por_id,
+      fecha_inicio, fecha_cierre, creado_en, actualizado_en
+    )
+    VALUES (
+      ${IDS.misionVerificacion2},
+      'MIS-2026-9101',
+      'Verificación técnica de anegamiento en Av. Alemania',
+      'Evaluar el anegamiento y dejarlo escalado para el despacho de una cuadrilla operativa.',
+      'VERIFICACION',
+      'COMPLETADA',
+      'ALTA',
+      ${IDS.incidentes.verificado2},
+      ${IDS.patrullas.pv1},
+      NULL,
+      ${encargado.id},
+      ${admin.id},
+      CURRENT_TIMESTAMP - interval '25 minutes',
+      CURRENT_TIMESTAMP - interval '5 minutes',
+      CURRENT_TIMESTAMP - interval '30 minutes',
+      CURRENT_TIMESTAMP - interval '5 minutes'
+    )
+  `.execute(db);
+
+  await sql`
+    INSERT INTO reporte_terreno (
+      id, mision_id, evaluador_id, resumen_tecnico, acciones_realizadas,
+      requiere_apoyo_adicional, danos_estimados, observaciones, personas_afectadas,
+      estado_terreno, creado_en, actualizado_en
+    )
+    VALUES (
+      ${IDS.reporteTerreno2},
+      ${IDS.misionVerificacion2},
+      ${IDS.usuarios.patrullero3},
+      'Evaluación técnica del segundo incidente QA: anegamiento verificado y listo para escalamiento a cuadrilla operativa.',
+      'Perímetro delimitado y evaluación de daños realizada.',
+      true,
+      'Sin daños estructurales observados.',
+      'Se solicita despacho de cuadrilla con motobomba.',
+      4,
+      'FINALIZADO',
+      CURRENT_TIMESTAMP - interval '10 minutes',
+      CURRENT_TIMESTAMP - interval '10 minutes'
+    )
+  `.execute(db);
+
+  await sql`
+    INSERT INTO mision_hito (id, mision_id, hito, descripcion, registrado_por_id, latitud, longitud, creado_en)
+    VALUES (
+      ${IDS.hitoEvaluacion2},
+      ${IDS.misionVerificacion2},
+      'EVALUACION_COMPLETADA',
+      'Reporte de terreno registrado para el segundo incidente QA.',
+      ${IDS.usuarios.patrullero3},
+      -39.8170,
+      -73.2420,
+      CURRENT_TIMESTAMP - interval '8 minutes'
+    )
+  `.execute(db);
+
+  // -------------------------------------------------------------------------
   // 11. Resumen operativo
   // -------------------------------------------------------------------------
   console.log("");
@@ -549,6 +656,10 @@ export async function sembrarFixtureH21(): Promise<void> {
   console.log(" Prueba de asignación de cuadrilla (HU-21):");
   console.log(`   Incidente : INC-H21-QA-002 (VERIFICANDO, con reporte de terreno)`);
   console.log(`   Cuadrilla : Cuadrilla H21 QA (DISPONIBLE)`);
+  console.log("");
+  console.log(" Prueba de rechazo por doble asignación (HU-21):");
+  console.log(`   Incidente : INC-H21-QA-003 (VERIFICANDO, con reporte de terreno)`);
+  console.log(`   Expectativa: tras asignar la cuadrilla al 002, el 003 rechaza con 409`);
   console.log("");
   console.log(" Credenciales de prueba:");
   console.log("   encargado@valdivia.cl / Valdivia2026!   (rol ENCARGADO, permiso misiones:asignar)");
