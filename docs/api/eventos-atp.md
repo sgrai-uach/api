@@ -60,6 +60,7 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `POST` | `/api/puntos-criticos` | Registrar un nuevo punto crítico con coordenadas PostGIS, código autogenerado y emisión en tiempo real vía Socket.io (HU-58). |
 | `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
+| `GET` | `/api/eventos-atp/recuperacion` | Listar todos los eventos de recuperación territoriales registrados con sus misiones tácticas, patrulla asignada y recursos para el mapa operativo. |
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
 | `GET` | `/api/eventos-atp/recuperacion/{id}` | Obtener el detalle estructurado de un evento de recuperación comunal, sus misiones operativas e insumos asignados (HU-32). |
 | `POST` | `/api/eventos-atp/recuperacion/{id}/asignar` | Asignar patrulla verificadora y recursos de bodega a un evento de recuperación con bloqueo transaccional `FOR UPDATE` (§3.6) y RBAC `misiones:asignar` (HU-32). |
