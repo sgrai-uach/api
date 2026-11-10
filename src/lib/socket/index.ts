@@ -381,6 +381,38 @@ export function emitirRecuperacionCreada(payload: unknown): void {
 }
 
 /**
+ * Emite la notificación de evento de recuperación actualizado (asignación de patrullas/recursos)
+ * a las vistas de Encargado y al mapa interactivo (HU-32).
+ */
+export function emitirRecuperacionActualizada(payload: unknown): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("recuperacion:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("recuperacion:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("mapa") as any).emit("recuperacion:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("recuperacion:actualizada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "sala:encargados",
+          event: "recuperacion:actualizada",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
+/**
  * Emite la notificación de nuevo evento de asistencia social creado al panel de eventos pendientes
  * y a las vistas de Encargado, Asistente Social y Administrador (H28).
  */
@@ -616,6 +648,8 @@ export function notificarPatrullaActualizada(payload: {
     }
   }
 }
+
+export const emitirPatrullaActualizada = notificarPatrullaActualizada;
 
 /**
  * Emite una notificación en tiempo real a las salas de 'encargado', 'supervisor', 'mapa' y 'administrador'

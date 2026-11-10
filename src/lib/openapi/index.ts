@@ -133,7 +133,12 @@ import {
 import {
   CrearEventoRecuperacionInputSchema,
   CrearEventoRecuperacionResponseSchema,
+  ListarEventosRecuperacionResponseSchema,
   EventoRecuperacionResponseSchema,
+  AsignarRecursosRecuperacionInputSchema,
+  AsignarRecursosRecuperacionResponseSchema,
+  RecuperacionDetalleResponseSchema,
+  RecuperacionIdParamSchema,
 } from "@/modules/eventos-atp/recuperacion.schema";
 
 import {
@@ -1643,6 +1648,43 @@ registry.registerPath({
 registry.register("CrearEventoRecuperacionInput", CrearEventoRecuperacionInputSchema);
 registry.register("EventoRecuperacion", EventoRecuperacionResponseSchema);
 registry.register("CrearEventoRecuperacionResponse", CrearEventoRecuperacionResponseSchema);
+registry.register("ListarEventosRecuperacionResponse", ListarEventosRecuperacionResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion",
+  summary: "Listar eventos de recuperación territorial para el mapa operativo",
+  description:
+    "Consulta todos los eventos de recuperación comunales registrados con sus misiones tácticas desplegadas, patrullas asignadas y recursos para su renderizado táctico georreferenciado en el mapa operativo.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    headers: z.object({
+      authorization: z.string().openapi({
+        description: "Token JWT en formato 'Bearer <token>'",
+        example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Listado de eventos de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarEventosRecuperacionResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:leer', 'recuperacion:crear' o 'misiones:asignar'",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
 
 registry.registerPath({
   method: "post",
@@ -1694,6 +1736,98 @@ registry.registerPath({
     500: {
       description: "Error interno del servidor",
     },
+  },
+});
+
+// 27. GET /api/eventos-atp/recuperacion/{id} (HU-32)
+registry.register("RecuperacionDetalleResponse", RecuperacionDetalleResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion/{id}",
+  summary: "Obtener detalle completo de un evento de recuperación comunal (HU-32)",
+  description:
+    "Permite consultar la información integral de un evento de recuperación territorial, incluyendo su localización, misiones tácticas desplegadas y el listado de insumos y recursos asignados.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    params: RecuperacionIdParamSchema,
+    headers: z.object({
+      authorization: z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer del usuario con permiso 'misiones:leer' o 'recuperacion:crear'" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del evento de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: RecuperacionDetalleResponseSchema,
+        },
+      },
+    },
+    400: { description: "Identificador de evento inválido" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado" },
+    404: { description: "Evento de recuperación no encontrado" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 28. POST /api/eventos-atp/recuperacion/{id}/asignar (HU-32)
+registry.register("AsignarRecursosRecuperacionInput", AsignarRecursosRecuperacionInputSchema);
+registry.register("AsignarRecursosRecuperacionResponse", AsignarRecursosRecuperacionResponseSchema);
+
+registry.registerPath({
+  method: "post",
+  path: "/api/eventos-atp/recuperacion/{id}/asignar",
+  summary: "Asignar patrulla y recursos logísticos a evento de recuperación (HU-32)",
+  description:
+    "Permite al Encargado asignar una patrulla verificadora disponible y recursos de bodega con control transaccional estricto FOR UPDATE (§3.6), creando una misión táctica de recuperación y transicionando la patrulla a EN_RECUPERACION.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    params: RecuperacionIdParamSchema,
+    headers: z.object({
+      authorization: z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer del usuario con permiso 'misiones:asignar'" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
+    }),
+    body: {
+      description: "Patrulla verificadora a despachar y listado de recursos logísticos solicitados",
+      content: {
+        "application/json": {
+          schema: AsignarRecursosRecuperacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Patrulla y recursos logísticos asignados exitosamente al evento de recuperación",
+      content: {
+        "application/json": {
+          schema: AsignarRecursosRecuperacionResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada inválidos o activo individual con cantidad distinta de 1" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Se requiere permiso 'misiones:asignar'" },
+    404: { description: "Evento de recuperación, patrulla o recurso no encontrado" },
+    409: { description: "Conflicto operativo: Patrulla no disponible, activo individual en mantención/asignado, o sobregiro de stock a granel" },
+    500: { description: "Error interno del servidor" },
   },
 });
 

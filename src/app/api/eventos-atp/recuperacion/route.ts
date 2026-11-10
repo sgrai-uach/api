@@ -2,14 +2,69 @@ import { NextRequest, NextResponse } from "next/server";
 import { CrearEventoRecuperacionInputSchema } from "@/modules/eventos-atp/recuperacion.schema";
 import {
   crearEventoRecuperacionService,
+  listarEventosRecuperacionService,
   PatrullaNoDisponibleError,
   StockInsuficienteError,
   NotFoundError,
 } from "@/modules/eventos-atp/recuperacion.service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
-import { PERMISO_CREAR_RECUPERACION } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_CREAR_RECUPERACION,
+  PERMISO_LEER_MISION,
+  PERMISO_ASIGNAR_MISION,
+} from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
+
+/**
+ * GET /api/eventos-atp/recuperacion
+ * Endpoint operativo para listar todos los eventos de recuperación territoriales
+ * con sus misiones tácticas, patrulla asignada y recursos para el mapa operativo.
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const usuarioId = await extraerUsuarioId(req);
+
+    try {
+      await verificarPermiso(usuarioId, PERMISO_LEER_MISION);
+    } catch (err) {
+      if (err instanceof ForbiddenError) {
+        try {
+          await verificarPermiso(usuarioId, PERMISO_CREAR_RECUPERACION);
+        } catch {
+          await verificarPermiso(usuarioId, PERMISO_ASIGNAR_MISION);
+        }
+      } else {
+        throw err;
+      }
+    }
+
+    const eventos = await listarEventosRecuperacionService();
+
+    return NextResponse.json(
+      {
+        message: "Eventos de recuperación obtenidos exitosamente.",
+        total: eventos.length,
+        data: eventos,
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ message: error.message }, { status: 401 });
+    }
+
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ message: error.message }, { status: 403 });
+    }
+
+    console.error("Error al listar eventos de recuperación:", error);
+    return NextResponse.json(
+      { message: "Error interno del servidor al consultar eventos de recuperación." },
+      { status: 500 }
+    );
+  }
+}
 
 /**
  * POST /api/eventos-atp/recuperacion
