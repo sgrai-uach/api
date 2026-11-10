@@ -435,6 +435,19 @@ export async function aceptarMisionPatrullaRepo(
       );
     }
 
+    // 3.1 Transición automática del incidente a VERIFICANDO si se encontraba en REPORTADO
+    if (misionExistente.incidente_id) {
+      await trx
+        .updateTable("incidente")
+        .set({
+          estado: "VERIFICANDO",
+          actualizado_en: sql`CURRENT_TIMESTAMP`,
+        })
+        .where("id", "=", misionExistente.incidente_id)
+        .where("estado", "=", "REPORTADO")
+        .execute();
+    }
+
     // 4. Registrar el hito automático en mision_hito vinculando al usuario en sesión
     const hitoRegistrado = await trx
       .insertInto("mision_hito")
@@ -484,7 +497,7 @@ export async function aceptarMisionPatrullaRepo(
         ? {
             id: misionExistente.incidente_id,
             codigo: misionExistente.incidente_codigo ?? "",
-            estado: misionExistente.incidente_estado ?? "VERIFICANDO",
+            estado: "VERIFICANDO",
           }
         : null,
       hito: {

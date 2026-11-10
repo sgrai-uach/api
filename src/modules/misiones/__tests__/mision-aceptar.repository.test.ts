@@ -58,6 +58,7 @@ describe("Mision Repository - aceptarMisionPatrullaRepo (HU-36)", () => {
         chain.where = vi.fn(() => chain);
         chain.returningAll = vi.fn(() => chain);
         chain.executeTakeFirst = vi.fn(async () => config.misionActualizada);
+        chain.execute = vi.fn(async () => []);
         return chain;
       }),
       insertInto: vi.fn(() => {

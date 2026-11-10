@@ -171,12 +171,13 @@ export class TipologiaRepository {
         }
       }
 
-      // 5. Actualizar la tipología del incidente atómicamente
+      // 5. Actualizar la tipología del incidente atómicamente y asegurar estado VERIFICANDO
       const incidenteActualizado = await trx
         .updateTable("incidente")
         .set({
           tipo_incidente_id: tipoIncidente.id,
           tipo_afectacion: tipoIncidente.nombre,
+          estado: sql`CASE WHEN estado = 'REPORTADO' THEN 'VERIFICANDO' ELSE estado END`,
           actualizado_en: sql`CURRENT_TIMESTAMP`,
         })
         .where("id", "=", incidenteId)

@@ -11,6 +11,7 @@ vi.mock("../mision.repository", () => ({
 
 vi.mock("@/lib/socket", () => ({
   notificarMisionActualizada: vi.fn(),
+  notificarIncidenteActualizado: vi.fn(),
 }));
 
 describe("Mision Service - aceptarMisionService (HU-36)", () => {

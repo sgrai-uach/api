@@ -10,7 +10,7 @@ import type {
   AceptarMisionInput,
   AceptarMisionResponse,
 } from "./mision.schema";
-import { notificarMisionActualizada } from "@/lib/socket";
+import { notificarMisionActualizada, notificarIncidenteActualizado } from "@/lib/socket";
 
 function formatearFechaIso(fecha: Date | string | null | undefined): string | null {
   if (!fecha) return null;
@@ -277,8 +277,18 @@ export async function aceptarMisionService(
       },
       actualizadoEn: resultado.mision.actualizadoEn,
     });
+
+    if (resultado.incidente?.id) {
+      notificarIncidenteActualizado({
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        nuevoEstado: (resultado.incidente.estado as "VERIFICANDO") || "VERIFICANDO",
+        prioridad: (resultado.mision.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA") || "MEDIA",
+        actualizadoEn: resultado.mision.actualizadoEn,
+      });
+    }
   } catch (error) {
-    console.error("Error al emitir evento WebSocket mision:actualizada:", error);
+    console.error("Error al emitir eventos WebSocket tras aceptar misión:", error);
   }
 
   return {
