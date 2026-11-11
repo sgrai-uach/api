@@ -186,6 +186,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
             cuadrillaNombre: "Cuadrilla Eléctrica",
           },
         ],
+        justificacionReclasificacion: null,
       });
 
       const detalle = await obtenerDetalleIncidenteService(

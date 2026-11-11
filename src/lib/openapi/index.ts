@@ -90,6 +90,15 @@ import {
 } from "@/modules/incidentes/incidente-kanban.schema";
 
 import {
+  TipoIncidenteCatalogoItemSchema,
+  ListarTiposIncidenteResponseSchema,
+  ReclasificarTipologiaInputSchema,
+  ReclasificarTipologiaResponseSchema,
+  IncidenteReclasificadoResumenSchema,
+  MisionHitoTipologiaSchema,
+} from "@/modules/incidentes/tipologia.schema";
+
+import {
   IncidentesKpisQuerySchema,
   IncidentesKpisResponseSchema,
 } from "@/modules/incidentes/incidente-kpi.schema";
@@ -140,6 +149,9 @@ import {
 import {
   MisionDetalleResponseSchema,
   MisionIdParamSchema,
+  AceptarMisionInputSchema,
+  MisionHitoRegistradoSchema,
+  AceptarMisionResponseSchema,
   AsignarCuadrillaMisionInputSchema,
   AsignarCuadrillaMisionResponseSchema,
 } from "@/modules/misiones/mision.schema";
@@ -932,6 +944,57 @@ registry.registerPath({
   },
 });
 
+// 15b. PATCH /api/incidentes/{id}/tipologia (HU-37: Reclasificación tipológica en terreno)
+registry.register("TipoIncidenteCatalogoItem", TipoIncidenteCatalogoItemSchema);
+registry.register("ListarTiposIncidenteResponse", ListarTiposIncidenteResponseSchema);
+registry.register("ReclasificarTipologiaInput", ReclasificarTipologiaInputSchema);
+registry.register("IncidenteReclasificadoResumen", IncidenteReclasificadoResumenSchema);
+registry.register("MisionHitoTipologia", MisionHitoTipologiaSchema);
+registry.register("ReclasificarTipologiaResponse", ReclasificarTipologiaResponseSchema);
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/incidentes/{id}/tipologia",
+  summary: "Reclasificar tipología de incidente en terreno (HU-37)",
+  description:
+    "Permite a la patrulla verificadora reclasificar técnicamente la tipología del incidente tras la evaluación presencial en terreno, corrigiendo tipificaciones ciudadanas inexactas. Requiere que la misión asignada haya sido aceptada previamente (estado EN_CURSO) y justificación obligatoria del cambio. Actualiza atómicamente incidente.tipo_incidente_id y sincroniza incidente.tipo_afectacion, registra el hito en mision_hito ('Tipología reclasificada en terreno a: [Nombre del Tipo]. Justificación: [Motivo]') y emite el evento WebSocket 'incidente:actualizado' a la sala 'sala:encargados'. Requiere el permiso RBAC 'misiones:terreno:verificar'.",
+  tags: ["Incidentes"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de la patrulla verificadora"),
+      "x-user-id": z.string().uuid().optional().describe("ID de usuario para entornos de prueba"),
+    }),
+    params: z.object({
+      id: z.string().uuid().describe("Identificador UUID del incidente"),
+    }),
+    body: {
+      description: "Datos requeridos para la reclasificación: nuevo tipo de incidente y justificación técnica",
+      content: {
+        "application/json": {
+          schema: ReclasificarTipologiaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Tipología del incidente reclasificada exitosamente en terreno",
+      content: {
+        "application/json": {
+          schema: ReclasificarTipologiaResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada inválidos o tipo de incidente inactivo" },
+    401: { description: "No autenticado" },
+    403: { description: "No autorizado / falta permiso misiones:terreno:verificar o pertenece a otra patrulla" },
+    404: { description: "Incidente, tipo de incidente o misión no encontrados" },
+    409: { description: "Conflicto: la misión no ha sido aceptada todavía (debe encontrarse en estado EN_CURSO)" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
 // 16. GET /api/personal (Listar empleados/personal - H34 / H11 / H26)
 registry.registerPath({
   method: "get",
@@ -1354,6 +1417,63 @@ registry.registerPath({
 });
 
 // 22. GET /api/misiones/{id} (HU-17: Detalle Completo de Misión)
+registry.register("AceptarMisionInput", AceptarMisionInputSchema);
+registry.register("MisionHitoRegistrado", MisionHitoRegistradoSchema);
+registry.register("AceptarMisionResponse", AceptarMisionResponseSchema);
+
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/aceptar",
+  summary: "Confirmar y aceptar misión asignada desde terreno (HU-36)",
+  description:
+    "Permite a la patrulla verificadora confirmar y aceptar la misión asignada desde su dispositivo móvil (PWA). Ejecuta una transición atómica actualizando mision.estado de DESPACHADA a EN_CURSO, fijando mision.fecha_inicio = CURRENT_TIMESTAMP y registrando el hito 'Misión Aceptada por Patrulla' (código 'MISION_ACEPTADA') en mision_hito. Mantiene patrulla_verificadora.estado en EN_VERIFICACION e incidente.estado en VERIFICANDO, y emite el evento WebSocket 'mision:actualizada' hacia la sala 'encargado'. Requiere el permiso RBAC 'misiones:terreno:verificar'.",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión de la patrulla verificadora"),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado con permiso misiones:terreno:verificar" }),
+    }),
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      required: false,
+      description: "Coordenadas GPS opcionales al momento de confirmar la salida en la PWA",
+      content: {
+        "application/json": {
+          schema: AceptarMisionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Misión aceptada exitosamente y hito registrado en bitácora",
+      content: {
+        "application/json": {
+          schema: AceptarMisionResponseSchema,
+        },
+      },
+    },
+    400: { description: "El identificador de la misión no es un UUID válido o las coordenadas son inválidas" },
+    401: { description: "No autenticado o token de sesión inválido/expirado" },
+    403: {
+      description:
+        "Acceso denegado. Se requiere el permiso 'misiones:terreno:verificar' y pertenecer a la patrulla asignada",
+    },
+    404: { description: "No se encontró ninguna misión con el identificador proporcionado" },
+    409: {
+      description:
+        "Conflicto de estado: la misión no se encuentra en estado 'DESPACHADA' (ej. ya fue aceptada o cancelada)",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
 registry.registerPath({
   method: "get",
   path: "/api/misiones/{id}",

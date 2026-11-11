@@ -516,6 +516,20 @@ Misiones tácticas despachadas a patrullas verificadoras o cuadrillas operativas
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de creación. |
 | `actualizado_en`| `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de última actualización. |
 
+#### Tabla: `mision_hito` (Bitácora de Hitos de Misión - HU-20 / HU-36 / Migración 033)
+Registro cronológico de hitos tácticos de la misión (despacho, aceptación por patrulla en terreno con `hito = 'MISION_ACEPTADA'` y `descripcion = 'Misión Aceptada por Patrulla'`, cierre, etc.).
+
+| Columna | Tipo | Nullable | Default | Descripción / Restricciones |
+|---|---|---|---|---|
+| `id` | `UUID` | NO | `gen_random_uuid()` | Clave primaria única. |
+| `mision_id` | `UUID` | NO | — | FK a `mision.id` (ON DELETE CASCADE). |
+| `hito` | `VARCHAR(50)` | NO | — | Código canónico del hito (ej. `'DESPACHADA'`, `'MISION_ACEPTADA'`). |
+| `descripcion` | `TEXT` | NO | — | Glosa descriptiva del hito (ej. `'Misión Aceptada por Patrulla'`). |
+| `registrado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` (ON DELETE SET NULL). Funcionario o líder de patrulla en sesión. |
+| `latitud` | `DECIMAL(10, 7)` | SÍ | `NULL` | Coordenada Y opcional reportada desde terreno. |
+| `longitud` | `DECIMAL(10, 7)` | SÍ | `NULL` | Coordenada X opcional reportada desde terreno. |
+| `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Marca temporal del hito. |
+
 #### Tabla: `reporte_terreno` (Reporte Técnico de Terreno - HU-17 / Migración 011)
 Informes técnicos y diagnósticos estructurados levantados por patrullas verificadoras o cuadrillas tras su intervención o evaluación en terreno. Admite múltiples reportes por misión (1:N) para reflejar su evolución temporal.
 

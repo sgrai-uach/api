@@ -102,7 +102,11 @@ export const IncidenteResumenSchema = z.object({
   informanteNombre: z.string().nullable().openapi({ description: "Nombre de pila del ciudadano informante o null si anónimo" }),
   delegacionNombre: z.string().nullable().openapi({ description: "Nombre de la delegación territorial correspondiente" }),
   totalMisiones: z.number().openapi({ description: "Cantidad de misiones tácticas despachadas o generadas para este incidente" }),
+  tieneMisionDespachada: z.boolean().optional().openapi({ description: "Indica si el incidente posee una misión en estado PLANIFICADA o DESPACHADA pendiente de confirmación en terreno" }),
+  tieneMisionEnCurso: z.boolean().optional().openapi({ description: "Indica si el incidente posee una misión en estado EN_CURSO activa en terreno" }),
   verificado: z.boolean().default(false).openapi({ description: "Indica si la patrulla verificadora completó el diagnóstico técnico en terreno" }),
+  reclasificadoEnTerreno: z.boolean().optional().openapi({ description: "Indica si el incidente fue verificado o reclasificado en terreno" }),
+  justificacionReclasificacion: z.string().nullable().optional().openapi({ description: "Motivo o justificación técnica de la evaluación en terreno" }),
   creadoEn: z.string().openapi({ description: "Fecha y hora de registro en formato ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Última fecha y hora de actualización en formato ISO 8601" }),
 });
@@ -217,6 +221,9 @@ export const IncidenteDetalleSchema = z.object({
     .openapi({ description: "Encargado de operaciones asignado" }),
   misiones: z.array(MisionDetalleSchema).openapi({ description: "Misiones tácticas vinculadas a la atención de este incidente" }),
   recursosAsociados: z.array(RecursoAsociadoSchema).openapi({ description: "Consolidado de recursos materiales y vehículos asignados en las misiones" }),
+  verificado: z.boolean().default(false).openapi({ description: "Indica si la verificación presencial fue completada" }),
+  reclasificadoEnTerreno: z.boolean().default(false).openapi({ description: "Indica si fue verificado o reclasificado en terreno" }),
+  justificacionReclasificacion: z.string().nullable().optional().openapi({ description: "Justificación técnica en terreno" }),
   creadoEn: z.string(),
   actualizadoEn: z.string(),
 });

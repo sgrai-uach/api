@@ -35,6 +35,9 @@ export interface IncidenteActualizadoPayload {
   nuevoEstado: string;
   prioridad: string;
   actualizadoEn: string;
+  tipoIncidenteId?: string | null;
+  tipoAfectacion?: string;
+  justificacion?: string | null;
 }
 
 export type TypedSocketServer = SocketIOServer<
@@ -801,6 +804,57 @@ export function notificarPatrullaLiberada(payload: {
         )
         .catch(() => {});
     }
+  }
+}
+
+export interface MisionActualizadaPayload {
+  misionId: string;
+  codigo: string;
+  estado: string;
+  tipoMision: string;
+  patrullaId?: string | null;
+  cuadrillaId?: string | null;
+  incidenteId?: string | null;
+  fechaInicio: string | null;
+  hito: {
+    id: string;
+    hito: string;
+    descripcion: string;
+    registradoPorId: string | null;
+    creadoEn: string;
+  };
+  actualizadoEn: string;
+}
+
+/**
+ * Emite una notificación en tiempo real hacia la sala 'encargado' del Centro de Mando
+ * cuando una patrulla verificadora o unidad de terreno actualiza o acepta una misión (HU-36).
+ */
+export function notificarMisionActualizada(payload: MisionActualizadaPayload): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("mision:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("mision:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("mision:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("mision:actualizada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "encargado",
+          event: "mision:actualizada",
+          payload,
+        })
+      )
+      .catch(() => {});
   }
 }
 
