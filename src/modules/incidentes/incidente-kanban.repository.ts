@@ -239,8 +239,8 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
       "desc"
     )
     .orderBy("incidente.creado_en", "desc")
-    .limit(filtros.limit)
-    .offset((filtros.page - 1) * filtros.limit)
+    .limit(filtros.limit ?? 20)
+    .offset(((filtros.page ?? 1) - 1) * (filtros.limit ?? 20))
     .execute();
 
   return {
@@ -365,9 +365,21 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     }));
   }
 
+  // Consultar hito de reclasificación técnica si existiese
+  const hitoReclasificacion = await db
+    .selectFrom("mision")
+    .innerJoin("mision_hito", "mision_hito.mision_id", "mision.id")
+    .select("mision_hito.descripcion")
+    .where("mision.incidente_id", "=", id)
+    .where("mision_hito.hito", "=", "TIPOLOGIA_RECLASIFICADA")
+    .orderBy("mision_hito.creado_en", "desc")
+    .limit(1)
+    .executeTakeFirst();
+
   return {
     incidente,
     misiones,
     recursosAsociados,
+    justificacionReclasificacion: hitoReclasificacion?.descripcion ?? null,
   };
 }

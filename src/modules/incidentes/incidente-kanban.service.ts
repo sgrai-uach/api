@@ -77,7 +77,12 @@ export async function obtenerDetalleIncidenteService(
     return null;
   }
 
-  const { incidente, misiones, recursosAsociados } = resultado;
+  const { incidente, misiones, recursosAsociados, justificacionReclasificacion } = resultado;
+
+  const tieneVerificacionCompletada = misiones.some(
+    (m) => m.tipo_mision === "VERIFICACION" && m.estado === "COMPLETADA"
+  );
+  const esVerificado = Boolean(tieneVerificacionCompletada || justificacionReclasificacion);
 
   const misionesMapeadas: MisionDetalle[] = misiones.map((m) => ({
     id: m.id,
@@ -156,6 +161,9 @@ export async function obtenerDetalleIncidenteService(
       : null,
     misiones: misionesMapeadas,
     recursosAsociados,
+    verificado: esVerificado,
+    reclasificadoEnTerreno: esVerificado,
+    justificacionReclasificacion: justificacionReclasificacion ?? null,
     creadoEn:
       typeof incidente.creado_en === "string"
         ? incidente.creado_en

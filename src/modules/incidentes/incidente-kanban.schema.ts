@@ -221,6 +221,9 @@ export const IncidenteDetalleSchema = z.object({
     .openapi({ description: "Encargado de operaciones asignado" }),
   misiones: z.array(MisionDetalleSchema).openapi({ description: "Misiones tácticas vinculadas a la atención de este incidente" }),
   recursosAsociados: z.array(RecursoAsociadoSchema).openapi({ description: "Consolidado de recursos materiales y vehículos asignados en las misiones" }),
+  verificado: z.boolean().default(false).openapi({ description: "Indica si la verificación presencial fue completada" }),
+  reclasificadoEnTerreno: z.boolean().default(false).openapi({ description: "Indica si fue verificado o reclasificado en terreno" }),
+  justificacionReclasificacion: z.string().nullable().optional().openapi({ description: "Justificación técnica en terreno" }),
   creadoEn: z.string(),
   actualizadoEn: z.string(),
 });
