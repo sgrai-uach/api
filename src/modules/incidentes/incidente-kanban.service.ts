@@ -39,6 +39,8 @@ export async function listarIncidentesKanbanService(
     tieneMisionDespachada: Boolean(fila.tiene_mision_despachada),
     tieneMisionEnCurso: Boolean(fila.tiene_mision_en_curso),
     verificado: Boolean(fila.verificado),
+    reclasificadoEnTerreno: Boolean(fila.verificado || fila.reclasificado_en_terreno),
+    justificacionReclasificacion: fila.justificacion_reclasificacion ?? null,
     creadoEn:
       typeof fila.creado_en === "string"
         ? fila.creado_en

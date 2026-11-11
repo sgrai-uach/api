@@ -21,6 +21,8 @@ export interface FilaIncidenteResumen {
   tiene_mision_despachada?: boolean;
   tiene_mision_en_curso?: boolean;
   verificado?: boolean | number;
+  reclasificado_en_terreno?: boolean | number;
+  justificacion_reclasificacion?: string | null;
   creado_en: Date | string;
   actualizado_en: Date | string;
 }
@@ -186,18 +188,53 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
       (eb) =>
         eb
           .selectFrom("mision")
-          .select(sql<boolean>`case when count(mision.id) > 0 then true else false end`.as("verificado"))
+          .leftJoin("mision_hito", "mision_hito.mision_id", "mision.id")
+          .select(
+            sql<boolean>`case when count(mision.id) > 0 then true else false end`.as("verificado")
+          )
           .whereRef("mision.incidente_id", "=", "incidente.id")
           .where("mision.tipo_mision", "=", "VERIFICACION")
-          .where("mision.estado", "=", "COMPLETADA")
+          .where((ebOr) =>
+            ebOr.or([
+              ebOr("mision.estado", "=", "COMPLETADA"),
+              ebOr("mision_hito.hito", "=", "TIPOLOGIA_RECLASIFICADA"),
+            ])
+          )
           .as("verificado"),
+      (eb) =>
+        eb
+          .selectFrom("mision")
+          .leftJoin("mision_hito", "mision_hito.mision_id", "mision.id")
+          .select(
+            sql<boolean>`case when count(mision.id) > 0 then true else false end`.as("reclasificado_en_terreno")
+          )
+          .whereRef("mision.incidente_id", "=", "incidente.id")
+          .where("mision.tipo_mision", "=", "VERIFICACION")
+          .where((ebOr) =>
+            ebOr.or([
+              ebOr("mision.estado", "=", "COMPLETADA"),
+              ebOr("mision_hito.hito", "=", "TIPOLOGIA_RECLASIFICADA"),
+            ])
+          )
+          .as("reclasificado_en_terreno"),
+      (eb) =>
+        eb
+          .selectFrom("mision")
+          .innerJoin("mision_hito", "mision_hito.mision_id", "mision.id")
+          .select("mision_hito.descripcion")
+          .whereRef("mision.incidente_id", "=", "incidente.id")
+          .where("mision_hito.hito", "=", "TIPOLOGIA_RECLASIFICADA")
+          .orderBy("mision_hito.creado_en", "desc")
+          .limit(1)
+          .as("justificacion_reclasificacion"),
     ])
     .orderBy(
       sql`case when exists (
         select 1 from mision m 
+        left join mision_hito mh on mh.mision_id = m.id
         where m.incidente_id = incidente.id 
           and m.tipo_mision = 'VERIFICACION' 
-          and m.estado = 'COMPLETADA'
+          and (m.estado = 'COMPLETADA' or mh.hito = 'TIPOLOGIA_RECLASIFICADA')
       ) then 1 else 0 end`,
       "desc"
     )
