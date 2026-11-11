@@ -4,16 +4,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * Mock de la capa de datos para verificar las cláusulas generadas por el repositorio
  * de listado de personal (H11).
  */
-const mockQuery = {
-  where: vi.fn(),
-  select: vi.fn(),
-  orderBy: vi.fn(),
-  limit: vi.fn(),
-  offset: vi.fn(),
-  execute: vi.fn(),
-  executeTakeFirst: vi.fn(),
-};
-
 const mockBuilder = {
   selectFrom: vi.fn(),
   leftJoin: vi.fn(),
@@ -76,6 +66,29 @@ describe("Repositorio de listado de personal (H11)", () => {
     expect(columnas).not.toContain("personal.estado_operativo");
   });
 
+  it("debe referenciar la tabla canónica 'usuario' en la subconsulta de casos FIBE", async () => {
+    await listarPersonalPaginadoRepo({
+      page: 1,
+      limit: 20,
+      ordenarPor: "apellidos",
+      orden: "asc",
+    });
+
+    const columnas = mockBuilder.select.mock.calls.at(-1)?.[0] as unknown[];
+    const expresionRaw = columnas.find(
+      (columna): columna is { toOperationNode: () => { node?: { sqlFragments?: string[] } } } =>
+        typeof columna === "object" &&
+        columna !== null &&
+        "toOperationNode" in columna
+    );
+
+    expect(expresionRaw).toBeDefined();
+
+    const fragmentos = expresionRaw?.toOperationNode().node?.sqlFragments?.join(" ") ?? "";
+    expect(fragmentos).toContain("usuario.id");
+    expect(fragmentos).not.toContain("usuarios.id");
+  });
+
   it("debe filtrar el estado operativo contra usuario.estado_operativo", async () => {
     await listarPersonalPaginadoRepo({
       page: 1,
@@ -128,6 +141,101 @@ describe("Repositorio de listado de personal (H11)", () => {
     });
 
     expect(mockBuilder.where).toHaveBeenCalledWith("personal.id", "is not", null);
+  });
+
+  describe("Exclusión de funcionarios asignados a cuadrillas activas", () => {
+    /**
+     * Extrae el texto SQL y los parámetros de una expresión cruda de Kysely.
+     */
+    function analizarExpresion(nodo: unknown): { sql: string; parametros: string[] } {
+      if (typeof nodo === "string") return { sql: nodo, parametros: [] };
+      if (!nodo || typeof nodo !== "object") return { sql: "", parametros: [] };
+
+      const obj = nodo as { sqlFragments?: unknown[]; parameters?: unknown[]; value?: unknown };
+
+      if ("value" in obj && obj.value !== undefined) {
+        return { sql: "", parametros: [String(obj.value)] };
+      }
+
+      const fragmentos = (obj.sqlFragments ?? []).map(analizarExpresion);
+      const nodosParametro = (obj.parameters ?? []).map(analizarExpresion);
+      const parametros = nodosParametro.flatMap((p) => p.parametros);
+
+      return {
+        sql: [...fragmentos.map((f) => f.sql), ...nodosParametro.map((p) => p.sql)].join(" "),
+        parametros: [...fragmentos.flatMap((f) => f.parametros), ...parametros],
+      };
+    }
+
+    function obtenerExpresionDeFiltro(): { sql: string; parametros: string[] } {
+      const llamadas = mockBuilder.where.mock.calls;
+      const expresion = llamadas
+        .map((c) => c[0])
+        .find(
+          (arg) =>
+            arg !== null &&
+            typeof arg === "object" &&
+            "toOperationNode" in (arg as Record<string, unknown>)
+        );
+
+      expect(expresion).toBeDefined();
+      const nodo = (expresion as { toOperationNode: () => unknown }).toOperationNode();
+      return analizarExpresion(nodo);
+    }
+
+    it("no debe aplicar el filtro de asignación cuando sinAsignacionCuadrilla es false", async () => {
+      await listarPersonalPaginadoRepo({
+        page: 1,
+        limit: 20,
+        sinAsignacionCuadrilla: false,
+        ordenarPor: "apellidos",
+        orden: "asc",
+      });
+
+      const sqlGenerado = mockBuilder.where.mock.calls
+        .map((c) => c[0])
+        .filter(
+          (arg) =>
+            arg !== null &&
+            typeof arg === "object" &&
+            "toOperationNode" in (arg as Record<string, unknown>)
+        );
+
+      expect(sqlGenerado).toHaveLength(0);
+    });
+
+    it("debe excluir a los delegados y a los integrantes de cuadrillas activas", async () => {
+      await listarPersonalPaginadoRepo({
+        page: 1,
+        limit: 20,
+        sinAsignacionCuadrilla: true,
+        ordenarPor: "apellidos",
+        orden: "asc",
+      });
+
+      const { sql } = obtenerExpresionDeFiltro();
+
+      expect(sql).toContain("NOT EXISTS");
+      expect(sql).toContain("cuadrilla c_delegado");
+      expect(sql).toContain("cuadrilla_personal");
+      expect(sql).toContain("c_integrante");
+    });
+
+    it("debe considerar la cuadrilla excluida al evaluar las asignaciones", async () => {
+      await listarPersonalPaginadoRepo({
+        page: 1,
+        limit: 20,
+        sinAsignacionCuadrilla: true,
+        excluirCuadrillaId: "50000000-0000-4000-8000-000000000001",
+        ordenarPor: "apellidos",
+        orden: "asc",
+      });
+
+      const { sql, parametros } = obtenerExpresionDeFiltro();
+
+      expect(sql).toContain("<>");
+      expect(parametros).toContain("50000000-0000-4000-8000-000000000001");
+    });
   });
 
   it("debe ordenar por apellidos, nombres o RUT de la tabla usuario", async () => {

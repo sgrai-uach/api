@@ -306,76 +306,10 @@ export class SeguridadRepository {
       codigosPermisos = await this.obtenerPermisosDeRol(usuario.rol_id);
     }
 
-    let unidadId: string | null = null;
-    let unidadNombre: string | null = null;
-    let unidadActiva: boolean | undefined = undefined;
-
-    const rolCodigo = (usuario.rol_codigo ?? "").toUpperCase();
-    if (rolCodigo === "PATRULLA_VERIFICADORA") {
-      try {
-        const patrullaLider = await db
-          .selectFrom("patrulla_verificadora")
-          .select(["id", "nombre", "estado"])
-          .where("usuario_lider_id", "=", usuario.id)
-          .where("eliminado_en", "is", null)
-          .executeTakeFirst();
-
-        if (patrullaLider) {
-          unidadId = patrullaLider.id;
-          unidadNombre = patrullaLider.nombre;
-          unidadActiva = patrullaLider.estado !== "NO_DISPONIBLE";
-        } else {
-          const patrullaIntegrante = await db
-            .selectFrom("patrulla_personal as pp")
-            .innerJoin("personal as p", "p.id", "pp.personal_id")
-            .innerJoin("patrulla_verificadora as pv", "pv.id", "pp.patrulla_id")
-            .select(["pv.id", "pv.nombre", "pv.estado"])
-            .where("p.usuario_id", "=", usuario.id)
-            .where("pv.eliminado_en", "is", null)
-            .executeTakeFirst();
-
-          if (patrullaIntegrante) {
-            unidadId = patrullaIntegrante.id;
-            unidadNombre = patrullaIntegrante.nombre;
-            unidadActiva = patrullaIntegrante.estado !== "NO_DISPONIBLE";
-          }
-        }
-      } catch {
-        // En entornos sin tablas de patrulla, continúa con unidad nula
-      }
-    } else if (rolCodigo === "DELEGADO_CUADRILLA") {
-      try {
-        const cuadrillaLider = await db
-          .selectFrom("cuadrilla")
-          .select(["id", "nombre", "estado"])
-          .where("usuario_delegado_id", "=", usuario.id)
-          .where("eliminado_en", "is", null)
-          .executeTakeFirst();
-
-        if (cuadrillaLider) {
-          unidadId = cuadrillaLider.id;
-          unidadNombre = cuadrillaLider.nombre;
-          unidadActiva = cuadrillaLider.estado !== "NO_DISPONIBLE";
-        } else {
-          const cuadrillaIntegrante = await db
-            .selectFrom("cuadrilla_personal as cp")
-            .innerJoin("personal as p", "p.id", "cp.personal_id")
-            .innerJoin("cuadrilla as c", "c.id", "cp.cuadrilla_id")
-            .select(["c.id", "c.nombre", "c.estado"])
-            .where("p.usuario_id", "=", usuario.id)
-            .where("c.eliminado_en", "is", null)
-            .executeTakeFirst();
-
-          if (cuadrillaIntegrante) {
-            unidadId = cuadrillaIntegrante.id;
-            unidadNombre = cuadrillaIntegrante.nombre;
-            unidadActiva = cuadrillaIntegrante.estado !== "NO_DISPONIBLE";
-          }
-        }
-      } catch {
-        // En entornos sin tablas de cuadrilla, continúa con unidad nula
-      }
-    }
+    const unidad = await this.obtenerUnidadOperativaDeUsuario(
+      usuario.id,
+      usuario.rol_codigo
+    );
 
     return {
       id: usuario.id,
@@ -391,9 +325,184 @@ export class SeguridadRepository {
         esAdmin: usuario.rol_nombre === "Administrador",
       },
       permisos: codigosPermisos,
-      unidadId,
-      unidadNombre,
-      unidadActiva,
+      unidadId: unidad.unidadId,
+      unidadNombre: unidad.unidadNombre,
+      unidadActiva: unidad.unidadActiva,
+    };
+  }
+
+  /**
+   * Determina la unidad operativa (patrulla verificadora o cuadrilla) asignada al usuario
+   * y evalúa si dicha unidad se encuentra activa o fue dada de baja mediante baja lógica.
+   */
+  async obtenerUnidadOperativaDeUsuario(
+    usuarioId: string,
+    rolCodigo?: string | null
+  ): Promise<{
+    unidadId: string | null;
+    unidadNombre: string | null;
+    unidadActiva?: boolean;
+  }> {
+    if (!usuarioId || !rolCodigo) {
+      return { unidadId: null, unidadNombre: null };
+    }
+
+    const rolUpper = rolCodigo.trim().toUpperCase();
+
+    // 1. Rol PATRULLA_VERIFICADORA (HU-85)
+    if (rolUpper === "PATRULLA_VERIFICADORA") {
+      // 1.1 Buscar si es líder de una patrulla activa
+      const patrullaLiderActiva = await db
+        .selectFrom("patrulla_verificadora")
+        .select(["id", "nombre", "activo", "eliminado_en", "creado_en"])
+        .where("usuario_lider_id", "=", usuarioId)
+        .where("activo", "=", true)
+        .where("eliminado_en", "is", null)
+        .orderBy("creado_en", "desc")
+        .executeTakeFirst();
+
+      if (patrullaLiderActiva) {
+        return {
+          unidadId: patrullaLiderActiva.id,
+          unidadNombre: patrullaLiderActiva.nombre,
+          unidadActiva: true,
+        };
+      }
+
+      // 1.2 Buscar si es integrante de una patrulla activa
+      const patrullaIntegranteActiva = await db
+        .selectFrom("patrulla_personal as pp")
+        .innerJoin("personal as p", "p.id", "pp.personal_id")
+        .innerJoin("patrulla_verificadora as pv", "pv.id", "pp.patrulla_id")
+        .select(["pv.id", "pv.nombre", "pv.activo", "pv.eliminado_en", "pp.asignado_en"])
+        .where("p.usuario_id", "=", usuarioId)
+        .where("pv.activo", "=", true)
+        .where("pv.eliminado_en", "is", null)
+        .orderBy("pp.asignado_en", "desc")
+        .executeTakeFirst();
+
+      if (patrullaIntegranteActiva) {
+        return {
+          unidadId: patrullaIntegranteActiva.id,
+          unidadNombre: patrullaIntegranteActiva.nombre,
+          unidadActiva: true,
+        };
+      }
+
+      // 1.3 Si no hay activa, buscar última patrulla asociada (baja lógica / inactiva)
+      const patrullaLiderHistorica = await db
+        .selectFrom("patrulla_verificadora")
+        .select(["id", "nombre", "activo", "eliminado_en", "creado_en"])
+        .where("usuario_lider_id", "=", usuarioId)
+        .orderBy("creado_en", "desc")
+        .executeTakeFirst();
+
+      const patrullaIntegranteHistorica = await db
+        .selectFrom("patrulla_personal as pp")
+        .innerJoin("personal as p", "p.id", "pp.personal_id")
+        .innerJoin("patrulla_verificadora as pv", "pv.id", "pp.patrulla_id")
+        .select(["pv.id", "pv.nombre", "pv.activo", "pv.eliminado_en", "pp.asignado_en"])
+        .where("p.usuario_id", "=", usuarioId)
+        .orderBy("pp.asignado_en", "desc")
+        .executeTakeFirst();
+
+      const patrullaHistorica = patrullaLiderHistorica || patrullaIntegranteHistorica;
+
+      if (patrullaHistorica) {
+        return {
+          unidadId: patrullaHistorica.id,
+          unidadNombre: patrullaHistorica.nombre,
+          unidadActiva: false,
+        };
+      }
+
+      return {
+        unidadId: null,
+        unidadNombre: null,
+        unidadActiva: false,
+      };
+    }
+
+    // 2. Rol DELEGADO_CUADRILLA (HU-82)
+    if (rolUpper === "DELEGADO_CUADRILLA") {
+      // 2.1 Buscar si es delegado de cuadrilla activa
+      const cuadrillaDelegadoActiva = await db
+        .selectFrom("cuadrilla")
+        .select(["id", "nombre", "activo", "eliminado_en", "creado_en"])
+        .where("usuario_delegado_id", "=", usuarioId)
+        .where("activo", "=", true)
+        .where("eliminado_en", "is", null)
+        .orderBy("creado_en", "desc")
+        .executeTakeFirst();
+
+      if (cuadrillaDelegadoActiva) {
+        return {
+          unidadId: cuadrillaDelegadoActiva.id,
+          unidadNombre: cuadrillaDelegadoActiva.nombre,
+          unidadActiva: true,
+        };
+      }
+
+      // 2.2 Buscar si es integrante de cuadrilla activa
+      const cuadrillaIntegranteActiva = await db
+        .selectFrom("cuadrilla_personal as cp")
+        .innerJoin("personal as p", "p.id", "cp.personal_id")
+        .innerJoin("cuadrilla as c", "c.id", "cp.cuadrilla_id")
+        .select(["c.id", "c.nombre", "c.activo", "c.eliminado_en", "cp.asignado_en"])
+        .where("p.usuario_id", "=", usuarioId)
+        .where("cp.activo", "=", true)
+        .where("cp.desvinculado_en", "is", null)
+        .where("c.activo", "=", true)
+        .where("c.eliminado_en", "is", null)
+        .orderBy("cp.asignado_en", "desc")
+        .executeTakeFirst();
+
+      if (cuadrillaIntegranteActiva) {
+        return {
+          unidadId: cuadrillaIntegranteActiva.id,
+          unidadNombre: cuadrillaIntegranteActiva.nombre,
+          unidadActiva: true,
+        };
+      }
+
+      // 2.3 Si no hay activa, buscar última cuadrilla histórica
+      const cuadrillaDelegadoHistorica = await db
+        .selectFrom("cuadrilla")
+        .select(["id", "nombre", "activo", "eliminado_en", "creado_en"])
+        .where("usuario_delegado_id", "=", usuarioId)
+        .orderBy("creado_en", "desc")
+        .executeTakeFirst();
+
+      const cuadrillaIntegranteHistorica = await db
+        .selectFrom("cuadrilla_personal as cp")
+        .innerJoin("personal as p", "p.id", "cp.personal_id")
+        .innerJoin("cuadrilla as c", "c.id", "cp.cuadrilla_id")
+        .select(["c.id", "c.nombre", "c.activo", "c.eliminado_en", "cp.asignado_en"])
+        .where("p.usuario_id", "=", usuarioId)
+        .orderBy("cp.asignado_en", "desc")
+        .executeTakeFirst();
+
+      const cuadrillaHistorica = cuadrillaDelegadoHistorica || cuadrillaIntegranteHistorica;
+
+      if (cuadrillaHistorica) {
+        return {
+          unidadId: cuadrillaHistorica.id,
+          unidadNombre: cuadrillaHistorica.nombre,
+          unidadActiva: false,
+        };
+      }
+
+      return {
+        unidadId: null,
+        unidadNombre: null,
+        unidadActiva: false,
+      };
+    }
+
+    // Roles no operacionales en terreno
+    return {
+      unidadId: null,
+      unidadNombre: null,
     };
   }
 

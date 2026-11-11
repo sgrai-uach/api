@@ -20,6 +20,7 @@ export interface FilaIncidenteResumen {
   total_misiones: number | string;
   tiene_mision_despachada?: boolean;
   tiene_mision_en_curso?: boolean;
+  verificado?: boolean | number;
   creado_en: Date | string;
   actualizado_en: Date | string;
 }
@@ -182,7 +183,24 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
           .whereRef("mision.incidente_id", "=", "incidente.id")
           .where("mision.estado", "=", "EN_CURSO")
           .as("tiene_mision_en_curso"),
+      (eb) =>
+        eb
+          .selectFrom("mision")
+          .select(sql<boolean>`case when count(mision.id) > 0 then true else false end`.as("verificado"))
+          .whereRef("mision.incidente_id", "=", "incidente.id")
+          .where("mision.tipo_mision", "=", "VERIFICACION")
+          .where("mision.estado", "=", "COMPLETADA")
+          .as("verificado"),
     ])
+    .orderBy(
+      sql`case when exists (
+        select 1 from mision m 
+        where m.incidente_id = incidente.id 
+          and m.tipo_mision = 'VERIFICACION' 
+          and m.estado = 'COMPLETADA'
+      ) then 1 else 0 end`,
+      "desc"
+    )
     .orderBy("incidente.creado_en", "desc")
     .limit(filtros.limit)
     .offset((filtros.page - 1) * filtros.limit)

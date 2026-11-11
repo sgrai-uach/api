@@ -30,7 +30,6 @@ import {
 } from "@/modules/seguridad/errors";
 import {
   PERMISO_LISTAR_PUNTOS_CRITICOS,
-  PERMISO_CREAR_PUNTO_CRITICO,
   PERMISO_EDITAR_PUNTO_CRITICO,
   PERMISO_ELIMINAR_PUNTO_CRITICO,
 } from "@/modules/seguridad/permisos.constants";

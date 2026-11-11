@@ -13,7 +13,10 @@
     "db:migrate": "tsx src/lib/db/migrator.ts",
     "db:seed": "tsx src/lib/db/seed-kanban.ts",
     "seed": "tsx scripts/seed.ts",
-    "seed:puntos-criticos": "tsx scripts/seed-puntos-criticos.ts"
+    "seed:estados": "tsx scripts/seed-estados-incidentes.ts",
+    "seed:puntos-criticos": "tsx scripts/seed-puntos-criticos.ts",
+    "seed:patrullas": "tsx scripts/seed-patrullas.ts",
+    "seed:h21": "tsx scripts/seed-h21.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",

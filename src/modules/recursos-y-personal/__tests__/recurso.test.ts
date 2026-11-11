@@ -280,6 +280,15 @@ describe("Módulo Recursos y Personal - Pruebas Unitarias", () => {
     });
 
     it("debe aceptar parámetros estándar page y limit (H34)", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockResolvedValueOnce({
+        id: adminId,
+        rut: "11111111-1",
+        nombre: "Admin",
+        email: "admin@valdivia.cl",
+        rolId: "20000000-0000-4000-8000-000000000001",
+        rolNombre: "Administrador",
+        activo: true,
+      });
       vi.spyOn(recursoRepository, "listarRecursosPaginados").mockResolvedValueOnce([]);
       vi.spyOn(recursoRepository, "contarRecursos").mockResolvedValueOnce(0);
 

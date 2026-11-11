@@ -278,15 +278,15 @@ export const UsuarioActivoItemSchema = z
       example: ["seguridad:roles:leer", "seguridad:roles:gestionar"],
     }),
     unidadId: z.string().uuid().nullable().optional().openapi({
-      description: "UUID de la patrulla o cuadrilla asignada activamente (si aplica)",
+      description: "UUID de la unidad táctica u operativa asignada (patrulla o cuadrilla)",
       example: "40000000-0000-4000-8000-000000000001",
     }),
     unidadNombre: z.string().nullable().optional().openapi({
-      description: "Nombre de la patrulla o cuadrilla asignada",
-      example: "Patrulla Calle Calle",
+      description: "Nombre de la unidad táctica u operativa asignada",
+      example: "Patrulla Verificadora Alfa",
     }),
     unidadActiva: z.boolean().optional().openapi({
-      description: "Indica si la patrulla o cuadrilla asignada se encuentra activa operativamente",
+      description: "Indica si la unidad operativa se encuentra activa (false si fue dada de baja mediante baja lógica)",
       example: true,
     }),
   })
@@ -372,6 +372,18 @@ export const UsuarioPerfilSesionSchema = z
     permisos: z.array(z.string()).openapi({
       description: "Lista de códigos de permisos activos del usuario",
       example: ["seguridad:roles:leer", "seguridad:roles:gestionar"],
+    }),
+    unidadId: z.string().uuid().nullable().optional().openapi({
+      description: "UUID de la unidad táctica u operativa asignada (patrulla o cuadrilla)",
+      example: "40000000-0000-4000-8000-000000000001",
+    }),
+    unidadNombre: z.string().nullable().optional().openapi({
+      description: "Nombre de la unidad táctica u operativa asignada",
+      example: "Patrulla Verificadora Alfa",
+    }),
+    unidadActiva: z.boolean().optional().openapi({
+      description: "Indica si la unidad operativa se encuentra activa (false si fue dada de baja mediante baja lógica)",
+      example: true,
     }),
   })
   .openapi("UsuarioPerfilSesion");
