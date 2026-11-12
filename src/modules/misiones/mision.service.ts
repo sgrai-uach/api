@@ -243,6 +243,12 @@ export async function obtenerDetalleMisionService(
     estado: mision.estado as MisionDetalleCompleto["estado"],
     prioridad: mision.prioridad as MisionDetalleCompleto["prioridad"],
     justificacionRechazo: mision.justificacion_rechazo,
+    ...(mision.trazabilidad_notificacion
+      ? {
+          trazabilidadNotificacion:
+            mision.trazabilidad_notificacion as MisionDetalleCompleto["trazabilidadNotificacion"],
+        }
+      : {}),
     fechaInicio: formatearFechaIso(mision.fecha_inicio),
     fechaCierre: formatearFechaIso(mision.fecha_cierre),
     creadoEn: formatearFechaIso(mision.creado_en) || new Date().toISOString(),

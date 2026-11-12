@@ -21,6 +21,12 @@ export async function listarMisionesService(
     estado: fila.estado as MisionItem["estado"],
     prioridad: fila.prioridad as MisionItem["prioridad"],
     justificacionRechazo: fila.justificacion_rechazo,
+    ...(fila.trazabilidad_notificacion
+      ? {
+          trazabilidadNotificacion:
+            fila.trazabilidad_notificacion as MisionItem["trazabilidadNotificacion"],
+        }
+      : {}),
     incidenteId: fila.incidente_id,
     incidenteCodigo: fila.incidente_codigo,
     cuadrillaId: fila.cuadrilla_id,

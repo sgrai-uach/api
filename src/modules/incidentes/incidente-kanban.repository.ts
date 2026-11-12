@@ -18,6 +18,7 @@ export interface FilaIncidenteResumen {
   informante_nombre: string | null;
   delegacion_nombre: string | null;
   total_misiones: number | string;
+  trazabilidad_notificacion?: string | null;
   creado_en: Date | string;
   actualizado_en: Date | string;
 }
@@ -136,6 +137,14 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
           .select(sql<number>`count(mision.id)::int`.as("count"))
           .whereRef("mision.incidente_id", "=", "incidente.id")
           .as("total_misiones"),
+      sql<string | null>`(
+        SELECT nm.estado
+        FROM notificaciones_mision nm
+        INNER JOIN mision m ON m.id = nm.mision_id
+        WHERE m.incidente_id = incidente.id
+        ORDER BY nm.creada_at DESC
+        LIMIT 1
+      )`.as("trazabilidad_notificacion"),
     ])
     .orderBy("incidente.creado_en", "desc")
     .limit(filtros.limit)
@@ -219,6 +228,13 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
       "cuadrilla.id as cuadrilla_id",
       "cuadrilla.nombre as cuadrilla_nombre",
       "cuadrilla.estado as cuadrilla_estado",
+      sql<string | null>`(
+        SELECT nm.estado
+        FROM notificaciones_mision nm
+        WHERE nm.mision_id = mision.id
+        ORDER BY nm.creada_at DESC
+        LIMIT 1
+      )`.as("trazabilidad_notificacion"),
     ])
     .where("mision.incidente_id", "=", id)
     .orderBy("mision.creado_en", "asc")

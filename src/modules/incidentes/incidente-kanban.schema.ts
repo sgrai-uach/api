@@ -4,6 +4,7 @@ import {
   PaginationQuerySchema,
   PaginationMetaSchema,
 } from "@/lib/shared/pagination.schema";
+import { EstadoNotificacionMisionEnum } from "@/modules/misiones/notificacion-mision.schema";
 
 extendZodWithOpenApi(z);
 
@@ -102,6 +103,9 @@ export const IncidenteResumenSchema = z.object({
   informanteNombre: z.string().nullable().openapi({ description: "Nombre de pila del ciudadano informante o null si anónimo" }),
   delegacionNombre: z.string().nullable().openapi({ description: "Nombre de la delegación territorial correspondiente" }),
   totalMisiones: z.number().openapi({ description: "Cantidad de misiones tácticas despachadas o generadas para este incidente" }),
+  trazabilidadNotificacion: EstadoNotificacionMisionEnum.optional().openapi({
+    description: "Último estado de trazabilidad de notificación de misión asociado al incidente (HU-35)",
+  }),
   creadoEn: z.string().openapi({ description: "Fecha y hora de registro en formato ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Última fecha y hora de actualización en formato ISO 8601" }),
 });
@@ -130,6 +134,9 @@ export const MisionDetalleSchema = z.object({
   estado: z.string().openapi({ description: "Estado operativo de la misión" }),
   prioridad: z.string().openapi({ description: "Prioridad táctica de la misión" }),
   justificacionRechazo: z.string().nullable().openapi({ description: "Justificación en caso de rechazo por la cuadrilla" }),
+  trazabilidadNotificacion: EstadoNotificacionMisionEnum.optional().openapi({
+    description: "Estado actual de entrega y lectura de la notificación de esta misión (HU-35)",
+  }),
   patrulla: z
     .object({
       id: z.string().uuid(),

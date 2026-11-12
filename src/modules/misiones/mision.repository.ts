@@ -15,6 +15,7 @@ export interface MisionDetalleQueryResult {
     estado: string;
     prioridad: string;
     justificacion_rechazo: string | null;
+    trazabilidad_notificacion?: string | null;
     incidente_id: string | null;
     prevencion_id: string | null;
     cuadrilla_id: string | null;
@@ -147,6 +148,13 @@ export async function obtenerMisionDetallePorIdRepo(
       "mision.estado",
       "mision.prioridad",
       "mision.justificacion_rechazo",
+      sql<string | null>`(
+        SELECT nm.estado
+        FROM notificaciones_mision nm
+        WHERE nm.mision_id = mision.id
+        ORDER BY nm.creada_at DESC
+        LIMIT 1
+      )`.as("trazabilidad_notificacion"),
       "mision.incidente_id",
       "mision.prevencion_id",
       "mision.cuadrilla_id",
