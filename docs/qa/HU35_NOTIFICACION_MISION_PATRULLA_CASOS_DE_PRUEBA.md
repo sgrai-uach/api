@@ -298,3 +298,24 @@ curl -X GET http://localhost:3000/api/terreno/misiones/pendientes \
 | **CA-06: Soporte Offline-First y Reconciliación:** `GET /api/terreno/misiones/pendientes` entrega órdenes estancadas en `PENDIENTE_ENVIO` o `ENVIADA`. | `src/app/api/terreno/misiones/pendientes/route.ts`, `listarMisionesPendientesTerrenoRepo` | `CP-H35-API-02`, `CP-H35-API-08`, `CP-H35-API-09` | 🟢 Cumplido al 100% |
 | **CA-07: Seguridad y Control de Acceso RBAC:** Validación de permiso `misiones:terreno:verificar` y pertenencia a la patrulla destinataria. | `src/modules/seguridad/auth.guard.ts`, `verificarUsuarioPerteneceAPatrulla` | `CP-H35-API-10` a `CP-H35-API-13` | 🟢 Cumplido al 100% |
 | **CA-08: Idempotencia y No Retroceso:** Prohibición de degradar `LEIDA` a `RECIBIDA` e inmutabilidad de timestamps ante reintentos. | `notificacion-mision.repository.ts` (`PRIORIDAD_ESTADO`, `COALESCE`) | `CP-H35-API-05`, `CP-H35-API-06`, `BUG-H35-API-03` | 🟢 Cumplido al 100% |
+
+---
+
+## 7. Extensión de Contrato OpenAPI y Proyección Persistente para Centro de Mando (`12/11/2026`)
+
+Para habilitar la reconstrucción persistente del último estado de notificación tras recargas en `sgrai-web` (`BUG-H35-WEB-06` / `TC-H35-WEB-18`) manteniendo sincronizado el cliente generado desde OpenAPI (`api-generated.d.ts`), se incorporaron los siguientes ajustes verificados en `feature/h35-notificacion-mision-patrulla-pwa`:
+
+1. **Proyección de `trazabilidadNotificacion` en consultas operativas (`2e72aa8`):**
+   - `GET /api/incidentes` (`incidente-kanban.repository.ts` / `incidente-kanban.service.ts` / `incidente-kanban.schema.ts`): incluye el campo opcional `trazabilidadNotificacion` (`PENDIENTE_ENVIO` | `ENVIADA` | `RECIBIDA` | `LEIDA`) derivado del registro más reciente en `notificaciones_mision` asociado a las misiones del incidente.
+   - `GET /api/incidentes/{id}` (`MisionDetalleSchema`): cada misión del arreglo `data.misiones` expone `trazabilidadNotificacion` persistida en base de datos.
+   - `GET /api/misiones` y `GET /api/misiones/{id}` (`mision-listado.*`, `mision.*`): exponen `trazabilidadNotificacion` en sus esquemas Zod, consultas SQL y mapeos de servicio.
+2. **Completitud del registro OpenAPI en `src/lib/openapi/index.ts` (`90fd047`):**
+   - Registro de `ListarCuadrillasQuerySchema` y cabeceras opcionales (`authorization`, `x-user-id`) en `GET /api/cuadrillas`, `GET /api/cuadrillas/{id}`, `DELETE /api/cuadrillas/{id}` y `POST /api/misiones`.
+   - Marcado `required: true` en el cuerpo de `POST /api/misiones` y tipificación explícita de respuestas de error `400`/`401`/`403`/`404`/`409`/`500` con `MensajeGenericoResponseSchema` en `DELETE /api/cuadrillas/{id}` y `POST /api/misiones`.
+3. **Pruebas unitarias de regresión y validación integral (`5b0c9a7`):**
+   - Aserciones agregadas en `src/modules/incidentes/__tests__/incidente-kanban.service.test.ts` y `src/modules/misiones/__tests__/mision-listado.test.ts`.
+   - Validación ejecutada el `12/11/2026`:
+     - `npx tsc --noEmit`: `0` errores.
+     - `npm test`: `Test Files 64 passed (64)` | `Tests 772 passed (772)`.
+     - `npm run lint`: `0 errors` (`11` warnings preexistentes fuera del alcance de HU-35).
+     - `npm run build`: compilación de producción (`next build`) completada con `0` errores.
