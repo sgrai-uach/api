@@ -45,6 +45,7 @@ import {
   CrearCuadrillaResponseSchema,
   EditarCuadrillaInputSchema,
   EditarCuadrillaResponseSchema,
+  ListarCuadrillasQuerySchema,
   ListarCuadrillasResponseSchema,
   DetalleCuadrillaResponseSchema,
   CuadrillaIdParamSchema,
@@ -2140,6 +2141,13 @@ registry.registerPath({
     "Retorna el listado paginado de cuadrillas operativas con soporte para filtros de texto, delegación y estado.",
   tags: ["Cuadrillas", "Recursos y Personal"],
   security: [{ BearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z.string().optional().describe("UUID del usuario autenticado (entorno pruebas)"),
+    }),
+    query: ListarCuadrillasQuerySchema,
+  },
   responses: {
     200: {
       description: "Listado de cuadrillas obtenido exitosamente",
@@ -2224,6 +2232,10 @@ registry.registerPath({
   security: [{ BearerAuth: [] }],
   request: {
     params: CuadrillaIdParamSchema,
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z.string().optional().describe("UUID del usuario autenticado (entorno pruebas)"),
+    }),
   },
   responses: {
     200: {
@@ -2313,6 +2325,10 @@ registry.registerPath({
   security: [{ BearerAuth: [] }],
   request: {
     params: CuadrillaIdParamSchema,
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z.string().optional().describe("UUID del usuario autenticado (entorno pruebas)"),
+    }),
   },
   responses: {
     200: {
@@ -2325,21 +2341,27 @@ registry.registerPath({
     },
     400: {
       description: "Identificador de cuadrilla inválido",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     401: {
       description: "No autenticado o token inválido",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     403: {
       description: "Acceso denegado. Se requiere permiso 'cuadrillas:eliminar' o rol Administrador",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     404: {
       description: "Cuadrilla operativa no encontrada o ya desactivada",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     409: {
       description: "Conflicto: la cuadrilla se encuentra en misión activa o posee misiones en curso",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     500: {
       description: "Error interno del servidor",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
   },
 });
@@ -2354,7 +2376,12 @@ registry.registerPath({
   tags: ["Misiones"],
   security: [{ bearerAuth: [] }],
   request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z.string().optional().describe("UUID del usuario autenticado (entorno pruebas)"),
+    }),
     body: {
+      required: true,
       content: {
         "application/json": {
           schema: CrearMisionVerificacionSchema,
@@ -2373,22 +2400,28 @@ registry.registerPath({
     },
     400: {
       description: "Datos de entrada inválidos o formato JSON malformado",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     401: {
       description: "No autenticado o token ausente",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     403: {
       description: "Acceso denegado. Se requiere permiso 'misiones:asignar'.",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     404: {
       description: "Incidente o patrulla no encontrado",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     409: {
       description:
         "Conflicto: la patrulla seleccionada ya no se encuentra DISPONIBLE o el incidente no está en estado REPORTADO",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     500: {
       description: "Error interno del servidor al crear y despachar la misión",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
   },
 });
