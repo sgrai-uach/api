@@ -44,6 +44,7 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 | `GET` | `/api/misiones` | `misiones:leer` / Sesión válida | Listar misiones tácticas con paginación estándar, metadatos `meta` y filtros multicriterio (H34). |
 | `GET` | `/api/misiones/{id}` | `misiones:leer` | Consultar detalle exhaustivo de una misión por su ID (incidente, cuadrilla/patrulla, tiempos y reportes con adjuntos - HU-17). |
 | `POST` | `/api/misiones` | `misiones:asignar` | Despacho y asignación de misión operativa a terreno: verificación primaria con patrulla (HU-20) o atención técnica con cuadrilla liberando la patrulla previa (HU-21 / Regla ICS §3.2). |
+| `GET` | `/api/geolocalizacion/posiciones` | Sesión válida | Consultar snapshot de últimas posiciones GPS activas de unidades en terreno desde caché Redis (HU-70). |
 
 ---
 
@@ -439,6 +440,35 @@ Permite al **Encargado de Operaciones** (o Administrador) desplegar una cuadrill
 
 ---
 
+### 3.5. `GET /api/geolocalizacion/posiciones` (HU-70: Posiciones GPS Activas de Unidades en Terreno)
+
+Permite al Centro de Mando (`sgrai-web`) consultar de forma instantánea el snapshot de últimas posiciones GPS conocidas de todas las patrullas y cuadrillas operativas en misión activa que se encuentren vigentes en la caché de Redis.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (requiere sesión de usuario válida en SGRAI).
+
+#### Ejemplo de Respuesta Exitosa (`HTTP 200 OK`)
+
+```json
+{
+  "message": "Posiciones activas obtenidas exitosamente.",
+  "data": [
+    {
+      "unidadId": "f1000000-0000-4000-8000-000000000001",
+      "tipoUnidad": "PATRULLA",
+      "lat": -39.81422,
+      "lng": -73.24589,
+      "timestamp": "2026-11-12T15:00:00.000Z",
+      "rumbo": 180.5,
+      "precision": 10.5,
+      "velocidad": 4.2,
+      "recibidoEn": "2026-11-12T15:00:01.000Z"
+    }
+  ]
+}
+```
+
+---
+
 ## 4. Códigos de Estado y Errores Esperables
 
 - **`400 Bad Request`:**
@@ -493,4 +523,33 @@ Al confirmarse la asignación de misiones operativas mediante `POST /api/misione
 4. **`incidente:actualizado`**:
    - **Salas destino:** `encargado` y `mapa`.
    - **Propósito:** Mover automáticamente la tarjeta del incidente en el tablero Kanban (`VERIFICANDO` o `EN_ATENCION`) sin recarga.
+
+5. **`telemetria:posicion` (HU-70: Transmisión y Retransmisión GPS en Terreno)**:
+   - **Evento de Entrada (Client-to-Server):** Emitido periódicamente (cada 30 a 60 segundos) por la app PWA móvil de patrullas y delegados de cuadrilla cuando se encuentran en misión activa (`EN_CURSO`).
+     - **Payload:**
+       ```json
+       {
+         "unidadId": "f1000000-0000-4000-8000-000000000001",
+         "tipoUnidad": "PATRULLA",
+         "lat": -39.81422,
+         "lng": -73.24589,
+         "timestamp": "2026-11-12T15:00:00.000Z",
+         "rumbo": 180.5,
+         "precision": 10.5,
+         "velocidad": 4.2
+       }
+       ```
+     - **Atributos:**
+       - `unidadId` (UUID): Identificador de la patrulla o cuadrilla.
+       - `tipoUnidad` (`PATRULLA` | `CUADRILLA`): Clasificación de la unidad operativa.
+       - `lat`, `lng` (número decimal WGS84): Coordenadas geográficas.
+       - `timestamp` (ISO 8601 o epoch): Marca temporal de captura.
+       - `rumbo` (opcional, grados 0-360): Orientación del desplazamiento para rotar el icono en el mapa.
+       - `precision` (opcional, metros): Radio de exactitud provisto por `GeolocationCoordinates.accuracy`.
+       - `velocidad` (opcional, m/s): Velocidad instantánea de desplazamiento.
+   - **Almacenamiento en Caché Redis:** Cada posición válida recibida se almacena con clave `telemetria:posicion:{tipoUnidad}:{unidadId}` y expiración TTL de 300 segundos (5 minutos), asegurando que si la unidad se desconecta o culmina su turno, expire naturalmente sin sobrecargar PostgreSQL.
+   - **Evento de Salida (Server-to-Client):**
+     - **Sala destino:** `mapa`.
+     - **Propósito:** Retransmitir en tiempo real las coordenadas hacia el Centro de Mando en `sgrai-web` para actualizar la posición de los marcadores dinámicos sin refrescar la vista.
+   - **Resiliencia ante Conectividad:** Si el dispositivo móvil pierde señal, la PWA reintenta de forma transparente sin bloquear la interfaz de usuario. Al recuperar conectividad, el flujo de telemetría se reanuda de inmediato.
 
