@@ -156,6 +156,12 @@ import {
   CrearEventoPrevencionResponseSchema,
 } from "@/modules/eventos-atp/evento-prevencion.schema";
 
+import {
+  CrearEventoAtpInputSchema,
+  CrearEventoAtpResponseSchema,
+  EventoAtpResponseSchema,
+} from "@/modules/eventos-atp/evento-atp.schema";
+
 extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
@@ -232,6 +238,9 @@ registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSc
 registry.register("CrearEventoAsistenciaSocialInput", CrearEventoAsistenciaSocialInputSchema);
 registry.register("EventoAsistenciaSocialResponse", EventoAsistenciaSocialResponseSchema);
 registry.register("ListarEventosAsistenciaSocialResponse", ListarEventosAsistenciaSocialResponseSchema);
+registry.register("CrearEventoAtpInput", CrearEventoAtpInputSchema);
+registry.register("EventoAtpResponse", EventoAtpResponseSchema);
+registry.register("CrearEventoAtpResponse", CrearEventoAtpResponseSchema);
 
 // ==========================================
 // RUTAS RECURSOS Y PERSONAL
@@ -2433,6 +2442,55 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor al crear y despachar la misión",
+    },
+  },
+});
+
+// 28. POST /api/eventos-atp (H61)
+registry.registerPath({
+  method: "post",
+  path: "/api/eventos-atp",
+  summary: "Crear Evento de Alerta Temprana Preventiva (ATP)",
+  description:
+    "Registra el marco oficial de un Evento ATP, persiste su alcance territorial en evento_atp_delegacion dentro de una sola transacción PostgreSQL y emite el evento WebSocket evento_atp:creado a las salas administrativas, operativas y del mapa. Requiere rol Administrador o el permiso eventos_atp:crear.",
+  tags: ["Eventos ATP"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      description: "Datos requeridos para crear el Evento ATP",
+      required: true,
+      content: {
+        "application/json": {
+          schema: CrearEventoAtpInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Evento ATP creado exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearEventoAtpResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos inválidos, fechas inconsistentes o delegaciones inexistentes",
+    },
+    401: {
+      description: "No autenticado. Se requiere cabecera Authorization válida",
+    },
+    403: {
+      description:
+        "Acceso denegado. Se requiere rol Administrador o permiso eventos_atp:crear",
+    },
+    409: {
+      description: "Conflicto por código de Evento ATP duplicado",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la solicitud",
     },
   },
 });

@@ -350,6 +350,47 @@ export function emitirPuntoCriticoCreado(payload: Record<string, unknown>): void
 }
 
 /**
+ * Emite la notificación de nuevo Evento ATP creado a las salas operativas,
+ * administrativas y al mapa interactivo (H61).
+ */
+export function emitirEventoAtpCreado(payload: unknown): void {
+  const salas = [
+    "sala:encargados",
+    "encargado",
+    "supervisor",
+    "mapa",
+    "admin",
+    "administrador",
+  ];
+
+  if (ioInstance) {
+    for (const sala of salas) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to(sala) as any).emit("evento_atp:creado", payload);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("evento_atp:creado", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    for (const sala of salas) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room: sala,
+            event: "evento_atp:creado",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
+  }
+}
+
+/**
  * Emite la notificación de nuevo evento de recuperación creado a las vistas de Encargado y al mapa interactivo.
  */
 export function emitirRecuperacionCreada(payload: unknown): void {
