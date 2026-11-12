@@ -9,7 +9,11 @@ describe("Endpoint GET /openapi.json", () => {
     const spec = await res.json();
     expect(spec.openapi).toBe("3.0.0");
     expect(spec.info.title).toContain("SGRAI API");
-    expect(spec.info.version).toBe("0.10.0");
+    expect(spec.info.version).toBe("0.11.0");
+
+    // Rutas de Geolocalización y Telemetría (HU-70)
+    expect(spec.paths["/api/geolocalizacion/posiciones"]).toBeDefined();
+    expect(spec.paths["/api/geolocalizacion/posiciones"].get).toBeDefined();
 
     // Rutas de Patrullas Verificadoras (HU-16, HU-84, HU-85)
     expect(spec.paths["/api/patrullas"]).toBeDefined();
