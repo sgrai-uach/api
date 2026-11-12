@@ -50,6 +50,7 @@ import {
   contarOtrasCuadrillasActivasPorDelegado,
   obtenerCuadrillaDetalleUnitario,
   listarCuadrillasPaginadas,
+  construirPatronBusqueda,
 } from "../cuadrilla.repository";
 
 describe("Capa de Persistencia Kysely - Cuadrillas (HU-82 / QA Bug Fixes)", () => {
@@ -338,6 +339,23 @@ describe("Capa de Persistencia Kysely - Cuadrillas (HU-82 / QA Bug Fixes)", () =
       expect(resultado.cuadrillas).toHaveLength(1);
       expect(resultado.cuadrillas[0].activo).toBe(false);
       expect(resultado.cuadrillas[0].eliminado_en).toBeDefined();
+    });
+
+    it("construirPatronBusqueda debe escapar comodines SQL % y _ (BUG-H80-API-05)", () => {
+      expect(construirPatronBusqueda("100%_texto")).toBe("%100\\%\\_texto%");
+      expect(construirPatronBusqueda("  Vías  ")).toBe("%Vías%");
+      expect(construirPatronBusqueda("a\\b")).toBe("%a\\\\b%");
+    });
+
+    it("listarCuadrillasPaginadas debe retornar listado vacío cuando offset >= total (BUG-H80-API-01)", async () => {
+      mockDb.executeTakeFirst.mockResolvedValueOnce({ total: 1 });
+      mockDb.execute.mockResolvedValueOnce([]); // lote paginado vacío
+
+      const resultado = await listarCuadrillasPaginadas({ pagina: 2, limite: 1 });
+
+      expect(resultado).toEqual({ cuadrillas: [], total: 1 });
+      // No debe ejecutar consultas adicionales de recursos/trabajadores con `IN ()`
+      expect(mockDb.execute).toHaveBeenCalledTimes(1);
     });
   });
 });

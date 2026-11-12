@@ -4,6 +4,8 @@ import {
   MisionDetalleResponseSchema,
   MisionDetalleCompletoSchema,
   ReporteTerrenoDetalleSchema,
+  AsignarCuadrillaMisionInputSchema,
+  CrearMisionVerificacionSchema,
 } from "../mision.schema";
 
 describe("Mision Schemas (HU-17)", () => {
@@ -244,4 +246,132 @@ describe("Mision Schemas (HU-17)", () => {
       expect(resultado.success).toBe(true);
     });
   });
+  describe("CrearMisionVerificacionSchema (HU-20)", () => {
+    it("debe validar un payload correcto de despacho de patrulla", () => {
+      const payload = {
+        incidenteId: "50000000-0000-4000-8000-000000000001",
+        patrullaId: "f1000000-0000-4000-8000-000000000001",
+        titulo: "Verificación de anegamiento en Las Ánimas",
+        descripcion: "Evaluar anegamiento en patio de vivienda y riesgo eléctrico.",
+        prioridad: "ALTA",
+      };
+
+      const resultado = CrearMisionVerificacionSchema.safeParse(payload);
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.tipoMision).toBe("VERIFICACION");
+        expect(resultado.data.prioridad).toBe("ALTA");
+      }
+    });
+
+    it("debe asignar tipoMision VERIFICACION por defecto si se omite", () => {
+      const payloadMinimo = {
+        incidenteId: "50000000-0000-4000-8000-000000000001",
+        patrullaId: "f1000000-0000-4000-8000-000000000001",
+      };
+
+      const resultado = CrearMisionVerificacionSchema.safeParse(payloadMinimo);
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.tipoMision).toBe("VERIFICACION");
+      }
+    });
+
+    it("debe fallar si incidenteId no es un UUID válido", () => {
+      const payload = {
+        incidenteId: "invalido",
+        patrullaId: "f1000000-0000-4000-8000-000000000001",
+      };
+
+      const resultado = CrearMisionVerificacionSchema.safeParse(payload);
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(resultado.error.issues[0].message).toContain("identificador del incidente debe ser un UUID válido");
+      }
+    });
+
+    it("debe fallar si patrullaId no es un UUID válido", () => {
+      const payload = {
+        incidenteId: "50000000-0000-4000-8000-000000000001",
+        patrullaId: "patrulla-123",
+      };
+
+      const resultado = CrearMisionVerificacionSchema.safeParse(payload);
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(resultado.error.issues[0].message).toContain("identificador de la patrulla verificadora debe ser un UUID válido");
+      }
+    });
+
+    it("debe fallar si el título tiene menos de 3 caracteres", () => {
+      const payload = {
+        incidenteId: "50000000-0000-4000-8000-000000000001",
+        patrullaId: "f1000000-0000-4000-8000-000000000001",
+        titulo: "Ok",
+      };
+
+      const resultado = CrearMisionVerificacionSchema.safeParse(payload);
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(resultado.error.issues[0].message).toContain("al menos 3 caracteres");
+      }
+    });
+  });
+
+  describe("AsignarCuadrillaMisionInputSchema (HU-21)", () => {
+    it("debe validar correctamente un input completo con prioridad explícita", () => {
+      const input = {
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId: "30000000-0000-4000-8000-000000000001",
+        cuadrillaId: "50000000-0000-4000-8000-000000000001",
+        titulo: "Despeje táctico de calzada",
+        descripcion: "Instrucciones de terreno",
+        prioridad: "CRITICA",
+      };
+
+      const resultado = AsignarCuadrillaMisionInputSchema.safeParse(input);
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.tipoMision).toBe("ATENCION_CUADRILLA");
+        expect(resultado.data.prioridad).toBe("CRITICA");
+      }
+    });
+
+    it("debe validar correctamente un input mínimo opcional (sin título, descripción ni prioridad)", () => {
+      const input = {
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId: "30000000-0000-4000-8000-000000000001",
+        cuadrillaId: "50000000-0000-4000-8000-000000000001",
+      };
+
+      const resultado = AsignarCuadrillaMisionInputSchema.safeParse(input);
+      expect(resultado.success).toBe(true);
+    });
+
+    it("debe rechazar un tipoMision distinto a 'ATENCION_CUADRILLA'", () => {
+      const input = {
+        tipoMision: "VERIFICACION",
+        incidenteId: "30000000-0000-4000-8000-000000000001",
+        cuadrillaId: "50000000-0000-4000-8000-000000000001",
+      };
+
+      const resultado = AsignarCuadrillaMisionInputSchema.safeParse(input);
+      expect(resultado.success).toBe(false);
+    });
+
+    it("debe rechazar identificadores UUID malformados", () => {
+      const input = {
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId: "invalido",
+        cuadrillaId: "123",
+      };
+
+      const resultado = AsignarCuadrillaMisionInputSchema.safeParse(input);
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(resultado.error.issues.length).toBeGreaterThanOrEqual(2);
+      }
+    });
+  });
 });
+

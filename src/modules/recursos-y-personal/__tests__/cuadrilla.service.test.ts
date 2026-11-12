@@ -14,6 +14,7 @@ import {
   NotFoundError,
   ConflictError,
   ForbiddenError,
+  UnauthorizedError,
 } from "@/modules/seguridad/errors";
 
 describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
@@ -114,32 +115,129 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
       rolNombre: "Administrador",
       activo: true,
     });
+    // Por defecto el funcionario candidato no está asignado a ninguna cuadrilla activa
+    vi.spyOn(repo, "verificarDelegadoAsignadoAOtraCuadrilla").mockResolvedValue({
+      asignado: false,
+      rolEnOtra: null,
+      cuadrillaNombre: null,
+    });
     vi.spyOn(socketModule, "emitirCuadrillaCreada").mockImplementation(() => {});
     vi.spyOn(socketModule, "emitirCuadrillaActualizada").mockImplementation(() => {});
   });
 
   describe("listarCuadrillas", () => {
-    it("debe retornar listado paginado con filtros", async () => {
-      vi.spyOn(repo, "listarCuadrillasPaginadas").mockResolvedValue({
+    it("caso 1: debe retornar listado con filtros combinados (delegacionId + estado)", async () => {
+      const spyRepo = vi.spyOn(repo, "listarCuadrillasPaginadas").mockResolvedValue({
         cuadrillas: [resultadoConsolidadoMock],
         total: 1,
       });
 
-      const res = await listarCuadrillas({ pagina: 1, limite: 10, busqueda: "Vias" }, usuarioAdminId);
+      const res = await listarCuadrillas(
+        { delegacionId, estado: "DISPONIBLE" },
+        usuarioAdminId
+      );
 
+      expect(spyRepo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          delegacionId,
+          estado: "DISPONIBLE",
+          pagina: 1,
+          limite: 10,
+        })
+      );
       expect(res.data).toHaveLength(1);
+      expect(res.data[0].id).toBe(cuadrillaId);
       expect(res.meta.total).toBe(1);
       expect(res.meta.paginasTotales).toBe(1);
       expect(res.data[0].totalRecursos).toBe(1);
       expect(res.data[0].totalTrabajadores).toBe(1);
     });
 
-    it("debe rechazar si el usuario no tiene permisos", async () => {
+    it("caso 2: debe manejar caso sin cuadrillas retornando data vacía y total=0", async () => {
+      vi.spyOn(repo, "listarCuadrillasPaginadas").mockResolvedValue({
+        cuadrillas: [],
+        total: 0,
+      });
+
+      const res = await listarCuadrillas({}, usuarioAdminId);
+
+      expect(res.data).toEqual([]);
+      expect(res.meta.total).toBe(0);
+      expect(res.meta.paginasTotales).toBe(1);
+      expect(res.meta.totalPages).toBe(0);
+    });
+
+    it("caso 3: debe calcular correctamente offset, paginasTotales y metadatos H34 en segunda página", async () => {
+      const spyRepo = vi.spyOn(repo, "listarCuadrillasPaginadas").mockResolvedValue({
+        cuadrillas: [resultadoConsolidadoMock],
+        total: 15,
+      });
+
+      const res = await listarCuadrillas({ pagina: 2, limite: 5 }, usuarioAdminId);
+
+      expect(spyRepo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pagina: 2,
+          limite: 5,
+        })
+      );
+      expect(res.meta.pagina).toBe(2);
+      expect(res.meta.limite).toBe(5);
+      expect(res.meta.paginasTotales).toBe(3);
+      expect(res.meta.page).toBe(2);
+      expect(res.meta.limit).toBe(5);
+      expect(res.meta.totalPages).toBe(3);
+      expect(res.meta.hasNext).toBe(true);
+      expect(res.meta.hasPrev).toBe(true);
+    });
+
+    it("caso 4: debe respetar los alias page y limit cuando no se envía pagina/limite", async () => {
+      const spyRepo = vi.spyOn(repo, "listarCuadrillasPaginadas").mockResolvedValue({
+        cuadrillas: [resultadoConsolidadoMock],
+        total: 15,
+      });
+
+      const res = await listarCuadrillas({ page: 2, limit: 5 }, usuarioAdminId);
+
+      expect(spyRepo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pagina: 2,
+          limite: 5,
+        })
+      );
+      expect(res.meta.page).toBe(2);
+      expect(res.meta.limit).toBe(5);
+    });
+
+    it("caso 5: usuarioId=null (sin auth) propaga UnauthorizedError", async () => {
+      vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValue(
+        new UnauthorizedError("No autorizado")
+      );
+
+      await expect(listarCuadrillas({}, null)).rejects.toThrow(UnauthorizedError);
+    });
+
+    it("caso 6: sin permisos propaga ForbiddenError", async () => {
       vi.spyOn(seguridadService, "validarAccesoAdministrador").mockRejectedValue(
         new ForbiddenError("Acceso denegado")
       );
 
       await expect(listarCuadrillas({}, "usuario-invalido")).rejects.toThrow(ForbiddenError);
+    });
+
+    it("caso 7: con busqueda llama al repositorio con el término de búsqueda correcto", async () => {
+      const spyRepo = vi.spyOn(repo, "listarCuadrillasPaginadas").mockResolvedValue({
+        cuadrillas: [resultadoConsolidadoMock],
+        total: 1,
+      });
+
+      await listarCuadrillas({ busqueda: "texto" }, usuarioAdminId);
+
+      expect(spyRepo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          busqueda: "texto",
+        })
+      );
     });
 
     it("debe listar cuadrillas inactivas cuando se solicita estado INACTIVAS o activo false (BUG-H82-API-03)", async () => {
@@ -286,6 +384,56 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
       vi.spyOn(repo, "obtenerDelegacionPorId").mockResolvedValue(undefined);
 
       await expect(crearCuadrilla(inputCrear, usuarioAdminId)).rejects.toThrow(NotFoundError);
+    });
+
+    it("debe rechazar con ConflictError si el delegado ya lidera o integra otra cuadrilla activa", async () => {
+      vi.spyOn(repo, "buscarCuadrillaPorNombre").mockResolvedValue(undefined);
+      vi.spyOn(repo, "obtenerDelegacionPorId").mockResolvedValue(delegacionMock);
+      vi.spyOn(repo, "obtenerUsuarioPorId").mockResolvedValue(delegadoMock);
+      vi.spyOn(repo, "verificarDelegadoAsignadoAOtraCuadrilla").mockResolvedValue({
+        asignado: true,
+        rolEnOtra: "delegado",
+        cuadrillaNombre: "Cuadrilla Existente",
+      });
+      const spyInsertar = vi.spyOn(repo, "insertarCuadrillaConDelegado");
+
+      await expect(crearCuadrilla(inputCrear, usuarioAdminId)).rejects.toThrow(ConflictError);
+      expect(spyInsertar).not.toHaveBeenCalled();
+    });
+
+    it("debe rechazar con BadRequestError si el delegado no tiene rol brigadista ni delegado de cuadrilla", async () => {
+      vi.spyOn(repo, "buscarCuadrillaPorNombre").mockResolvedValue(undefined);
+      vi.spyOn(repo, "obtenerDelegacionPorId").mockResolvedValue(delegacionMock);
+      vi.spyOn(repo, "obtenerUsuarioPorId").mockResolvedValue({
+        ...delegadoMock,
+        rol_codigo: "ENCARGADO",
+      });
+      const spyInsertar = vi.spyOn(repo, "insertarCuadrillaConDelegado");
+
+      await expect(crearCuadrilla(inputCrear, usuarioAdminId)).rejects.toThrow(BadRequestError);
+      expect(spyInsertar).not.toHaveBeenCalled();
+    });
+
+    it("debe permitir designar como delegado a un delegado de cuadrilla ya constituido", async () => {
+      vi.spyOn(repo, "buscarCuadrillaPorNombre").mockResolvedValue(undefined);
+      vi.spyOn(repo, "obtenerDelegacionPorId").mockResolvedValue(delegacionMock);
+      vi.spyOn(repo, "obtenerUsuarioPorId").mockResolvedValue({
+        ...delegadoMock,
+        rol_codigo: "DELEGADO_CUADRILLA",
+      });
+      vi.spyOn(repo, "obtenerRolPorCodigo").mockResolvedValue(rolDelegadoMock);
+      vi.spyOn(repo, "insertarCuadrillaConDelegado").mockResolvedValue({
+        ...resultadoConsolidadoMock,
+        nombre: inputCrear.nombre,
+      });
+
+      const res = await crearCuadrilla(inputCrear, usuarioAdminId);
+
+      expect(res.nombre).toBe(inputCrear.nombre);
+      expect(repo.verificarDelegadoAsignadoAOtraCuadrilla).toHaveBeenCalledWith(
+        inputCrear.usuarioDelegadoId,
+        null
+      );
     });
   });
 
