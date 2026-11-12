@@ -12,6 +12,7 @@ import {
   type FilaEventoAsistenciaSocialConRelaciones,
   type DatosInsertarEventoAsistenciaSocialRepo,
 } from "./asistencia-social.repository";
+import { obtenerEstadoEventoAtp } from "./evento-atp.repository";
 import {
   CrearEventoAsistenciaSocialInputSchema,
   ListarEventosAsistenciaSocialQuerySchema,
@@ -24,9 +25,21 @@ import {
 } from "./asistencia-social.schema";
 
 /**
- * Mapea una fila de base de datos relacional al formato canónico de respuesta de la API.
+ * Error de negocio cuando el Evento ATP solicitado no existe o no está ACTIVO (H60).
  */
-export function mapearFilaEventoAsistenciaSocial(
+export class EventoAtpVinculacionError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: 404 | 409
+  ) {
+    super(message);
+    this.name = "EventoAtpVinculacionError";
+  }
+}
+
+/**
+ * Mapea una fila de base de datos relacional al formato canónico de respuesta de la API.
+ */export function mapearFilaEventoAsistenciaSocial(
   fila: FilaEventoAsistenciaSocialConRelaciones
 ): EventoAsistenciaSocialResponse {
   return {
@@ -47,6 +60,7 @@ export function mapearFilaEventoAsistenciaSocial(
     delegacionId: fila.delegacion_id ?? null,
     delegacionNombre: fila.delegacion_nombre ?? null,
     incidenteId: fila.incidente_id ?? null,
+    eventoAtpId: fila.evento_atp_id ?? null,
     asistenteSocialId: fila.asistente_social_id ?? null,
     asistenteSocialNombre: fila.asistente_social_nombre ?? null,
     creadoPor: {
@@ -81,6 +95,25 @@ export async function crearEventoAsistenciaSocialService(
   // 2. Validar estructura de datos
   const datosValidados = CrearEventoAsistenciaSocialInputSchema.parse(input);
 
+  // 2.b Validar Evento ATP si se solicitó vincular (H60)
+  if (datosValidados.eventoAtpId) {
+    const eventoAtp = await obtenerEstadoEventoAtp(datosValidados.eventoAtpId);
+
+    if (!eventoAtp) {
+      throw new EventoAtpVinculacionError(
+        "El Evento ATP indicado no fue encontrado.",
+        404
+      );
+    }
+
+    if (eventoAtp.estado !== "ACTIVO") {
+      throw new EventoAtpVinculacionError(
+        `El Evento ATP '${eventoAtp.codigo}' no está ACTIVO y no admite vinculaciones.`,
+        409
+      );
+    }
+  }
+
   // 3. Generar código correlativo oficial (AS-YYYY-XXXX)
   const codigo = await generarSiguienteCodigoAsistenciaSocial();
 
@@ -100,6 +133,7 @@ export async function crearEventoAsistenciaSocialService(
     contactoRut: datosValidados.contactoRut,
     delegacionId: datosValidados.delegacionId,
     incidenteId: datosValidados.incidenteId ?? null,
+    eventoAtpId: datosValidados.eventoAtpId ?? null,
     creadoPorId: usuario.id,
   };
 

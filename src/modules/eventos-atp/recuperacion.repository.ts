@@ -1,4 +1,5 @@
 import { sql, type Transaction } from "kysely";
+import { db } from "@/lib/db";
 import type { Database, EstadoRecurso, EstadoPatrulla, EstadoOperativo, PrioridadIncidente } from "@/lib/db/types";
 
 export type KyselyTrx = Transaction<Database>;
@@ -16,6 +17,7 @@ export interface DatosInsertarRecuperacionRepo {
   longitud: number;
   familiasAfectadas: number;
   delegacionId?: string | null;
+  eventoAtpId?: string | null;
   creadoPorId: string;
 }
 
@@ -106,6 +108,7 @@ export async function insertarRecuperacion(trx: KyselyTrx, datos: DatosInsertarR
       estado: "PLANIFICADA",
       familias_afectadas: datos.familiasAfectadas,
       delegacion_id: datos.delegacionId ?? null,
+      evento_atp_id: datos.eventoAtpId ?? null,
       creado_por_id: datos.creadoPorId,
     })
     .returningAll()
@@ -229,4 +232,61 @@ export async function buscarDelegacionPorId(trx: KyselyTrx, delegacionId: string
     .select(["id", "codigo", "codigo_delegacion", "nombre", "nombre_delegacion"])
     .where("id", "=", delegacionId)
     .executeTakeFirst();
+}
+
+/* ==========================================================================
+   H60 - Listado de operativos de recuperación
+   ========================================================================== */
+
+export interface FiltrosListarRecuperaciones {
+  estado?: string;
+  delegacionId?: string;
+  eventoAtpId?: string;
+}
+
+export async function listarRecuperacionesPaginadas(
+  filtros: FiltrosListarRecuperaciones,
+  paginacion: { pagina: number; limite: number }
+) {
+  const construirBase = () => {
+    let query = db.selectFrom("recuperacion");
+
+    if (filtros.estado) {
+      query = query.where("estado", "=", filtros.estado as never);
+    }
+
+    if (filtros.delegacionId) {
+      query = query.where("delegacion_id", "=", filtros.delegacionId);
+    }
+
+    if (filtros.eventoAtpId) {
+      query = query.where("evento_atp_id", "=", filtros.eventoAtpId);
+    }
+
+    return query;
+  };
+
+  const totalFila = await construirBase()
+    .select(sql<number>`count(*)::int`.as("total"))
+    .executeTakeFirst();
+
+  const filas = await construirBase()
+    .select([
+      "id",
+      "codigo",
+      "nombre",
+      "descripcion",
+      "sector",
+      "prioridad",
+      "estado",
+      "delegacion_id",
+      "evento_atp_id",
+      "creado_en",
+    ])
+    .orderBy("creado_en", "desc")
+    .limit(paginacion.limite)
+    .offset((paginacion.pagina - 1) * paginacion.limite)
+    .execute();
+
+  return { filas, total: Number(totalFila?.total ?? 0) };
 }

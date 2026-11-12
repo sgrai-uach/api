@@ -89,6 +89,7 @@ describe("Route Handler GET /api/incidentes (Tablero Kanban)", () => {
           informanteNombre: "Vecino",
           delegacionNombre: "Sur",
           totalMisiones: 0,
+          eventoAtpId: null,
           creadoEn: "2026-09-22T10:00:00.000Z",
           actualizadoEn: "2026-09-22T10:00:00.000Z",
         },

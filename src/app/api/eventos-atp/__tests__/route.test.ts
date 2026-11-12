@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { POST } from "../route";
+import { POST, GET } from "../route";
 import * as eventoAtpService from "@/modules/eventos-atp/evento-atp.service";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import {
   ForbiddenError,
 } from "@/modules/seguridad/errors";
-import type { EventoAtpResponse } from "@/modules/eventos-atp/evento-atp.schema";
+import type {
+  EventoAtpResponse,
+  ListarEventosAtpResponse,
+} from "@/modules/eventos-atp/evento-atp.schema";
 
 describe("Route Handler POST /api/eventos-atp (H61)", () => {
   const adminId = "00000000-0000-4000-8000-000000000001";
@@ -129,5 +132,106 @@ describe("Route Handler POST /api/eventos-atp (H61)", () => {
       codigo: "ATP-2026-0001",
       estado: "ACTIVO",
     });
+  });
+});
+
+describe("Route Handler GET /api/eventos-atp (H60)", () => {
+  const encargadoId = "00000000-0000-4000-8000-000000000003";
+
+  const respuestaListado: ListarEventosAtpResponse = {
+    message: "Listado de Eventos ATP obtenido exitosamente.",
+    data: [
+      {
+        id: "50000000-0000-4000-8000-000000000001",
+        codigo: "ATP-2026-0001",
+        nombre: "Sistema Frontal Mayo 2026",
+        descripcion: "Sistema frontal con precipitaciones intensas.",
+        tipoAmenaza: "METEOROLOGICA",
+        nivelAlerta: "AMARILLA",
+        fechaInicio: "2026-05-01T10:00:00.000Z",
+        fechaTermino: "2026-05-03T18:00:00.000Z",
+        estado: "ACTIVO",
+        delegaciones: [],
+        creadoPorId: encargadoId,
+        creadoEn: "2026-05-01T09:55:00.000Z",
+        actualizadoEn: "2026-05-01T09:55:00.000Z",
+        totalVinculados: 3,
+      },
+    ],
+    meta: {
+      total: 1,
+      page: 1,
+      limit: 20,
+      totalPages: 1,
+      hasNext: false,
+      hasPrev: false,
+    },
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("debe responder 401 si no hay usuario autenticado", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(null);
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp", {
+      method: "GET",
+    });
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(401);
+  });
+
+  it("debe responder 400 ante parámetros de consulta inválidos", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(encargadoId);
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp?estado=DESCONOCIDO",
+      { method: "GET" }
+    );
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(400);
+  });
+
+  it("debe responder 200 con el listado de Eventos ATP", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(encargadoId);
+    vi.spyOn(eventoAtpService, "listarEventosAtpService").mockResolvedValueOnce(
+      respuestaListado
+    );
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp?estado=ACTIVO",
+      { method: "GET" }
+    );
+
+    const res = await GET(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.data).toHaveLength(1);
+    expect(json.data[0].totalVinculados).toBe(3);
+    expect(eventoAtpService.listarEventosAtpService).toHaveBeenCalledWith(
+      expect.objectContaining({ estado: "ACTIVO" }),
+      encargadoId
+    );
+  });
+
+  it("debe responder 403 si el control RBAC lo rechaza", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(encargadoId);
+    vi.spyOn(eventoAtpService, "listarEventosAtpService").mockRejectedValueOnce(
+      new ForbiddenError()
+    );
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp", {
+      method: "GET",
+    });
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(403);
   });
 });

@@ -331,7 +331,7 @@ export type TipoAmenazaEventoAtp =
 
 export type NivelAlertaEventoAtp = "VERDE" | "AMARILLA" | "ROJA";
 
-export type EstadoEventoAtp = "ACTIVO" | "CERRADO" | "CANCELADO";
+export type EstadoEventoAtp = "ACTIVO" | "FINALIZADO" | "CANCELADO";
 
 export interface EventoAtpTable {
   id: Generated<string>;

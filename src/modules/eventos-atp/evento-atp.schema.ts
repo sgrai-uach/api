@@ -1,5 +1,13 @@
 import { z } from "zod";
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import {
+  PaginationMetaSchema,
+  PaginationQuerySchema,
+} from "@/lib/shared/pagination.schema";
+import {
+  EntidadVinculadaResumenSchema,
+  VinculoNoEncontradoSchema,
+} from "./vinculacion.schema";
 
 extendZodWithOpenApi(z);
 
@@ -30,7 +38,7 @@ export type NivelAlertaEventoAtp = z.infer<typeof NivelAlertaEventoAtpSchema>;
  * Estados del ciclo de vida de un Evento ATP.
  * Todo evento nuevo se persiste en estado ACTIVO.
  */
-export const EstadoEventoAtpSchema = z.enum(["ACTIVO", "CERRADO", "CANCELADO"]);
+export const EstadoEventoAtpSchema = z.enum(["ACTIVO", "FINALIZADO", "CANCELADO"]);
 
 export type EstadoEventoAtp = z.infer<typeof EstadoEventoAtpSchema>;
 
@@ -240,3 +248,136 @@ export const CrearEventoAtpResponseSchema = z.object({
 export type CrearEventoAtpResponse = z.infer<
   typeof CrearEventoAtpResponseSchema
 >;
+
+/* ==========================================================================
+   H60 - Listado, detalle y vinculación de entidades
+   ========================================================================== */
+
+/**
+ * Parámetros de consulta del catálogo de Eventos ATP.
+ */
+export const ListarEventosAtpQuerySchema = PaginationQuerySchema.extend({
+  estado: EstadoEventoAtpSchema.optional().openapi({
+    description: "Filtrar por estado del ciclo de vida del Evento ATP",
+    example: "ACTIVO",
+  }),
+  delegacionId: z
+    .string()
+    .uuid("El identificador de delegación debe ser un UUID válido")
+    .optional()
+    .openapi({
+      description: "Filtrar por delegación territorial afectada",
+      example: "30000000-0000-4000-8000-000000000001",
+    }),
+  busqueda: z.string().trim().max(150).optional().openapi({
+    description: "Búsqueda textual por código o nombre del evento",
+    example: "Sistema frontal",
+  }),
+});
+
+export type ListarEventosAtpQuery = z.infer<typeof ListarEventosAtpQuerySchema>;
+
+/**
+ * Entidad vinculable resumida para el detalle de un Evento ATP.
+ */
+export const EntidadVinculadaEventoAtpSchema = z.object({
+  id: z.string().uuid(),
+  codigo: z.string(),
+  nombre: z.string().nullable(),
+  estado: z.string().nullable(),
+  creadoEn: z.string().datetime(),
+});
+
+export type EntidadVinculadaEventoAtp = z.infer<
+  typeof EntidadVinculadaEventoAtpSchema
+>;
+
+/**
+ * Conjunto de entidades vinculadas a un Evento ATP, agrupadas por tipo.
+ */
+export const VinculosEventoAtpSchema = z.object({
+  incidentes: z.array(EntidadVinculadaEventoAtpSchema),
+  eventosPrevencion: z.array(EntidadVinculadaEventoAtpSchema),
+  recuperaciones: z.array(EntidadVinculadaEventoAtpSchema),
+  eventosAsistenciaSocial: z.array(EntidadVinculadaEventoAtpSchema),
+});
+
+export type VinculosEventoAtp = z.infer<typeof VinculosEventoAtpSchema>;
+
+/**
+ * Resumen de Evento ATP para listados y selectores.
+ */
+export const EventoAtpResumenSchema = EventoAtpResponseSchema.extend({
+  totalVinculados: z.number().int().openapi({
+    description: "Cantidad total de entidades vinculadas al Evento ATP",
+    example: 12,
+  }),
+});
+
+export type EventoAtpResumen = z.infer<typeof EventoAtpResumenSchema>;
+
+/**
+ * Detalle de Evento ATP con sus entidades vinculadas.
+ */
+export const EventoAtpDetalleSchema = EventoAtpResponseSchema.extend({
+  vinculos: VinculosEventoAtpSchema,
+  totalVinculados: z.number().int(),
+});
+
+export type EventoAtpDetalle = z.infer<typeof EventoAtpDetalleSchema>;
+
+export const ListarEventosAtpResponseSchema = z.object({
+  message: z.string().openapi({
+    example: "Listado de Eventos ATP obtenido exitosamente.",
+  }),
+  data: z.array(EventoAtpResumenSchema),
+  meta: PaginationMetaSchema,
+});
+
+export type ListarEventosAtpResponse = z.infer<
+  typeof ListarEventosAtpResponseSchema
+>;
+
+export const ObtenerEventoAtpResponseSchema = z.object({
+  message: z.string().openapi({
+    example: "Evento ATP obtenido exitosamente.",
+  }),
+  data: EventoAtpDetalleSchema,
+});
+
+export type ObtenerEventoAtpResponse = z.infer<
+  typeof ObtenerEventoAtpResponseSchema
+>;
+
+/**
+ * Resultado de una operación de vinculación o desvinculación en lote.
+ */
+export const ResultadoVinculacionSchema = z.object({
+  eventoAtpId: z.string().uuid(),
+  accion: z.enum(["VINCULADO", "DESVINCULADO"]),
+  entidades: z.object({
+    incidentes: z.array(EntidadVinculadaResumenSchema),
+    eventosPrevencion: z.array(EntidadVinculadaResumenSchema),
+    recuperaciones: z.array(EntidadVinculadaResumenSchema),
+    eventosAsistenciaSocial: z.array(EntidadVinculadaResumenSchema),
+  }),
+  reasignadas: z.array(EntidadVinculadaResumenSchema),
+  noEncontradas: z.array(VinculoNoEncontradoSchema),
+  noDesvinculadas: z.array(EntidadVinculadaResumenSchema),
+  vinculadoPorId: z.string().uuid(),
+  ocurridoEn: z.string().datetime(),
+});
+
+export type ResultadoVinculacion = z.infer<typeof ResultadoVinculacionSchema>;
+
+export const VincularEntidadesResponseSchema = z.object({
+  message: z.string().openapi({
+    example: "Entidades vinculadas al Evento ATP exitosamente.",
+  }),
+  data: ResultadoVinculacionSchema,
+});
+
+export type VincularEntidadesResponse = z.infer<
+  typeof VincularEntidadesResponseSchema
+>;
+

@@ -45,6 +45,7 @@ import {
   CrearCuadrillaResponseSchema,
   EditarCuadrillaInputSchema,
   EditarCuadrillaResponseSchema,
+  ListarCuadrillasQuerySchema,
   ListarCuadrillasResponseSchema,
   DetalleCuadrillaResponseSchema,
   CuadrillaIdParamSchema,
@@ -134,6 +135,8 @@ import {
   CrearEventoRecuperacionInputSchema,
   CrearEventoRecuperacionResponseSchema,
   EventoRecuperacionResponseSchema,
+  ListarRecuperacionesQuerySchema,
+  ListarRecuperacionesResponseSchema,
 } from "@/modules/eventos-atp/recuperacion.schema";
 
 import {
@@ -151,13 +154,21 @@ import {
 import {
   CrearEventoPrevencionInputSchema,
   CrearEventoPrevencionResponseSchema,
+  ListarEventosPrevencionQuerySchema,
+  ListarEventosPrevencionResponseSchema,
 } from "@/modules/eventos-atp/evento-prevencion.schema";
 
 import {
   CrearEventoAtpInputSchema,
   CrearEventoAtpResponseSchema,
   EventoAtpResponseSchema,
+  ListarEventosAtpQuerySchema,
+  ListarEventosAtpResponseSchema,
+  ObtenerEventoAtpResponseSchema,
+  VincularEntidadesResponseSchema,
 } from "@/modules/eventos-atp/evento-atp.schema";
+
+import { VincularEntidadesInputSchema } from "@/modules/eventos-atp/vinculacion.schema";
 
 extendZodWithOpenApi(z);
 
@@ -237,6 +248,13 @@ registry.register("ListarEventosAsistenciaSocialResponse", ListarEventosAsistenc
 registry.register("CrearEventoAtpInput", CrearEventoAtpInputSchema);
 registry.register("EventoAtpResponse", EventoAtpResponseSchema);
 registry.register("CrearEventoAtpResponse", CrearEventoAtpResponseSchema);
+registry.register("ListarEventosAtpQuery", ListarEventosAtpQuerySchema);
+registry.register("ListarEventosAtpResponse", ListarEventosAtpResponseSchema);
+registry.register("ObtenerEventoAtpResponse", ObtenerEventoAtpResponseSchema);
+registry.register("VincularEntidadesInput", VincularEntidadesInputSchema);
+registry.register("VincularEntidadesResponse", VincularEntidadesResponseSchema);
+registry.register("ListarEventosPrevencionResponse", ListarEventosPrevencionResponseSchema);
+registry.register("ListarRecuperacionesResponse", ListarRecuperacionesResponseSchema);
 
 // ==========================================
 // RUTAS RECURSOS Y PERSONAL
@@ -2142,6 +2160,12 @@ registry.registerPath({
     "Retorna el listado paginado de cuadrillas operativas con soporte para filtros de texto, delegación y estado.",
   tags: ["Cuadrillas", "Recursos y Personal"],
   security: [{ BearerAuth: [] }],
+  request: {
+    query: ListarCuadrillasQuerySchema,
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión"),
+    }),
+  },
   responses: {
     200: {
       description: "Listado de cuadrillas obtenido exitosamente",
@@ -2226,6 +2250,9 @@ registry.registerPath({
   security: [{ BearerAuth: [] }],
   request: {
     params: CuadrillaIdParamSchema,
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión"),
+    }),
   },
   responses: {
     200: {
@@ -2265,6 +2292,9 @@ registry.registerPath({
   security: [{ BearerAuth: [] }],
   request: {
     params: CuadrillaIdParamSchema,
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión"),
+    }),
     body: {
       description: "Datos actualizados de la cuadrilla y dotación logística",
       content: {
@@ -2315,6 +2345,9 @@ registry.registerPath({
   security: [{ BearerAuth: [] }],
   request: {
     params: CuadrillaIdParamSchema,
+    headers: z.object({
+      authorization: z.string().describe("Token Bearer JWT de sesión"),
+    }),
   },
   responses: {
     200: {
@@ -2356,7 +2389,12 @@ registry.registerPath({
   tags: ["Misiones"],
   security: [{ bearerAuth: [] }],
   request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z.string().optional().describe("Identificador del usuario autenticado"),
+    }),
     body: {
+      required: true,
       content: {
         "application/json": {
           schema: CrearMisionVerificacionSchema,
@@ -2441,6 +2479,180 @@ registry.registerPath({
     500: {
       description: "Error interno del servidor al procesar la solicitud",
     },
+  },
+});
+
+// 29. GET /api/eventos-atp (H60)
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp",
+  summary: "Listar Eventos ATP",
+  description:
+    "Lista los Eventos ATP con filtros por estado, delegación y búsqueda textual. Alimenta los selectores de vinculación y el listado administrativo. Requiere el permiso eventos_atp:vincular.",
+  tags: ["Eventos ATP"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    query: ListarEventosAtpQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado paginado de Eventos ATP",
+      content: {
+        "application/json": { schema: ListarEventosAtpResponseSchema },
+      },
+    },
+    400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Requiere permiso eventos_atp:vincular" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 30. GET /api/eventos-atp/{id} (H60)
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/{id}",
+  summary: "Detalle de Evento ATP",
+  description:
+    "Obtiene el detalle de un Evento ATP junto con las entidades vinculadas agrupadas por tipo (incidentes, prevención, recuperación y asistencia social). Requiere el permiso eventos_atp:vincular.",
+  tags: ["Eventos ATP"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: z.string().uuid().openapi({ description: "UUID del Evento ATP" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del Evento ATP",
+      content: {
+        "application/json": { schema: ObtenerEventoAtpResponseSchema },
+      },
+    },
+    400: { description: "Identificador inválido" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Requiere permiso eventos_atp:vincular" },
+    404: { description: "Evento ATP no encontrado" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 31. POST /api/eventos-atp/{id}/vinculos (H60)
+registry.registerPath({
+  method: "post",
+  path: "/api/eventos-atp/{id}/vinculos",
+  summary: "Vincular entidades a un Evento ATP",
+  description:
+    "Vincula en lote incidentes, eventos de prevención, operativos de recuperación y casos de asistencia social a un Evento ATP ACTIVO. Reasigna entidades que pertenecían a otro Evento ATP y las reporta en reasignadas. Emite evento_atp:vinculado a las salas encargado, supervisor y mapa. Requiere el permiso eventos_atp:vincular.",
+  tags: ["Eventos ATP"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: z.string().uuid().openapi({ description: "UUID del Evento ATP" }),
+    }),
+    body: {
+      required: true,
+      content: {
+        "application/json": { schema: VincularEntidadesInputSchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Entidades vinculadas",
+      content: {
+        "application/json": { schema: VincularEntidadesResponseSchema },
+      },
+    },
+    400: { description: "Solicitud inválida o sin entidades" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Requiere permiso eventos_atp:vincular" },
+    404: { description: "Evento ATP no encontrado" },
+    409: { description: "El Evento ATP no está ACTIVO" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 32. DELETE /api/eventos-atp/{id}/vinculos (H60)
+registry.registerPath({
+  method: "delete",
+  path: "/api/eventos-atp/{id}/vinculos",
+  summary: "Desvincular entidades de un Evento ATP",
+  description:
+    "Establece evento_atp_id = NULL en las entidades indicadas sin eliminar sus registros. Solo desvincula registros que pertenecen al Evento ATP señalado y reporta el resto en noDesvinculadas. Emite evento_atp:vinculado con acción DESVINCULADO. Requiere el permiso eventos_atp:vincular.",
+  tags: ["Eventos ATP"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: z.string().uuid().openapi({ description: "UUID del Evento ATP" }),
+    }),
+    body: {
+      required: true,
+      content: {
+        "application/json": { schema: VincularEntidadesInputSchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Entidades desvinculadas",
+      content: {
+        "application/json": { schema: VincularEntidadesResponseSchema },
+      },
+    },
+    400: { description: "Solicitud inválida o sin entidades" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Requiere permiso eventos_atp:vincular" },
+    404: { description: "Evento ATP no encontrado" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 33. GET /api/eventos-atp/prevencion (H60)
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/prevencion",
+  summary: "Listar eventos de prevención",
+  description:
+    "Lista los eventos de prevención con filtro opcional por Evento ATP, estado y delegación. Requiere el permiso eventos_atp:vincular.",
+  tags: ["Eventos ATP"],
+  security: [{ bearerAuth: [] }],
+  request: { query: ListarEventosPrevencionQuerySchema },
+  responses: {
+    200: {
+      description: "Listado paginado de eventos de prevención",
+      content: {
+        "application/json": { schema: ListarEventosPrevencionResponseSchema },
+      },
+    },
+    400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 34. GET /api/eventos-atp/recuperacion (H60)
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion",
+  summary: "Listar operativos de recuperación",
+  description:
+    "Lista los operativos de recuperación con filtro opcional por Evento ATP, estado y delegación. Requiere el permiso eventos_atp:vincular.",
+  tags: ["Eventos ATP"],
+  security: [{ bearerAuth: [] }],
+  request: { query: ListarRecuperacionesQuerySchema },
+  responses: {
+    200: {
+      description: "Listado paginado de operativos de recuperación",
+      content: {
+        "application/json": { schema: ListarRecuperacionesResponseSchema },
+      },
+    },
+    400: { description: "Parámetros de consulta inválidos" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado" },
+    500: { description: "Error interno del servidor" },
   },
 });
 

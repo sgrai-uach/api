@@ -36,6 +36,7 @@ export async function listarIncidentesKanbanService(
     informanteNombre: fila.informante_nombre,
     delegacionNombre: fila.delegacion_nombre,
     totalMisiones: Number(fila.total_misiones ?? 0),
+    eventoAtpId: fila.evento_atp_id ?? null,
     creadoEn:
       typeof fila.creado_en === "string"
         ? fila.creado_en
@@ -151,6 +152,7 @@ export async function obtenerDetalleIncidenteService(
       : null,
     misiones: misionesMapeadas,
     recursosAsociados,
+    eventoAtpId: incidente.evento_atp_id ?? null,
     creadoEn:
       typeof incidente.creado_en === "string"
         ? incidente.creado_en

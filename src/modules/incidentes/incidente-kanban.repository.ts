@@ -18,6 +18,7 @@ export interface FilaIncidenteResumen {
   informante_nombre: string | null;
   delegacion_nombre: string | null;
   total_misiones: number | string;
+  evento_atp_id: string | null;
   creado_en: Date | string;
   actualizado_en: Date | string;
 }
@@ -77,6 +78,15 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
     consultaBase = consultaBase.where("incidente.fuente_origen", "=", filtros.fuenteOrigen);
   }
 
+  // Filtro por Evento ATP (H60)
+  if (filtros.eventoAtpId) {
+    consultaBase = consultaBase.where(
+      "incidente.evento_atp_id",
+      "=",
+      filtros.eventoAtpId
+    );
+  }
+
   // Filtro Temporal por Fecha o soloHoy (Zona horaria Chile)
   if (filtros.fecha) {
     consultaBase = consultaBase
@@ -126,6 +136,7 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
       "incidente.prioridad",
       "incidente.requiere_asistencia_social",
       "incidente.fuente_origen",
+      "incidente.evento_atp_id",
       "informante.nombre as informante_nombre",
       "delegacion.nombre as delegacion_nombre",
       "incidente.creado_en",
@@ -171,6 +182,7 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
       "incidente.prioridad",
       "incidente.requiere_asistencia_social",
       "incidente.fuente_origen",
+      "incidente.evento_atp_id",
       "incidente.asterisk_call_id",
       "incidente.asterisk_caller_phone",
       "incidente.creado_en",

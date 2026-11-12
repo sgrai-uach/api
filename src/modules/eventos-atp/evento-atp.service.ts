@@ -1,16 +1,33 @@
 import { seguridadService } from "@/modules/seguridad/service";
-import { PERMISO_CREAR_EVENTO_ATP } from "@/modules/seguridad/permisos.constants";
-import { BadRequestError, ConflictError } from "@/modules/seguridad/errors";
+import {
+  PERMISO_CREAR_EVENTO_ATP,
+  PERMISO_VINCULAR_EVENTO_ATP,
+} from "@/modules/seguridad/permisos.constants";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+} from "@/modules/seguridad/errors";
 import { emitirEventoAtpCreado } from "@/lib/socket";
+import { buildPaginationMeta } from "@/lib/shared/pagination.schema";
 import {
   CrearEventoAtpInputSchema,
+  ListarEventosAtpQuerySchema,
   type CrearEventoAtpInput,
   type EventoAtpResponse,
+  type EventoAtpResumen,
+  type EventoAtpDetalle,
+  type ListarEventosAtpQuery,
+  type ListarEventosAtpResponse,
 } from "./evento-atp.schema";
 import {
   existeCodigoEventoAtp,
   insertarEventoAtpConDelegaciones,
   verificarDelegacionesExisten,
+  listarEventosAtpPaginadosRepo,
+  obtenerEventoAtpPorId,
+  obtenerVinculosEventoAtp,
+  contarVinculosEventoAtp,
   type DatosCrearEventoAtpRepo,
   type FilaEventoAtp,
   type FilaDelegacionEventoAtp,
@@ -112,4 +129,76 @@ export async function crearEventoAtpService(
   emitirEventoAtpCreado(respuesta);
 
   return respuesta;
+}
+
+/* ==========================================================================
+   H60 - Listado y detalle de Eventos ATP
+   ========================================================================== */
+
+/**
+ * Lista Eventos ATP con filtros y paginación.
+ * Requiere el permiso `eventos_atp:vincular` porque alimenta los selectores
+ * de vinculación y el detalle operativo del evento.
+ */
+export async function listarEventosAtpService(
+  query: ListarEventosAtpQuery,
+  usuarioId: string
+): Promise<ListarEventosAtpResponse> {
+  await seguridadService.validarAccesoRoles(usuarioId, [
+    PERMISO_VINCULAR_EVENTO_ATP,
+  ]);
+
+  const filtros = ListarEventosAtpQuerySchema.parse(query);
+  const { page, limit, ...filtrosRepo } = filtros;
+
+  const { eventos, delegaciones, total } = await listarEventosAtpPaginadosRepo(
+    filtrosRepo,
+    { page, limit }
+  );
+
+  const conteos = await Promise.all(
+    eventos.map((evento) => contarVinculosEventoAtp(evento.id))
+  );
+
+  const data: EventoAtpResumen[] = eventos.map((evento, indice) => ({
+    ...mapearEventoAtp(evento, delegaciones.get(evento.id) ?? []),
+    totalVinculados: conteos[indice],
+  }));
+
+  return {
+    message: "Listado de Eventos ATP obtenido exitosamente.",
+    data,
+    meta: buildPaginationMeta(total, page, limit),
+  };
+}
+
+/**
+ * Obtiene el detalle de un Evento ATP con sus entidades vinculadas.
+ */
+export async function obtenerEventoAtpDetalleService(
+  id: string,
+  usuarioId: string
+): Promise<EventoAtpDetalle> {
+  await seguridadService.validarAccesoRoles(usuarioId, [
+    PERMISO_VINCULAR_EVENTO_ATP,
+  ]);
+
+  const registro = await obtenerEventoAtpPorId(id);
+
+  if (!registro) {
+    throw new NotFoundError(`El Evento ATP '${id}' no existe en el sistema.`);
+  }
+
+  const vinculos = await obtenerVinculosEventoAtp(id);
+  const totalVinculados =
+    vinculos.incidentes.length +
+    vinculos.eventosPrevencion.length +
+    vinculos.recuperaciones.length +
+    vinculos.eventosAsistenciaSocial.length;
+
+  return {
+    ...mapearEventoAtp(registro.evento, registro.delegaciones),
+    vinculos,
+    totalVinculados,
+  };
 }

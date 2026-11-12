@@ -391,6 +391,38 @@ export function emitirEventoAtpCreado(payload: unknown): void {
 }
 
 /**
+ * Emite la notificación de vinculación/desvinculación de entidades a un
+ * Evento ATP (H60) a las salas operativas encargado, supervisor y mapa.
+ */
+export function emitirEventoAtpVinculado(payload: unknown): void {
+  const salas = ["encargado", "supervisor", "mapa"];
+
+  if (ioInstance) {
+    for (const sala of salas) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to(sala) as any).emit("evento_atp:vinculado", payload);
+    }
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    for (const sala of salas) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room: sala,
+            event: "evento_atp:vinculado",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
+  }
+}
+
+/**
  * Emite la notificación de nuevo evento de recuperación creado a las vistas de Encargado y al mapa interactivo.
  */
 export function emitirRecuperacionCreada(payload: unknown): void {

@@ -69,6 +69,14 @@ export const ListarIncidentesQuerySchema = PaginationQuerySchema.extend({
       description: "Filtrar únicamente incidentes registrados en el día actual (zona horaria Chile)",
       example: true,
     }),
+  eventoAtpId: z
+    .string()
+    .uuid("El identificador de Evento ATP debe ser un UUID válido")
+    .optional()
+    .openapi({
+      description: "Filtrar incidentes vinculados a un Evento ATP específico",
+      example: "50000000-0000-4000-8000-000000000001",
+    }),
 });
 
 export type ListarIncidentesQuery = z.infer<typeof ListarIncidentesQuerySchema>;
@@ -102,6 +110,7 @@ export const IncidenteResumenSchema = z.object({
   informanteNombre: z.string().nullable().openapi({ description: "Nombre de pila del ciudadano informante o null si anónimo" }),
   delegacionNombre: z.string().nullable().openapi({ description: "Nombre de la delegación territorial correspondiente" }),
   totalMisiones: z.number().openapi({ description: "Cantidad de misiones tácticas despachadas o generadas para este incidente" }),
+  eventoAtpId: z.string().uuid().nullable().openapi({ description: "UUID del Evento ATP vinculado, o null si no está agrupado" }),
   creadoEn: z.string().openapi({ description: "Fecha y hora de registro en formato ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Última fecha y hora de actualización en formato ISO 8601" }),
 });
@@ -216,6 +225,7 @@ export const IncidenteDetalleSchema = z.object({
     .openapi({ description: "Encargado de operaciones asignado" }),
   misiones: z.array(MisionDetalleSchema).openapi({ description: "Misiones tácticas vinculadas a la atención de este incidente" }),
   recursosAsociados: z.array(RecursoAsociadoSchema).openapi({ description: "Consolidado de recursos materiales y vehículos asignados en las misiones" }),
+  eventoAtpId: z.string().uuid().nullable().openapi({ description: "UUID del Evento ATP vinculado, o null si no está agrupado" }),
   creadoEn: z.string(),
   actualizadoEn: z.string(),
 });

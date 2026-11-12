@@ -110,4 +110,23 @@ describe("asistencia-social.schema - Validaciones Zod (H28)", () => {
       expect(parsed.data.prioridad).toBe("CRITICA");
     }
   });
+
+  it("debe aceptar el filtro eventoAtpId en el listado (H60)", () => {
+    const parsed = ListarEventosAsistenciaSocialQuerySchema.safeParse({
+      eventoAtpId: "50000000-0000-4000-8000-000000000001",
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.eventoAtpId).toBe(
+        "50000000-0000-4000-8000-000000000001"
+      );
+    }
+  });
+
+  it("debe rechazar un eventoAtpId inválido en el listado (H60)", () => {
+    const parsed = ListarEventosAsistenciaSocialQuerySchema.safeParse({
+      eventoAtpId: "no-es-uuid",
+    });
+    expect(parsed.success).toBe(false);
+  });
 });

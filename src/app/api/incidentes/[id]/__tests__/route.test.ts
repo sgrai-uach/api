@@ -107,6 +107,7 @@ describe("Route Handler GET /api/incidentes/[id]", () => {
       prioridad: "ALTA" as const,
       requiereAsistenciaSocial: false,
       fuenteOrigen: "CHATBOT",
+      eventoAtpId: null,
       asteriskCallId: null,
       asteriskCallerPhone: null,
       informante: {

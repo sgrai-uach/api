@@ -96,6 +96,25 @@ describe("Esquemas de Tablero Kanban e Incidentes", () => {
       }
     });
 
+    it("debe aceptar el filtro eventoAtpId con UUID válido (H60)", () => {
+      const resultado = ListarIncidentesQuerySchema.safeParse({
+        eventoAtpId: "50000000-0000-4000-8000-000000000001",
+      });
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.eventoAtpId).toBe(
+          "50000000-0000-4000-8000-000000000001"
+        );
+      }
+    });
+
+    it("debe rechazar un eventoAtpId que no sea UUID válido (H60)", () => {
+      const resultado = ListarIncidentesQuerySchema.safeParse({
+        eventoAtpId: "no-es-uuid",
+      });
+      expect(resultado.success).toBe(false);
+    });
+
     it("debe rechazar formato de fecha o UUID de delegacionId inválidos", () => {
       const fechaInvalida = ListarIncidentesQuerySchema.safeParse({ fecha: "03/10/2026" });
       expect(fechaInvalida.success).toBe(false);
@@ -123,6 +142,7 @@ describe("Esquemas de Tablero Kanban e Incidentes", () => {
         informanteNombre: "Juan Pérez",
         delegacionNombre: "Sur",
         totalMisiones: 2,
+        eventoAtpId: null,
         creadoEn: "2026-09-22T12:00:00.000Z",
         actualizadoEn: "2026-09-22T12:00:00.000Z",
       };
@@ -201,6 +221,7 @@ describe("Esquemas de Tablero Kanban e Incidentes", () => {
             cuadrillaNombre: "Cuadrilla Alfa Aguas Lluvias",
           },
         ],
+        eventoAtpId: null,
         creadoEn: "2026-09-22T12:00:00.000Z",
         actualizadoEn: "2026-09-22T13:10:00.000Z",
       };

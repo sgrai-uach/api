@@ -180,6 +180,7 @@ describe("Route Handler POST /api/eventos-atp/recuperacion (HU-29)", () => {
       latitud: payloadValido.latitud,
       longitud: payloadValido.longitud,
       estado: "PLANIFICADA",
+      eventoAtpId: null,
       familiasAfectadas: payloadValido.familiasAfectadas,
       delegacion: null,
       mision: {

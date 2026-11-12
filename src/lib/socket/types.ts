@@ -12,6 +12,7 @@ export interface ServerToClientEvents {
     "asistencia_social:creada": (payload: unknown) => void;
     "punto_critico:creado": (payload: unknown) => void;
     "evento_atp:creado": (payload: unknown) => void;
+    "evento_atp:vinculado": (payload: unknown) => void;
     "punto_critico:eliminado": (payload: {
         id: string;
         codigo: string;

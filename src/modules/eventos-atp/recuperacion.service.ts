@@ -1,7 +1,11 @@
 import { db } from "@/lib/db";
+import { seguridadService } from "@/modules/seguridad/service";
+import { PERMISO_VINCULAR_EVENTO_ATP } from "@/modules/seguridad/permisos.constants";
 import type {
   CrearEventoRecuperacionInput,
   EventoRecuperacionResponse,
+  ListarRecuperacionesQuery,
+  ListarRecuperacionesResponse,
 } from "./recuperacion.schema";
 import * as repo from "./recuperacion.repository";
 import { emitirRecuperacionCreada } from "@/lib/socket";
@@ -27,6 +31,13 @@ export class NotFoundError extends Error {
   }
 }
 
+export class EventoAtpNoActivoError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EventoAtpNoActivoError";
+  }
+}
+
 /**
  * Servicio de negocio para la creación atómica de eventos de recuperación (HU-29).
  * Valida disponibilidad de patrulla, existencia y stock de inventario, descuenta insumos
@@ -37,6 +48,25 @@ export async function crearEventoRecuperacionService(
   usuarioId: string
 ): Promise<EventoRecuperacionResponse> {
   const eventoCreado = await db.transaction().execute(async (trx) => {
+    // 0. Validar Evento ATP si se solicitó vincular (H60)
+    if (input.eventoAtpId) {
+      const eventoAtp = await trx
+        .selectFrom("evento_atp")
+        .select(["id", "codigo", "estado"])
+        .where("id", "=", input.eventoAtpId)
+        .executeTakeFirst();
+
+      if (!eventoAtp) {
+        throw new NotFoundError("El Evento ATP indicado no fue encontrado.");
+      }
+
+      if (eventoAtp.estado !== "ACTIVO") {
+        throw new EventoAtpNoActivoError(
+          `El Evento ATP '${eventoAtp.codigo}' no está ACTIVO y no admite vinculaciones.`
+        );
+      }
+    }
+
     // 1. Validar existencia y disponibilidad de la patrulla verificadora
     const patrulla = await repo.buscarPatrullaPorId(trx, input.patrullaId);
     if (!patrulla) {
@@ -102,6 +132,7 @@ export async function crearEventoRecuperacionService(
       longitud: input.longitud,
       familiasAfectadas: input.familiasAfectadas,
       delegacionId: delegacionIdEfectiva,
+      eventoAtpId: input.eventoAtpId ?? null,
       creadoPorId: usuarioId,
     });
 
@@ -185,6 +216,7 @@ export async function crearEventoRecuperacionService(
         estado: "EN_RECUPERACION",
       },
       recursos: recursosRespuesta,
+      eventoAtpId: nuevaRecuperacion.evento_atp_id ?? null,
       creadoPorId: usuarioId,
       creadoEn: nuevaRecuperacion.creado_en instanceof Date 
         ? nuevaRecuperacion.creado_en.toISOString() 
@@ -205,4 +237,46 @@ export async function crearEventoRecuperacionService(
   }
 
   return eventoCreado;
+}
+
+/* ==========================================================================
+   H60 - Listado de operativos de recuperación
+   ========================================================================== */
+
+export async function listarRecuperacionesService(
+  query: ListarRecuperacionesQuery,
+  usuarioId: string
+): Promise<ListarRecuperacionesResponse> {
+  await seguridadService.validarAccesoRoles(usuarioId, [
+    PERMISO_VINCULAR_EVENTO_ATP,
+  ]);
+
+  const { pagina, limite, ...filtros } = query;
+  const { filas, total } = await repo.listarRecuperacionesPaginadas(filtros, {
+    pagina,
+    limite,
+  });
+
+  return {
+    message: "Listado de operativos de recuperación obtenido exitosamente.",
+    data: filas.map((fila) => ({
+      id: fila.id,
+      codigo: fila.codigo,
+      nombre: fila.nombre,
+      descripcion: fila.descripcion ?? null,
+      sector: fila.sector,
+      prioridad: fila.prioridad,
+      estado: fila.estado,
+      delegacionId: fila.delegacion_id ?? null,
+      eventoAtpId: fila.evento_atp_id ?? null,
+      creadoEn:
+        fila.creado_en instanceof Date
+          ? fila.creado_en.toISOString()
+          : new Date(fila.creado_en).toISOString(),
+    })),
+    total,
+    pagina,
+    limite,
+    totalPaginas: Math.ceil(total / limite) || 1,
+  };
 }

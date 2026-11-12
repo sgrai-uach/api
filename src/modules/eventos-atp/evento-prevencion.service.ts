@@ -1,7 +1,11 @@
 import { db } from "@/lib/db";
+import { seguridadService } from "@/modules/seguridad/service";
+import { PERMISO_VINCULAR_EVENTO_ATP } from "@/modules/seguridad/permisos.constants";
 import type {
   CrearEventoPrevencionInput,
   EventoPrevencionResponse,
+  ListarEventosPrevencionQuery,
+  ListarEventosPrevencionResponse,
 } from "./evento-prevencion.schema";
 import * as repo from "./evento-prevencion.repository";
 import { emitirEventoPrevencionCreado } from "@/lib/socket";
@@ -24,6 +28,13 @@ export class NotFoundError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "NotFoundError";
+  }
+}
+
+export class EventoAtpNoActivoError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EventoAtpNoActivoError";
   }
 }
 
@@ -110,6 +121,25 @@ export async function crearEventoPrevencionService(
     const codigoPrevencion = await repo.generarSiguienteCodigoPrevencion(trx);
     const codigoMision = await repo.generarSiguienteCodigoMision(trx);
 
+    // 5.b Validar Evento ATP si se solicitó vincular (H60)
+    if (input.eventoAtpId) {
+      const eventoAtp = await trx
+        .selectFrom("evento_atp")
+        .select(["id", "codigo", "estado"])
+        .where("id", "=", input.eventoAtpId)
+        .executeTakeFirst();
+
+      if (!eventoAtp) {
+        throw new NotFoundError("El Evento ATP indicado no fue encontrado.");
+      }
+
+      if (eventoAtp.estado !== "ACTIVO") {
+        throw new EventoAtpNoActivoError(
+          `El Evento ATP '${eventoAtp.codigo}' no está ACTIVO y no admite vinculaciones.`
+        );
+      }
+    }
+
     // 6. Insertar evento de prevención con coordenadas PostGIS
     const nuevoEvento = await repo.insertarEventoPrevencion(trx, {
       codigo: codigoPrevencion,
@@ -122,6 +152,7 @@ export async function crearEventoPrevencionService(
       delegacionId: input.delegacionId,
       latitud: input.latitud,
       longitud: input.longitud,
+      eventoAtpId: input.eventoAtpId ?? null,
       creadoPorId: usuarioId,
     });
 
@@ -200,6 +231,7 @@ export async function crearEventoPrevencionService(
         estado: "EN_PREVENCION",
       },
       recursos: recursosRespuesta,
+      eventoAtpId: nuevoEvento.evento_atp_id ?? null,
       creadoPorId: usuarioId,
       creadoEn: nuevoEvento.creado_en instanceof Date
         ? nuevoEvento.creado_en.toISOString()
@@ -220,4 +252,47 @@ export async function crearEventoPrevencionService(
   }
 
   return eventoCreado;
+}
+
+/* ==========================================================================
+   H60 - Listado de eventos de prevención
+   ========================================================================== */
+
+function aISOString(valor: Date | string): string {
+  return valor instanceof Date ? valor.toISOString() : new Date(valor).toISOString();
+}
+
+export async function listarEventosPrevencionService(
+  query: ListarEventosPrevencionQuery,
+  usuarioId: string
+): Promise<ListarEventosPrevencionResponse> {
+  await seguridadService.validarAccesoRoles(usuarioId, [
+    PERMISO_VINCULAR_EVENTO_ATP,
+  ]);
+
+  const { pagina, limite, ...filtros } = query;
+  const { filas, total } = await repo.listarEventosPrevencionPaginados(filtros, {
+    pagina,
+    limite,
+  });
+
+  return {
+    message: "Listado de eventos de prevención obtenido exitosamente.",
+    data: filas.map((fila) => ({
+      id: fila.id,
+      codigo: fila.codigo,
+      nombre: fila.nombre,
+      descripcion: fila.descripcion,
+      sector: fila.sector ?? null,
+      prioridad: fila.prioridad as ListarEventosPrevencionResponse["data"][number]["prioridad"],
+      estado: fila.estado as ListarEventosPrevencionResponse["data"][number]["estado"],
+      delegacionId: fila.delegacion_id ?? null,
+      eventoAtpId: fila.evento_atp_id ?? null,
+      creadoEn: aISOString(fila.creado_en),
+    })),
+    total,
+    pagina,
+    limite,
+    totalPaginas: Math.ceil(total / limite) || 1,
+  };
 }

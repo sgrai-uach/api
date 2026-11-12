@@ -17,6 +17,7 @@ export interface DatosInsertarEventoAsistenciaSocialRepo {
   contactoRut?: string | null;
   delegacionId?: string | null;
   incidenteId?: string | null;
+  eventoAtpId?: string | null;
   creadoPorId: string;
 }
 
@@ -38,6 +39,7 @@ export interface FilaEventoAsistenciaSocialConRelaciones {
   delegacion_id: string | null;
   delegacion_nombre: string | null;
   incidente_id: string | null;
+  evento_atp_id: string | null;
   asistente_social_id: string | null;
   asistente_social_nombre: string | null;
   creado_por_id: string;
@@ -51,6 +53,7 @@ export interface FiltrosListarEventosAsistenciaSocial {
   delegacionId?: string;
   prioridad?: PrioridadEventoAsistenciaSocial;
   busqueda?: string;
+  eventoAtpId?: string;
 }
 
 export interface OpcionesPaginacion {
@@ -100,6 +103,7 @@ export async function insertarEventoAsistenciaSocial(
       contacto_rut: datos.contactoRut ?? null,
       delegacion_id: datos.delegacionId ?? null,
       incidente_id: datos.incidenteId ?? null,
+      evento_atp_id: datos.eventoAtpId ?? null,
       creado_por_id: datos.creadoPorId,
     })
     .returning("id")
@@ -142,6 +146,7 @@ export async function buscarEventoAsistenciaSocialPorId(
       "evento_asistencia_social.delegacion_id",
       sql<string | null>`COALESCE(delegacion.nombre, delegacion.nombre_delegacion)`.as("delegacion_nombre"),
       "evento_asistencia_social.incidente_id",
+      "evento_asistencia_social.evento_atp_id",
       "evento_asistencia_social.asistente_social_id",
       "asistente.nombre as asistente_social_nombre",
       "evento_asistencia_social.creado_por_id",
@@ -189,6 +194,7 @@ export async function listarEventosAsistenciaSocialPaginados(
       "evento_asistencia_social.delegacion_id",
       sql<string | null>`COALESCE(delegacion.nombre, delegacion.nombre_delegacion)`.as("delegacion_nombre"),
       "evento_asistencia_social.incidente_id",
+      "evento_asistencia_social.evento_atp_id",
       "evento_asistencia_social.asistente_social_id",
       "asistente.nombre as asistente_social_nombre",
       "evento_asistencia_social.creado_por_id",
@@ -208,6 +214,14 @@ export async function listarEventosAsistenciaSocialPaginados(
 
   if (filtros.prioridad) {
     query = query.where("evento_asistencia_social.prioridad", "=", filtros.prioridad);
+  }
+
+  if (filtros.eventoAtpId) {
+    query = query.where(
+      "evento_asistencia_social.evento_atp_id",
+      "=",
+      filtros.eventoAtpId
+    );
   }
 
   if (filtros.busqueda && filtros.busqueda.trim() !== "") {
@@ -252,6 +266,14 @@ export async function contarEventosAsistenciaSocial(
 
   if (filtros.prioridad) {
     query = query.where("evento_asistencia_social.prioridad", "=", filtros.prioridad);
+  }
+
+  if (filtros.eventoAtpId) {
+    query = query.where(
+      "evento_asistencia_social.evento_atp_id",
+      "=",
+      filtros.eventoAtpId
+    );
   }
 
   if (filtros.busqueda && filtros.busqueda.trim() !== "") {
