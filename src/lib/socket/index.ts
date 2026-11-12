@@ -7,6 +7,7 @@ import type {
   SocketData,
   RedisSocketMessage,
 } from "./types";
+import type { PosicionUnidadActivaDTO } from "@/modules/geolocalizacion/telemetria.schema";
 
 export interface IncidenteNotificacionPayload {
   id: string;
@@ -802,6 +803,13 @@ export function notificarPatrullaLiberada(payload: {
         .catch(() => {});
     }
   }
+}
+
+/**
+ * Emite la posición de telemetría de una unidad hacia la sala 'mapa'.
+ */
+export function notificarTelemetriaPosicion(posicion: PosicionUnidadActivaDTO): void {
+  emitirEvento("mapa", "telemetria:posicion", posicion);
 }
 
 export * from "./types";
