@@ -1,7 +1,7 @@
 import { sql, type Kysely } from "kysely";
 
 /**
- * Migración 035: Vistas de compatibilidad para cuadrilla_integrante y patrulla_integrante
+ * Migración 042: Vistas de compatibilidad para cuadrilla_integrante y patrulla_integrante
  * Mapean a las tablas operativas físicas cuadrilla_personal y patrulla_personal.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {

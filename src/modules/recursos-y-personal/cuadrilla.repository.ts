@@ -266,7 +266,9 @@ export async function obtenerCuadrillaDetalleUnitario(
     ])
     .where("mision.cuadrilla_id", "=", id)
     .where("mision.estado", "in", ["DESPACHADA", "EN_CURSO"])
-    .orderBy("mision.fecha_inicio", "desc")
+    .orderBy(sql`CASE WHEN mision.estado = 'EN_CURSO' THEN 0 ELSE 1 END`, "asc")
+    .orderBy(sql`mision.fecha_inicio DESC NULLS LAST`)
+    .orderBy("mision.creado_en", "desc")
     .executeTakeFirst();
 
   let mision_activa: FilaCuadrillaDetalleConsolidado["mision_activa"] = null;
@@ -358,8 +360,8 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
 }> {
   let consultaBase = db
     .selectFrom("cuadrilla")
-    .innerJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
-    .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id");
+    .leftJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
+    .leftJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id");
 
   const soloInactivas =
     filtros.estado === "INACTIVAS" ||

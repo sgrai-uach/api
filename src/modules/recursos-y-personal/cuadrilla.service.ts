@@ -102,17 +102,34 @@ export async function listarCuadrillas(
     id: c.id,
     nombre: c.nombre,
     estado: c.estado,
-    delegacion: {
-      id: c.delegacion_id || "30000000-0000-4000-8000-000000000001",
-      nombre: c.delegacion_nombre || "Delegación General",
-      codigo: c.delegacion_codigo ?? null,
-    },
-    delegado: {
-      id: c.delegado_id || "00000000-0000-4000-8000-000000000005",
-      nombre: c.delegado_nombre || "Delegado Operativo",
-      email: c.delegado_email || "delegado@valdivia.cl",
-      rut: c.delegado_rut ?? null,
-    },
+    delegacion: c.delegacion_id
+      ? {
+          id: c.delegacion_id,
+          nombre: c.delegacion_nombre ?? "Delegación General",
+          codigo: c.delegacion_codigo ?? null,
+        }
+      : c.delegacion_nombre
+      ? {
+          id: null,
+          nombre: c.delegacion_nombre,
+          codigo: c.delegacion_codigo ?? null,
+        }
+      : null,
+    delegado: c.delegado_id
+      ? {
+          id: c.delegado_id,
+          nombre: c.delegado_nombre ?? "Delegado Operativo",
+          email: c.delegado_email ?? "delegado@valdivia.cl",
+          rut: c.delegado_rut ?? null,
+        }
+      : c.delegado_nombre
+      ? {
+          id: null,
+          nombre: c.delegado_nombre,
+          email: c.delegado_email ?? "",
+          rut: c.delegado_rut ?? null,
+        }
+      : null,
     recursos: c.recursos.map((r) => ({
       id: r.id,
       recursoId: r.recurso_id,
@@ -195,17 +212,34 @@ export async function obtenerCuadrillaPorId(
     nombre: cuadrilla.nombre,
     estado: cuadrilla.estado,
     activo: cuadrilla.activo !== undefined ? cuadrilla.activo : cuadrilla.eliminado_en == null,
-    delegacion: {
-      id: cuadrilla.delegacion_id || "30000000-0000-4000-8000-000000000001",
-      nombre: cuadrilla.delegacion_nombre || "Delegación General",
-      codigo: cuadrilla.delegacion_codigo ?? null,
-    },
-    delegado: {
-      id: cuadrilla.delegado_id || "00000000-0000-4000-8000-000000000005",
-      nombre: cuadrilla.delegado_nombre || "Delegado Operativo",
-      email: cuadrilla.delegado_email || "delegado@valdivia.cl",
-      rut: cuadrilla.delegado_rut ?? null,
-    },
+    delegacion: cuadrilla.delegacion_id
+      ? {
+          id: cuadrilla.delegacion_id,
+          nombre: cuadrilla.delegacion_nombre ?? "Delegación General",
+          codigo: cuadrilla.delegacion_codigo ?? null,
+        }
+      : cuadrilla.delegacion_nombre
+      ? {
+          id: null,
+          nombre: cuadrilla.delegacion_nombre,
+          codigo: cuadrilla.delegacion_codigo ?? null,
+        }
+      : null,
+    delegado: cuadrilla.delegado_id
+      ? {
+          id: cuadrilla.delegado_id,
+          nombre: cuadrilla.delegado_nombre ?? "Delegado Operativo",
+          email: cuadrilla.delegado_email ?? "delegado@valdivia.cl",
+          rut: cuadrilla.delegado_rut ?? null,
+        }
+      : cuadrilla.delegado_nombre
+      ? {
+          id: null,
+          nombre: cuadrilla.delegado_nombre,
+          email: cuadrilla.delegado_email ?? "",
+          rut: cuadrilla.delegado_rut ?? null,
+        }
+      : null,
     recursos: cuadrilla.recursos.map((r) => ({
       id: r.id,
       recursoId: r.recurso_id,

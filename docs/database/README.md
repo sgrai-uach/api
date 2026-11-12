@@ -94,7 +94,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Patrulla Verificadora** | `patrulla_verificadora`| Migración 006 | Operaciones | Unidades tácticas de evaluación preliminar. |
 | **Cuadrilla** | `cuadrilla` | Migración 006 / 027 / 031 / 032 | Operaciones | Unidades tácticas operativas de intervención. |
 | *(Asignación Logística)* | `cuadrilla_recurso` | Migración 006 / 032 | Recursos | Asignación N:M de recursos a cuadrillas con trazabilidad de desvinculación. |
-| *(Dotación de Integrantes)* | `cuadrilla_personal` (vista `cuadrilla_integrante`) | Migración 031 / 032 / 035 | Operaciones | Asignación N:M de funcionarios a cuadrillas con índice de unicidad activa y auditoría. |
+| *(Dotación de Integrantes)* | `cuadrilla_personal` (vista `cuadrilla_integrante`) | Migración 031 / 032 / 042 | Operaciones | Asignación N:M de funcionarios a cuadrillas con índice de unicidad activa y auditoría. |
 | **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 / 012 / 015 / 016 | Eventos ATP | Puntos críticos, factores de riesgo, edición (HU-55) y borrado lógico (HU-56). |
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
 | **Reporte Terreno** | `reporte_terreno` | Migración 011 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
@@ -476,7 +476,7 @@ Asignación temporal de recursos a cuadrillas para ejecución de tareas (Migraci
 | `desvinculado_en` | `TIMESTAMPTZ` | SÍ | `NULL` | Fecha de devolución al inventario central. |
 
 #### Tabla: `cuadrilla_personal` (y Vista `cuadrilla_integrante`)
-Dotación humana operativa y asignación de funcionarios de terreno a cuadrillas (Migraciones 031, 032 y 035).
+Dotación humana operativa y asignación de funcionarios de terreno a cuadrillas (Migraciones 031, 032 y 042).
 
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
 |---|---|---|---|---|

@@ -358,4 +358,185 @@ describe("Capa de Persistencia Kysely - Cuadrillas (HU-82 / QA Bug Fixes)", () =
       expect(mockDb.execute).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("4. obtenerCuadrillaDetalleUnitario con dotación, recursos y misión activa (HU-22)", () => {
+    const cuadrillaId = "c1000000-0000-4000-8000-000000000001";
+
+    it("debe retornar el detalle consolidado con mision_activa, incidente, recursos y telefono de trabajadores", async () => {
+      // 1. Fila principal de cuadrilla
+      mockDb.executeTakeFirst.mockResolvedValueOnce({
+        id: cuadrillaId,
+        nombre: "Cuadrilla Aguas Lluvias Alfa",
+        estado: "EN_MISION",
+        activo: true,
+        creado_en: new Date("2026-10-01T10:00:00Z"),
+        actualizado_en: new Date("2026-10-15T12:00:00Z"),
+        creado_por_id: "admin-uuid",
+        actualizado_por_id: "admin-uuid",
+        eliminado_en: null,
+        eliminado_por_id: null,
+        delegacion_id: "del-uuid",
+        delegacion_nombre: "Delegación Costa",
+        delegacion_codigo: "DEL-COSTA",
+        delegado_id: "delegado-uuid",
+        delegado_nombre: "Marcelo Gómez",
+        delegado_email: "marcelo@valdivia.cl",
+        delegado_rut: "14.555.666-7",
+      });
+
+      // 2. Recursos asignados
+      mockDb.execute.mockResolvedValueOnce([
+        {
+          id: "cr-uuid-1",
+          recurso_id: "rec-uuid-1",
+          nombre: "Motobomba 3 Pulgadas",
+          descripcion: "Bomba de achique de alto caudal",
+          detalles: { modelo: "Honda WT30X", caudal: "1100 L/min" },
+          cantidad_asignada: 2,
+          es_individual: false,
+        },
+      ]);
+
+      // 3. Trabajadores asignados
+      mockDb.execute.mockResolvedValueOnce([
+        {
+          id: "cp-uuid-1",
+          personal_id: "pers-uuid-1",
+          usuario_id: "user-uuid-1",
+          nombre: "Esteban Trabajador",
+          rut: "17.888.999-0",
+          telefono: "+56987654321",
+          cargo: "Operador de Bomba",
+          especialidad: "Achique e Inundaciones",
+          asignado_en: new Date("2026-10-05T08:00:00Z"),
+        },
+      ]);
+
+      // 4. Misión activa e incidente
+      mockDb.executeTakeFirst.mockResolvedValueOnce({
+        mision_id: "mis-uuid-1",
+        mision_codigo: "MIS-2026-0002",
+        mision_titulo: "Achique de anegamiento en Los Pelúes",
+        tipo_mision: "ATENCION_CUADRILLA",
+        mision_estado: "EN_CURSO",
+        fecha_despacho: new Date("2026-11-12T14:00:00Z"),
+        mision_creado_en: new Date("2026-11-12T13:50:00Z"),
+        incidente_id: "inc-uuid-1",
+        incidente_codigo: "INC-2026-0005",
+        incidente_tipo: "Anegamiento de vía pública",
+        incidente_direccion: "Los Pelúes 450, Isla Teja",
+        incidente_latitud: "-39.8142",
+        incidente_longitud: "-73.2511",
+      });
+
+      const detalle = await obtenerCuadrillaDetalleUnitario(cuadrillaId);
+
+      expect(detalle).toBeDefined();
+      expect(detalle?.id).toBe(cuadrillaId);
+      expect(detalle?.estado).toBe("EN_MISION");
+
+      // Validar recursos y especificaciones
+      expect(detalle?.recursos).toHaveLength(1);
+      expect(detalle?.recursos[0].nombre).toBe("Motobomba 3 Pulgadas");
+      expect(detalle?.recursos[0].descripcion).toBe("Bomba de achique de alto caudal");
+      expect(detalle?.recursos[0].detalles).toEqual({
+        modelo: "Honda WT30X",
+        caudal: "1100 L/min",
+      });
+
+      // Validar trabajadores y teléfono
+      expect(detalle?.trabajadores).toHaveLength(1);
+      expect(detalle?.trabajadores[0].nombre).toBe("Esteban Trabajador");
+      expect(detalle?.trabajadores[0].telefono).toBe("+56987654321");
+
+      // Validar misión activa e incidente asociado
+      expect(detalle?.mision_activa).toBeDefined();
+      expect(detalle?.mision_activa?.codigo).toBe("MIS-2026-0002");
+      expect(detalle?.mision_activa?.estado).toBe("EN_CURSO");
+      expect(detalle?.mision_activa?.incidente).toEqual({
+        id: "inc-uuid-1",
+        codigo: "INC-2026-0005",
+        tipo: "Anegamiento de vía pública",
+        direccion: "Los Pelúes 450, Isla Teja",
+        latitud: -39.8142,
+        longitud: -73.2511,
+      });
+    });
+
+    it("debe retornar mision_activa = null cuando no existe misión en ejecución para la cuadrilla", async () => {
+      // 1. Fila principal de cuadrilla DISPONIBLE
+      mockDb.executeTakeFirst.mockResolvedValueOnce({
+        id: cuadrillaId,
+        nombre: "Cuadrilla Rescate Delta",
+        estado: "DISPONIBLE",
+        activo: true,
+        creado_en: new Date("2026-10-01T10:00:00Z"),
+        actualizado_en: null,
+        creado_por_id: "admin-uuid",
+        actualizado_por_id: null,
+        eliminado_en: null,
+        eliminado_por_id: null,
+        delegacion_id: "del-uuid",
+        delegacion_nombre: "Delegación Norte",
+        delegacion_codigo: "DEL-NORTE",
+        delegado_id: "del-uuid",
+        delegado_nombre: "Pedro Delegado",
+        delegado_email: "pedro@valdivia.cl",
+        delegado_rut: "11.222.333-4",
+      });
+
+      // 2. Recursos vacíos
+      mockDb.execute.mockResolvedValueOnce([]);
+      // 3. Trabajadores vacíos
+      mockDb.execute.mockResolvedValueOnce([]);
+      // 4. Misión activa inexistente
+      mockDb.executeTakeFirst.mockResolvedValueOnce(null);
+
+      const detalle = await obtenerCuadrillaDetalleUnitario(cuadrillaId);
+
+      expect(detalle).toBeDefined();
+      expect(detalle?.estado).toBe("DISPONIBLE");
+      expect(detalle?.mision_activa).toBeNull();
+    });
+
+    it("debe retornar undefined cuando la cuadrilla especificada no existe", async () => {
+      mockDb.executeTakeFirst.mockResolvedValueOnce(null);
+
+      const detalle = await obtenerCuadrillaDetalleUnitario("uuid-inexistente");
+
+      expect(detalle).toBeUndefined();
+    });
+
+    it("debe retornar cuadrilla con delegacion_id y delegado_id en null sin fallar (BUG-H22-API-01)", async () => {
+      mockDb.executeTakeFirst.mockResolvedValueOnce({
+        id: cuadrillaId,
+        nombre: "Cuadrilla Especial Sin Delegación",
+        estado: "EN_MISION",
+        activo: true,
+        creado_en: new Date("2026-10-01T10:00:00Z"),
+        actualizado_en: null,
+        creado_por_id: "admin-uuid",
+        actualizado_por_id: null,
+        eliminado_en: null,
+        eliminado_por_id: null,
+        delegacion_id: null,
+        delegacion_nombre: null,
+        delegacion_codigo: null,
+        delegado_id: null,
+        delegado_nombre: null,
+        delegado_email: null,
+        delegado_rut: null,
+      });
+
+      mockDb.execute.mockResolvedValueOnce([]);
+      mockDb.execute.mockResolvedValueOnce([]);
+      mockDb.executeTakeFirst.mockResolvedValueOnce(null);
+
+      const detalle = await obtenerCuadrillaDetalleUnitario(cuadrillaId);
+
+      expect(detalle).toBeDefined();
+      expect(detalle?.delegacion_id).toBeNull();
+      expect(detalle?.delegado_id).toBeNull();
+    });
+  });
 });

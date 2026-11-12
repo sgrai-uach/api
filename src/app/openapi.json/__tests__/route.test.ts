@@ -9,7 +9,13 @@ describe("Endpoint GET /openapi.json", () => {
     const spec = await res.json();
     expect(spec.openapi).toBe("3.0.0");
     expect(spec.info.title).toContain("SGRAI API");
-    expect(spec.info.version).toBe("0.10.0");
+    expect(spec.info.version).toBe("0.11.0");
+
+    // Esquemas de seguridad (BearerAuth)
+    expect(spec.components.securitySchemes).toBeDefined();
+    expect(spec.components.securitySchemes.BearerAuth).toBeDefined();
+    expect(spec.components.securitySchemes.BearerAuth.type).toBe("http");
+    expect(spec.components.securitySchemes.BearerAuth.scheme).toBe("bearer");
 
     // Rutas de Patrullas Verificadoras (HU-16, HU-84, HU-85)
     expect(spec.paths["/api/patrullas"]).toBeDefined();
@@ -94,8 +100,10 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/seguridad/usuario-activo"]).toBeDefined();
     expect(spec.paths["/api/seguridad/usuario-activo"].get).toBeDefined();
 
-    // Esquemas registrados en components/schemas (HU-9)
+    // Esquemas registrados en components/schemas (HU-9, HU-22)
     expect(spec.components.schemas.EliminarRecursoResponse).toBeDefined();
+    expect(spec.components.schemas.MisionActivaCuadrilla).toBeDefined();
+    expect(spec.components.schemas.MisionActivaIncidente).toBeDefined();
 
     // Rutas de Misiones (HU-17)
     expect(spec.paths["/api/misiones/{id}"]).toBeDefined();
