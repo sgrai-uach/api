@@ -363,6 +363,7 @@ export class SeguridadService {
           rolNombre: usuario.rol_nombre,
           rolCodigo: usuario.rol_codigo,
           delegacionId: usuario.delegacion_id,
+          delegacionNombre: usuario.delegacion_nombre ?? null,
           permisos,
           unidadId: unidad.unidadId,
           unidadNombre: unidad.unidadNombre,
