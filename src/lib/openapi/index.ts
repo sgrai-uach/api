@@ -156,6 +156,8 @@ import {
   CrearEventoPrevencionResponseSchema,
 } from "@/modules/eventos-atp/evento-prevencion.schema";
 
+import { PosicionesActivasResponseSchema } from "@/modules/geolocalizacion/telemetria.schema";
+
 extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
@@ -2437,13 +2439,40 @@ registry.registerPath({
   },
 });
 
+// GET /api/geolocalizacion/posiciones (HU-70: Consulta de posiciones activas de telemetría)
+registry.registerPath({
+  method: "get",
+  path: "/api/geolocalizacion/posiciones",
+  summary: "Obtener posiciones GPS activas de unidades en terreno (HU-70)",
+  description:
+    "Retorna la lista de últimas posiciones GPS conocidas de todas las unidades operativas (patrullas y cuadrillas) vigentes en la caché de telemetría de Redis. Permite hidratar de forma instantánea el mapa interactivo del Centro de Mando en sgrai-web.",
+  tags: ["Geolocalizacion"],
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: {
+      description: "Posiciones activas obtenidas exitosamente",
+      content: {
+        "application/json": {
+          schema: PosicionesActivasResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "No autenticado o token ausente",
+    },
+    500: {
+      description: "Error interno del servidor al consultar posiciones activas",
+    },
+  },
+});
+
 export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.10.0",
+      version: "0.11.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",
