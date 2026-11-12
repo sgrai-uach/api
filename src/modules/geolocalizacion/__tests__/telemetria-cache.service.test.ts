@@ -71,3 +71,4 @@ describe("Telemetria Cache Service Tests", () => {
     expect(ids).toContain(cuadrilla.unidadId);
   });
 });
+

@@ -77,3 +77,4 @@ describe("Endpoint GET /api/geolocalizacion/posiciones (HU-70)", () => {
     expect(json.message).toContain("Error interno");
   });
 });
+

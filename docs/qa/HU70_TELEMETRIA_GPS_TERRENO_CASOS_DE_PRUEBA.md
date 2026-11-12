@@ -53,3 +53,4 @@ Se ejecutó la verificación técnica integral del protocolo de telemetría GPS 
 3. **[X] Retransmisión hacia la sala `mapa`:** Servidor retransmite las posiciones validadas exclusivamente a la sala `mapa` e incorpora persistencia volátil en Redis.
 4. **[X] Pausa y expiración automática:** Mecanismo de TTL (300s) en Redis que expira las coordenadas si la unidad finaliza misión o pasa a `DISPONIBLE`.
 5. **[X] Tolerancia a desconexión y fallos:** Fallback automático en memoria cuando Redis no está disponible y manejo resiliente sin caída de sockets.
+

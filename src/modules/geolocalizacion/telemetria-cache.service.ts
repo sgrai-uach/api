@@ -162,3 +162,4 @@ export async function limpiarCacheTelemetria(): Promise<void> {
     }
   }
 }
+
