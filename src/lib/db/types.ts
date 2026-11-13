@@ -436,6 +436,16 @@ export interface IncidenteTable {
   ubicacion: ColumnType<unknown, unknown, unknown>;
   estado: ColumnType<EstadoIncidente, EstadoIncidente | undefined, EstadoIncidente>;
   prioridad: ColumnType<PrioridadIncidente, PrioridadIncidente | undefined, PrioridadIncidente>;
+  prioridad_sugerida?: ColumnType<
+    PrioridadIncidente | null,
+    PrioridadIncidente | null | undefined,
+    PrioridadIncidente | null
+  >;
+  justificacion_prioridad?: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
   requiere_asistencia_social: ColumnType<boolean, boolean | undefined, boolean>;
   fuente_origen: ColumnType<OrigenReporte | string, OrigenReporte | string | undefined, OrigenReporte | string>;
   asterisk_call_id: string | null;
@@ -504,6 +514,28 @@ export interface ReporteTerrenoTable {
   observaciones: string | null;
   personas_afectadas: ColumnType<number, number | undefined, number>;
   estado_terreno: ColumnType<string, string | undefined, string>;
+  version_reporte?: ColumnType<number, number | undefined, number>;
+  es_rectificacion?: ColumnType<boolean, boolean | undefined, boolean>;
+  prioridad_sugerida?: ColumnType<
+    PrioridadIncidente | null,
+    PrioridadIncidente | null | undefined,
+    PrioridadIncidente | null
+  >;
+  prioridad_asignada?: ColumnType<
+    PrioridadIncidente | null,
+    PrioridadIncidente | null | undefined,
+    PrioridadIncidente | null
+  >;
+  justificacion_prioridad?: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
+  detalles_evaluacion?: ColumnType<
+    Record<string, unknown>,
+    Record<string, unknown> | string | undefined,
+    Record<string, unknown> | string
+  >;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }
@@ -543,6 +575,11 @@ export interface MisionHitoTable {
   registrado_por_id: string | null;
   latitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
   longitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
+  metadatos?: ColumnType<
+    Record<string, unknown> | null,
+    Record<string, unknown> | string | null | undefined,
+    Record<string, unknown> | string | null
+  >;
   creado_en: Generated<Date>;
 }
 

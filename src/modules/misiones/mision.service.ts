@@ -1,5 +1,6 @@
 import {
   obtenerMisionDetallePorIdRepo,
+  aceptarMisionPatrullaRepo,
   crearMisionVerificacionRepo,
   asignarCuadrillaIncidenteRepo,
 } from "./mision.repository";
@@ -8,12 +9,15 @@ import type {
   MisionBitacoraHito,
   ReporteTerrenoDetalle,
   AdjuntoEvidencia,
+  AceptarMisionInput,
+  AceptarMisionResponse,
   CrearMisionVerificacionInput,
   CrearMisionResponse,
   AsignarCuadrillaMisionInput,
   AsignarCuadrillaMisionResponse,
 } from "./mision.schema";
 import {
+  notificarMisionActualizada,
   notificarMisionAsignada,
   notificarIncidenteActualizado,
   notificarPatrullaActualizada,
@@ -29,19 +33,36 @@ function formatearFechaIso(fecha: Date | string | null | undefined): string | nu
 function desglosarHitoTiempo(
   fecha: Date | string,
   hito: string,
-  descripcion: string
+  descripcion: string,
+  id?: string,
+  metadatosRaw?: Record<string, unknown> | string | null
 ): MisionBitacoraHito {
   const d = typeof fecha === "string" ? new Date(fecha) : fecha;
   const iso = d.toISOString();
   const [fechaStr, resto] = iso.split("T");
   const horaStr = resto.split(".")[0];
 
+  let metadatos: Record<string, unknown> | null | undefined = undefined;
+  if (typeof metadatosRaw === "string") {
+    try {
+      metadatos = JSON.parse(metadatosRaw);
+    } catch {
+      metadatos = null;
+    }
+  } else if (metadatosRaw && typeof metadatosRaw === "object") {
+    metadatos = metadatosRaw;
+  } else if (metadatosRaw === null) {
+    metadatos = null;
+  }
+
   return {
+    ...(id ? { id } : {}),
     hito,
     fecha: fechaStr,
     hora: horaStr,
     timestamp: iso,
     descripcion,
+    ...(metadatos !== undefined ? { metadatos } : {}),
   };
 }
 
@@ -58,7 +79,7 @@ export async function obtenerDetalleMisionService(
     return null;
   }
 
-  const { mision, recursosCuadrilla, reportesTerreno: reportesRaw } = resultado;
+  const { mision, recursosCuadrilla, reportesTerreno: reportesRaw, hitos = [] } = resultado;
 
   // 1. Bitácora de tiempos (incorporando hitos reales de mision_hito o fallback a timestamps)
   const bitacoraTiempos: MisionBitacoraHito[] = [];
@@ -66,7 +87,7 @@ export async function obtenerDetalleMisionService(
   if (resultado.hitos && resultado.hitos.length > 0) {
     for (const h of resultado.hitos) {
       bitacoraTiempos.push(
-        desglosarHitoTiempo(h.creado_en, h.hito, h.descripcion)
+        desglosarHitoTiempo(h.creado_en, h.hito, h.descripcion, h.id, h.metadatos)
       );
     }
   } else {
@@ -102,15 +123,31 @@ export async function obtenerDetalleMisionService(
       mision.actualizado_en &&
       new Date(mision.actualizado_en).getTime() !== new Date(mision.creado_en).getTime()
     ) {
+      const estadoLegible =
+        mision.estado === "EN_CURSO"
+          ? "En curso"
+          : mision.estado === "DESPACHADA"
+          ? "Despachada"
+          : mision.estado === "COMPLETADA"
+          ? "Completada"
+          : mision.estado === "RECHAZADA"
+          ? "Rechazada"
+          : mision.estado === "PLANIFICADA"
+          ? "Planificada"
+          : mision.estado;
+
       bitacoraTiempos.push(
         desglosarHitoTiempo(
           mision.actualizado_en,
           "ACTUALIZACION_ESTADO",
-          `Última actualización de estado registrada (${mision.estado})`
+          `Última actualización de estado registrada: ${estadoLegible}`
         )
       );
     }
   }
+
+  // Ordenar cronológicamente por timestamp
+  bitacoraTiempos.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   // 2. Mapeo de Reportes de Terreno y Evidencias Multimedia
   const reportesMapeados: ReporteTerrenoDetalle[] = reportesRaw.map((rep) => {
@@ -131,9 +168,33 @@ export async function obtenerDetalleMisionService(
       };
     });
 
+    const versionReporte = Number(rep.version_reporte ?? 1);
+    const esRectificacion = Boolean(rep.es_rectificacion ?? versionReporte > 1);
+    let detallesEvaluacionObj: Record<string, unknown> = {};
+    if (typeof rep.detalles_evaluacion === "string") {
+      try {
+        detallesEvaluacionObj = JSON.parse(rep.detalles_evaluacion);
+      } catch {
+        detallesEvaluacionObj = {};
+      }
+    } else if (rep.detalles_evaluacion && typeof rep.detalles_evaluacion === "object") {
+      detallesEvaluacionObj = rep.detalles_evaluacion;
+    }
+
     return {
       id: rep.id,
       misionId: rep.mision_id,
+      versionReporte,
+      esRectificacion,
+      etiquetaReporte: esRectificacion
+        ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
+        : `Reporte de Evaluación #1 (Inicial)`,
+      prioridadSugerida:
+        (rep.prioridad_sugerida as ReporteTerrenoDetalle["prioridadSugerida"]) ?? null,
+      prioridadAsignada:
+        (rep.prioridad_asignada as ReporteTerrenoDetalle["prioridadAsignada"]) ?? null,
+      justificacionPrioridad: rep.justificacion_prioridad ?? null,
+      detallesEvaluacion: detallesEvaluacionObj,
       resumenTecnico: rep.resumen_tecnico,
       accionesRealizadas: rep.acciones_realizadas ?? null,
       requiereApoyoAdicional: Boolean(rep.requiere_apoyo_adicional),
@@ -166,6 +227,8 @@ export async function obtenerDetalleMisionService(
         longitud: Number(mision.incidente_longitud ?? -73.245209),
         estado: mision.incidente_estado ?? "EN_ATENCION",
         prioridad: mision.incidente_prioridad ?? "MEDIA",
+        prioridadSugerida: mision.incidente_prioridad_sugerida ?? null,
+        justificacionPrioridad: mision.incidente_justificacion_prioridad ?? null,
         requiereAsistenciaSocial: Boolean(mision.incidente_requiere_asistencia_social),
         delegacionNombre: mision.incidente_delegacion_nombre ?? null,
       }
@@ -236,10 +299,27 @@ export async function obtenerDetalleMisionService(
       }
     : null;
 
+  const hitosTipologia = (hitos || []).filter(
+    (h) => h.hito === "TIPOLOGIA_RECLASIFICADA" || h.hito === "TIPOLOGIA_CONFIRMADA"
+  );
+  const ultimoHitoTipologia =
+    hitosTipologia.length > 0 ? hitosTipologia[hitosTipologia.length - 1] : null;
+
+  const reportesPorVersion = [...reportesMapeados].sort((a, b) => {
+    const vA = Number(a.versionReporte ?? 0);
+    const vB = Number(b.versionReporte ?? 0);
+    if (vA !== vB) return vB - vA;
+    return new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime();
+  });
+  const ultimoReportePrioridad = reportesPorVersion[0] ?? null;
+
   return {
     id: mision.id,
     codigo: mision.codigo,
-    titulo: mision.titulo,
+    titulo:
+      mision.tipo_mision === "VERIFICACION" && mision.incidente_tipo_afectacion && mision.incidente_codigo
+        ? `Verificación: ${mision.incidente_tipo_afectacion} - ${mision.incidente_codigo}`
+        : mision.titulo,
     descripcion: mision.descripcion,
     tipoMision: mision.tipo_mision as MisionDetalleCompleto["tipoMision"],
     estado: mision.estado as MisionDetalleCompleto["estado"],
@@ -257,12 +337,78 @@ export async function obtenerDetalleMisionService(
     patrulla,
     bitacoraTiempos,
     reportesTerreno: reportesMapeados,
+    evaluaciones: {
+      tipologiaEvaluada: hitosTipologia.length > 0,
+      tipologiaEvaluadaEn: ultimoHitoTipologia
+        ? formatearFechaIso(ultimoHitoTipologia.creado_en)
+        : null,
+      prioridadEvaluada: reportesMapeados.length > 0,
+      prioridadEvaluadaEn: ultimoReportePrioridad?.creadoEn ?? null,
+      versionReportePrioridad: ultimoReportePrioridad?.versionReporte ?? null,
+    },
   };
 }
 
-// ========================================================
-// HU-21: Asignar Cuadrilla a Incidente y Liberar Patrulla
-// ========================================================
+/**
+ * HU-36 - Servicio de negocio para confirmar y aceptar una misión asignada a una patrulla verificadora.
+ *
+ * 1. Ejecuta la transición atómica en base de datos (`DESPACHADA` -> `EN_CURSO`, `fecha_inicio = CURRENT_TIMESTAMP`,
+ *    registro de hito `'MISION_ACEPTADA'` en `mision_hito`).
+ * 2. Mantiene la patrulla en `EN_VERIFICACION` y el incidente en `VERIFICANDO`.
+ * 3. Emite en tiempo real el evento WebSocket `mision:actualizada` hacia la sala `encargado` del Centro de Mando.
+ */
+
+export async function aceptarMisionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin = false,
+  input?: AceptarMisionInput
+): Promise<AceptarMisionResponse> {
+  const resultado = await aceptarMisionPatrullaRepo(misionId, usuarioId, esAdmin, input);
+
+  try {
+    notificarMisionActualizada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      estado: resultado.mision.estado,
+      tipoMision: resultado.mision.tipoMision,
+      patrullaId: resultado.mision.patrullaId,
+      incidenteId: resultado.mision.incidenteId,
+      fechaInicio: resultado.mision.fechaInicio,
+      hito: {
+        id: resultado.hito.id,
+        hito: resultado.hito.hito,
+        descripcion: resultado.hito.descripcion,
+        registradoPorId: resultado.hito.registradoPorId,
+        creadoEn: resultado.hito.creadoEn,
+      },
+      actualizadoEn: resultado.mision.actualizadoEn,
+    });
+
+    if (resultado.incidente?.id) {
+      notificarIncidenteActualizado({
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        nuevoEstado: (resultado.incidente.estado as "VERIFICANDO") || "VERIFICANDO",
+        prioridad: (resultado.mision.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA") || "MEDIA",
+        actualizadoEn: resultado.mision.actualizadoEn,
+      });
+    }
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras aceptar misión:", error);
+  }
+
+  return {
+    message:
+      "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
+    data: {
+      mision: resultado.mision,
+      patrulla: resultado.patrulla,
+      incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
 
 export async function asignarCuadrillaMisionService(
   input: AsignarCuadrillaMisionInput,

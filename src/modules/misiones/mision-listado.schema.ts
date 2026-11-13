@@ -79,6 +79,7 @@ export const MisionItemSchema = z.object({
   justificacionRechazo: z.string().nullable().optional().openapi({ description: "Justificación si la misión fue rechazada" }),
   incidenteId: z.string().uuid().nullable().optional().openapi({ description: "UUID de incidente asociado si aplica" }),
   incidenteCodigo: z.string().nullable().optional().openapi({ description: "Código legible del incidente" }),
+  incidenteTipoAfectacion: z.string().nullable().optional().openapi({ description: "Tipo de afectación actual del incidente asociado" }),
   cuadrillaId: z.string().uuid().nullable().optional(),
   cuadrillaNombre: z.string().nullable().optional(),
   patrullaId: z.string().uuid().nullable().optional(),

@@ -45,6 +45,15 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
   - Admite filtrado opcional por delegación territorial (`delegacionId`) para segmentar los contadores por sector (Norte, Sur, Costa, Calle Calle) o consolidar el total comunal de Valdivia si no se especifica.
   - Para permitir la navegación fluida desde las tarjetas del dashboard (CA-4), el listado paginado `GET /api/incidentes` admite los parámetros `fecha` (YYYY-MM-DD), `soloHoy` (boolean) y `delegacionId` (UUID).
 
+- **Evaluación en Terreno, Matriz de Prioridad Sugerida y Reporte Versionado al Centro de Mando (HU-38):**
+  - Una vez que la patrulla verificadora acepta la misión (`estado = EN_CURSO`), completa el formulario de evaluación técnica en terreno indicando: tamaño del núcleo familiar afectado (`nucleoFamiliarTotal`), niños (`cantidadNinos`), adultos mayores (`cantidadAdultosMayores`), personas con discapacidad (`personasDiscapacitadas`), electrodependientes (`personasElectrodependientes`), mascotas (`mascotasAfectadas`), viviendas afectadas (`viviendasAfectadas`), nivel de compromiso de vivienda (`SIN_DANO`, `LEVE`, `MODERADO`, `GRAVE_INHABITABLE`), riesgos activos (`riesgoElectrico`, `riesgoEstructural`, `riesgoQuimicoSanitario`, `aislamientoVial`) y detalles adicionales (`detallesAdicionales`).
+  - **Matriz de Cálculo de `prioridad_sugerida`:**
+    - **Reglas de disparo directo a `CRITICA`:** `personasElectrodependientes > 0` o `requiereEvacuacion === true` con presencia de niños, adultos mayores, personas con discapacidad o vivienda `GRAVE_INHABITABLE`.
+    - **Puntaje acumulativo:** Núcleo familiar (`1-3`: +5, `4-7`: +12, `>=8`: +20), Niños (+6 c/u, máx 24), Adultos mayores (+7 c/u, máx 28), Discapacitados (+12 c/u, máx 36), Mascotas (`1-3`: +2 c/u, `>=4`: +5 a +10), Compromiso vivienda (`LEVE`: +8, `MODERADO`: +22, `GRAVE_INHABITABLE`: +45), Múltiples viviendas (`3-5`: +10, `>=6`: +20), Evacuación (+35), Riesgo estructural (+25), Riesgo eléctrico (+20), Riesgo químico/sanitario (+15), Aislamiento vial (+15).
+    - **Umbrales:** `0-14 pts` = `BAJA` | `15-34 pts` = `MEDIA` | `35-59 pts` = `ALTA` | `>= 60 pts` = `CRITICA`.
+  - **Discrepancia y Justificación Obligatoria:** Si la patrulla decide asignar una prioridad distinta de `prioridad_sugerida`, debe ingresar obligatoriamente `justificacion_prioridad` de al menos 5 caracteres (`400 Bad Request` en caso contrario).
+  - **Reenvío y Versionado de Reportes:** Si las condiciones cambian en terreno, la patrulla puede modificar y reenviar el reporte; cada envío inserta un nuevo registro en `reporte_terreno` con correlativo `version_reporte` (`1`, `2`, `3`...) y `es_rectificacion` (`true` para envíos $\ge 2$), quedando registro explícito en el Centro de Mando de que se trata de un reporte distinto (`PRIORIDAD_ASIGNADA` en el envío #1 y `PRIORIDAD_RECTIFICADA` en envíos posteriores).
+
 ---
 
 ## 2. Endpoints del Módulo
@@ -57,7 +66,10 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 | `POST` | `/api/incidentes/avisos/{id}/verificar` | `incidentes:avisos:verificar` | Verificar y promover un aviso preliminar a incidente formal ICS (`REPORTADO`). |
 | `POST` | `/api/incidentes/avisos/{id}/descartar` | `incidentes:avisos:descartar` | Descartar un aviso con justificación obligatoria. |
 | `GET` | `/api/incidentes/avisos/seguimiento/{codigo}` | Público | Consultar estado amigable de seguimiento ciudadano por código de 8 dígitos. |
-| `GET` | `/api/incidentes/tipos` | Público | Catálogo oficial de tipos de afectación. |
+| `GET` | `/api/incidentes/tipos` | Público | Catálogo oficial de tipos de afectación. Sin parámetros retorna array de nombres (`string[]`); con `?catalogo=true` retorna objetos completos con `id`, `nombre`, `descripcion` y `activo` (HU-37). |
+| `PATCH` | `/api/incidentes/{id}/tipologia` | `misiones:terreno:verificar` | Reclasificar técnicamente la tipología del incidente tras la evaluación presencial en terreno (HU-37). Requiere que la misión esté en `EN_CURSO` y justificación obligatoria. |
+| `POST` | `/api/incidentes/{id}/prioridad/calcular` | `misiones:terreno:verificar` | Pre-calcular `prioridadSugerida`, puntaje y `factoresGatillantes` a partir del formulario de evaluación en terreno (HU-38). |
+| `PATCH` | `/api/incidentes/{id}/prioridad` | `misiones:terreno:verificar` | Asignar o modificar la prioridad del incidente en terreno, validando `justificacion_prioridad` ($\ge 5$ caracteres) si difiere de `prioridad_sugerida`, emitiendo un reporte versionado en `reporte_terreno` (`versionReporte: 1, 2...`), registrando el hito en `mision_hito` y notificando `incidente:actualizado` al Centro de Mando (HU-38). |
 | `POST` | `/api/incidentes/manual` | `crear_incidente_manual` | Ingreso manual de incidente desde Call Center o terreno. |
 | `POST` | `/api/incidentes/verificar-duplicado` | `crear_incidente_manual` | Consultar coincidencias de incidentes cercanos en Valdivia. |
 | `GET` | `/api/incidentes/kpis` | `incidentes:kanban` | Contadores numéricos de incidentes del día agrupados por estado para el panel del Encargado (HU-18). |
@@ -71,14 +83,18 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 - **`409 Conflict`:**
   - En `POST /api/incidentes/manual`: Se detectaron reportes similares en la zona (requiere confirmación `forzarCreacion: true`).
   - En `POST /api/incidentes/avisos/{id}/verificar` o `descartar`: El aviso ya fue gestionado concurrentemente por otro operador.
+  - En `PATCH /api/incidentes/{id}/tipologia`: La patrulla debe haber aceptado la misión previamente (`estado = EN_CURSO`). Si la misión está en `DESPACHADA` o no existe misión de verificación para el incidente, se rechaza la operación.
 - **`400 Bad Request`:**
   - Cuerpo JSON inválido, datos requeridos ausentes, o motivo de descarte menor a 5 caracteres.
+  - En `PATCH /api/incidentes/{id}/tipologia`: Justificación ausente o menor a 5 caracteres, o tipo de incidente inactivo en base de datos.
 - **`401 Unauthorized`:**
-  - Cabecera `X-User-Id` ausente o no registrada en el sistema.
+  - Cabecera `Authorization: Bearer <token>` o `X-User-Id` ausente o no registrada en el sistema.
 - **`403 Forbidden`:**
-  - El usuario no posee el rol ni permiso necesario para la operación solicitada.
+  - El usuario no posee el rol ni permiso necesario para la operación solicitada (`misiones:terreno:verificar`).
+  - En `PATCH /api/incidentes/{id}/tipologia`: El funcionario autenticado no forma parte de la patrulla verificadora asignada a la misión.
 - **`404 Not Found`:**
   - No existe el recurso o código de seguimiento consultado.
+  - En `PATCH /api/incidentes/{id}/tipologia`: Incidente, tipo de incidente o misión especificada no existen.
 - **`500 Internal Server Error`:**
   - Error no controlado o fallo de conexión a la base de datos.
 
@@ -92,7 +108,11 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
   - `aviso:descartado`: Notifica descarte del aviso `{ avisoId, motivoDescarte }`.
 - **`sala:encargados`:**
   - `incidente:creado`: Nueva tarjeta para la columna "Reportado" en el tablero Kanban. Invalida la caché del dashboard y gatilla el refresco automático de `GET /api/incidentes/kpis`.
-  - `incidente:actualizado`: Notifica cambio de estado en tiempo real (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, etc.). Invalida y actualiza los contadores de `GET /api/incidentes/kpis` (patrón reactivo SWR) y mueve la tarjeta en el tablero.
+  - `incidente:actualizado`: Notifica cambio de estado o reclasificación tipológica en tiempo real (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, etc.). Incluye `{ id, codigo, nuevoEstado, prioridad, tipoIncidenteId, tipoAfectacion, justificacion, actualizadoEn }` para actualizar reactivamente la tarjeta en el tablero Kanban.
+- **Campos enriquecidos en `GET /api/incidentes/{id}`:**
+  - `reclasificacionTipologia`: `{ hitoId, misionId, misionCodigo, tipoAnterior, tipoNuevo, justificacion, registradoPor, creadoEn } | null` con la trazabilidad del último cambio de afectación en terreno.
+  - `ultimoReporte`: `{ origen, reporteId, misionId, misionCodigo, evaluadorNombre, creadoEn, resumen, prioridadAsignada, versionReporte, esRectificacion } | null` con el reporte o constatación más reciente enviado por alguna misión del incidente.
+  - Los títulos de misiones `VERIFICACION` se sincronizan automáticamente con `incidente.tipo_afectacion` al reclasificar.
 - **`sala:seguimiento:{codigoSeguimiento}`:**
   - `incidente:estado_actualizado`: Actualiza el panel ciudadano con la nueva descripción y etiqueta comprensible.
 

@@ -44,6 +44,9 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 | `GET` | `/api/misiones` | `misiones:leer` / Sesión válida | Listar misiones tácticas con paginación estándar, metadatos `meta` y filtros multicriterio (H34). |
 | `GET` | `/api/misiones/{id}` | `misiones:leer` | Consultar detalle exhaustivo de una misión por su ID (incidente, cuadrilla/patrulla, tiempos y reportes con adjuntos - HU-17). |
 | `POST` | `/api/misiones` | `misiones:asignar` | Despacho y asignación de misión operativa a terreno: verificación primaria con patrulla (HU-20) o atención técnica con cuadrilla liberando la patrulla previa (HU-21 / Regla ICS §3.2). |
+| `POST` | `/api/misiones/{id}/aceptar` | `misiones:terreno:verificar` | Confirmar y aceptar misión asignada desde terreno (PWA), transicionando de `DESPACHADA` a `EN_CURSO`, registrando `fecha_inicio` y el hito `'Misión Aceptada por Patrulla'` en `mision_hito` (HU-36). |
+| `POST` | `/api/incidentes/{id}/prioridad/calcular` | `misiones:terreno:verificar` | Calcular la `prioridad_sugerida` y factores gatillantes en base al formulario de evaluación técnica en terreno de la patrulla verificadora (HU-38). |
+| `PATCH` | `/api/incidentes/{id}/prioridad` | `misiones:terreno:verificar` | Confirmar o modificar la prioridad del incidente y enviar el reporte de evaluación en terreno versionado (`versionReporte: 1, 2...`) al Centro de Mando, registrando el hito `PRIORIDAD_ASIGNADA` o `PRIORIDAD_RECTIFICADA` en `mision_hito` (HU-38). |
 
 ---
 
@@ -439,6 +442,77 @@ Permite al **Encargado de Operaciones** (o Administrador) desplegar una cuadrill
 
 ---
 
+### 3.5. `POST /api/misiones/{id}/aceptar` (HU-36: Aceptación de Misión por Patrulla Verificadora en PWA)
+
+Permite a la patrulla verificadora en terreno confirmar desde su dispositivo móvil (`sgrai-pwa`) que ha tomado conocimiento de la misión asignada y se dirige al lugar para iniciar la evaluación primaria.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>`
+- **Permiso RBAC requerido:** `misiones:terreno:verificar`
+
+#### Reglas de Negocio y Transición Atómica
+1. **Validación de Estado Inicial (`DESPACHADA`):** Solo se pueden aceptar misiones que se encuentren actualmente en estado `DESPACHADA`. Si la misión ya está `EN_CURSO` o en otro estado, responde `409 Conflict`.
+2. **Transición Atómica (Kysely Transaction):**
+   - Actualiza `mision.estado` de `DESPACHADA` a `EN_CURSO`.
+   - Fija `mision.fecha_inicio = CURRENT_TIMESTAMP` y `mision.actualizado_en = CURRENT_TIMESTAMP`.
+   - Inserta en la tabla `mision_hito` el registro con código `hito = 'MISION_ACEPTADA'`, glosa `descripcion = 'Misión Aceptada por Patrulla'`, `registrado_por_id` del funcionario en sesión y coordenadas GPS opcionales (`latitud`, `longitud`).
+3. **Invariantes del Sistema de Comando de Incidentes (ICS):**
+   - El estado de la patrulla verificadora se mantiene en `EN_VERIFICACION`.
+   - El estado del incidente permanece en `VERIFICANDO` (nunca se utiliza el estado ambiguo no canónico `'En camino'`).
+4. **Tiempo Real (Socket.io / Redis):**
+   - Emite el evento `mision:actualizada` hacia la sala `encargado` del Centro de Mando.
+
+#### Cuerpo de la Petición (Opcional)
+```json
+{
+  "latitud": -39.819588,
+  "longitud": -73.245209
+}
+```
+
+#### Ejemplo de Respuesta Exitosa (`HTTP 200 OK`)
+```json
+{
+  "message": "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
+  "data": {
+    "mision": {
+      "id": "60000000-0000-4000-8000-000000000001",
+      "codigo": "MIS-2026-0001",
+      "titulo": "Verificación de Incidente INC-2026-001",
+      "descripcion": "Evaluar caída de árbol y riesgo eléctrico",
+      "tipoMision": "VERIFICACION",
+      "estado": "EN_CURSO",
+      "prioridad": "ALTA",
+      "incidenteId": "a0000000-0000-4000-8000-000000000001",
+      "patrullaId": "f1000000-0000-4000-8000-000000000001",
+      "fechaInicio": "2026-11-01T21:00:00.000Z",
+      "actualizadoEn": "2026-11-01T21:00:00.000Z"
+    },
+    "patrulla": {
+      "id": "f1000000-0000-4000-8000-000000000001",
+      "nombre": "Patrulla Rápida Costa-1",
+      "estado": "EN_VERIFICACION"
+    },
+    "incidente": {
+      "id": "a0000000-0000-4000-8000-000000000001",
+      "codigo": "INC-2026-001",
+      "estado": "VERIFICANDO"
+    },
+    "hito": {
+      "id": "70000000-0000-4000-8000-000000000001",
+      "misionId": "60000000-0000-4000-8000-000000000001",
+      "hito": "MISION_ACEPTADA",
+      "descripcion": "Misión Aceptada por Patrulla",
+      "registradoPorId": "00000000-0000-4000-8000-000000000004",
+      "latitud": -39.819588,
+      "longitud": -73.245209,
+      "creadoEn": "2026-11-01T21:00:00.000Z"
+    }
+  }
+}
+```
+
+---
+
 ## 4. Códigos de Estado y Errores Esperables
 
 - **`400 Bad Request`:**
@@ -448,11 +522,12 @@ Permite al **Encargado de Operaciones** (o Administrador) desplegar una cuadrill
 - **`401 Unauthorized`:**
   - Petición sin token JWT Bearer o sesión expirada.
 - **`403 Forbidden`:**
-  - El usuario no cuenta con el permiso requerido (`misiones:leer` para consulta, `misiones:asignar` para despacho).
+  - El usuario no cuenta con el permiso requerido (`misiones:leer` para consulta, `misiones:asignar` para despacho, o `misiones:terreno:verificar` al aceptar misión desde terreno), o intenta aceptar una misión asignada a otra patrulla verificadora.
 - **`404 Not Found`:**
-  - En `GET /api/misiones/{id}`: No existe ninguna misión con el UUID proporcionado.
+  - En `GET /api/misiones/{id}` y `POST /api/misiones/{id}/aceptar`: No existe ninguna misión con el UUID proporcionado.
   - En `POST /api/misiones`: El `incidenteId`, la `patrullaId` o la `cuadrillaId` proporcionada no existe en la base de datos o ha sido desactivada lógicamente.
 - **`409 Conflict`:**
+  - En `POST /api/misiones/{id}/aceptar`: La misión no se encuentra en estado `DESPACHADA` (ej. ya fue aceptada previamente y está `EN_CURSO`, o fue `CANCELADA`).
   - En `POST /api/misiones`:
     1. **`VERIFICACION_EN_CURSO`:** La patrulla verificadora asignada al incidente aún no ha finalizado la evaluación técnica en terreno (no se ha emitido el `reporte_terreno` correspondiente).
       ```json
@@ -493,4 +568,15 @@ Al confirmarse la asignación de misiones operativas mediante `POST /api/misione
 4. **`incidente:actualizado`**:
    - **Salas destino:** `encargado` y `mapa`.
    - **Propósito:** Mover automáticamente la tarjeta del incidente en el tablero Kanban (`VERIFICANDO` o `EN_ATENCION`) sin recarga.
+5. **`mision:actualizada`**:
+   - **Salas destino:** `encargado`.
+   - **Propósito:** Informar la aceptación y transición de la misión a `EN_CURSO` por parte de la patrulla verificadora.
+
+---
+
+## 6. Estado de Evaluaciones y Sincronización de Tipología (`GET /api/misiones` y `GET /api/misiones/{id}`)
+
+- En `GET /api/misiones`, cada ítem incluye `incidenteTipoAfectacion` y proyecta `titulo` sincronizado con la tipología actual del incidente para misiones `VERIFICACION`.
+- En `GET /api/misiones/{id}`, el objeto `evaluaciones` (`{ tipologiaEvaluada, tipologiaEvaluadaEn, prioridadEvaluada, prioridadEvaluadaEn, versionReportePrioridad }`) expone el estado persistido en servidor de las secciones de evaluación en terreno, permitiendo que la aplicación web contraiga e indique como completados los reportes ya enviados sin depender del almacenamiento local del dispositivo.
+- Cada hito de `bitacoraTiempos` incluye `id` y `metadatos` opcionales para vincular directamente el reporte de reclasificación (`reclasificacion-{hitoId}`).
 
