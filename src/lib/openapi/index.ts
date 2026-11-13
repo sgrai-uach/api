@@ -50,6 +50,8 @@ import {
   DetalleCuadrillaResponseSchema,
   CuadrillaIdParamSchema,
   DesactivarCuadrillaResponseSchema,
+  MisionActivaCuadrillaSchema,
+  MisionActivaIncidenteSchema,
 } from "@/modules/recursos-y-personal/cuadrilla.schema";
 
 import {
@@ -160,6 +162,13 @@ extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
 
+registry.registerComponent("securitySchemes", "BearerAuth", {
+  type: "http",
+  scheme: "bearer",
+  bearerFormat: "JWT",
+  description: "Token JWT en cabecera Authorization: Bearer <token>",
+});
+
 // Registrar esquemas de Recursos y Personal
 registry.register("CrearRecursoInput", CrearRecursoInputSchema);
 registry.register("ActualizarRecursoInput", ActualizarRecursoInputSchema);
@@ -189,6 +198,8 @@ registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
 registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
 registry.register("ListarCuadrillasQuery", ListarCuadrillasQuerySchema);
 registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
+registry.register("MisionActivaIncidente", MisionActivaIncidenteSchema);
+registry.register("MisionActivaCuadrilla", MisionActivaCuadrillaSchema);
 
 
 // Registrar esquemas de Seguridad
@@ -1269,7 +1280,7 @@ registry.registerPath({
   description:
     "Crea una misión de tipo ATENCION_CUADRILLA en estado DESPACHADA, actualiza la cuadrilla a EN_MISION y el incidente a EN_ATENCION. Aplica la Regla §3.2 (ICS): si el incidente contaba con una patrulla verificadora en terreno, concluye su misión (COMPLETADA) con hito 'VERIFICACION_FINALIZADA' y libera la patrulla a estado 'DISPONIBLE'. Emite eventos WebSocket a la cuadrilla, patrulla y Centro de Mando.",
   tags: ["Misiones"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     headers: z.object({
       authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
@@ -1850,7 +1861,7 @@ registry.registerPath({
   description:
     "Registra un nuevo evento preventivo georreferenciado sobre un punto crítico o coordenadas libres en una delegación de Valdivia, asigna recursos opcionales del inventario, despacha una misión operativa a una patrulla verificadora disponible (actualizando su estado a EN_PREVENCION) y emite notificaciones WebSocket en tiempo real.",
   tags: ["Eventos ATP"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     body: {
       content: {
@@ -1909,7 +1920,7 @@ registry.registerPath({
   description:
     "Registra una nueva patrulla verificadora en estado inicial canónico DISPONIBLE, validando la unicidad del código identificador, la existencia de la delegación base, la disponibilidad del vehículo institucional individual asignado y la adscripción de dotación de personal con rol PATRULLA_VERIFICADORA. Emite el evento en tiempo real 'patrulla:creada' para el Centro de Mando.",
   tags: ["Recursos y Personal"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     body: {
       content: {
@@ -1956,7 +1967,7 @@ registry.registerPath({
   description:
     "Retorna la dotación de patrullas verificadoras de terreno con su estado operativo en tiempo real, funcionario líder, funcionarios de terreno (integrantes), delegación adscrita y misión/incidente activo si se encuentra en terreno. Admite filtros por delegacionId, estado y búsqueda textual.",
   tags: ["Recursos y Personal"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     query: ListarPatrullasQuerySchema,
   },
@@ -1991,7 +2002,7 @@ registry.registerPath({
   description:
     "Obtiene la ficha exhaustiva de una patrulla verificadora incluyendo su dotación de personal de terreno, líder asignado, misión activa y coordenadas.",
   tags: ["Recursos y Personal"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: PatrullaIdParamSchema,
@@ -2031,7 +2042,7 @@ registry.registerPath({
   description:
     "Modifica el estado operativo canónico (DISPONIBLE, EN_VERIFICACION, EN_PREVENCION, EN_RECUPERACION, EN_MISION, NO_DISPONIBLE) y/o las coordenadas de la patrulla, notificando en tiempo real a las salas WebSocket 'encargado' y 'supervisor'.",
   tags: ["Recursos y Personal"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: PatrullaIdParamSchema,
@@ -2078,7 +2089,7 @@ registry.registerPath({
   description:
     "Modifica la delegación municipal base, vehículo institucional asignado y dotación de personal operativo adscrito a una patrulla verificadora. Bloquea con HTTP 409 Conflict si la patrulla se encuentra en estado EN_VERIFICACION o cuenta con una misión táctica activa en terreno.",
   tags: ["Recursos y Personal"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: PatrullaIdParamSchema,
@@ -2128,7 +2139,7 @@ registry.registerPath({
   description:
     "Desactiva una patrulla verificadora marcándola inactiva (eliminado_en), liberando de forma atómica su vehículo institucional y funcionarios de dotación a estado disponible. Bloquea con 409 Conflict si está desplegada en terreno o con misión activa.",
   tags: ["Recursos y Personal"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: PatrullaIdParamSchema,
@@ -2257,13 +2268,13 @@ registry.registerPath({
   },
 });
 
-// H81 / H79: Detalle Unitario de Cuadrilla
+// H81 / H79 / H22: Detalle Unitario de Cuadrilla
 registry.registerPath({
   method: "get",
   path: "/api/cuadrillas/{id}",
-  summary: "Obtener detalle unitario de una cuadrilla operativa (H81 / H79)",
+  summary: "Obtener detalle unitario de una cuadrilla operativa (H81 / H79 / H22)",
   description:
-    "Retorna la información detallada de una cuadrilla consolidando su delegación, delegado, recursos y trabajadores.",
+    "Retorna la información detallada de una cuadrilla consolidando su delegación, delegado, nómina completa de integrantes (con RUT, cargo, especialidad y teléfono de contacto), recursos y herramientas con especificaciones técnicas, y detalle de la misión en ejecución con tiempo transcurrido e incidente asociado si se encuentra EN_MISION.",
   tags: ["Cuadrillas", "Recursos y Personal"],
   security: [{ BearerAuth: [] }],
   request: {
@@ -2396,7 +2407,7 @@ registry.registerPath({
   description:
     "Despacha una patrulla verificadora disponible a un incidente formal en estado REPORTADO. Ejecuta una transacción atómica que: (1) crea la misión con tipo VERIFICACION y estado DESPACHADA, (2) actualiza el incidente a estado VERIFICANDO, (3) actualiza la patrulla a estado EN_VERIFICACION, y (4) registra el hito inicial en mision_hito. Emite eventos WebSocket a las salas 'patrulla:{id}', 'encargado' y 'mapa'. Requiere permiso 'misiones:asignar'.",
   tags: ["Misiones"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     body: {
       content: {
@@ -2443,7 +2454,7 @@ export function generarOpenAPISpec() {
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.10.0",
+      version: "0.11.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",

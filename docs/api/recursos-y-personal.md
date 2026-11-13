@@ -844,13 +844,105 @@ Permite dar de alta una nueva cuadrilla táctica municipal en estado inicial `DI
 
 ---
 
-### 3.10. `GET /api/cuadrillas/{id}` (Detalle Unitario de Cuadrilla - H81 / H79)
-Retorna el detalle completo y consolidado de una cuadrilla operativa específica por su identificador UUID.
+### 3.10. `GET /api/cuadrillas/{id}` (Detalle Unitario y Composición en Tiempo Real de Cuadrilla - H22 / H81 / H79)
+Retorna el detalle técnico y la composición completa y consolidada de una cuadrilla operativa específica por su identificador UUID. Permite al Encargado y operadores consultar en tiempo real los integrantes de la brigada, delegado a cargo, recursos y herramientas asignadas, y su misión en ejecución con tiempo transcurrido e incidente asociado.
 
 - **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id`).
-- **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:leer`, `recursos:gestionar` o rol `ADMIN`.
-- **Respuesta:** Detalle consolidado con su delegación, delegado, lista de recursos materiales (`cuadrilla_recurso`) y trabajadores operativos (`cuadrilla_personal`).
-- **Error 404:** Si la cuadrilla no existe o se encuentra eliminada lógicamente.
+- **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:leer`, `recursos:gestionar` o rol `ADMIN` / `ENCARGADO`.
+- **Información provista en la respuesta:**
+  - **Identificación base:** Identificador UUID, nombre de cuadrilla, delegación base (`id`, `nombre`, `codigo`), estado operativo (`DISPONIBLE`, `EN_MISION`, `NO_DISPONIBLE`), indicador de baja lógica (`activo`) y fechas de auditoría.
+  - **Delegado Responsable:** `id`, `nombre`, `email`, `rut` del delegado a cargo.
+  - **Nómina de Integrantes (`cuadrilla_personal` / `cuadrilla_integrante`):** Lista completa de funcionarios adscritos con `id`, `personalId`, `usuarioId`, `nombre`, `rut`, `cargo`, `especialidad`, `telefono` de contacto y `asignadoEn`.
+  - **Recursos y Herramientas Asignadas (`cuadrilla_recurso`):** Detalle de inventario asignado con `id`, `recursoId`, `nombre`, `cantidadAsignada`, `esIndividual`, `descripcion` y `especificaciones` técnicas (atributos JSONB como marca, modelo, patente, etc.).
+  - **Misión Activa en Ejecución (`misionActiva`):** Si la cuadrilla se encuentra `EN_MISION` (o posee una misión en estado `DESPACHADA` o `EN_CURSO`), expone el identificador, código, título, tipo de misión, estado, `fechaDespacho`, `tiempoTranscurridoMinutos` calculado desde el despacho, y el objeto de `incidente` vinculado (`id`, `codigo`, `tipo`, `direccion`, `latitud`, `longitud`). Si la cuadrilla se encuentra `DISPONIBLE`, `misionActiva` se retorna como `null`.
+- **Códigos de Estado HTTP:**
+  - `200 OK`: Ficha técnica de la cuadrilla obtenida exitosamente.
+  - `400 Bad Request`: Si el identificador provisto no corresponde a un UUID válido.
+  - `401 Unauthorized`: Si falta el token de autorización o ha expirado.
+  - `403 Forbidden`: Si el usuario carece del permiso `recursos:leer` o no pertenece a los roles autorizados.
+  - `404 Not Found`: Si la cuadrilla especificada no existe en la base de datos.
+
+#### Ejemplo de Respuesta Exitosa (`200 OK`) — Cuadrilla `EN_MISION`:
+```json
+{
+  "message": "Detalle de cuadrilla operativa obtenido exitosamente",
+  "data": {
+    "id": "50000000-0000-4000-8000-000000000001",
+    "nombre": "Cuadrilla Vías y Despeje Urbano",
+    "estado": "EN_MISION",
+    "activo": true,
+    "delegacion": {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "nombre": "Delegación Municipal Norte",
+      "codigo": "DEL_NORTE"
+    },
+    "delegado": {
+      "id": "00000000-0000-4000-8000-000000000005",
+      "nombre": "Carlos Delegado",
+      "email": "carlos.delegado@valdivia.cl",
+      "rut": "15.123.456-7"
+    },
+    "recursos": [
+      {
+        "id": "cd100000-0000-4000-8000-000000000001",
+        "recursoId": "e1000000-0000-4000-8000-000000000001",
+        "nombre": "Camioneta de Rescate 4x4",
+        "cantidadAsignada": 1,
+        "esIndividual": true,
+        "descripcion": "Camioneta 4x4 doble cabina para rescate y traslado de cuadrilla",
+        "detalles": {
+          "patente": "KKLX-89",
+          "marca": "Toyota",
+          "modelo": "Hilux"
+        },
+        "especificaciones": {
+          "patente": "KKLX-89",
+          "marca": "Toyota",
+          "modelo": "Hilux"
+        }
+      }
+    ],
+    "trabajadores": [
+      {
+        "id": "cp100000-0000-4000-8000-000000000001",
+        "personalId": "40000000-0000-4000-8000-000000000001",
+        "usuarioId": "00000000-0000-4000-8000-000000000009",
+        "nombre": "Juan Trabajador",
+        "rut": "16.123.456-8",
+        "cargo": "Motosierrista",
+        "especialidad": "Poda y Despeje de Altura",
+        "telefono": "+56991234567",
+        "asignadoEn": "2026-10-26T01:00:00.000Z"
+      }
+    ],
+    "totalRecursos": 1,
+    "totalTrabajadores": 1,
+    "misionActiva": {
+      "id": "60000000-0000-4000-8000-000000000001",
+      "codigo": "MIS-2026-0042",
+      "titulo": "Atención anegamiento en Isla Teja",
+      "tipoMision": "ATENCION_CUADRILLA",
+      "estado": "EN_CURSO",
+      "fechaDespacho": "2026-11-08T09:30:00.000Z",
+      "tiempoTranscurridoMinutos": 45,
+      "incidente": {
+        "id": "70000000-0000-4000-8000-000000000001",
+        "codigo": "INC-2026-0042",
+        "tipo": "Inundación",
+        "direccion": "Av. Los Robles 450, Isla Teja",
+        "latitud": -39.8152,
+        "longitud": -73.2458
+      }
+    },
+    "creadoEn": "2026-10-24T12:00:00.000Z",
+    "actualizadoEn": "2026-10-26T01:00:00.000Z",
+    "actualizadoPorId": "00000000-0000-4000-8000-000000000001",
+    "creadoPorId": "00000000-0000-4000-8000-000000000001",
+    "eliminadoEn": null,
+    "eliminadoPorId": null
+  }
+}
+```
 
 ---
 
