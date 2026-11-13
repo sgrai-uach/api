@@ -13,6 +13,7 @@ export interface FilaMisionListado {
   justificacion_rechazo: string | null;
   incidente_id: string | null;
   incidente_codigo: string | null;
+  incidente_tipo_afectacion?: string | null;
   cuadrilla_id: string | null;
   cuadrilla_nombre: string | null;
   patrulla_id: string | null;
@@ -118,6 +119,7 @@ export async function listarMisionesPaginadoRepo(filtros: ListarMisionesQuery) {
       "mision.justificacion_rechazo",
       "mision.incidente_id",
       "incidente.codigo as incidente_codigo",
+      "incidente.tipo_afectacion as incidente_tipo_afectacion",
       "mision.cuadrilla_id",
       "cuadrilla.nombre as cuadrilla_nombre",
       "mision.patrulla_id",

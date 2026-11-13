@@ -59,6 +59,13 @@ export type EvaluadorTerreno = z.infer<typeof EvaluadorTerrenoSchema>;
 export const ReporteTerrenoDetalleSchema = z.object({
   id: z.string().uuid().openapi({ description: "Identificador único UUID del reporte de terreno" }),
   misionId: z.string().uuid().openapi({ description: "Identificador de la misión asociada" }),
+  versionReporte: z.number().int().optional().openapi({ description: "Número correlativo de versión del reporte en esta misión (1 = inicial, 2+ = rectificaciones)", example: 1 }),
+  esRectificacion: z.boolean().optional().openapi({ description: "Indica si es una modificación/reenvío de evaluación en terreno", example: false }),
+  etiquetaReporte: z.string().optional().openapi({ description: "Etiqueta legible del número de reporte para el Centro de Mando", example: "Reporte de Evaluación #1 (Inicial)" }),
+  prioridadSugerida: PrioridadMisionEnum.nullable().optional().openapi({ description: "Prioridad sugerida por el sistema en este reporte (HU-38)" }),
+  prioridadAsignada: PrioridadMisionEnum.nullable().optional().openapi({ description: "Prioridad confirmada por la patrulla en este reporte (HU-38)" }),
+  justificacionPrioridad: z.string().nullable().optional().openapi({ description: "Justificación técnica si se modificó la prioridad sugerida (HU-38)" }),
+  detallesEvaluacion: z.record(z.string(), z.unknown()).optional().openapi({ description: "Desglose del formulario de evaluación en terreno (núcleo familiar, niños, discapacitados, mascotas, vivienda, riesgos)" }),
   evaluador: EvaluadorTerrenoSchema.openapi({ description: "Datos del funcionario o patrullero que emitió el reporte" }),
   resumenTecnico: z.string().openapi({ description: "Diagnóstico técnico consolidado de la intervención" }),
   accionesRealizadas: z.string().nullable().openapi({ description: "Labores y maniobras ejecutadas en terreno" }),
@@ -78,11 +85,15 @@ export type ReporteTerrenoDetalle = z.infer<typeof ReporteTerrenoDetalleSchema>;
 
 // Bitácora de tiempos simplificada (Opción 1 - HU-17 / Hito previo a H23)
 export const MisionBitacoraHitoSchema = z.object({
+  id: z.string().uuid().optional().openapi({ description: "UUID del registro en mision_hito si aplica" }),
   hito: z.string().openapi({ description: "Hito temporal de la misión", example: "PLANIFICACION" }),
   fecha: z.string().openapi({ description: "Fecha del hito en formato YYYY-MM-DD", example: "2026-10-02" }),
   hora: z.string().openapi({ description: "Hora del hito en formato HH:MM:SS", example: "14:30:00" }),
   timestamp: z.string().openapi({ description: "Timestamp completo ISO 8601" }),
   descripcion: z.string().openapi({ description: "Glosa descriptiva del hito operativo" }),
+  metadatos: z.record(z.string(), z.unknown()).nullable().optional().openapi({
+    description: "Metadatos estructurados del hito (ej. tipoAnterior y tipoNuevo en TIPOLOGIA_RECLASIFICADA)",
+  }),
 });
 
 export type MisionBitacoraHito = z.infer<typeof MisionBitacoraHitoSchema>;
@@ -99,6 +110,8 @@ export const IncidenteMisionResumenSchema = z.object({
   longitud: z.number().openapi({ description: "Longitud WGS84" }),
   estado: z.string().openapi({ description: "Estado actual del incidente (REPORTADO, VERIFICANDO, EN_ATENCION, RESUELTO)" }),
   prioridad: z.string().openapi({ description: "Prioridad del incidente (BAJA, MEDIA, ALTA, CRITICA)" }),
+  prioridadSugerida: z.string().nullable().optional().openapi({ description: "Prioridad sugerida preliminarmente por el sistema (HU-38)" }),
+  justificacionPrioridad: z.string().nullable().optional().openapi({ description: "Justificación técnica del ajuste de prioridad en terreno (HU-38)" }),
   requiereAsistenciaSocial: z.boolean().openapi({ description: "Requiere derivación social / ficha FIBE" }),
   delegacionNombre: z.string().nullable().openapi({ description: "Delegación territorial asignada" }),
 });
@@ -201,6 +214,18 @@ export const MisionDetalleCompletoSchema = z.object({
   reportesTerreno: z.array(ReporteTerrenoDetalleSchema).openapi({
     description: "Informes técnicos levantados en terreno con su respectiva evidencia multimedia (vacío si no hay reportes)",
   }),
+  evaluaciones: z
+    .object({
+      tipologiaEvaluada: z.boolean(),
+      tipologiaEvaluadaEn: z.string().nullable(),
+      prioridadEvaluada: z.boolean(),
+      prioridadEvaluadaEn: z.string().nullable(),
+      versionReportePrioridad: z.number().int().nullable(),
+    })
+    .optional()
+    .openapi({
+      description: "Estado consolidado de evaluaciones en terreno realizadas en la misión (HU-37 / HU-38)",
+    }),
 });
 
 export type MisionDetalleCompleto = z.infer<typeof MisionDetalleCompletoSchema>;

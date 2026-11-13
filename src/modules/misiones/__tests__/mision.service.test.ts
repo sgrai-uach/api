@@ -249,6 +249,14 @@ describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
     const hitoReclasificacion = detalle?.bitacoraTiempos.find(
       (h) => h.hito === "TIPOLOGIA_RECLASIFICADA"
     );
+    expect(hitoReclasificacion?.id).toBe("hito-1");
+    expect(detalle?.evaluaciones).toEqual({
+      tipologiaEvaluada: true,
+      tipologiaEvaluadaEn: "2026-11-10T05:15:00.000Z",
+      prioridadEvaluada: false,
+      prioridadEvaluadaEn: null,
+      versionReportePrioridad: null,
+    });
     expect(hitoReclasificacion).toBeDefined();
     expect(hitoReclasificacion?.descripcion).toContain("Corte de agua potable");
     expect(hitoReclasificacion?.descripcion).toContain("matriz rota");

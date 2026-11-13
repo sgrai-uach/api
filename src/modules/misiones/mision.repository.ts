@@ -1,12 +1,22 @@
 import { db } from "@/lib/db";
 import { sql, type Transaction } from "kysely";
 import { NotFoundError, ConflictError, ForbiddenError } from "@/modules/seguridad/errors";
+import { asegurarColumnasHu38EnEsquema } from "@/modules/incidentes/prioridad.repository";
 import type { Database } from "@/lib/db/types";
 import type {
   AceptarMisionInput,
   CrearMisionVerificacionInput,
   AsignarCuadrillaMisionInput,
 } from "./mision.schema";
+
+function esErrorColumnaInexistente(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: string }).code === "42703"
+  );
+}
 
 export type MisionTrx = Transaction<Database>;
 
@@ -41,6 +51,8 @@ export interface MisionDetalleQueryResult {
     incidente_longitud?: number | string | null;
     incidente_estado?: string | null;
     incidente_prioridad?: string | null;
+    incidente_prioridad_sugerida?: string | null;
+    incidente_justificacion_prioridad?: string | null;
     incidente_requiere_asistencia_social?: boolean | null;
     incidente_delegacion_nombre?: string | null;
 
@@ -95,6 +107,12 @@ export interface MisionDetalleQueryResult {
     observaciones: string | null;
     personas_afectadas: number;
     estado_terreno: string;
+    version_reporte?: number | null;
+    es_rectificacion?: boolean | null;
+    prioridad_sugerida?: string | null;
+    prioridad_asignada?: string | null;
+    justificacion_prioridad?: string | null;
+    detalles_evaluacion?: Record<string, unknown> | string | null;
     creado_en: Date | string;
     actualizado_en: Date | string;
     evaluador_nombre: string | null;
@@ -117,6 +135,7 @@ export interface MisionDetalleQueryResult {
     registrado_por_id?: string | null;
     latitud: number | null;
     longitud: number | null;
+    metadatos?: Record<string, unknown> | string | null;
     creado_en: Date | string;
     registrador_nombre?: string | null;
   }>;
@@ -130,89 +149,104 @@ export interface MisionDetalleQueryResult {
 export async function obtenerMisionDetallePorIdRepo(
   id: string
 ): Promise<MisionDetalleQueryResult | null> {
-  const mision = await db
-    .selectFrom("mision")
-    .leftJoin("incidente", "incidente.id", "mision.incidente_id")
-    .leftJoin("delegacion as delegacion_incidente", "delegacion_incidente.id", "incidente.delegacion_id")
-    .leftJoin("prevencion", "prevencion.id", "mision.prevencion_id")
-    .leftJoin("delegacion as delegacion_prevencion", "delegacion_prevencion.id", "prevencion.delegacion_id")
-    .leftJoin("usuario as creador", "creador.id", "mision.creado_por_id")
-    .leftJoin("usuario as encargado", "encargado.id", "mision.encargado_id")
-    .leftJoin("cuadrilla", "cuadrilla.id", "mision.cuadrilla_id")
-    .leftJoin("delegacion as delegacion_cuadrilla", "delegacion_cuadrilla.id", "cuadrilla.delegacion_id")
-    .leftJoin("usuario as delegado", "delegado.id", "cuadrilla.usuario_delegado_id")
-    .leftJoin("patrulla_verificadora", "patrulla_verificadora.id", "mision.patrulla_id")
-    .leftJoin("delegacion as delegacion_patrulla", "delegacion_patrulla.id", "patrulla_verificadora.delegacion_id")
-    .leftJoin("usuario as lider", "lider.id", "patrulla_verificadora.usuario_lider_id")
-    .select([
-      "mision.id",
-      "mision.codigo",
-      "mision.titulo",
-      "mision.descripcion",
-      "mision.tipo_mision",
-      "mision.estado",
-      "mision.prioridad",
-      "mision.justificacion_rechazo",
-      "mision.incidente_id",
-      "mision.prevencion_id",
-      "mision.cuadrilla_id",
-      "mision.patrulla_id",
-      "mision.encargado_id",
-      "mision.creado_por_id",
-      "mision.fecha_inicio",
-      "mision.fecha_cierre",
-      "mision.creado_en",
-      "mision.actualizado_en",
+  const ejecutarConsultaMision = () =>
+    db
+      .selectFrom("mision")
+      .leftJoin("incidente", "incidente.id", "mision.incidente_id")
+      .leftJoin("delegacion as delegacion_incidente", "delegacion_incidente.id", "incidente.delegacion_id")
+      .leftJoin("prevencion", "prevencion.id", "mision.prevencion_id")
+      .leftJoin("delegacion as delegacion_prevencion", "delegacion_prevencion.id", "prevencion.delegacion_id")
+      .leftJoin("usuario as creador", "creador.id", "mision.creado_por_id")
+      .leftJoin("usuario as encargado", "encargado.id", "mision.encargado_id")
+      .leftJoin("cuadrilla", "cuadrilla.id", "mision.cuadrilla_id")
+      .leftJoin("delegacion as delegacion_cuadrilla", "delegacion_cuadrilla.id", "cuadrilla.delegacion_id")
+      .leftJoin("usuario as delegado", "delegado.id", "cuadrilla.usuario_delegado_id")
+      .leftJoin("patrulla_verificadora", "patrulla_verificadora.id", "mision.patrulla_id")
+      .leftJoin("delegacion as delegacion_patrulla", "delegacion_patrulla.id", "patrulla_verificadora.delegacion_id")
+      .leftJoin("usuario as lider", "lider.id", "patrulla_verificadora.usuario_lider_id")
+      .select([
+        "mision.id",
+        "mision.codigo",
+        "mision.titulo",
+        "mision.descripcion",
+        "mision.tipo_mision",
+        "mision.estado",
+        "mision.prioridad",
+        "mision.justificacion_rechazo",
+        "mision.incidente_id",
+        "mision.prevencion_id",
+        "mision.cuadrilla_id",
+        "mision.patrulla_id",
+        "mision.encargado_id",
+        "mision.creado_por_id",
+        "mision.fecha_inicio",
+        "mision.fecha_cierre",
+        "mision.creado_en",
+        "mision.actualizado_en",
 
-      // Incidente
-      "incidente.codigo as incidente_codigo",
-      "incidente.codigo_seguimiento as incidente_codigo_seguimiento",
-      "incidente.tipo_afectacion as incidente_tipo_afectacion",
-      "incidente.descripcion as incidente_descripcion",
-      "incidente.direccion_texto as incidente_direccion",
-      "incidente.latitud as incidente_latitud",
-      "incidente.longitud as incidente_longitud",
-      "incidente.estado as incidente_estado",
-      "incidente.prioridad as incidente_prioridad",
-      "incidente.requiere_asistencia_social as incidente_requiere_asistencia_social",
-      "delegacion_incidente.nombre as incidente_delegacion_nombre",
+        // Incidente
+        "incidente.codigo as incidente_codigo",
+        "incidente.codigo_seguimiento as incidente_codigo_seguimiento",
+        "incidente.tipo_afectacion as incidente_tipo_afectacion",
+        "incidente.descripcion as incidente_descripcion",
+        "incidente.direccion_texto as incidente_direccion",
+        "incidente.latitud as incidente_latitud",
+        "incidente.longitud as incidente_longitud",
+        "incidente.estado as incidente_estado",
+        "incidente.prioridad as incidente_prioridad",
+        "incidente.prioridad_sugerida as incidente_prioridad_sugerida",
+        "incidente.justificacion_prioridad as incidente_justificacion_prioridad",
+        "incidente.requiere_asistencia_social as incidente_requiere_asistencia_social",
+        "delegacion_incidente.nombre as incidente_delegacion_nombre",
 
-      // Prevención
-      "prevencion.codigo as prevencion_codigo",
-      "prevencion.nombre as prevencion_nombre",
-      "prevencion.descripcion as prevencion_descripcion",
-      "prevencion.latitud as prevencion_latitud",
-      "prevencion.longitud as prevencion_longitud",
-      "delegacion_prevencion.nombre as prevencion_delegacion_nombre",
+        // Prevención
+        "prevencion.codigo as prevencion_codigo",
+        "prevencion.nombre as prevencion_nombre",
+        "prevencion.descripcion as prevencion_descripcion",
+        "prevencion.latitud as prevencion_latitud",
+        "prevencion.longitud as prevencion_longitud",
+        "delegacion_prevencion.nombre as prevencion_delegacion_nombre",
 
-      // Creador
-      "creador.id as creador_id",
-      "creador.nombre as creador_nombre",
-      "creador.email as creador_email",
+        // Creador
+        "creador.id as creador_id",
+        "creador.nombre as creador_nombre",
+        "creador.email as creador_email",
 
-      // Encargado
-      "encargado.id as encargado_id_res",
-      "encargado.nombre as encargado_nombre",
-      "encargado.email as encargado_email",
+        // Encargado
+        "encargado.id as encargado_id_res",
+        "encargado.nombre as encargado_nombre",
+        "encargado.email as encargado_email",
 
-      // Cuadrilla
-      "cuadrilla.nombre as cuadrilla_nombre",
-      "cuadrilla.estado as cuadrilla_estado",
-      "delegacion_cuadrilla.nombre as cuadrilla_delegacion_nombre",
-      "delegado.id as delegado_id",
-      "delegado.nombre as delegado_nombre",
-      "delegado.email as delegado_email",
+        // Cuadrilla
+        "cuadrilla.nombre as cuadrilla_nombre",
+        "cuadrilla.estado as cuadrilla_estado",
+        "delegacion_cuadrilla.nombre as cuadrilla_delegacion_nombre",
+        "delegado.id as delegado_id",
+        "delegado.nombre as delegado_nombre",
+        "delegado.email as delegado_email",
 
-      // Patrulla
-      "patrulla_verificadora.nombre as patrulla_nombre",
-      "patrulla_verificadora.estado as patrulla_estado",
-      "delegacion_patrulla.nombre as patrulla_delegacion_nombre",
-      "lider.id as lider_id",
-      "lider.nombre as lider_nombre",
-      "lider.email as lider_email",
-    ])
-    .where("mision.id", "=", id)
-    .executeTakeFirst();
+        // Patrulla
+        "patrulla_verificadora.nombre as patrulla_nombre",
+        "patrulla_verificadora.estado as patrulla_estado",
+        "delegacion_patrulla.nombre as patrulla_delegacion_nombre",
+        "lider.id as lider_id",
+        "lider.nombre as lider_nombre",
+        "lider.email as lider_email",
+      ])
+      .where("mision.id", "=", id)
+      .executeTakeFirst();
+
+  let mision;
+  try {
+    mision = await ejecutarConsultaMision();
+  } catch (err) {
+    if (esErrorColumnaInexistente(err)) {
+      await asegurarColumnasHu38EnEsquema();
+      mision = await ejecutarConsultaMision();
+    } else {
+      throw err;
+    }
+  }
 
   if (!mision) {
     return null;
@@ -262,6 +296,12 @@ export async function obtenerMisionDetallePorIdRepo(
       "reporte_terreno.observaciones",
       "reporte_terreno.personas_afectadas",
       "reporte_terreno.estado_terreno",
+      "reporte_terreno.version_reporte",
+      "reporte_terreno.es_rectificacion",
+      "reporte_terreno.prioridad_sugerida",
+      "reporte_terreno.prioridad_asignada",
+      "reporte_terreno.justificacion_prioridad",
+      "reporte_terreno.detalles_evaluacion",
       "reporte_terreno.creado_en",
       "reporte_terreno.actualizado_en",
       "evaluador.nombre as evaluador_nombre",
@@ -324,26 +364,53 @@ export async function obtenerMisionDetallePorIdRepo(
     descripcion: string;
     latitud: number | null;
     longitud: number | null;
+    metadatos?: Record<string, unknown> | string | null;
     creado_en: Date | string;
     registrador_nombre?: string | null;
   }> = [];
 
   try {
-    const filasHitos = await db
-      .selectFrom("mision_hito")
-      .leftJoin("usuario as registrador", "registrador.id", "mision_hito.registrado_por_id")
-      .select([
-        "mision_hito.id",
-        "mision_hito.hito",
-        "mision_hito.descripcion",
-        "mision_hito.latitud",
-        "mision_hito.longitud",
-        "mision_hito.creado_en",
-        "registrador.nombre as registrador_nombre",
-      ])
-      .where("mision_hito.mision_id", "=", id)
-      .orderBy("mision_hito.creado_en", "asc")
-      .execute();
+    let filasHitos;
+    try {
+      filasHitos = await db
+        .selectFrom("mision_hito")
+        .leftJoin("usuario as registrador", "registrador.id", "mision_hito.registrado_por_id")
+        .select([
+          "mision_hito.id",
+          "mision_hito.hito",
+          "mision_hito.descripcion",
+          "mision_hito.latitud",
+          "mision_hito.longitud",
+          "mision_hito.metadatos",
+          "mision_hito.creado_en",
+          "registrador.nombre as registrador_nombre",
+        ])
+        .where("mision_hito.mision_id", "=", id)
+        .orderBy("mision_hito.creado_en", "asc")
+        .execute();
+    } catch (err) {
+      if (esErrorColumnaInexistente(err)) {
+        await asegurarColumnasHu38EnEsquema();
+        filasHitos = await db
+          .selectFrom("mision_hito")
+          .leftJoin("usuario as registrador", "registrador.id", "mision_hito.registrado_por_id")
+          .select([
+            "mision_hito.id",
+            "mision_hito.hito",
+            "mision_hito.descripcion",
+            "mision_hito.latitud",
+            "mision_hito.longitud",
+            "mision_hito.metadatos",
+            "mision_hito.creado_en",
+            "registrador.nombre as registrador_nombre",
+          ])
+          .where("mision_hito.mision_id", "=", id)
+          .orderBy("mision_hito.creado_en", "asc")
+          .execute();
+      } else {
+        throw err;
+      }
+    }
 
     hitos = filasHitos.map((h) => ({
       id: h.id,
@@ -351,6 +418,7 @@ export async function obtenerMisionDetallePorIdRepo(
       descripcion: h.descripcion,
       latitud: h.latitud ? Number(h.latitud) : null,
       longitud: h.longitud ? Number(h.longitud) : null,
+      metadatos: h.metadatos ?? null,
       creado_en: h.creado_en,
       registrador_nombre: h.registrador_nombre,
     }));
@@ -549,17 +617,17 @@ export async function aceptarMisionPatrullaRepo(
       },
       patrulla: misionExistente.patrulla_id
         ? {
-            id: misionExistente.patrulla_id,
-            nombre: misionExistente.patrulla_nombre ?? "Patrulla Verificadora",
-            estado: misionExistente.patrulla_estado ?? "EN_VERIFICACION",
-          }
+          id: misionExistente.patrulla_id,
+          nombre: misionExistente.patrulla_nombre ?? "Patrulla Verificadora",
+          estado: misionExistente.patrulla_estado ?? "EN_VERIFICACION",
+        }
         : null,
       incidente: misionExistente.incidente_id
         ? {
-            id: misionExistente.incidente_id,
-            codigo: misionExistente.incidente_codigo ?? "",
-            estado: "VERIFICANDO",
-          }
+          id: misionExistente.incidente_id,
+          codigo: misionExistente.incidente_codigo ?? "",
+          estado: "VERIFICANDO",
+        }
         : null,
       hito: {
         id: hitoRegistrado.id,

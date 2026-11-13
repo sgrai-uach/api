@@ -99,6 +99,17 @@ import {
 } from "@/modules/incidentes/tipologia.schema";
 
 import {
+  EvaluacionTerrenoInputSchema,
+  CalcularPrioridadInputSchema,
+  CalcularPrioridadResponseSchema,
+  ActualizarPrioridadIncidenteInputSchema,
+  ActualizarPrioridadIncidenteResponseSchema,
+  ReporteEvaluacionTerrenoItemSchema,
+  IncidentePrioridadActualizadaResumenSchema,
+  MisionHitoPrioridadSchema,
+} from "@/modules/incidentes/prioridad.schema";
+
+import {
   IncidentesKpisQuerySchema,
   IncidentesKpisResponseSchema,
 } from "@/modules/incidentes/incidente-kpi.schema";
@@ -233,6 +244,14 @@ registry.register("VerificarDuplicadoInput", VerificarDuplicadoInputSchema);
 registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema);
 registry.register("IncidenteResponse", IncidenteResponseSchema);
 registry.register("IncidentesKpisResponse", IncidentesKpisResponseSchema);
+registry.register("EvaluacionTerrenoInput", EvaluacionTerrenoInputSchema);
+registry.register("CalcularPrioridadInput", CalcularPrioridadInputSchema);
+registry.register("CalcularPrioridadResponse", CalcularPrioridadResponseSchema);
+registry.register("ActualizarPrioridadIncidenteInput", ActualizarPrioridadIncidenteInputSchema);
+registry.register("ActualizarPrioridadIncidenteResponse", ActualizarPrioridadIncidenteResponseSchema);
+registry.register("ReporteEvaluacionTerrenoItem", ReporteEvaluacionTerrenoItemSchema);
+registry.register("IncidentePrioridadActualizadaResumen", IncidentePrioridadActualizadaResumenSchema);
+registry.register("MisionHitoPrioridad", MisionHitoPrioridadSchema);
 
 // Registrar esquemas de Eventos ATP (Puntos Críticos y Asistencia Social)
 registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
@@ -2554,6 +2573,94 @@ registry.registerPath({
     500: {
       description: "Error interno del servidor al crear y despachar la misión",
     },
+  },
+});
+
+// POST /api/incidentes/{id}/prioridad/calcular (HU-38: Pre-cálculo de prioridad sugerida)
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/{id}/prioridad/calcular",
+  summary: "Calcular prioridad sugerida del incidente según formulario de evaluación en terreno (HU-38)",
+  description:
+    "Calcula determinísticamente la prioridad_sugerida (BAJA, MEDIA, ALTA, CRITICA), el puntaje acumulado y los factores gatillantes a partir de los datos demográficos, vulnerabilidad (niños, adultos mayores, discapacitados, electrodependientes, mascotas), compromiso de vivienda y riesgos activos constatados por la patrulla verificadora. Requiere permiso 'misiones:terreno:verificar'.",
+  tags: ["Incidentes", "Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del incidente a evaluar"),
+    }),
+    body: {
+      description: "Datos del formulario de evaluación en terreno",
+      content: {
+        "application/json": {
+          schema: CalcularPrioridadInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Prioridad sugerida calculada exitosamente",
+      content: {
+        "application/json": {
+          schema: CalcularPrioridadResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada o UUID inválidos" },
+    401: { description: "No autenticado" },
+    403: { description: "Sin permiso requerido: misiones:terreno:verificar" },
+    404: { description: "Incidente no encontrado" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// PATCH /api/incidentes/{id}/prioridad (HU-38: Asignar o modificar prioridad y enviar reporte de evaluación en terreno)
+registry.registerPath({
+  method: "patch",
+  path: "/api/incidentes/{id}/prioridad",
+  summary: "Asignar o modificar la prioridad del incidente y emitir reporte de evaluación en terreno al Centro de Mando (HU-38)",
+  description:
+    "Permite a la patrulla verificadora confirmar o modificar la prioridad del incidente basándose en la evaluación técnica en terreno y la prioridad_sugerida por el sistema. Si la prioridad asignada difiere de la sugerida, exige justificacion_prioridad (mínimo 5 caracteres). Ejecuta en una transacción atómica: (1) inserta un nuevo reporte versionado en reporte_terreno (version_reporte = N + 1, preservando reportes anteriores), (2) actualiza incidente.prioridad, incidente.prioridad_sugerida e incidente.justificacion_prioridad, y (3) registra el hito PRIORIDAD_ASIGNADA o PRIORIDAD_RECTIFICADA en mision_hito. Emite los eventos WebSocket 'incidente:actualizado' y 'mision:actualizada' al Centro de Mando. Requiere permiso 'misiones:terreno:verificar' y misión en estado EN_CURSO.",
+  tags: ["Incidentes", "Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del incidente a priorizar"),
+    }),
+    body: {
+      description: "Evaluación de terreno, prioridad seleccionada y justificación técnica",
+      content: {
+        "application/json": {
+          schema: ActualizarPrioridadIncidenteInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Prioridad actualizada y reporte de evaluación emitido exitosamente",
+      content: {
+        "application/json": {
+          schema: ActualizarPrioridadIncidenteResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos inválidos o cambio de prioridad sugerida sin justificación técnica de al menos 5 caracteres",
+    },
+    401: { description: "No autenticado" },
+    403: {
+      description:
+        "Sin permiso 'misiones:terreno:verificar' o el usuario no pertenece a la patrulla asignada",
+    },
+    404: { description: "Incidente o misión no encontrada" },
+    409: {
+      description:
+        "Conflicto: la misión no ha sido aceptada por la patrulla (debe estar en estado EN_CURSO)",
+    },
+    500: { description: "Error interno del servidor" },
   },
 });
 

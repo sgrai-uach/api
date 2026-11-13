@@ -202,5 +202,105 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
       expect(detalle?.recursosAsociados).toHaveLength(1);
       expect(detalle?.recursosAsociados[0].nombre).toBe("Camioneta 4x4");
     });
+
+    it("debe construir reclasificacionTipologia y ultimoReporte a partir de metadatos de hito", async () => {
+      vi.mocked(repo.obtenerIncidenteDetallePorIdRepo).mockResolvedValueOnce({
+        incidente: {
+          id: "a0000000-0000-4000-8000-000000000099",
+          codigo: "INC-592395-562",
+          codigo_seguimiento: "59239556",
+          tipo_afectacion: "Corte de agua potable",
+          descripcion: "Rotura de matriz",
+          direccion_texto: "Arauco 642",
+          latitud: -39.82,
+          longitud: -73.24,
+          estado: "VERIFICANDO",
+          prioridad: "MEDIA",
+          requiere_asistencia_social: false,
+          fuente_origen: "LLAMADA_TELEFONICA",
+          asterisk_call_id: null,
+          asterisk_caller_phone: null,
+          creado_en: new Date("2026-11-10T01:00:00Z"),
+          actualizado_en: new Date("2026-11-10T21:07:27Z"),
+          informante_id: null,
+          informante_rut: null,
+          informante_nombre: null,
+          informante_telefono: null,
+          delegacion_id: null,
+          delegacion_nombre: null,
+          delegacion_descripcion: null,
+          creador_id: null,
+          creador_nombre: null,
+          creador_email: null,
+          encargado_id: null,
+          encargado_nombre: null,
+          encargado_email: null,
+        },
+        misiones: [
+          {
+            id: "03313618-6728-4158-bfd2-09c55feaf05a",
+            codigo: "MIS-2026-7700",
+            titulo: "Verificación: Anegamiento - INC-592395-562",
+            descripcion: null,
+            tipo_mision: "VERIFICACION",
+            estado: "EN_CURSO",
+            prioridad: "MEDIA",
+            justificacion_rechazo: null,
+            fecha_inicio: new Date("2026-11-10T05:08:54Z"),
+            fecha_cierre: null,
+            creado_en: new Date("2026-11-10T01:03:24Z"),
+            patrulla_id: "p0000000-0000-4000-8000-000000000010",
+            patrulla_nombre: "Patrulla Norte",
+            patrulla_estado: "EN_VERIFICACION",
+            cuadrilla_id: null,
+            cuadrilla_nombre: null,
+            cuadrilla_estado: null,
+          },
+        ],
+        recursosAsociados: [],
+        reportesEvaluacionTerreno: [],
+        justificacionReclasificacion:
+          "Tipología reclasificada en terreno a: Corte de agua potable. Justificación: Matriz rota",
+        reclasificacionTipologiaRaw: {
+          hito_id: "11111111-1111-4111-8111-111111111111",
+          mision_id: "03313618-6728-4158-bfd2-09c55feaf05a",
+          mision_codigo: "MIS-2026-7700",
+          descripcion:
+            "Tipología reclasificada en terreno a: Corte de agua potable. Justificación: Matriz rota",
+          metadatos: {
+            tipoAnterior: "Anegamiento",
+            tipoNuevo: "Corte de agua potable",
+            justificacion: "Matriz rota",
+          },
+          registrador_nombre: "Patrullero Jefe",
+          creado_en: new Date("2026-11-10T21:07:27Z"),
+        },
+      });
+
+      const detalle = await obtenerDetalleIncidenteService(
+        "a0000000-0000-4000-8000-000000000099"
+      );
+
+      expect(detalle?.misiones[0].titulo).toBe(
+        "Verificación: Corte de agua potable - INC-592395-562"
+      );
+      expect(detalle?.reclasificacionTipologia).toEqual({
+        hitoId: "11111111-1111-4111-8111-111111111111",
+        misionId: "03313618-6728-4158-bfd2-09c55feaf05a",
+        misionCodigo: "MIS-2026-7700",
+        tipoAnterior: "Anegamiento",
+        tipoNuevo: "Corte de agua potable",
+        justificacion: "Matriz rota",
+        registradoPor: "Patrullero Jefe",
+        creadoEn: "2026-11-10T21:07:27.000Z",
+      });
+      expect(detalle?.ultimoReporte).toMatchObject({
+        origen: "RECLASIFICACION",
+        reporteId: "reclasificacion-11111111-1111-4111-8111-111111111111",
+        misionId: "03313618-6728-4158-bfd2-09c55feaf05a",
+        misionCodigo: "MIS-2026-7700",
+        evaluadorNombre: "Patrullero Jefe",
+      });
+    });
   });
 });
