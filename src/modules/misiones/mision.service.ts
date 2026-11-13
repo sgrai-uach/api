@@ -266,7 +266,7 @@ export async function obtenerDetalleMisionService(
  * 1. Ejecuta la transacción atómica en persistencia.
  * 2. Emite eventos reactivos Socket.io a través del broker Redis:
  *    - 'mision:asignada' a la sala de la patrulla ('patrulla:{id}') y 'encargado'.
- *    - 'incidente:actualizado' a las salas 'encargado' y 'mapa'.
+ *    - 'incidente:actualizado' a las salas 'encargado' y 'mapa' (mueve Kanban a 'VERIFICANDO').
  *    - 'patrulla:actualizada' para actualizar la disponibilidad en el mapa y listados.
  */
 export async function asignarPatrullaVerificacionService(
@@ -386,8 +386,8 @@ export async function rechazarMisionService(
         patrullaId: resultado.patrulla.id,
         nombre: resultado.patrulla.nombre,
         estado: resultado.patrulla.estado,
-        delegacionId: null,
-        usuarioLiderId: null,
+        delegacionId: resultado.patrulla.delegacionId ?? null,
+        usuarioLiderId: resultado.patrulla.usuarioLiderId ?? null,
         misionActivaId: null,
         incidenteId: null,
         actualizadoEn: new Date().toISOString(),

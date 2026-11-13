@@ -784,27 +784,23 @@ export function notificarMisionRechazada(payload: MisionRechazadaPayload): void 
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "encargado",
-          event: "mision:rechazada",
-          payload,
-        })
-      )
-      .catch(() => {});
+    const rooms = ["encargado", "sala:encargados", "supervisor"];
+    if (payload.patrullaId) {
+      rooms.push(`patrulla:${payload.patrullaId}`);
+    }
 
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "sala:encargados",
-          event: "mision:rechazada",
-          payload,
-        })
-      )
-      .catch(() => {});
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "mision:rechazada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 

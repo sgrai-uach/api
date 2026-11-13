@@ -38,6 +38,8 @@ describe("HU-69: Servicio de Negocio rechazarMisionService", () => {
       id: patrullaId,
       nombre: "Patrulla Ánimas Norte 1",
       estado: "DISPONIBLE",
+      delegacionId: "30000000-0000-4000-8000-000000000001",
+      usuarioLiderId: "00000000-0000-4000-8000-000000000010",
     },
     incidente: {
       id: incidenteId,
@@ -108,6 +110,8 @@ describe("HU-69: Servicio de Negocio rechazarMisionService", () => {
       expect.objectContaining({
         patrullaId,
         estado: "DISPONIBLE",
+        delegacionId: "30000000-0000-4000-8000-000000000001",
+        usuarioLiderId: "00000000-0000-4000-8000-000000000010",
       })
     );
 
