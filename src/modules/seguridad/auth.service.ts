@@ -23,12 +23,22 @@ export async function verificarPermiso(
   const usuario = await db
     .selectFrom("usuario")
     .innerJoin("rol", "rol.id", "usuario.rol_id")
-    .select(["usuario.id", "usuario.nombre", "rol.nombre as rol_nombre", "rol.id as rol_id"])
+    .select([
+      "usuario.id",
+      "usuario.nombre",
+      "usuario.activo",
+      "rol.nombre as rol_nombre",
+      "rol.id as rol_id",
+    ])
     .where("usuario.id", "=", usuarioId)
     .executeTakeFirst();
 
   if (!usuario) {
     throw new UnauthorizedError(`Usuario con ID '${usuarioId}' no existe o no está autorizado.`);
+  }
+
+  if (!usuario.activo) {
+    throw new UnauthorizedError("El usuario especificado se encuentra inactivo en la institución.");
   }
 
   if (usuario.rol_nombre === "Administrador" || usuario.rol_id === "20000000-0000-4000-8000-000000000001") {
