@@ -375,7 +375,7 @@ export interface MisionVerificacionCreadaResult {
  * 1. Verifica que el incidente exista y esté en estado 'REPORTADO'.
  * 2. Actualiza atómicamente la patrulla verificadora a 'EN_VERIFICACION' asegurando que esté 'DISPONIBLE'.
  * 3. Crea la misión con tipo 'VERIFICACION' y estado 'DESPACHADA'.
- * 4. Mantiene el estado del incidente en 'REPORTADO' (pendiente de confirmación).
+ * 4. Actualiza el estado del incidente a 'VERIFICANDO'.
  * 5. Registra el hito inicial 'DESPACHADA' en la bitácora de la misión ('mision_hito').
  */
 export async function crearMisionVerificacionRepo(
@@ -494,10 +494,11 @@ export async function crearMisionVerificacionRepo(
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    // 5. Mantener incidente en estado 'REPORTADO' hasta confirmación de patrulla en terreno
+    // 5. Actualizar incidente a VERIFICANDO
     const incidenteActualizado = await trx
       .updateTable("incidente")
       .set({
+        estado: "VERIFICANDO",
         actualizado_en: new Date(),
       })
       .where("id", "=", input.incidenteId)
@@ -573,6 +574,8 @@ export interface RechazarMisionPatrullaResult {
     id: string;
     nombre: string;
     estado: string;
+    delegacionId?: string | null;
+    usuarioLiderId?: string | null;
   };
   incidente: {
     id: string;
@@ -592,11 +595,12 @@ export interface RechazarMisionPatrullaResult {
  * HU-69 - Transacción atómica para rechazar una misión asignada a una patrulla verificadora.
  *
  * 1. Valida existencia y estado DESPACHADA de la misión.
- * 2. Valida pertenencia del usuario a la patrulla verificadora asignada (salvo Administrador).
- * 3. En una sola transacción atómica:
+ * 2. Valida tipo de misión VERIFICACION y asignación de patrulla verificadora.
+ * 3. Valida pertenencia del usuario a la patrulla verificadora asignada (salvo Administrador).
+ * 4. En una sola transacción atómica:
  *    - Actualiza mision.estado = 'RECHAZADA', asigna justificacion_rechazo y fecha_cierre = CURRENT_TIMESTAMP.
- *    - Transiciona patrulla.estado = 'DISPONIBLE'.
- *    - Revierte incidente.estado = 'REPORTADO' para permitir su reasignación inmediata.
+ *    - Transiciona patrulla.estado = 'DISPONIBLE' siempre que se encuentre activa (no dada de baja lógica).
+ *    - Revierte incidente.estado = 'REPORTADO' (si estaba en REPORTADO o VERIFICANDO) para permitir su reasignación inmediata.
  *    - Registra el hito cronológico en mision_hito con hito = 'RECHAZADA'.
  */
 export async function rechazarMisionPatrullaRepo(
@@ -618,10 +622,15 @@ export async function rechazarMisionPatrullaRepo(
         "mision.id",
         "mision.codigo",
         "mision.estado",
+        "mision.tipo_mision",
+        "mision.cuadrilla_id",
         "mision.patrulla_id",
         "mision.incidente_id",
         "patrulla_verificadora.nombre as patrulla_nombre",
         "patrulla_verificadora.estado as patrulla_estado",
+        "patrulla_verificadora.activo as patrulla_activo",
+        "patrulla_verificadora.eliminado_en as patrulla_eliminado_en",
+        "patrulla_verificadora.delegacion_id as patrulla_delegacion_id",
         "patrulla_verificadora.usuario_lider_id as patrulla_lider_id",
         "rol_lider.codigo as lider_rol_codigo",
         "rol_lider.nombre as lider_rol_nombre",
@@ -636,8 +645,19 @@ export async function rechazarMisionPatrullaRepo(
       throw new NotFoundError("No se encontró ninguna misión con el identificador proporcionado.");
     }
 
-    // 2. Validar pertenencia a la patrulla verificadora asignada (salvo Administrador)
-    if (!esAdmin && misionExistente.patrulla_id) {
+    // 2. Validar que la misión sea de verificación y cuente con patrulla e incidente asociados válidos
+    if (misionExistente.tipo_mision !== "VERIFICACION" || !misionExistente.patrulla_id) {
+      throw new ConflictError(
+        "Solo es posible rechazar por esta vía misiones de verificación asignadas a una patrulla verificadora."
+      );
+    }
+
+    if (!misionExistente.incidente_id) {
+      throw new ConflictError("La misión de verificación no tiene un incidente asociado válido.");
+    }
+
+    // 3. Validar pertenencia a la patrulla verificadora asignada (salvo Administrador)
+    if (!esAdmin) {
       const esLiderDirecto = misionExistente.patrulla_lider_id === usuarioId;
       if (!esLiderDirecto) {
         const integrante = await trx
@@ -656,7 +676,7 @@ export async function rechazarMisionPatrullaRepo(
       }
     }
 
-    // 3. Validar estado actual de la misión
+    // 4. Validar estado actual de la misión
     if (misionExistente.estado === "RECHAZADA") {
       throw new ConflictError("La misión ya ha sido rechazada previamente.");
     }
@@ -667,7 +687,7 @@ export async function rechazarMisionPatrullaRepo(
       );
     }
 
-    // 4. Actualizar misión atómicamente con control de concurrencia
+    // 5. Actualizar misión atómicamente con control de concurrencia
     const misionActualizada = await trx
       .updateTable("mision")
       .set({
@@ -695,10 +715,13 @@ export async function rechazarMisionPatrullaRepo(
       );
     }
 
-    // 5. Liberar patrulla verificadora pasando a estado 'DISPONIBLE'
+    // 6. Liberar patrulla verificadora pasando a estado 'DISPONIBLE' asegurando que esté activa
     let patrullaNombre = misionExistente.patrulla_nombre ?? "Patrulla Verificadora";
-    let patrullaEstado = "DISPONIBLE";
-    if (misionExistente.patrulla_id) {
+    let patrullaEstado = misionExistente.patrulla_estado ?? "DISPONIBLE";
+    let patrullaDelegacionId = misionExistente.patrulla_delegacion_id ?? null;
+    let patrullaLiderId = misionExistente.patrulla_lider_id ?? null;
+
+    if (misionExistente.patrulla_activo && !misionExistente.patrulla_eliminado_en) {
       const patrullaRes = await trx
         .updateTable("patrulla_verificadora")
         .set({
@@ -706,40 +729,46 @@ export async function rechazarMisionPatrullaRepo(
           actualizado_en: sql`CURRENT_TIMESTAMP`,
         })
         .where("id", "=", misionExistente.patrulla_id)
-        .returning(["id", "nombre", "estado"])
+        .where("activo", "=", true)
+        .where("eliminado_en", "is", null)
+        .returning(["id", "nombre", "estado", "delegacion_id", "usuario_lider_id"])
         .executeTakeFirst();
 
       if (patrullaRes) {
         patrullaNombre = patrullaRes.nombre;
         patrullaEstado = patrullaRes.estado;
+        patrullaDelegacionId = patrullaRes.delegacion_id;
+        patrullaLiderId = patrullaRes.usuario_lider_id;
       }
     }
 
-    // 6. Revertir incidente a estado 'REPORTADO' para permitir reasignación inmediata
+    // 7. Revertir incidente a estado 'REPORTADO' para permitir reasignación inmediata (siempre que esté REPORTADO o VERIFICANDO)
     let incidenteCodigo = misionExistente.incidente_codigo ?? "";
     let incidenteEstado = "REPORTADO";
     let incidentePrioridad = (misionExistente.incidente_prioridad ?? "MEDIA") as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
-    if (misionExistente.incidente_id) {
-      const incidenteRes = await trx
-        .updateTable("incidente")
-        .set({
-          estado: "REPORTADO",
-          actualizado_en: sql`CURRENT_TIMESTAMP`,
-        })
-        .where("id", "=", misionExistente.incidente_id)
-        .returning(["id", "codigo", "estado", "prioridad"])
-        .executeTakeFirst();
 
-      if (incidenteRes) {
-        incidenteCodigo = incidenteRes.codigo;
-        incidenteEstado = incidenteRes.estado;
-        if (incidenteRes.prioridad) {
-          incidentePrioridad = incidenteRes.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
-        }
+    const incidenteRes = await trx
+      .updateTable("incidente")
+      .set({
+        estado: "REPORTADO",
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", misionExistente.incidente_id)
+      .where("estado", "in", ["REPORTADO", "VERIFICANDO"])
+      .returning(["id", "codigo", "estado", "prioridad"])
+      .executeTakeFirst();
+
+    if (incidenteRes) {
+      incidenteCodigo = incidenteRes.codigo;
+      incidenteEstado = incidenteRes.estado;
+      if (incidenteRes.prioridad) {
+        incidentePrioridad = incidenteRes.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
       }
+    } else if (misionExistente.incidente_estado) {
+      incidenteEstado = misionExistente.incidente_estado;
     }
 
-    // 7. Registrar hito en mision_hito
+    // 8. Registrar hito en mision_hito
     const hito = await trx
       .insertInto("mision_hito")
       .values({
@@ -762,12 +791,14 @@ export async function rechazarMisionPatrullaRepo(
         actualizadoEn: new Date(misionActualizada.actualizado_en).toISOString(),
       },
       patrulla: {
-        id: misionExistente.patrulla_id || "",
+        id: misionExistente.patrulla_id,
         nombre: patrullaNombre,
         estado: patrullaEstado,
+        delegacionId: patrullaDelegacionId,
+        usuarioLiderId: patrullaLiderId,
       },
       incidente: {
-        id: misionExistente.incidente_id || "",
+        id: misionExistente.incidente_id,
         codigo: incidenteCodigo,
         estado: incidenteEstado,
         prioridad: incidentePrioridad,

@@ -56,6 +56,24 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-69)", () => {
     expect(body.message).toContain("autenticación");
   });
 
+  it("debe responder 401 Unauthorized si el usuario autenticado se encuentra inactivo", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce("usuario-inactivo-id");
+    vi.mocked(authService.verificarPermiso).mockRejectedValueOnce(
+      new UnauthorizedError("El usuario especificado se encuentra inactivo en la institución.")
+    );
+
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdValido}/rechazar`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ justificacion_rechazo: "Desperfecto mecánico" }),
+    });
+
+    const res = await POST(req, contextValido);
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.message).toContain("inactivo en la institución");
+  });
+
   it("debe responder 403 Forbidden si el usuario carece del permiso 'misiones:terreno:verificar'", async () => {
     vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce("usuario-sin-permiso");
     vi.mocked(authService.verificarPermiso).mockRejectedValueOnce(
@@ -228,6 +246,26 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-69)", () => {
     expect(body.data.mision.estado).toBe("RECHAZADA");
     expect(body.data.patrulla.estado).toBe("DISPONIBLE");
     expect(body.data.incidente.estado).toBe("REPORTADO");
+  });
+
+  it("debe responder 400 Bad Request si se envían coordenadas geográficas fuera de rango WGS84", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUsuarioMock.id);
+    vi.mocked(authService.verificarPermiso).mockResolvedValueOnce(patrullaUsuarioMock);
+
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdValido}/rechazar`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        justificacion_rechazo: "Desperfecto mecánico en vehículo de patrulla",
+        latitud: 1000,
+        longitud: -200,
+      }),
+    });
+
+    const res = await POST(req, contextValido);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("Datos de entrada inválidos");
   });
 });
 

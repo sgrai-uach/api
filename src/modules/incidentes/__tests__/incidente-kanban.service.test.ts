@@ -110,6 +110,65 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
 
       expect(repo.listarIncidentesPaginadosRepo).toHaveBeenCalledWith(filtros);
     });
+
+    it("debe mapear correctamente tieneMisionDespachada tanto en true como en false", async () => {
+      const mockFilas: repo.FilaIncidenteResumen[] = [
+        {
+          id: "a0000000-0000-4000-8000-000000000001",
+          codigo: "INC-12345678",
+          codigo_seguimiento: "12345678",
+          tipo_afectacion: "Inundación",
+          descripcion: "Sumidero tapado",
+          direccion_texto: "Calle Valdivia 100",
+          latitud: -39.81,
+          longitud: -73.24,
+          estado: "REPORTADO",
+          prioridad: "MEDIA",
+          requiere_asistencia_social: false,
+          fuente_origen: "CHATBOT",
+          informante_nombre: "Pedro Soto",
+          delegacion_nombre: "Norte",
+          total_misiones: 1,
+          tiene_mision_despachada: true,
+          creado_en: new Date("2026-09-22T10:00:00Z"),
+          actualizado_en: new Date("2026-09-22T10:00:00Z"),
+        },
+        {
+          id: "a0000000-0000-4000-8000-000000000002",
+          codigo: "INC-87654321",
+          codigo_seguimiento: "87654321",
+          tipo_afectacion: "Deslizamiento",
+          descripcion: "Derrumbe de tierra",
+          direccion_texto: "Calle Costanera 200",
+          latitud: -39.82,
+          longitud: -73.25,
+          estado: "REPORTADO",
+          prioridad: "ALTA",
+          requiere_asistencia_social: false,
+          fuente_origen: "LLAMADA_TELEFONICA",
+          informante_nombre: "María Lopez",
+          delegacion_nombre: "Sur",
+          total_misiones: 0,
+          tiene_mision_despachada: false,
+          creado_en: new Date("2026-09-22T11:00:00Z"),
+          actualizado_en: new Date("2026-09-22T11:00:00Z"),
+        },
+      ];
+
+      vi.mocked(repo.listarIncidentesPaginadosRepo).mockResolvedValueOnce({
+        filas: mockFilas,
+        total: 2,
+      });
+
+      const resultado = await listarIncidentesKanbanService({
+        page: 1,
+        limit: 10,
+      });
+
+      expect(resultado.data).toHaveLength(2);
+      expect(resultado.data[0].tieneMisionDespachada).toBe(true);
+      expect(resultado.data[1].tieneMisionDespachada).toBe(false);
+    });
   });
 
   describe("obtenerDetalleIncidenteService", () => {
