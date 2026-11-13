@@ -298,16 +298,38 @@ export const RechazarMisionBodySchema = z.object({
       description: "Motivo obligatorio del rechazo de la misión (mínimo 5 caracteres según Regla Crítica §3.3)",
       example: "Desperfecto mecánico en el neumático delantero del vehículo institucional.",
     }),
-  latitud: z.number().optional().openapi({ description: "Latitud WGS84 de la patrulla", example: -39.81422 }),
-  longitud: z.number().optional().openapi({ description: "Longitud WGS84 de la patrulla", example: -73.24589 }),
+  latitud: z
+    .number()
+    .finite("La latitud debe ser un número finito.")
+    .min(-90, "La latitud debe estar entre -90 y 90.")
+    .max(90, "La latitud debe estar entre -90 y 90.")
+    .optional()
+    .openapi({ description: "Latitud WGS84 de la patrulla (-90 a 90)", example: -39.81422 }),
+  longitud: z
+    .number()
+    .finite("La longitud debe ser un número finito.")
+    .min(-180, "La longitud debe estar entre -180 y 180.")
+    .max(180, "La longitud debe estar entre -180 y 180.")
+    .optional()
+    .openapi({ description: "Longitud WGS84 de la patrulla (-180 a 180)", example: -73.24589 }),
 });
 
 export const RechazarMisionInputSchema = z
   .object({
     justificacion_rechazo: z.string().optional(),
     justificacionRechazo: z.string().optional(),
-    latitud: z.number().optional(),
-    longitud: z.number().optional(),
+    latitud: z
+      .number()
+      .finite("La latitud debe ser un número finito.")
+      .min(-90, "La latitud debe estar entre -90 y 90.")
+      .max(90, "La latitud debe estar entre -90 y 90.")
+      .optional(),
+    longitud: z
+      .number()
+      .finite("La longitud debe ser un número finito.")
+      .min(-180, "La longitud debe estar entre -180 y 180.")
+      .max(180, "La longitud debe estar entre -180 y 180.")
+      .optional(),
   })
   .superRefine((data, ctx) => {
     const motivo = (data.justificacion_rechazo ?? data.justificacionRechazo ?? "").trim();
@@ -353,6 +375,7 @@ export const RechazarMisionResponseSchema = z.object({
       id: z.string().uuid(),
       codigo: z.string(),
       estado: z.string(),
+      prioridad: z.string().optional(),
     }),
     hito: z.object({
       id: z.string().uuid(),

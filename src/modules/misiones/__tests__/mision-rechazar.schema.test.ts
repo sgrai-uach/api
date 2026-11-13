@@ -74,6 +74,52 @@ describe("HU-69: Esquemas Zod para Rechazo de Misión por Patrulla", () => {
         expect(resultado.data.longitud).toBe(-73.24589);
       }
     });
+
+    it("debe fallar si la latitud está fuera de rango WGS84 (< -90 o > 90)", () => {
+      const payloadInferior = {
+        justificacion_rechazo: "Motivo válido de rechazo",
+        latitud: -90.1,
+      };
+      const resInf = RechazarMisionInputSchema.safeParse(payloadInferior);
+      expect(resInf.success).toBe(false);
+
+      const payloadSuperior = {
+        justificacion_rechazo: "Motivo válido de rechazo",
+        latitud: 90.1,
+      };
+      const resSup = RechazarMisionInputSchema.safeParse(payloadSuperior);
+      expect(resSup.success).toBe(false);
+    });
+
+    it("debe fallar si la longitud está fuera de rango WGS84 (< -180 o > 180)", () => {
+      const payloadInferior = {
+        justificacion_rechazo: "Motivo válido de rechazo",
+        longitud: -180.1,
+      };
+      const resInf = RechazarMisionInputSchema.safeParse(payloadInferior);
+      expect(resInf.success).toBe(false);
+
+      const payloadSuperior = {
+        justificacion_rechazo: "Motivo válido de rechazo",
+        longitud: 180.1,
+      };
+      const resSup = RechazarMisionInputSchema.safeParse(payloadSuperior);
+      expect(resSup.success).toBe(false);
+    });
+
+    it("debe rechazar coordenadas con valores no finitos (Infinity, NaN)", () => {
+      const resInf = RechazarMisionInputSchema.safeParse({
+        justificacion_rechazo: "Motivo válido de rechazo",
+        latitud: Infinity,
+      });
+      expect(resInf.success).toBe(false);
+
+      const resNaN = RechazarMisionInputSchema.safeParse({
+        justificacion_rechazo: "Motivo válido de rechazo",
+        longitud: NaN,
+      });
+      expect(resNaN.success).toBe(false);
+    });
   });
 
   describe("RechazarMisionBodySchema (OpenAPI)", () => {
@@ -85,6 +131,16 @@ describe("HU-69: Esquemas Zod para Rechazo de Misión por Patrulla", () => {
       };
       const resultado = RechazarMisionBodySchema.safeParse(payload);
       expect(resultado.success).toBe(true);
+    });
+
+    it("debe rechazar si coordenadas en body OpenAPI están fuera de cotas WGS84", () => {
+      const payload = {
+        justificacion_rechazo: "Corte de puente de acceso al sector",
+        latitud: 1000,
+        longitud: -200,
+      };
+      const resultado = RechazarMisionBodySchema.safeParse(payload);
+      expect(resultado.success).toBe(false);
     });
 
     it("debe rechazar con menos de 5 caracteres", () => {
@@ -117,6 +173,7 @@ describe("HU-69: Esquemas Zod para Rechazo de Misión por Patrulla", () => {
             id: "50000000-0000-4000-8000-000000000001",
             codigo: "INC-2026-1042",
             estado: "REPORTADO",
+            prioridad: "ALTA",
           },
           hito: {
             id: "70000000-0000-4000-8000-000000000002",
