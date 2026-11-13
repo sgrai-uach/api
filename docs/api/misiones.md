@@ -257,7 +257,7 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
 1. Verifica que el incidente exista y su estado sea exactamente `REPORTADO`.
 2. Actualiza atómicamente la patrulla verificadora seleccionada a `estado = 'EN_VERIFICACION'` verificando que se encuentre en estado `DISPONIBLE` y activa (`eliminado_en IS NULL`). Si fue tomada concurrentemente por otro operador, aborta la transacción con `HTTP 409 Conflict`.
 3. Crea el registro en `mision` con `tipo_mision = 'VERIFICACION'`, `estado = 'DESPACHADA'` y código autogenerado correlativo único (`MIS-YYYY-NNNN`).
-4. Mantiene el incidente en `estado = 'REPORTADO'` (pendiente de confirmación de la patrulla).
+4. Actualiza el incidente a `estado = 'VERIFICANDO'`.
 5. Inserta el hito inicial en la bitácora `mision_hito` (`hito = 'DESPACHADA'`).
 6. Emite notificaciones WebSocket reactivas a través del broker Redis.
 
@@ -306,7 +306,7 @@ Permite al Encargado de Operaciones despachar de inmediato una patrulla verifica
     "incidente": {
       "id": "50000000-0000-4000-8000-000000000001",
       "codigo": "INC-2026-1042",
-      "estado": "REPORTADO"
+      "estado": "VERIFICANDO"
     },
     "patrulla": {
       "id": "f1000000-0000-4000-8000-000000000001",
@@ -351,14 +351,14 @@ Permite a la patrulla verificadora en terreno rechazar una misión táctica desp
 | Campo | Tipo | Requerido | Descripción |
 |---|---|---|---|
 | `justificacion_rechazo` (o `justificacionRechazo`) | `string` | **Sí** | Motivo obligatorio del rechazo. Tras aplicar `.trim()`, debe contener al menos 5 caracteres. |
-| `latitud` | `number` | No | Latitud WGS84 de la patrulla al registrar el rechazo. |
-| `longitud` | `number` | No | Longitud WGS84 de la patrulla al registrar el rechazo. |
+| `latitud` | `number` | No | Latitud WGS84 de la patrulla al registrar el rechazo (entre -90 y 90). |
+| `longitud` | `number` | No | Longitud WGS84 de la patrulla al registrar el rechazo (entre -180 y 180). |
 
 #### Comportamiento Transaccional Atómico
 
 1. `mision.estado` transiciona a `'RECHAZADA'`.
 2. Se persiste `mision.justificacion_rechazo` y se fija `fecha_cierre = CURRENT_TIMESTAMP`.
-3. `patrulla_verificadora.estado` transiciona a `'DISPONIBLE'` (liberada para nuevas asignaciones).
+3. `patrulla_verificadora.estado` transiciona a `'DISPONIBLE'` (liberada para nuevas asignaciones) siempre que se encuentre activa.
 4. `incidente.estado` revierte a `'REPORTADO'` para que el Encargado pueda reasignar de inmediato.
 5. Se inserta un nuevo registro en `mision_hito` (`hito = 'RECHAZADA'`).
 
@@ -383,7 +383,8 @@ Permite a la patrulla verificadora en terreno rechazar una misión táctica desp
     "incidente": {
       "id": "50000000-0000-4000-8000-000000000001",
       "codigo": "INC-2026-1042",
-      "estado": "REPORTADO"
+      "estado": "REPORTADO",
+      "prioridad": "ALTA"
     },
     "hito": {
       "id": "70000000-0000-4000-8000-000000000002",
@@ -403,9 +404,9 @@ Permite a la patrulla verificadora en terreno rechazar una misión táctica desp
   - En `GET /api/misiones`: Parámetros de consulta no conformes al esquema Zod (ej. `page < 1`, `limit > 100`, valores de enum desconocidos o `delegacionId` no UUID).
   - En `GET /api/misiones/{id}`: El parámetro `id` no cumple el estándar UUID versión 4.
   - En `POST /api/misiones`: Body no es JSON válido o los identificadores no son UUIDs válidos.
-  - En `POST /api/misiones/{id}/rechazar`: Motivo de rechazo ausente o con menos de 5 caracteres útiles, formato JSON inválido o UUID no válido.
+  - En `POST /api/misiones/{id}/rechazar`: Motivo de rechazo ausente o con menos de 5 caracteres útiles, formato JSON inválido, coordenadas geográficas fuera de rango WGS84 o UUID no válido.
 - **`401 Unauthorized`:**
-  - Petición sin token JWT Bearer o sesión expirada.
+  - Petición sin token JWT Bearer, sesión expirada o usuario inactivo en la institución.
 - **`403 Forbidden`:**
   - El usuario no cuenta con el permiso requerido (`misiones:leer`, `misiones:asignar` o `misiones:terreno:verificar`).
   - En `POST /api/misiones/{id}/rechazar`: El usuario autenticado no pertenece a la patrulla verificadora asignada a la misión.
@@ -419,6 +420,7 @@ Permite a la patrulla verificadora en terreno rechazar una misión táctica desp
   - En `POST /api/misiones/{id}/rechazar`:
     1. La misión ya fue previamente rechazada.
     2. La misión no se encuentra en estado `DESPACHADA` (ej. ya está `EN_CURSO`, `COMPLETADA` o `CANCELADA`).
+    3. La misión no es de tipo `VERIFICACION` o no tiene una patrulla verificadora asignada.
 - **`500 Internal Server Error`:**
   - Error inesperado de persistencia o fallo de base de datos.
 
@@ -432,7 +434,7 @@ Al confirmarse eventos sobre misiones, el backend emite los siguientes eventos:
    - **Salas destino:** `patrulla:{patrullaId}`, `encargado` y `sala:encargados`.
    - **Propósito:** Notificar en tiempo real a la unidad en terreno su orden de verificación con georreferenciación e instrucciones tácticas.
 2. **`mision:rechazada` (HU-69)**:
-   - **Salas destino:** `encargado` y `sala:encargados`.
+   - **Salas destino:** `encargado`, `sala:encargados`, `supervisor` y `patrulla:{patrullaId}`.
    - **Propósito:** Alerta inmediata al Centro de Mando sobre la imposibilidad de atención por parte de la patrulla asignada junto con el motivo justificado.
 3. **`incidente:actualizado`**:
    - **Salas destino:** `encargado`, `sala:encargados` y `mapa`.

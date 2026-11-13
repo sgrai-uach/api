@@ -2351,7 +2351,7 @@ registry.registerPath({
   path: "/api/misiones",
   summary: "Asignar y despachar patrulla verificadora a un incidente (HU-20)",
   description:
-    "Despacha una patrulla verificadora disponible a un incidente formal en estado REPORTADO. Ejecuta una transacción atómica que: (1) crea la misión con tipo VERIFICACION y estado DESPACHADA, (2) mantiene el incidente en estado REPORTADO (pendiente de confirmación de la patrulla), (3) actualiza la patrulla a estado EN_VERIFICACION, y (4) registra el hito inicial en mision_hito. Emite eventos WebSocket a las salas 'patrulla:{id}', 'encargado' y 'mapa'. Requiere permiso 'misiones:asignar'.",
+    "Despacha una patrulla verificadora disponible a un incidente formal en estado REPORTADO. Ejecuta una transacción atómica que: (1) crea la misión con tipo VERIFICACION y estado DESPACHADA, (2) actualiza el incidente a estado VERIFICANDO, (3) actualiza la patrulla a estado EN_VERIFICACION, y (4) registra el hito inicial en mision_hito. Emite eventos WebSocket a las salas 'patrulla:{id}', 'encargado' y 'mapa'. Requiere permiso 'misiones:asignar'.",
   tags: ["Misiones"],
   security: [{ bearerAuth: [] }],
   request: {
@@ -2425,10 +2425,11 @@ registry.registerPath({
       },
     },
     400: {
-      description: "Datos de entrada inválidos o justificación menor a 5 caracteres",
+      description:
+        "Datos de entrada inválidos, justificación menor a 5 caracteres o coordenadas geográficas fuera de rango WGS84",
     },
     401: {
-      description: "No autenticado o token ausente",
+      description: "No autenticado, token ausente o usuario inactivo",
     },
     403: {
       description: "Acceso denegado. Se requiere pertenecer a la patrulla asignada o rol Administrador",
@@ -2437,7 +2438,8 @@ registry.registerPath({
       description: "Misión no encontrada",
     },
     409: {
-      description: "Conflicto: la misión ya fue rechazada o no se encuentra en estado DESPACHADA",
+      description:
+        "Conflicto: la misión ya fue rechazada, no se encuentra en estado DESPACHADA, o no es de tipo VERIFICACION / no tiene patrulla asignada",
     },
     500: {
       description: "Error interno del servidor al procesar el rechazo de la misión",
