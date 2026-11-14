@@ -23,3 +23,4 @@ export const PERMISO_EDITAR_PERSONAL = "personal:editar";
 export const PERMISO_GESTIONAR_PERSONAL = "personal:gestionar";
 export const PERMISO_ELIMINAR_CUADRILLA = "cuadrillas:eliminar";
 export const PERMISO_VERIFICAR_MISION_TERRENO = "misiones:terreno:verificar";
+
