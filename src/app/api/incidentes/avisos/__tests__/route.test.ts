@@ -122,76 +122,84 @@ describe("Endpoint GET /api/incidentes/avisos (HU-54 - Filtrado multicriterio)",
     });
     AUTH_HEADER = headersConBearer(token);
 
-    // 1. Limpieza defensiva previa
-    await sql`DELETE FROM aviso_incidente WHERE id IN (${sql.join(TEST_AVISO_IDS.map((id) => sql`${id}`))});`.execute(db);
+    try {
+      // 1. Limpieza defensiva previa
+      await sql`DELETE FROM aviso_incidente WHERE id IN (${sql.join(TEST_AVISO_IDS.map((id) => sql`${id}`))});`.execute(db);
 
-    // 2. Resolver delegaciones existentes para asignación
-    const delNorte = await db
-      .selectFrom("delegacion")
-      .select("id")
-      .where("nombre", "ilike", "%norte%")
-      .executeTakeFirst();
-    idDelegacionNorte = delNorte?.id ?? null;
-    const delSur = await db
-      .selectFrom("delegacion")
-      .select("id")
-      .where("nombre", "ilike", "%sur%")
-      .executeTakeFirst();
-    const delCalle = await db
-      .selectFrom("delegacion")
-      .select("id")
-      .where("nombre", "ilike", "%calle%calle%")
-      .executeTakeFirst();
+      // 2. Resolver delegaciones existentes para asignación
+      const delNorte = await db
+        .selectFrom("delegacion")
+        .select("id")
+        .where("nombre", "ilike", "%norte%")
+        .executeTakeFirst();
+      idDelegacionNorte = delNorte?.id ?? null;
+      const delSur = await db
+        .selectFrom("delegacion")
+        .select("id")
+        .where("nombre", "ilike", "%sur%")
+        .executeTakeFirst();
+      const delCalle = await db
+        .selectFrom("delegacion")
+        .select("id")
+        .where("nombre", "ilike", "%calle%calle%")
+        .executeTakeFirst();
 
-    // 3. Sembrar fixture Norte (45 min antigüedad, NO_VERIFICADO)
-    await sql`
-      INSERT INTO aviso_incidente (
-        id, codigo_seguimiento, tipo_afectacion, direccion_texto, latitud, longitud, ubicacion,
-        informante_nombre, informante_rut, origen_reporte, estado, delegacion_id, creado_en, actualizado_en
-      ) VALUES (
-        ${TEST_AVISO_IDS[0]}, '71111111', 'Anegamiento', 'Av. Alemania 640', -39.8189, -73.2384,
-        ST_SetSRID(ST_MakePoint(-73.2384, -39.8189), 4326),
-        'Vecino Alemania', '11111111-1', 'WEB', 'NO_VERIFICADO',
-        ${delNorte?.id ?? null},
-        CURRENT_TIMESTAMP - interval '45 minutes',
-        CURRENT_TIMESTAMP - interval '45 minutes'
-      ) ON CONFLICT (id) DO NOTHING;
-    `.execute(db);
+      // 3. Sembrar fixture Norte (45 min antigüedad, NO_VERIFICADO)
+      await sql`
+        INSERT INTO aviso_incidente (
+          id, codigo_seguimiento, tipo_afectacion, direccion_texto, latitud, longitud, ubicacion,
+          informante_nombre, informante_rut, origen_reporte, estado, delegacion_id, creado_en, actualizado_en
+        ) VALUES (
+          ${TEST_AVISO_IDS[0]}, '71111111', 'Anegamiento', 'Av. Alemania 640', -39.8189, -73.2384,
+          ST_SetSRID(ST_MakePoint(-73.2384, -39.8189), 4326),
+          'Vecino Alemania', '11111111-1', 'WEB', 'NO_VERIFICADO',
+          ${delNorte?.id ?? null},
+          CURRENT_TIMESTAMP - interval '45 minutes',
+          CURRENT_TIMESTAMP - interval '45 minutes'
+        ) ON CONFLICT (id) DO NOTHING;
+      `.execute(db);
 
-    // 4. Sembrar fixture Sur (25 min antigüedad, PENDIENTE_VERIFICACION)
-    await sql`
-      INSERT INTO aviso_incidente (
-        id, codigo_seguimiento, tipo_afectacion, direccion_texto, latitud, longitud, ubicacion,
-        informante_nombre, informante_rut, origen_reporte, estado, delegacion_id, creado_en, actualizado_en
-      ) VALUES (
-        ${TEST_AVISO_IDS[1]}, '72222222', 'Caída de árbol', 'Av. Francia 1200', -39.8362, -73.2351,
-        ST_SetSRID(ST_MakePoint(-73.2351, -39.8362), 4326),
-        'Vecino Francia', '22222222-2', 'CHATBOT', 'PENDIENTE_VERIFICACION',
-        ${delSur?.id ?? null},
-        CURRENT_TIMESTAMP - interval '25 minutes',
-        CURRENT_TIMESTAMP - interval '25 minutes'
-      ) ON CONFLICT (id) DO NOTHING;
-    `.execute(db);
+      // 4. Sembrar fixture Sur (25 min antigüedad, PENDIENTE_VERIFICACION)
+      await sql`
+        INSERT INTO aviso_incidente (
+          id, codigo_seguimiento, tipo_afectacion, direccion_texto, latitud, longitud, ubicacion,
+          informante_nombre, informante_rut, origen_reporte, estado, delegacion_id, creado_en, actualizado_en
+        ) VALUES (
+          ${TEST_AVISO_IDS[1]}, '72222222', 'Caída de árbol', 'Av. Francia 1200', -39.8362, -73.2351,
+          ST_SetSRID(ST_MakePoint(-73.2351, -39.8362), 4326),
+          'Vecino Francia', '22222222-2', 'CHATBOT', 'PENDIENTE_VERIFICACION',
+          ${delSur?.id ?? null},
+          CURRENT_TIMESTAMP - interval '25 minutes',
+          CURRENT_TIMESTAMP - interval '25 minutes'
+        ) ON CONFLICT (id) DO NOTHING;
+      `.execute(db);
 
-    // 5. Sembrar fixture Calle Calle (10 min antigüedad, VERIFICADO)
-    await sql`
-      INSERT INTO aviso_incidente (
-        id, codigo_seguimiento, tipo_afectacion, direccion_texto, latitud, longitud, ubicacion,
-        informante_nombre, informante_rut, origen_reporte, estado, delegacion_id, creado_en, actualizado_en
-      ) VALUES (
-        ${TEST_AVISO_IDS[2]}, '73333333', 'Inundación', 'Av. Balmaceda 180, Collico', -39.8174, -73.2145,
-        ST_SetSRID(ST_MakePoint(-73.2145, -39.8174), 4326),
-        'Vecino Collico', '33333333-3', 'LLAMADA_TELEFONICA', 'VERIFICADO',
-        ${delCalle?.id ?? null},
-        CURRENT_TIMESTAMP - interval '10 minutes',
-        CURRENT_TIMESTAMP - interval '10 minutes'
-      ) ON CONFLICT (id) DO NOTHING;
-    `.execute(db);
+      // 5. Sembrar fixture Calle Calle (10 min antigüedad, VERIFICADO)
+      await sql`
+        INSERT INTO aviso_incidente (
+          id, codigo_seguimiento, tipo_afectacion, direccion_texto, latitud, longitud, ubicacion,
+          informante_nombre, informante_rut, origen_reporte, estado, delegacion_id, creado_en, actualizado_en
+        ) VALUES (
+          ${TEST_AVISO_IDS[2]}, '73333333', 'Inundación', 'Av. Balmaceda 180, Collico', -39.8174, -73.2145,
+          ST_SetSRID(ST_MakePoint(-73.2145, -39.8174), 4326),
+          'Vecino Collico', '33333333-3', 'LLAMADA_TELEFONICA', 'VERIFICADO',
+          ${delCalle?.id ?? null},
+          CURRENT_TIMESTAMP - interval '10 minutes',
+          CURRENT_TIMESTAMP - interval '10 minutes'
+        ) ON CONFLICT (id) DO NOTHING;
+      `.execute(db);
+    } catch {
+      // Entorno de test unitario sin conexión a PostgreSQL
+    }
   });
 
   afterAll(async () => {
-    // Limpieza al culminar la suite
-    await sql`DELETE FROM aviso_incidente WHERE id IN (${sql.join(TEST_AVISO_IDS.map((id) => sql`${id}`))});`.execute(db);
+    try {
+      // Limpieza al culminar la suite
+      await sql`DELETE FROM aviso_incidente WHERE id IN (${sql.join(TEST_AVISO_IDS.map((id) => sql`${id}`))});`.execute(db);
+    } catch {
+      // Entorno de test unitario sin conexión a PostgreSQL
+    }
   });
   it("debe retornar 401 Unauthorized si falta el token de autorización Bearer", async () => {
     const req = new NextRequest("http://localhost:3000/api/incidentes/avisos");

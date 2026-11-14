@@ -32,6 +32,14 @@ export interface ServerToClientEvents {
         incidenteId?: string | null;
         actualizadoEn: string;
     }) => void;
+    "patrulla:liberada": (payload: {
+        patrullaId: string;
+        nombre: string;
+        misionPreviaId?: string | null;
+        incidenteId: string;
+        estado: string;
+        liberadaEn: string;
+    }) => void;
     "patrulla:desactivada": (payload: {
         patrullaId: string;
         nombre: string;

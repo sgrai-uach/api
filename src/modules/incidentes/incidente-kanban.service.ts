@@ -43,6 +43,7 @@ export async function listarIncidentesKanbanService(
             fila.trazabilidad_notificacion as EstadoNotificacionMision,
         }
       : {}),
+    verificado: Boolean(fila.verificado),
     creadoEn:
       typeof fila.creado_en === "string"
         ? fila.creado_en

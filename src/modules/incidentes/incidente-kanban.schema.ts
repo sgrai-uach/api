@@ -106,6 +106,7 @@ export const IncidenteResumenSchema = z.object({
   trazabilidadNotificacion: EstadoNotificacionMisionEnum.optional().openapi({
     description: "Último estado de trazabilidad de notificación de misión asociado al incidente (HU-35)",
   }),
+  verificado: z.boolean().default(false).openapi({ description: "Indica si la patrulla verificadora completó el diagnóstico técnico en terreno" }),
   creadoEn: z.string().openapi({ description: "Fecha y hora de registro en formato ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Última fecha y hora de actualización en formato ISO 8601" }),
 });
