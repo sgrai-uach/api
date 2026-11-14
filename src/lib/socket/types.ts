@@ -47,13 +47,31 @@ export interface ServerToClientEvents {
         eliminadoEn: string;
     }) => void;
     "mision:asignada": (payload: {
+        notificacionId?: string;
         misionId: string;
         codigo: string;
         tipoMision: string;
         patrullaId?: string | null;
         cuadrillaId?: string | null;
         incidenteId?: string | null;
+        incidenteCodigo?: string | null;
+        incidenteFolio?: string | null;
+        tipoAfectacion?: string | null;
+        direccion?: string | null;
+        prioridad?: string;
         asignadoEn: string;
+    }) => void;
+    "notificacion:trazabilidad_actualizada": (payload: {
+        notificacionId: string;
+        misionId: string;
+        patrullaId: string;
+        estado: "PENDIENTE_ENVIO" | "ENVIADA" | "RECIBIDA" | "LEIDA";
+        intentosEnvio: number;
+        creadaAt: string;
+        enviadaAt?: string | null;
+        recibidaAt?: string | null;
+        leidaAt?: string | null;
+        actualizadoEn: string;
     }) => void;
 }
 
@@ -62,6 +80,10 @@ export interface ClientToServerEvents {
     leave: (room: string) => void;
     unirse: (room: string) => void;
     salir: (room: string) => void;
+    "notificacion:ack": (
+        payload: { notificacionId: string; estado: "RECIBIDA" | "LEIDA" },
+        callback?: (response: { ok: boolean; message?: string; error?: string }) => void
+    ) => void;
 }
 
 export interface InterServerEvents {

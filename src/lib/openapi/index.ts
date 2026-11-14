@@ -45,8 +45,8 @@ import {
   CrearCuadrillaResponseSchema,
   EditarCuadrillaInputSchema,
   EditarCuadrillaResponseSchema,
-  ListarCuadrillasResponseSchema,
   ListarCuadrillasQuerySchema,
+  ListarCuadrillasResponseSchema,
   DetalleCuadrillaResponseSchema,
   CuadrillaIdParamSchema,
   DesactivarCuadrillaResponseSchema,
@@ -71,6 +71,13 @@ import {
   CrearMisionVerificacionSchema,
   CrearMisionResponseSchema,
 } from "@/modules/misiones/mision.schema";
+
+import {
+  NotificacionIdParamSchema,
+  ActualizarEstadoNotificacionInputSchema,
+  ActualizarEstadoNotificacionResponseSchema,
+  ListarMisionesPendientesResponseSchema,
+} from "@/modules/misiones/notificacion-mision.schema";
 
 import {
   CrearAvisoIncidenteInputSchema,
@@ -2268,6 +2275,10 @@ registry.registerPath({
   security: [{ BearerAuth: [] }],
   request: {
     params: CuadrillaIdParamSchema,
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z.string().optional().describe("UUID del usuario autenticado (entorno pruebas)"),
+    }),
   },
   responses: {
     200: {
@@ -2357,6 +2368,10 @@ registry.registerPath({
   security: [{ BearerAuth: [] }],
   request: {
     params: CuadrillaIdParamSchema,
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z.string().optional().describe("UUID del usuario autenticado (entorno pruebas)"),
+    }),
   },
   responses: {
     200: {
@@ -2369,21 +2384,27 @@ registry.registerPath({
     },
     400: {
       description: "Identificador de cuadrilla inválido",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     401: {
       description: "No autenticado o token inválido",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     403: {
       description: "Acceso denegado. Se requiere permiso 'cuadrillas:eliminar' o rol Administrador",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     404: {
       description: "Cuadrilla operativa no encontrada o ya desactivada",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     409: {
       description: "Conflicto: la cuadrilla se encuentra en misión activa o posee misiones en curso",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     500: {
       description: "Error interno del servidor",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
   },
 });
@@ -2398,7 +2419,12 @@ registry.registerPath({
   tags: ["Misiones"],
   security: [{ bearerAuth: [] }],
   request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z.string().optional().describe("UUID del usuario autenticado (entorno pruebas)"),
+    }),
     body: {
+      required: true,
       content: {
         "application/json": {
           schema: CrearMisionVerificacionSchema,
@@ -2417,22 +2443,111 @@ registry.registerPath({
     },
     400: {
       description: "Datos de entrada inválidos o formato JSON malformado",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
+    },
+    401: {
+      description: "No autenticado o token ausente",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:asignar'.",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
+    },
+    404: {
+      description: "Incidente o patrulla no encontrado",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
+    },
+    409: {
+      description:
+        "Conflicto: la patrulla seleccionada ya no se encuentra DISPONIBLE o el incidente no está en estado REPORTADO",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
+    },
+    500: {
+      description: "Error interno del servidor al crear y despachar la misión",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
+    },
+  },
+});
+
+// PATCH /api/terreno/notificaciones/{id}/estado (HU-35: Confirmar acuse de recibo o lectura)
+registry.registerPath({
+  method: "patch",
+  path: "/api/terreno/notificaciones/{id}/estado",
+  summary: "Confirmar acuse de recibo o lectura de notificación de misión (HU-35)",
+  description:
+    "Registra de forma idempotente la confirmación técnica automática ('RECIBIDA') o la interacción operativa ('LEIDA') emitida por sgrai-pwa. Emite el evento WebSocket 'notificacion:trazabilidad_actualizada' hacia la Central de Operaciones. Requiere permiso 'misiones:terreno:verificar' y pertenencia a la patrulla destinataria (salvo rol Administrador).",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: NotificacionIdParamSchema,
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: ActualizarEstadoNotificacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Estado de notificación actualizado exitosamente de forma idempotente",
+      content: {
+        "application/json": {
+          schema: ActualizarEstadoNotificacionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador no es UUID válido o cuerpo con estado distinto a 'RECIBIDA' o 'LEIDA'",
     },
     401: {
       description: "No autenticado o token ausente",
     },
     403: {
-      description: "Acceso denegado. Se requiere permiso 'misiones:asignar'.",
+      description: "Acceso denegado. Se requiere permiso 'misiones:terreno:verificar' y pertenecer a la patrulla asignada",
     },
     404: {
-      description: "Incidente o patrulla no encontrado",
-    },
-    409: {
-      description:
-        "Conflicto: la patrulla seleccionada ya no se encuentra DISPONIBLE o el incidente no está en estado REPORTADO",
+      description: "Notificación no encontrada",
     },
     500: {
-      description: "Error interno del servidor al crear y despachar la misión",
+      description: "Error interno del servidor al actualizar acuse de notificación",
+    },
+  },
+});
+
+// GET /api/terreno/misiones/pendientes (HU-35: Reconciliación offline de misiones asignadas)
+registry.registerPath({
+  method: "get",
+  path: "/api/terreno/misiones/pendientes",
+  summary: "Consultar órdenes de misión pendientes de acuse para terreno (HU-35)",
+  description:
+    "Consulta las misiones asignadas a la patrulla del usuario autenticado cuyas notificaciones se encuentran en 'PENDIENTE_ENVIO' o 'ENVIADA'. Utilizado por sgrai-pwa al recuperar conectividad tras operar fuera de cobertura (Arquitectura Offline-First). Requiere permiso 'misiones:terreno:verificar'.",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    query: z.object({
+      patrullaId: z.string().uuid().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Listado de misiones pendientes obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarMisionesPendientesResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "No autenticado o token ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:terreno:verificar' y pertenecer a una patrulla activa",
+    },
+    500: {
+      description: "Error interno del servidor al consultar misiones pendientes",
     },
   },
 });
@@ -2443,7 +2558,7 @@ export function generarOpenAPISpec() {
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.10.0",
+      version: "0.11.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",

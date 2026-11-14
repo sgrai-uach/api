@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import {
+  EstadoNotificacionMisionEnum,
+  NotificacionMisionDetalleSchema,
+} from "./notificacion-mision.schema";
 
 extendZodWithOpenApi(z);
 
@@ -169,7 +173,10 @@ export const MisionDetalleCompletoSchema = z.object({
   estado: EstadoMisionEnum.openapi({ description: "Estado de ejecución actual de la misión" }),
   prioridad: PrioridadMisionEnum.openapi({ description: "Nivel de prioridad o urgencia" }),
   justificacionRechazo: z.string().nullable().openapi({ description: "Motivo documentado en caso de rechazo por la cuadrilla" }),
-  fechaInicio: z.string().nullable().openapi({ description: "Fecha y hora de despliegue o inicio en terreno (ISO 8601)" }),
+  trazabilidadNotificacion: EstadoNotificacionMisionEnum.optional().openapi({
+    description: "Estado actual de entrega y lectura de la notificación de esta misión (HU-35)",
+  }),
+  fechaInicio: z.string().nullable().openapi({ description: "Fecha de inicio de trabajos en terreno (ISO 8601)" }),
   fechaCierre: z.string().nullable().openapi({ description: "Fecha y hora de cierre formal de la misión (ISO 8601)" }),
   creadoEn: z.string().openapi({ description: "Fecha y hora de creación de la misión en formato ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Última fecha y hora de actualización en formato ISO 8601" }),
@@ -289,6 +296,7 @@ export const CrearMisionResponseSchema = z.object({
       descripcion: z.string(),
       creadoEn: z.string(),
     }),
+    notificacion: NotificacionMisionDetalleSchema.optional(),
   }),
 }).openapi("CrearMisionResponse");
 

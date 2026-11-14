@@ -78,6 +78,7 @@ describe("Módulo Misiones - Listado de Misiones (H34)", () => {
             estado: "EN_CURSO",
             prioridad: "ALTA",
             justificacion_rechazo: null,
+            trazabilidad_notificacion: "ENVIADA",
             incidente_id: "a0000000-0000-4000-8000-000000000001",
             incidente_codigo: "INC-0001",
             cuadrilla_id: null,
@@ -114,6 +115,7 @@ describe("Módulo Misiones - Listado de Misiones (H34)", () => {
       expect(res.data).toHaveLength(1);
       expect(res.data[0].codigo).toBe("MIS-0001");
       expect(res.data[0].delegacionNombre).toBe("Norte");
+      expect(res.data[0].trazabilidadNotificacion).toBe("ENVIADA");
       expect(res.data[0].fechaInicio).toBe("2026-10-04T12:00:00.000Z");
     });
 

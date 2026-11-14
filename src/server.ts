@@ -4,6 +4,7 @@ import { Server as SocketIOServer } from "socket.io";
 import Redis from "ioredis";
 import { loadEnvConfig } from "@next/env";
 import { setSocketServer, REDIS_SOCKET_CHANNEL } from "./lib/socket";
+import { actualizarEstadoNotificacionService } from "./modules/misiones/notificacion-mision.service";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -93,6 +94,30 @@ async function bootstrap() {
 
     socket.on("salir", (room: string) => {
       socket.leave(room);
+    });
+
+    socket.on("notificacion:ack", async (payload, callback) => {
+      try {
+        if (!payload || !payload.notificacionId || !["RECIBIDA", "LEIDA"].includes(payload.estado)) {
+          callback?.({ ok: false, error: "Payload inválido para notificacion:ack." });
+          return;
+        }
+
+        const usuarioId = socket.data?.userId ?? "00000000-0000-4000-8000-000000000001";
+        const esAdmin = socket.data?.role === "ADMIN" || !socket.data?.userId;
+
+        const resultado = await actualizarEstadoNotificacionService(
+          payload.notificacionId,
+          payload.estado,
+          usuarioId,
+          esAdmin
+        );
+
+        callback?.({ ok: true, message: resultado.message });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Error al procesar acuse de notificación.";
+        callback?.({ ok: false, error: msg });
+      }
     });
   });
 
