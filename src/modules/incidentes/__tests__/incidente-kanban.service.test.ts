@@ -34,6 +34,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
           informante_nombre: "Pedro Soto",
           delegacion_nombre: "Norte",
           total_misiones: 1,
+          trazabilidad_notificacion: "RECIBIDA",
           creado_en: new Date("2026-09-22T10:00:00Z"),
           actualizado_en: new Date("2026-09-22T10:00:00Z"),
         },
@@ -69,6 +70,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
       expect(resultado.data).toHaveLength(1);
       expect(resultado.data[0].id).toBe("a0000000-0000-4000-8000-000000000001");
       expect(resultado.data[0].totalMisiones).toBe(1);
+      expect(resultado.data[0].trazabilidadNotificacion).toBe("RECIBIDA");
     });
 
     it("debe manejar correctamente página final sin siguiente", async () => {
@@ -165,6 +167,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
             estado: "COMPLETADA",
             prioridad: "CRITICA",
             justificacion_rechazo: null,
+            trazabilidad_notificacion: "LEIDA",
             fecha_inicio: new Date("2026-09-22T10:10:00Z"),
             fecha_cierre: new Date("2026-09-22T10:30:00Z"),
             creado_en: new Date("2026-09-22T10:05:00Z"),
@@ -198,6 +201,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
       expect(detalle?.delegacion?.nombre).toBe("Costa");
       expect(detalle?.misiones).toHaveLength(1);
       expect(detalle?.misiones[0].patrulla?.nombre).toBe("Patrulla Teja-1");
+      expect(detalle?.misiones[0].trazabilidadNotificacion).toBe("LEIDA");
       expect(detalle?.recursosAsociados).toHaveLength(1);
       expect(detalle?.recursosAsociados[0].nombre).toBe("Camioneta 4x4");
     });

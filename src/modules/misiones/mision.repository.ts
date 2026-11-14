@@ -7,6 +7,8 @@ import type {
   AsignarCuadrillaMisionInput,
   AceptarMisionInput,
 } from "./mision.schema";
+import { crearNotificacionMisionRepo } from "./notificacion-mision.repository";
+import type { NotificacionMisionDetalle } from "./notificacion-mision.schema";
 
 export type MisionTrx = Transaction<Database>;
 
@@ -20,6 +22,7 @@ export interface MisionDetalleQueryResult {
     estado: string;
     prioridad: string;
     justificacion_rechazo: string | null;
+    trazabilidad_notificacion?: string | null;
     incidente_id: string | null;
     prevencion_id: string | null;
     cuadrilla_id: string | null;
@@ -152,6 +155,13 @@ export async function obtenerMisionDetallePorIdRepo(
       "mision.estado",
       "mision.prioridad",
       "mision.justificacion_rechazo",
+      sql<string | null>`(
+        SELECT nm.estado
+        FROM notificaciones_mision nm
+        WHERE nm.mision_id = mision.id
+        ORDER BY nm.creada_at DESC
+        LIMIT 1
+      )`.as("trazabilidad_notificacion"),
       "mision.incidente_id",
       "mision.prevencion_id",
       "mision.cuadrilla_id",
@@ -359,6 +369,9 @@ export interface MisionVerificacionCreadaResult {
   incidente: {
     id: string;
     codigo: string;
+    folio?: string | null;
+    tipoAfectacion?: string | null;
+    direccion?: string | null;
     estado: string;
     prioridad: string;
   };
@@ -375,6 +388,7 @@ export interface MisionVerificacionCreadaResult {
     descripcion: string;
     creadoEn: string;
   };
+  notificacion: NotificacionMisionDetalle;
 }
 
 /**
@@ -393,7 +407,16 @@ export async function crearMisionVerificacionRepo(
     // 1. Validar existencia y estado del incidente con bloqueo pesimista (FOR UPDATE)
     const incidente = await trx
       .selectFrom("incidente")
-      .select(["id", "codigo", "estado", "prioridad", "tipo_afectacion", "delegacion_id"])
+      .select([
+        "id",
+        "codigo",
+        "folio",
+        "estado",
+        "prioridad",
+        "tipo_afectacion",
+        "direccion_texto",
+        "delegacion_id",
+      ])
       .where("id", "=", input.incidenteId)
       .forUpdate()
       .executeTakeFirst();
@@ -517,6 +540,13 @@ export async function crearMisionVerificacionRepo(
       .returningAll()
       .executeTakeFirstOrThrow();
 
+    // 7. Crear registro inicial de notificación en estado PENDIENTE_ENVIO
+    const notificacionInicial = await crearNotificacionMisionRepo(
+      nuevaMision.id,
+      input.patrullaId,
+      trx
+    );
+
     return {
       mision: {
         id: nuevaMision.id,
@@ -535,6 +565,9 @@ export async function crearMisionVerificacionRepo(
       incidente: {
         id: incidenteActualizado.id,
         codigo: incidenteActualizado.codigo,
+        folio: incidente.folio ?? null,
+        tipoAfectacion: incidente.tipo_afectacion ?? null,
+        direccion: incidente.direccion_texto ?? null,
         estado: incidenteActualizado.estado,
         prioridad: incidenteActualizado.prioridad,
       },
@@ -551,6 +584,7 @@ export async function crearMisionVerificacionRepo(
         descripcion: hitoInicial.descripcion,
         creadoEn: new Date(hitoInicial.creado_en).toISOString(),
       },
+      notificacion: notificacionInicial,
     };
   });
 }

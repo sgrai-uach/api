@@ -4,6 +4,7 @@ import {
   PaginationQuerySchema,
   PaginationMetaSchema,
 } from "@/lib/shared/pagination.schema";
+import { EstadoNotificacionMisionEnum } from "./notificacion-mision.schema";
 
 extendZodWithOpenApi(z);
 
@@ -77,6 +78,9 @@ export const MisionItemSchema = z.object({
   estado: EstadoMisionEnum.openapi({ description: "Estado operativo actual" }),
   prioridad: PrioridadMisionEnum.openapi({ description: "Nivel de prioridad o severidad" }),
   justificacionRechazo: z.string().nullable().optional().openapi({ description: "Justificación si la misión fue rechazada" }),
+  trazabilidadNotificacion: EstadoNotificacionMisionEnum.optional().openapi({
+    description: "Estado actual de entrega y lectura de la notificación de esta misión (HU-35)",
+  }),
   incidenteId: z.string().uuid().nullable().optional().openapi({ description: "UUID de incidente asociado si aplica" }),
   incidenteCodigo: z.string().nullable().optional().openapi({ description: "Código legible del incidente" }),
   cuadrillaId: z.string().uuid().nullable().optional(),

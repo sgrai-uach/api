@@ -61,8 +61,8 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 | `POST` | `/api/incidentes/manual` | `crear_incidente_manual` | Ingreso manual de incidente desde Call Center o terreno. |
 | `POST` | `/api/incidentes/verificar-duplicado` | `crear_incidente_manual` | Consultar coincidencias de incidentes cercanos en Valdivia. |
 | `GET` | `/api/incidentes/kpis` | `incidentes:kanban` | Contadores numéricos de incidentes del día agrupados por estado para el panel del Encargado (HU-18). |
-| `GET` | `/api/incidentes` | `incidentes:kanban` | Listado paginado de incidentes con filtros para el tablero Kanban del Encargado. Admite: `estado`, `prioridad`, `tipoAfectacion`, `delegacionId` (UUID), `fuenteOrigen` (`CHATBOT`, `LLAMADA_TELEFONICA`, `FUNCIONARIO_TERRENO`, `WEB`), `fecha` (YYYY-MM-DD), `soloHoy`, `busqueda`, `page`, `limit`. Retorna `data` y `meta` (estándar H34 / HU-18). |
-| `GET` | `/api/incidentes/{id}` | `incidentes:kanban` | Detalle exhaustivo de incidente para puesto de mando (informante, misiones, cuadrillas). |
+| `GET` | `/api/incidentes` | `incidentes:kanban` | Listado paginado de incidentes con filtros para el tablero Kanban del Encargado. Admite: `estado`, `prioridad`, `tipoAfectacion`, `delegacionId` (UUID), `fuenteOrigen` (`CHATBOT`, `LLAMADA_TELEFONICA`, `FUNCIONARIO_TERRENO`, `WEB`), `fecha` (YYYY-MM-DD), `soloHoy`, `busqueda`, `page`, `limit`. Retorna `data` y `meta` (estándar H34 / HU-18) e incluye `trazabilidadNotificacion` proyectada desde `notificaciones_mision` (HU-35). |
+| `GET` | `/api/incidentes/{id}` | `incidentes:kanban` | Detalle exhaustivo de incidente para puesto de mando (informante, misiones, cuadrillas). Cada elemento de `data.misiones` proyecta `trazabilidadNotificacion` (`PENDIENTE_ENVIO` \| `ENVIADA` \| `RECIBIDA` \| `LEIDA` \| `null`) desde `notificaciones_mision` (HU-35). |
 
 ---
 

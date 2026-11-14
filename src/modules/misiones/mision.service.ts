@@ -21,9 +21,12 @@ import {
   notificarIncidenteActualizado,
   notificarPatrullaActualizada,
   notificarMisionActualizada,
+  notificarTrazabilidadActualizada,
+  tieneConexionEnSala,
   notificarPatrullaLiberada,
   emitirCuadrillaActualizada,
 } from "@/lib/socket";
+import { marcarNotificacionEnviadaRepo } from "./notificacion-mision.repository";
 
 function formatearFechaIso(fecha: Date | string | null | undefined): string | null {
   if (!fecha) return null;
@@ -249,6 +252,12 @@ export async function obtenerDetalleMisionService(
     estado: mision.estado as MisionDetalleCompleto["estado"],
     prioridad: mision.prioridad as MisionDetalleCompleto["prioridad"],
     justificacionRechazo: mision.justificacion_rechazo,
+    ...(mision.trazabilidad_notificacion
+      ? {
+          trazabilidadNotificacion:
+            mision.trazabilidad_notificacion as MisionDetalleCompleto["trazabilidadNotificacion"],
+        }
+      : {}),
     fechaInicio: formatearFechaIso(mision.fecha_inicio),
     fechaCierre: formatearFechaIso(mision.fecha_cierre),
     creadoEn: formatearFechaIso(mision.creado_en) || new Date().toISOString(),
@@ -364,16 +373,48 @@ export async function asignarPatrullaVerificacionService(
 ): Promise<CrearMisionResponse> {
   const resultado = await crearMisionVerificacionRepo(input, operadorId);
 
+  const patrullaRoom = `patrulla:${resultado.patrulla.id}`;
+  const patrullaConectada = await tieneConexionEnSala(patrullaRoom);
+
+  let notificacionActualizada = resultado.notificacion;
+  if (patrullaConectada) {
+    const enviada = await marcarNotificacionEnviadaRepo(resultado.notificacion.id);
+    if (enviada) {
+      notificacionActualizada = enviada;
+    }
+  }
+
   // Emitir eventos WebSocket en segundo plano
   try {
     notificarMisionAsignada({
+      notificacionId: notificacionActualizada.id,
       misionId: resultado.mision.id,
       codigo: resultado.mision.codigo,
       tipoMision: resultado.mision.tipoMision,
       patrullaId: resultado.patrulla.id,
       incidenteId: resultado.incidente.id,
+      incidenteCodigo: resultado.incidente.codigo,
+      incidenteFolio: resultado.incidente.folio ?? null,
+      tipoAfectacion: resultado.incidente.tipoAfectacion ?? null,
+      direccion: resultado.incidente.direccion ?? null,
+      prioridad: resultado.mision.prioridad,
       asignadoEn: resultado.mision.creadoEn,
     });
+
+    if (patrullaConectada) {
+      notificarTrazabilidadActualizada({
+        notificacionId: notificacionActualizada.id,
+        misionId: resultado.mision.id,
+        patrullaId: resultado.patrulla.id,
+        estado: notificacionActualizada.estado,
+        intentosEnvio: notificacionActualizada.intentosEnvio,
+        creadaAt: notificacionActualizada.creadaAt,
+        enviadaAt: notificacionActualizada.enviadaAt,
+        recibidaAt: notificacionActualizada.recibidaAt,
+        leidaAt: notificacionActualizada.leidaAt,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
 
     notificarIncidenteActualizado({
       id: resultado.incidente.id,
@@ -412,6 +453,7 @@ export async function asignarPatrullaVerificacionService(
         estado: resultado.patrulla.estado,
       },
       hitoInicial: resultado.hitoInicial,
+      notificacion: notificacionActualizada,
     },
   };
 }
