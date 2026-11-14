@@ -62,6 +62,27 @@ export const ListarPersonalQuerySchema = PaginationQuerySchema.extend({
     (val) => val === "true" || val === true,
     z.boolean().optional()
   ),
+  sinAsignacionCuadrilla: z
+    .preprocess((val) => val === "true" || val === true, z.boolean().optional())
+    .openapi({
+      description:
+        "Si es true, excluye a los funcionarios que ya lideran o integran una cuadrilla operativa activa (aptos como candidatos a delegado o dotación de cuadrilla).",
+      example: true,
+    }),
+  sin_asignacion_cuadrilla: z.preprocess(
+    (val) => val === "true" || val === true,
+    z.boolean().optional()
+  ),
+  excluirCuadrillaId: z
+    .string()
+    .uuid()
+    .optional()
+    .openapi({
+      description:
+        "Cuadrilla a considerar durante la exclusión de asignaciones (flujo de edición: mantiene visibles los integrantes de la cuadrilla que se está editando).",
+      example: "50000000-0000-4000-8000-000000000001",
+    }),
+  excluir_cuadrilla_id: z.string().uuid().optional(),
   busqueda: z.string().trim().optional().openapi({
     description: "Búsqueda textual sobre RUT, nombres, apellidos o email",
     example: "Pérez",

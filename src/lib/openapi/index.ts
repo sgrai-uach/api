@@ -46,6 +46,7 @@ import {
   EditarCuadrillaInputSchema,
   EditarCuadrillaResponseSchema,
   ListarCuadrillasResponseSchema,
+  ListarCuadrillasQuerySchema,
   DetalleCuadrillaResponseSchema,
   CuadrillaIdParamSchema,
   DesactivarCuadrillaResponseSchema,
@@ -142,6 +143,8 @@ import {
   AceptarMisionInputSchema,
   MisionHitoRegistradoSchema,
   AceptarMisionResponseSchema,
+  AsignarCuadrillaMisionInputSchema,
+  AsignarCuadrillaMisionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -181,12 +184,13 @@ registry.register("MisionItem", MisionItemSchema);
 registry.register("DetalleEmpleadoResponse", DetalleEmpleadoResponseSchema);
 registry.register("EliminarEmpleadoResponse", EliminarEmpleadoResponseSchema);
 
-// Registrar esquemas de Cuadrillas Operativas (H79 / H81)
+// Registrar esquemas de Cuadrillas Operativas (H80 / H79 / H81)
 registry.register("CrearCuadrillaInput", CrearCuadrillaInputSchema);
 registry.register("CrearCuadrillaResponse", CrearCuadrillaResponseSchema);
 registry.register("EditarCuadrillaInput", EditarCuadrillaInputSchema);
 registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
 registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
+registry.register("ListarCuadrillasQuery", ListarCuadrillasQuerySchema);
 registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
 
 
@@ -1260,6 +1264,50 @@ registry.registerPath({
   },
 });
 
+// POST /api/misiones (HU-21: Asignar cuadrilla y liberar patrulla)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones",
+  summary: "Asignar cuadrilla operativa a incidente y liberar patrulla (HU-21)",
+  description:
+    "Crea una misión de tipo ATENCION_CUADRILLA en estado DESPACHADA, actualiza la cuadrilla a EN_MISION y el incidente a EN_ATENCION. Aplica la Regla §3.2 (ICS): si el incidente contaba con una patrulla verificadora en terreno, concluye su misión (COMPLETADA) con hito 'VERIFICACION_FINALIZADA' y libera la patrulla a estado 'DISPONIBLE'. Emite eventos WebSocket a la cuadrilla, patrulla y Centro de Mando.",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado con permiso misiones:asignar" }),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: AsignarCuadrillaMisionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Cuadrilla asignada exitosamente y patrulla previa liberada",
+      content: {
+        "application/json": {
+          schema: AsignarCuadrillaMisionResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada inválidos o faltantes" },
+    401: { description: "No autenticado / token ausente o inválido" },
+    403: { description: "Permisos insuficientes (requiere misiones:asignar)" },
+    404: { description: "Incidente o cuadrilla no encontrados" },
+    409: { description: "Conflicto: la cuadrilla no está disponible o el incidente no es apto" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
 // 21. DELETE /api/recursos/{id} (HU-9)
 registry.registerPath({
   method: "delete",
@@ -2184,15 +2232,18 @@ registry.registerPath({
   },
 });
 
-// H81 / H79: Listar Cuadrillas Operativas Paginadas con Filtros
+// H80 / H79 / H81: Listar Cuadrillas Operativas Paginadas con Filtros (H34)
 registry.registerPath({
   method: "get",
   path: "/api/cuadrillas",
-  summary: "Listar cuadrillas operativas con paginación y filtros (H81 / H79)",
+  summary: "Listar cuadrillas operativas con paginación y filtros (H80 / H34)",
   description:
-    "Retorna el listado paginado de cuadrillas operativas con soporte para filtros de texto, delegación y estado.",
+    "Retorna el listado paginado de cuadrillas operativas con soporte para filtros de texto (busqueda/q), delegación municipal (delegacionId), estado operativo y vigencia bajo el estándar H34.",
   tags: ["Cuadrillas", "Recursos y Personal"],
   security: [{ BearerAuth: [] }],
+  request: {
+    query: ListarCuadrillasQuerySchema,
+  },
   responses: {
     200: {
       description: "Listado de cuadrillas obtenido exitosamente",

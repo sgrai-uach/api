@@ -18,6 +18,7 @@ export interface FilaIncidenteResumen {
   informante_nombre: string | null;
   delegacion_nombre: string | null;
   total_misiones: number | string;
+  verificado?: boolean | number;
   creado_en: Date | string;
   actualizado_en: Date | string;
 }
@@ -136,7 +137,24 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
           .select(sql<number>`count(mision.id)::int`.as("count"))
           .whereRef("mision.incidente_id", "=", "incidente.id")
           .as("total_misiones"),
+      (eb) =>
+        eb
+          .selectFrom("mision")
+          .select(sql<boolean>`case when count(mision.id) > 0 then true else false end`.as("verificado"))
+          .whereRef("mision.incidente_id", "=", "incidente.id")
+          .where("mision.tipo_mision", "=", "VERIFICACION")
+          .where("mision.estado", "=", "COMPLETADA")
+          .as("verificado"),
     ])
+    .orderBy(
+      sql`case when exists (
+        select 1 from mision m 
+        where m.incidente_id = incidente.id 
+          and m.tipo_mision = 'VERIFICACION' 
+          and m.estado = 'COMPLETADA'
+      ) then 1 else 0 end`,
+      "desc"
+    )
     .orderBy("incidente.creado_en", "desc")
     .limit(filtros.limit)
     .offset((filtros.page - 1) * filtros.limit)

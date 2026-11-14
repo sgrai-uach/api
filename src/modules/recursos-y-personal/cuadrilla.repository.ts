@@ -22,12 +22,12 @@ export interface FilaCuadrillaDetalleConsolidado {
   actualizado_por_id: string | null;
   eliminado_en?: Date | null;
   eliminado_por_id?: string | null;
-  delegacion_id: string;
-  delegacion_nombre: string;
+  delegacion_id: string | null;
+  delegacion_nombre: string | null;
   delegacion_codigo?: string | null;
-  delegado_id: string;
-  delegado_nombre: string;
-  delegado_email: string;
+  delegado_id: string | null;
+  delegado_nombre: string | null;
+  delegado_email: string | null;
   delegado_rut: string | null;
   recursos: Array<{
     id: string;
@@ -122,8 +122,8 @@ export async function obtenerCuadrillaDetalleUnitario(
 ): Promise<FilaCuadrillaDetalleConsolidado | undefined> {
   const cuadrillaFila = await db
     .selectFrom("cuadrilla")
-    .innerJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
-    .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
+    .leftJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
+    .leftJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
     .select([
       "cuadrilla.id as id",
       "cuadrilla.nombre as nombre",
@@ -258,6 +258,15 @@ export async function obtenerCuadrillaDetalleUnitario(
 }
 
 /**
+ * Construye un patrón ILIKE escapando los comodines SQL (`\`, `%` y `_`)
+ * para que se busquen como texto literal (BUG-H80-API-05).
+ */
+export function construirPatronBusqueda(termino: string): string {
+  const textoSanitizado = termino.trim().replace(/[\\%_]/g, "\\$&");
+  return `%${textoSanitizado}%`;
+}
+
+/**
  * Consulta el listado paginado de cuadrillas con filtros territoriales, de estado y búsqueda parcial.
  */
 export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas): Promise<{
@@ -305,7 +314,7 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
   }
 
   if (filtros.busqueda && filtros.busqueda.trim() !== "") {
-    const termino = `%${filtros.busqueda.trim()}%`;
+    const termino = construirPatronBusqueda(filtros.busqueda);
     consultaBase = consultaBase.where((eb) =>
       eb.or([
         eb("cuadrilla.nombre", "ilike", termino),
@@ -351,6 +360,11 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
     .limit(filtros.limite)
     .offset(offset)
     .execute();
+
+  // Página fuera de rango: evitar `WHERE ... IN ()` y responder listado vacío
+  if (cuadrillasLote.length === 0) {
+    return { cuadrillas: [], total };
+  }
 
   const cuadrillaIds = cuadrillasLote.map((c) => c.id);
 
@@ -517,8 +531,8 @@ export async function insertarCuadrillaConDelegado(
     // 3. Consultar datos consolidados para la respuesta
     const filaConsolidada = await trx
       .selectFrom("cuadrilla")
-      .innerJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
-      .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
+      .leftJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
+    .leftJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
       .select([
         "cuadrilla.id as id",
         "cuadrilla.nombre as nombre",
@@ -730,17 +744,21 @@ export async function obtenerRecursosIndividualesAsignadosAOtrasCuadrillas(
  */
 export async function verificarDelegadoAsignadoAOtraCuadrilla(
   usuarioDelegadoId: string,
-  excluirCuadrillaId: string
+  excluirCuadrillaId: string | null
 ) {
   // 1. ¿Lidera otra cuadrilla activa?
-  const cuadrillaComoLider = await db
+  let queryLider = db
     .selectFrom("cuadrilla")
     .select(["id", "nombre"])
     .where("usuario_delegado_id", "=", usuarioDelegadoId)
-    .where("id", "!=", excluirCuadrillaId)
     .where("activo", "=", true)
-    .where("eliminado_en", "is", null)
-    .executeTakeFirst();
+    .where("eliminado_en", "is", null);
+
+  if (excluirCuadrillaId) {
+    queryLider = queryLider.where("id", "!=", excluirCuadrillaId);
+  }
+
+  const cuadrillaComoLider = await queryLider.executeTakeFirst();
 
   if (cuadrillaComoLider) {
     return {
@@ -751,18 +769,22 @@ export async function verificarDelegadoAsignadoAOtraCuadrilla(
   }
 
   // 2. ¿Es trabajador en otra cuadrilla activa?
-  const cuadrillaComoTrabajador = await db
+  let queryTrabajador = db
     .selectFrom("cuadrilla_personal")
     .innerJoin("cuadrilla", "cuadrilla.id", "cuadrilla_personal.cuadrilla_id")
     .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
     .select(["cuadrilla.id", "cuadrilla.nombre"])
     .where("personal.usuario_id", "=", usuarioDelegadoId)
-    .where("cuadrilla.id", "!=", excluirCuadrillaId)
     .where("cuadrilla.activo", "=", true)
     .where("cuadrilla.eliminado_en", "is", null)
     .where("cuadrilla_personal.activo", "=", true)
-    .where("cuadrilla_personal.desvinculado_en", "is", null)
-    .executeTakeFirst();
+    .where("cuadrilla_personal.desvinculado_en", "is", null);
+
+  if (excluirCuadrillaId) {
+    queryTrabajador = queryTrabajador.where("cuadrilla.id", "!=", excluirCuadrillaId);
+  }
+
+  const cuadrillaComoTrabajador = await queryTrabajador.executeTakeFirst();
 
   if (cuadrillaComoTrabajador) {
     return {
@@ -1068,8 +1090,8 @@ export async function actualizarCuadrillaConDotacionTransaccional(
     // 5. Consultar entidad consolidada para la respuesta
     const cuadrillaFila = await trx
       .selectFrom("cuadrilla")
-      .innerJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
-      .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
+      .leftJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
+    .leftJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id")
       .select([
         "cuadrilla.id as id",
         "cuadrilla.nombre as nombre",
