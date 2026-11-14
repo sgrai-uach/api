@@ -1,6 +1,7 @@
 import {
   obtenerMisionDetallePorIdRepo,
   crearMisionVerificacionRepo,
+  aceptarMisionPatrullaRepo,
   asignarCuadrillaIncidenteRepo,
 } from "./mision.repository";
 import type {
@@ -10,6 +11,8 @@ import type {
   AdjuntoEvidencia,
   CrearMisionVerificacionInput,
   CrearMisionResponse,
+  AceptarMisionInput,
+  AceptarMisionResponse,
   AsignarCuadrillaMisionInput,
   AsignarCuadrillaMisionResponse,
 } from "./mision.schema";
@@ -17,9 +20,13 @@ import {
   notificarMisionAsignada,
   notificarIncidenteActualizado,
   notificarPatrullaActualizada,
+  notificarMisionActualizada,
+  notificarTrazabilidadActualizada,
+  tieneConexionEnSala,
   notificarPatrullaLiberada,
   emitirCuadrillaActualizada,
 } from "@/lib/socket";
+import { marcarNotificacionEnviadaRepo } from "./notificacion-mision.repository";
 
 function formatearFechaIso(fecha: Date | string | null | undefined): string | null {
   if (!fecha) return null;
@@ -245,6 +252,12 @@ export async function obtenerDetalleMisionService(
     estado: mision.estado as MisionDetalleCompleto["estado"],
     prioridad: mision.prioridad as MisionDetalleCompleto["prioridad"],
     justificacionRechazo: mision.justificacion_rechazo,
+    ...(mision.trazabilidad_notificacion
+      ? {
+          trazabilidadNotificacion:
+            mision.trazabilidad_notificacion as MisionDetalleCompleto["trazabilidadNotificacion"],
+        }
+      : {}),
     fechaInicio: formatearFechaIso(mision.fecha_inicio),
     fechaCierre: formatearFechaIso(mision.fecha_cierre),
     creadoEn: formatearFechaIso(mision.creado_en) || new Date().toISOString(),
@@ -360,16 +373,48 @@ export async function asignarPatrullaVerificacionService(
 ): Promise<CrearMisionResponse> {
   const resultado = await crearMisionVerificacionRepo(input, operadorId);
 
+  const patrullaRoom = `patrulla:${resultado.patrulla.id}`;
+  const patrullaConectada = await tieneConexionEnSala(patrullaRoom);
+
+  let notificacionActualizada = resultado.notificacion;
+  if (patrullaConectada) {
+    const enviada = await marcarNotificacionEnviadaRepo(resultado.notificacion.id);
+    if (enviada) {
+      notificacionActualizada = enviada;
+    }
+  }
+
   // Emitir eventos WebSocket en segundo plano
   try {
     notificarMisionAsignada({
+      notificacionId: notificacionActualizada.id,
       misionId: resultado.mision.id,
       codigo: resultado.mision.codigo,
       tipoMision: resultado.mision.tipoMision,
       patrullaId: resultado.patrulla.id,
       incidenteId: resultado.incidente.id,
+      incidenteCodigo: resultado.incidente.codigo,
+      incidenteFolio: resultado.incidente.folio ?? null,
+      tipoAfectacion: resultado.incidente.tipoAfectacion ?? null,
+      direccion: resultado.incidente.direccion ?? null,
+      prioridad: resultado.mision.prioridad,
       asignadoEn: resultado.mision.creadoEn,
     });
+
+    if (patrullaConectada) {
+      notificarTrazabilidadActualizada({
+        notificacionId: notificacionActualizada.id,
+        misionId: resultado.mision.id,
+        patrullaId: resultado.patrulla.id,
+        estado: notificacionActualizada.estado,
+        intentosEnvio: notificacionActualizada.intentosEnvio,
+        creadaAt: notificacionActualizada.creadaAt,
+        enviadaAt: notificacionActualizada.enviadaAt,
+        recibidaAt: notificacionActualizada.recibidaAt,
+        leidaAt: notificacionActualizada.leidaAt,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
 
     notificarIncidenteActualizado({
       id: resultado.incidente.id,
@@ -408,6 +453,56 @@ export async function asignarPatrullaVerificacionService(
         estado: resultado.patrulla.estado,
       },
       hitoInicial: resultado.hitoInicial,
+      notificacion: notificacionActualizada,
+    },
+  };
+}
+/**
+ * HU-36 - Servicio de negocio para confirmar y aceptar una misión asignada a una patrulla verificadora.
+ *
+ * 1. Ejecuta la transición atómica en base de datos (`DESPACHADA` -> `EN_CURSO`, `fecha_inicio = CURRENT_TIMESTAMP`,
+ *    registro de hito `'MISION_ACEPTADA'` en `mision_hito`).
+ * 2. Mantiene la patrulla en `EN_VERIFICACION` y el incidente en `VERIFICANDO`.
+ * 3. Emite en tiempo real el evento WebSocket `mision:actualizada` hacia la sala `encargado` del Centro de Mando.
+ */
+export async function aceptarMisionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin = false,
+  input?: AceptarMisionInput
+): Promise<AceptarMisionResponse> {
+  const resultado = await aceptarMisionPatrullaRepo(misionId, usuarioId, esAdmin, input);
+
+  try {
+    notificarMisionActualizada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      estado: resultado.mision.estado,
+      tipoMision: resultado.mision.tipoMision,
+      patrullaId: resultado.mision.patrullaId,
+      incidenteId: resultado.mision.incidenteId,
+      fechaInicio: resultado.mision.fechaInicio,
+      hito: {
+        id: resultado.hito.id,
+        hito: resultado.hito.hito,
+        descripcion: resultado.hito.descripcion,
+        registradoPorId: resultado.hito.registradoPorId,
+        creadoEn: resultado.hito.creadoEn,
+      },
+      actualizadoEn: resultado.mision.actualizadoEn,
+    });
+  } catch (error) {
+    console.error("Error al emitir evento WebSocket mision:actualizada:", error);
+  }
+
+  return {
+    message:
+      "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
+    data: {
+      mision: resultado.mision,
+      patrulla: resultado.patrulla,
+      incidente: resultado.incidente,
+      hito: resultado.hito,
     },
   };
 }

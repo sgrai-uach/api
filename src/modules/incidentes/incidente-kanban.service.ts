@@ -10,6 +10,7 @@ import type {
   IncidenteResumen,
   MisionDetalle,
 } from "./incidente-kanban.schema";
+import type { EstadoNotificacionMision } from "@/modules/misiones/notificacion-mision.schema";
 
 /**
  * Obtiene la lista paginada de incidentes para el tablero Kanban con sus metadatos de paginación.
@@ -36,6 +37,12 @@ export async function listarIncidentesKanbanService(
     informanteNombre: fila.informante_nombre,
     delegacionNombre: fila.delegacion_nombre,
     totalMisiones: Number(fila.total_misiones ?? 0),
+    ...(fila.trazabilidad_notificacion
+      ? {
+          trazabilidadNotificacion:
+            fila.trazabilidad_notificacion as EstadoNotificacionMision,
+        }
+      : {}),
     verificado: Boolean(fila.verificado),
     creadoEn:
       typeof fila.creado_en === "string"
@@ -84,6 +91,12 @@ export async function obtenerDetalleIncidenteService(
     estado: m.estado,
     prioridad: m.prioridad,
     justificacionRechazo: m.justificacion_rechazo,
+    ...(m.trazabilidad_notificacion
+      ? {
+          trazabilidadNotificacion:
+            m.trazabilidad_notificacion as EstadoNotificacionMision,
+        }
+      : {}),
     patrulla: m.patrulla_id
       ? {
           id: m.patrulla_id,
