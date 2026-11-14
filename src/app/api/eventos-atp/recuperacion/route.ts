@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { CrearEventoRecuperacionInputSchema } from "@/modules/eventos-atp/recuperacion.schema";
+import {
+  CrearEventoRecuperacionInputSchema,
+  ListarRecuperacionesQuerySchema,
+} from "@/modules/eventos-atp/recuperacion.schema";
 import {
   crearEventoRecuperacionService,
+  listarEventosRecuperacionService,
   PatrullaNoDisponibleError,
   StockInsuficienteError,
   NotFoundError,
@@ -10,6 +14,73 @@ import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
 import { PERMISO_CREAR_RECUPERACION } from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
+
+/**
+ * GET /api/eventos-atp/recuperacion
+ * Listado paginado y filtrable de operativos de recuperación post-desastre (H73).
+ * Soporta contratos estándar H34 (page, limit, total, totalPages) y filtros por:
+ * - delegacionId: UUID de delegación territorial
+ * - estado: PLANIFICADA | EN_EJECUCION | COMPLETADA | CANCELADA
+ * - prioridad: BAJA | MEDIA | ALTA | CRITICA
+ * - busqueda: Búsqueda textual sobre código (REC-XXXX), nombre o sector
+ * - fechaDesde, fechaHasta: Rango temporal de registro
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const usuarioId =
+      (await extraerUsuarioId(req)) ||
+      req.headers.get("x-user-id")?.trim() ||
+      null;
+
+    if (!usuarioId) {
+      return NextResponse.json(
+        { message: "Se requiere cabecera de autenticación Authorization: Bearer <token> o X-User-Id." },
+        { status: 401 }
+      );
+    }
+
+    const searchParams = req.nextUrl.searchParams;
+    const queryParams: Record<string, string> = {};
+    searchParams.forEach((value, key) => {
+      queryParams[key] = value;
+    });
+
+    const resultadoValidacion = ListarRecuperacionesQuerySchema.safeParse(queryParams);
+    if (!resultadoValidacion.success) {
+      return NextResponse.json(
+        {
+          message: "Parámetros de consulta de listado inválidos.",
+          errors: resultadoValidacion.error.issues.map((issue) => ({
+            campo: issue.path.join("."),
+            mensaje: issue.message,
+          })),
+        },
+        { status: 400 }
+      );
+    }
+
+    const respuestaPaginada = await listarEventosRecuperacionService(
+      resultadoValidacion.data,
+      usuarioId
+    );
+
+    return NextResponse.json(respuestaPaginada, { status: 200 });
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ message: error.message }, { status: 401 });
+    }
+
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ message: error.message }, { status: 403 });
+    }
+
+    console.error("Error al listar operativos de recuperación:", error);
+    return NextResponse.json(
+      { message: "Error interno del servidor al procesar el listado de operativos de recuperación." },
+      { status: 500 }
+    );
+  }
+}
 
 /**
  * POST /api/eventos-atp/recuperacion

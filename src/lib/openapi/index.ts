@@ -142,6 +142,12 @@ import {
   CrearEventoRecuperacionInputSchema,
   CrearEventoRecuperacionResponseSchema,
   EventoRecuperacionResponseSchema,
+  ListarRecuperacionesQuerySchema,
+  ListarRecuperacionesResponseSchema,
+  OperativoRecuperacionItemSchema,
+  RecuperacionDetalleResponseSchema,
+  ObtenerRecuperacionDetalleResponseSchema,
+  RecuperacionIdParamSchema,
 } from "@/modules/eventos-atp/recuperacion.schema";
 
 import {
@@ -1698,6 +1704,10 @@ registry.registerPath({
 registry.register("CrearEventoRecuperacionInput", CrearEventoRecuperacionInputSchema);
 registry.register("EventoRecuperacion", EventoRecuperacionResponseSchema);
 registry.register("CrearEventoRecuperacionResponse", CrearEventoRecuperacionResponseSchema);
+registry.register("OperativoRecuperacionItem", OperativoRecuperacionItemSchema);
+registry.register("ListarRecuperacionesResponse", ListarRecuperacionesResponseSchema);
+registry.register("RecuperacionDetalleResponse", RecuperacionDetalleResponseSchema);
+registry.register("ObtenerRecuperacionDetalleResponse", ObtenerRecuperacionDetalleResponseSchema);
 
 registry.registerPath({
   method: "post",
@@ -1748,6 +1758,103 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor",
+    },
+  },
+});
+
+// GET /api/eventos-atp/recuperacion (HU-73)
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion",
+  summary: "Listar operativos de recuperación post-desastre (H73)",
+  description:
+    "Retorna una lista paginada y filtrable de todos los operativos de recuperación registrados para seguimiento del Encargado. Responde bajo el estándar de contratos H34 (page, limit, total, totalPages) e incluye el desglose de insumos asignados.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    headers: z.object({
+      "authorization": z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer JWT de sesión institucional" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (Encargado, Administrador o Supervisor)" }),
+    }),
+    query: ListarRecuperacionesQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado de operativos de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarRecuperacionesResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta o paginación inválidos",
+    },
+    401: {
+      description: "No autenticado / sesión ausente o expirada",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recuperacion:leer'",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la consulta",
+    },
+  },
+});
+
+// GET /api/eventos-atp/recuperacion/{id} (H73 - Detalle Drawer)
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion/{id}",
+  summary: "Obtener detalle completo de operativo para drawer lateral (H73)",
+  description:
+    "Retorna la información exhaustiva de un operativo de recuperación: recursos detallados asignados, misión táctica, patrulla en terreno y la línea de tiempo unificada del historial.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    params: z.object({
+      id: RecuperacionIdParamSchema,
+    }),
+    headers: z.object({
+      "authorization": z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer JWT de sesión institucional" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del operativo de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ObtenerRecuperacionDetalleResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador UUID de operativo inválido",
+    },
+    401: {
+      description: "No autenticado / sesión ausente o expirada",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recuperacion:leer'",
+    },
+    404: {
+      description: "Operativo de recuperación no encontrado",
+    },
+    500: {
+      description: "Error interno del servidor al consultar el operativo",
     },
   },
 });
