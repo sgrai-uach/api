@@ -1,6 +1,5 @@
 import { seguridadService } from "@/modules/seguridad/service";
 import { PERMISO_CREAR_EVENTO_ATP } from "@/modules/seguridad/permisos.constants";
-import { BadRequestError, ConflictError } from "@/modules/seguridad/errors";
 import { emitirEventoAtpCreado } from "@/lib/socket";
 import {
   CrearEventoAtpInputSchema,
@@ -8,13 +7,17 @@ import {
   type EventoAtpResponse,
 } from "./evento-atp.schema";
 import {
-  existeCodigoEventoAtp,
   insertarEventoAtpConDelegaciones,
-  verificarDelegacionesExisten,
   type DatosCrearEventoAtpRepo,
   type FilaEventoAtp,
   type FilaDelegacionEventoAtp,
 } from "./evento-atp.repository";
+
+/**
+ * Mensaje institucional de denegación de acceso al módulo de Eventos ATP.
+ */
+export const MENSAJE_ACCESO_DENEGADO_EVENTO_ATP =
+  "Acceso denegado. Se requiere el perfil de Administrador o el permiso eventos_atp:crear.";
 
 function aISO(fecha: Date | string): string {
   return fecha instanceof Date
@@ -64,33 +67,24 @@ export async function crearEventoAtpService(
   usuarioId?: string | null
 ): Promise<EventoAtpResponse> {
   // 1. Control de acceso RBAC
-  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [
-    PERMISO_CREAR_EVENTO_ATP,
-  ]);
+  const usuario = await seguridadService.validarAccesoRoles(
+    usuarioId,
+    [PERMISO_CREAR_EVENTO_ATP],
+    MENSAJE_ACCESO_DENEGADO_EVENTO_ATP
+  );
 
   // 2. Validación estricta del contrato de entrada
   const datosValidados = CrearEventoAtpInputSchema.parse(input);
 
   const codigoManual = datosValidados.codigo?.trim().toUpperCase();
 
-  // 3. Verificar duplicidad del código manual antes de insertar
-  if (codigoManual && (await existeCodigoEventoAtp(codigoManual))) {
-    throw new ConflictError(
-      `Ya existe un Evento ATP registrado con el código '${codigoManual}'.`
-    );
-  }
-
-  // 4. Verificar que todas las delegaciones seleccionadas existan
+  // 3. Normalizar las delegaciones seleccionadas (sin duplicados)
   const delegacionIds = Array.from(new Set(datosValidados.delegacionIds ?? []));
-  const { faltantes } = await verificarDelegacionesExisten(delegacionIds);
 
-  if (faltantes.length > 0) {
-    throw new BadRequestError(
-      `Las siguientes delegaciones no existen en el sistema: ${faltantes.join(", ")}.`
-    );
-  }
-
-  // 5. Preparar payload de persistencia transaccional
+  // 4. Preparar payload de persistencia transaccional.
+  //    La unicidad del código y la existencia de las delegaciones activas se
+  //    validan dentro de la misma transacción en el repositorio, evitando
+  //    condiciones de carrera (TOCTOU) entre la verificación y el INSERT.
   const datosParaInsertar: DatosCrearEventoAtpRepo = {
     codigo: codigoManual,
     nombre: datosValidados.nombre,
@@ -108,7 +102,7 @@ export async function crearEventoAtpService(
 
   const respuesta = mapearEventoAtp(evento, delegaciones);
 
-  // 6. Notificar en tiempo real a las salas operativas y administrativas
+  // 5. Notificar en tiempo real a las salas operativas y administrativas
   emitirEventoAtpCreado(respuesta);
 
   return respuesta;

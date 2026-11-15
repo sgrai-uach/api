@@ -38,6 +38,19 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/eventos-atp/recuperacion"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/recuperacion"].post).toBeDefined();
 
+    // Rutas de Eventos ATP - Creación (H61)
+    expect(spec.paths["/api/eventos-atp"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.responses["201"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.responses["400"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.responses["401"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.responses["403"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.responses["409"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.responses["500"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.security).toEqual([
+      { bearerAuth: [] },
+    ]);
+
     // Rutas de Recursos y Personal
     expect(spec.paths["/api/recursos"]).toBeDefined();
     expect(spec.paths["/api/recursos"].post).toBeDefined();
@@ -91,6 +104,17 @@ describe("Endpoint GET /openapi.json", () => {
 
     // Esquemas registrados en components/schemas (HU-9)
     expect(spec.components.schemas.EliminarRecursoResponse).toBeDefined();
+
+    // Esquemas de Eventos ATP (H61)
+    expect(spec.components.schemas.CrearEventoAtpInput).toBeDefined();
+    expect(spec.components.schemas.EventoAtpResponse).toBeDefined();
+    expect(spec.components.schemas.CrearEventoAtpResponse).toBeDefined();
+    expect(
+      spec.components.schemas.CrearEventoAtpInput.properties.codigo.type
+    ).toBe("string");
+    expect(
+      spec.components.schemas.CrearEventoAtpInput.required ?? []
+    ).not.toContain("codigo");
 
     // Rutas de Misiones (HU-17)
     expect(spec.paths["/api/misiones/{id}"]).toBeDefined();

@@ -976,18 +976,19 @@ Registra el marco oficial de un **Evento de Alerta Temprana Preventiva** y su al
 
 ### Reglas de Negocio del Endpoint
 
-1. **Control de acceso:** requiere un usuario autenticado con rol **Administrador** o el permiso explícito **`eventos_atp:crear`**. La validación se realiza con `validarAccesoAdministrador(usuarioId, [PERMISO_CREAR_EVENTO_ATP])`.
+1. **Control de acceso:** requiere un usuario autenticado con rol **Administrador** o el permiso explícito **`eventos_atp:crear`**. La validación se realiza con `validarAccesoRoles(usuarioId, [PERMISO_CREAR_EVENTO_ATP], "Acceso denegado. Se requiere el perfil de Administrador o el permiso eventos_atp:crear.")`.
 2. **Estado inicial:** todo evento nuevo se persiste como **`ACTIVO`**; el cliente no puede enviar otro estado.
 3. **Código único:**
-   - Si se omite `codigo`, el backend genera el correlativo anual `ATP-AAAA-####` (ej. `ATP-2026-0001`).
+   - Si se omite `codigo` (o se envía vacío, en blanco o `null`), el backend genera el correlativo anual `ATP-AAAA-####` (ej. `ATP-2026-0001`).
    - Si se envía manualmente, se normaliza a mayúsculas, debe cumplir `^[A-Za-z0-9-]+$` y ser único. Un duplicado retorna `409 Conflict`.
-   - La generación automática usa un advisory lock por año para evitar colisiones concurrentes.
+   - La generación automática usa un advisory lock por año y considera **solo** los códigos con sufijo numérico de al menos cuatro dígitos (`^ATP-AAAA-[0-9]{4,}$`), de modo que códigos manuales como `ATP-2026-MAYO` o `ATP-2026-99` no alteran la secuencia.
+   - La unicidad se verifica **dentro de la misma transacción** (advisory lock por código) y la violación `SQLSTATE 23505` sobre `evento_atp_codigo_key` se traduce a `409 Conflict` en lugar de `500 Internal Server Error`.
 4. **Alcance territorial:** `delegacionIds` es opcional. Un arreglo vacío u omitido representa alcance comunal centralizado. Se permiten una, varias o ninguna delegación, sin duplicados.
-5. **Validación de delegaciones:** todos los UUID enviados deben existir en la tabla `delegacion`; de lo contrario se retorna `400 Bad Request` con el listado de IDs faltantes.
-6. **Vigencia:** `fechaTermino` debe ser mayor o igual a `fechaInicio`. Ambas fechas se aceptan en formato ISO-8601 o `datetime-local` y se normalizan a `Date` en la capa de servicio.
+5. **Validación de delegaciones:** todos los UUID enviados deben existir **y estar activos** (`delegacion.activo = true`) en la tabla `delegacion`; la comprobación se ejecuta dentro de la misma transacción de inserción. De lo contrario se retorna `400 Bad Request` con el listado de IDs faltantes.
+6. **Vigencia:** `fechaTermino` debe ser mayor o igual a `fechaInicio`. Ambas fechas deben cumplir el formato ISO-8601 estricto `YYYY-MM-DDTHH:mm[:ss[.sss]][Z|±HH:mm]` con **fecha calendario real** (se rechazan textos arbitrarios como `"abc 1"`, fechas sin hora como `"2026"` y fechas inexistentes como `"2026-02-30"`). Se normalizan a `Date` en la capa de servicio.
 7. **Transacción:** el evento (`evento_atp`) y sus delegaciones (`evento_atp_delegacion`) se insertan en una única transacción PostgreSQL. Si falla cualquier inserción, se revierte todo el conjunto.
 8. **Auditoría:** se registra `creado_por_id` con el UUID del usuario autenticado.
-9. **Tiempo real:** tras el commit se emite `evento_atp:creado` a las salas operativas y administrativas.
+9. **Tiempo real:** tras el commit se emite `evento_atp:creado` **exclusivamente** a las salas `sala:encargados`, `encargado`, `supervisor`, `mapa`, `admin` y `administrador` (sin broadcast global ni entregas duplicadas).
 
 ### Cabeceras Requeridas
 
@@ -999,14 +1000,14 @@ Registra el marco oficial de un **Evento de Alerta Temprana Preventiva** y su al
 
 | Campo | Tipo | Obligatorio | Reglas |
 |---|---|---|---|
-| `codigo` | `string` | No | 3–30 caracteres, solo letras, números y guiones. Si se omite, se autogenera `ATP-AAAA-####`. |
+| `codigo` | `string` | No | 3–30 caracteres, solo letras, números y guiones. Si se omite, se envía vacío o `null`, se autogenera `ATP-AAAA-####`. |
 | `nombre` | `string` | Sí | 3–150 caracteres. |
 | `descripcion` | `string` | Sí | 10–2.000 caracteres. |
 | `tipoAmenaza` | `string` | Sí | `METEOROLOGICA`, `MAREJADAS`, `REMOCION_EN_MASA`, `INUNDACION`, `INCENDIO_FORESTAL`, `SISMICA` u `OTRO`. |
 | `nivelAlerta` | `string` | Sí | `VERDE`, `AMARILLA` o `ROJA`. |
-| `fechaInicio` | `string` | Sí | Fecha/hora parseable; se recomienda ISO-8601. |
-| `fechaTermino` | `string` | Sí | Fecha/hora parseable; debe ser `>= fechaInicio`. |
-| `delegacionIds` | `string[]` | No | UUIDs de delegaciones existentes, sin duplicados. Vacío u omitido = alcance comunal. |
+| `fechaInicio` | `string` | Sí | ISO-8601 estricto `YYYY-MM-DDTHH:mm[:ss[.sss]][Z|±HH:mm]` con fecha calendario real. |
+| `fechaTermino` | `string` | Sí | Mismo formato ISO-8601 estricto; debe ser `>= fechaInicio`. |
+| `delegacionIds` | `string[]` | No | UUIDs de delegaciones existentes y activas, sin duplicados. Vacío u omitido = alcance comunal. |
 
 #### Ejemplo de Petición
 
@@ -1147,7 +1148,7 @@ Content-Type: application/json
 Al completar exitosamente la transacción, el backend emite:
 
 - **Evento:** `evento_atp:creado`
-- **Salas:** `sala:encargados`, `encargado`, `supervisor`, `mapa`, `admin`, `administrador`, además del broadcast global.
+- **Salas:** `sala:encargados`, `encargado`, `supervisor`, `mapa`, `admin` y `administrador`. La emisión se realiza en una sola llamada multi-sala, **sin broadcast global** y **sin entregas duplicadas** para los sockets que pertenecen a más de una sala.
 - **Payload:** objeto idéntico a la propiedad `data` de la respuesta `201 Created`.
 - **Propósito en Frontend (`sgrai-web`):**
   - Incorporar el nuevo evento ATP a los tableros operativos y administrativos sin recargar la página.

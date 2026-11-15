@@ -123,4 +123,74 @@ describe("Evento ATP - Esquema Zod (H61)", () => {
       expect(resultado.error.issues[0].path).toContain("codigo");
     }
   });
+
+  it("debe tratar el código vacío, en blanco o nulo como código omitido", () => {
+    for (const codigo of ["", "   ", null]) {
+      const resultado = CrearEventoAtpInputSchema.safeParse({
+        ...inputValido,
+        codigo,
+      });
+
+      expect(resultado.success).toBe(true);
+      if (resultado.success) {
+        expect(resultado.data.codigo).toBeUndefined();
+      }
+    }
+  });
+
+  it("debe rechazar textos arbitrarios como fecha y hora", () => {
+    for (const fecha of ["abc 1", "2026", "1", "2026-05-01"]) {
+      const resultado = CrearEventoAtpInputSchema.safeParse({
+        ...inputValido,
+        fechaInicio: fecha,
+        fechaTermino: "2026-05-03T18:00",
+      });
+
+      expect(resultado.success).toBe(false);
+      if (!resultado.success) {
+        expect(
+          resultado.error.issues.some((issue) =>
+            issue.path.includes("fechaInicio")
+          )
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("debe rechazar fechas calendario inexistentes sin rollover silencioso", () => {
+    for (const fecha of [
+      "2026-02-30T10:00",
+      "2026-13-01T10:00",
+      "2026-05-32T10:00",
+      "2026-05-01T25:00",
+      "2026-05-01T10:60",
+      "2028-02-29T10:00",
+    ]) {
+      const resultado = CrearEventoAtpInputSchema.safeParse({
+        ...inputValido,
+        fechaInicio: fecha,
+        fechaTermino: "2026-05-03T18:00",
+      });
+
+      expect(resultado.success).toBe(false);
+    }
+  });
+
+  it("debe aceptar fechas ISO-8601 con segundos, milisegundos y zona horaria", () => {
+    for (const fecha of [
+      "2026-05-01T10:00",
+      "2026-05-01T10:00:30",
+      "2026-05-01T10:00:30.123Z",
+      "2026-05-01T10:00:30+00:00",
+      "2026-05-01T10:00-04:00",
+    ]) {
+      const resultado = CrearEventoAtpInputSchema.safeParse({
+        ...inputValido,
+        fechaInicio: fecha,
+        fechaTermino: "2026-05-03T18:00",
+      });
+
+      expect(resultado.success).toBe(true);
+    }
+  });
 });

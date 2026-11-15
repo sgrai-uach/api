@@ -364,12 +364,10 @@ export function emitirEventoAtpCreado(payload: unknown): void {
   ];
 
   if (ioInstance) {
-    for (const sala of salas) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to(sala) as any).emit("evento_atp:creado", payload);
-    }
+    // Una sola emisión multi-sala: Socket.io deduplica los sockets que
+    // pertenecen a más de una sala y no se realiza broadcast global.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("evento_atp:creado", payload);
+    (ioInstance.to(salas) as any).emit("evento_atp:creado", payload);
     return;
   }
 
