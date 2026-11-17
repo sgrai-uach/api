@@ -1,7 +1,6 @@
 import { db } from "@/lib/db";
 import { sql, type Transaction } from "kysely";
 import { NotFoundError, ConflictError, ForbiddenError } from "@/modules/seguridad/errors";
-import { asegurarColumnasHu38EnEsquema } from "@/modules/incidentes/prioridad.repository";
 import type { Database } from "@/lib/db/types";
 import type {
   CrearMisionVerificacionInput,
@@ -10,15 +9,6 @@ import type {
 } from "./mision.schema";
 import { crearNotificacionMisionRepo } from "./notificacion-mision.repository";
 import type { NotificacionMisionDetalle } from "./notificacion-mision.schema";
-
-function esErrorColumnaInexistente(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code?: string }).code === "42703"
-  );
-}
 
 export type MisionTrx = Transaction<Database>;
 
@@ -246,17 +236,7 @@ export async function obtenerMisionDetallePorIdRepo(
       .where("mision.id", "=", id)
       .executeTakeFirst();
 
-  let mision;
-  try {
-    mision = await ejecutarConsultaMision();
-  } catch (err) {
-    if (esErrorColumnaInexistente(err)) {
-      await asegurarColumnasHu38EnEsquema();
-      mision = await ejecutarConsultaMision();
-    } else {
-      throw err;
-    }
-  }
+  const mision = await ejecutarConsultaMision();
 
   if (!mision) {
     return null;
@@ -380,47 +360,22 @@ export async function obtenerMisionDetallePorIdRepo(
   }> = [];
 
   try {
-    let filasHitos;
-    try {
-      filasHitos = await db
-        .selectFrom("mision_hito")
-        .leftJoin("usuario as registrador", "registrador.id", "mision_hito.registrado_por_id")
-        .select([
-          "mision_hito.id",
-          "mision_hito.hito",
-          "mision_hito.descripcion",
-          "mision_hito.latitud",
-          "mision_hito.longitud",
-          "mision_hito.metadatos",
-          "mision_hito.creado_en",
-          "registrador.nombre as registrador_nombre",
-        ])
-        .where("mision_hito.mision_id", "=", id)
-        .orderBy("mision_hito.creado_en", "asc")
-        .execute();
-    } catch (err) {
-      if (esErrorColumnaInexistente(err)) {
-        await asegurarColumnasHu38EnEsquema();
-        filasHitos = await db
-          .selectFrom("mision_hito")
-          .leftJoin("usuario as registrador", "registrador.id", "mision_hito.registrado_por_id")
-          .select([
-            "mision_hito.id",
-            "mision_hito.hito",
-            "mision_hito.descripcion",
-            "mision_hito.latitud",
-            "mision_hito.longitud",
-            "mision_hito.metadatos",
-            "mision_hito.creado_en",
-            "registrador.nombre as registrador_nombre",
-          ])
-          .where("mision_hito.mision_id", "=", id)
-          .orderBy("mision_hito.creado_en", "asc")
-          .execute();
-      } else {
-        throw err;
-      }
-    }
+    const filasHitos = await db
+      .selectFrom("mision_hito")
+      .leftJoin("usuario as registrador", "registrador.id", "mision_hito.registrado_por_id")
+      .select([
+        "mision_hito.id",
+        "mision_hito.hito",
+        "mision_hito.descripcion",
+        "mision_hito.latitud",
+        "mision_hito.longitud",
+        "mision_hito.metadatos",
+        "mision_hito.creado_en",
+        "registrador.nombre as registrador_nombre",
+      ])
+      .where("mision_hito.mision_id", "=", id)
+      .orderBy("mision_hito.creado_en", "asc")
+      .execute();
 
     hitos = filasHitos.map((h) => ({
       id: h.id,

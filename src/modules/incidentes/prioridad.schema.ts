@@ -15,13 +15,13 @@ export const NivelCompromisoViviendaEnum = z.enum([
 
 export const RiesgosActivosEvaluacionSchema = z
   .object({
-    riesgoElectrico: z.boolean().default(false).optional(),
+    riesgoElectrico: z.boolean().optional(),
     riesgo_electrico: z.boolean().optional(),
-    riesgoEstructural: z.boolean().default(false).optional(),
+    riesgoEstructural: z.boolean().optional(),
     riesgo_estructural: z.boolean().optional(),
-    riesgoQuimicoSanitario: z.boolean().default(false).optional(),
+    riesgoQuimicoSanitario: z.boolean().optional(),
     riesgo_quimico_sanitario: z.boolean().optional(),
-    aislamientoVial: z.boolean().default(false).optional(),
+    aislamientoVial: z.boolean().optional(),
     aislamiento_vial: z.boolean().optional(),
   })
   .openapi("RiesgosActivosEvaluacion");
@@ -241,6 +241,22 @@ export const CalcularPrioridadResponseSchema = z
       factoresGatillantes: z.array(z.string()),
       requiereAsistenciaSocialSugerido: z.boolean(),
       evaluacionNormalizada: z.object({
+        familias: z
+          .array(
+            z.object({
+              id: z.string().optional(),
+              referencia: z.string().optional(),
+              nucleoFamiliarTotal: z.number(),
+              cantidadNinos: z.number(),
+              cantidadAdultosMayores: z.number(),
+              personasDiscapacitadas: z.number(),
+              personasElectrodependientes: z.number(),
+              mascotasAfectadas: z.number(),
+              nivelCompromisoVivienda: NivelCompromisoViviendaEnum,
+              requiereAsistenciaSocial: z.boolean(),
+            })
+          )
+          .optional(),
         nucleoFamiliarTotal: z.number(),
         familiasAfectadas: z.number(),
         cantidadNinos: z.number(),
@@ -271,6 +287,9 @@ export type CalcularPrioridadResponse = z.infer<typeof CalcularPrioridadResponse
 
 const tieneCamposEvaluacionEnRaiz = (data: Record<string, unknown>): boolean => {
   const clavesEvaluacion = [
+    "familias",
+    "familiasAfectadas",
+    "familias_afectadas",
     "nucleoFamiliarTotal",
     "nucleo_familiar_total",
     "personasAfectadas",
@@ -291,6 +310,8 @@ const tieneCamposEvaluacionEnRaiz = (data: Record<string, unknown>): boolean => 
     "nivel_compromiso_vivienda",
     "requiereEvacuacion",
     "requiere_evacuacion",
+    "requiereAsistenciaSocial",
+    "requiere_asistencia_social",
     "riesgosActivos",
     "riesgos_activos",
     "riesgoElectrico",
@@ -384,17 +405,21 @@ export const ActualizarPrioridadIncidenteInputSchema = EvaluacionTerrenoInputSch
     const justificacionLimpia =
       typeof justificacionRaw === "string" ? justificacionRaw.trim() : "";
 
-    // Determinar si hay evaluación o prioridad_sugerida explícita en el payload para validar discrepancia en el acto
+    const rawObj = data as unknown as Record<string, unknown>;
     const hayEvaluacion =
       data.evaluacion !== undefined ||
-      tieneCamposEvaluacionEnRaiz(data as unknown as Record<string, unknown>);
+      tieneCamposEvaluacionEnRaiz(rawObj);
 
     const prioridadSugeridaExplicita =
       data.prioridadSugerida ?? data.prioridad_sugerida;
 
     let prioridadSugeridaReferencia = prioridadSugeridaExplicita;
-    if (!prioridadSugeridaReferencia && hayEvaluacion) {
-      const fuenteEval = (data.evaluacion ?? data) as Record<string, unknown>;
+    if (hayEvaluacion) {
+      const fuenteEval = (
+        data.evaluacion && typeof data.evaluacion === "object"
+          ? { ...rawObj, ...(data.evaluacion as Record<string, unknown>) }
+          : rawObj
+      ) as Record<string, unknown>;
       prioridadSugeridaReferencia =
         calcularPrioridadSugerida(fuenteEval).prioridadSugerida;
     }

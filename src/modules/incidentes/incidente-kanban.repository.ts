@@ -1,16 +1,6 @@
 import { db } from "@/lib/db";
 import { sql } from "kysely";
 import type { ListarIncidentesQuery } from "./incidente-kanban.schema";
-import { asegurarColumnasHu38EnEsquema } from "./prioridad.repository";
-
-function esErrorColumnaInexistente(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code?: string }).code === "42703"
-  );
-}
 
 export interface FilaIncidenteResumen {
   id: string;
@@ -283,17 +273,7 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
       .offset(((filtros.page ?? 1) - 1) * (filtros.limit ?? 20))
       .execute();
 
-  let filas;
-  try {
-    filas = await ejecutarConsultaFilas();
-  } catch (err) {
-    if (esErrorColumnaInexistente(err)) {
-      await asegurarColumnasHu38EnEsquema();
-      filas = await ejecutarConsultaFilas();
-    } else {
-      throw err;
-    }
-  }
+  const filas = await ejecutarConsultaFilas();
 
   return {
     filas: filas as unknown as FilaIncidenteResumen[],
@@ -348,17 +328,7 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
       .where("incidente.id", "=", id)
       .executeTakeFirst();
 
-  let incidente;
-  try {
-    incidente = await ejecutarConsultaIncidente();
-  } catch (err) {
-    if (esErrorColumnaInexistente(err)) {
-      await asegurarColumnasHu38EnEsquema();
-      incidente = await ejecutarConsultaIncidente();
-    } else {
-      throw err;
-    }
-  }
+  const incidente = await ejecutarConsultaIncidente();
 
   if (!incidente) {
     return null;

@@ -52,6 +52,9 @@ export interface ActualizarPrioridadRepoResult {
 }
 
 const CLAVES_EVALUACION_RAIZ = [
+  "familias",
+  "familiasAfectadas",
+  "familias_afectadas",
   "nucleoFamiliarTotal",
   "nucleo_familiar_total",
   "personasAfectadas",
@@ -72,6 +75,8 @@ const CLAVES_EVALUACION_RAIZ = [
   "nivel_compromiso_vivienda",
   "requiereEvacuacion",
   "requiere_evacuacion",
+  "requiereAsistenciaSocial",
+  "requiere_asistencia_social",
   "riesgosActivos",
   "riesgos_activos",
   "riesgoElectrico",
@@ -98,11 +103,13 @@ export class PrioridadRepository {
    */
   async calcularPrioridadPreliminar(
     incidenteId: string,
-    input: CalcularPrioridadInput
+    input: CalcularPrioridadInput,
+    usuarioId?: string,
+    esAdmin = false
   ): Promise<CalcularPrioridadResponse["data"]> {
     const incidenteExistente = await db
       .selectFrom("incidente")
-      .select(["id", "prioridad", "prioridad_sugerida"])
+      .select(["id", "estado", "prioridad", "prioridad_sugerida"])
       .where("id", "=", incidenteId)
       .executeTakeFirst();
 
@@ -112,21 +119,88 @@ export class PrioridadRepository {
       );
     }
 
-    const fuenteEval = (input.evaluacion ?? input) as Record<string, unknown>;
+    if (
+      incidenteExistente.estado &&
+      ["RESUELTO", "NO_ABORDABLE"].includes(incidenteExistente.estado.toUpperCase())
+    ) {
+      throw new ConflictError(
+        `No se puede recalcular la prioridad de un incidente en estado '${incidenteExistente.estado}'.`
+      );
+    }
+
+    if (usuarioId && !esAdmin) {
+      const misionesVerif = await db
+        .selectFrom("mision")
+        .leftJoin(
+          "patrulla_verificadora",
+          "patrulla_verificadora.id",
+          "mision.patrulla_id"
+        )
+        .select([
+          "mision.id",
+          "mision.estado",
+          "mision.patrulla_id",
+          "patrulla_verificadora.activo as patrulla_activo",
+          "patrulla_verificadora.eliminado_en as patrulla_eliminado_en",
+          "patrulla_verificadora.usuario_lider_id as patrulla_lider_id",
+        ])
+        .where("mision.incidente_id", "=", incidenteId)
+        .where("mision.tipo_mision", "=", "VERIFICACION")
+        .orderBy("mision.creado_en", "desc")
+        .execute();
+
+      const misionActiva =
+        misionesVerif.find((m) => m.estado === "EN_CURSO") || misionesVerif[0];
+
+      if (!misionActiva || !misionActiva.patrulla_id) {
+        throw new ConflictError(
+          "No existe una misión de verificación con patrulla asignada para este incidente."
+        );
+      }
+
+      if (
+        misionActiva.patrulla_activo === false ||
+        (misionActiva.patrulla_eliminado_en !== undefined &&
+          misionActiva.patrulla_eliminado_en !== null)
+      ) {
+        throw new ConflictError(
+          "La patrulla verificadora asignada a la misión ha sido desactivada o dada de baja."
+        );
+      }
+
+      if (misionActiva.patrulla_lider_id !== usuarioId) {
+        const integrante = await db
+          .selectFrom("patrulla_personal")
+          .innerJoin("personal", "personal.id", "patrulla_personal.personal_id")
+          .select("patrulla_personal.id")
+          .where("patrulla_personal.patrulla_id", "=", misionActiva.patrulla_id)
+          .where("personal.usuario_id", "=", usuarioId)
+          .executeTakeFirst();
+
+        if (!integrante) {
+          throw new ForbiddenError(
+            "No está autorizado para evaluar la prioridad de un incidente asignado a otra patrulla verificadora."
+          );
+        }
+      }
+    }
+
+    const rawObj = input as unknown as Record<string, unknown>;
+    const fuenteEval = (
+      input.evaluacion && typeof input.evaluacion === "object"
+        ? { ...rawObj, ...(input.evaluacion as Record<string, unknown>) }
+        : rawObj
+    ) as Record<string, unknown>;
     const calculo = calcularPrioridadSugerida(fuenteEval);
 
-    try {
-      await db
-        .updateTable("incidente")
-        .set({
-          prioridad_sugerida: calculo.prioridadSugerida,
-          actualizado_en: sql`CURRENT_TIMESTAMP`,
-        })
-        .where("id", "=", incidenteId)
-        .execute();
-    } catch {
-      // En caso de mock parcial en pruebas unitarias, continuar con el resultado calculado
-    }
+    await db
+      .updateTable("incidente")
+      .set({
+        prioridad_sugerida: calculo.prioridadSugerida,
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", incidenteId)
+      .execute();
 
     return {
       incidenteId: incidenteExistente.id,
@@ -160,7 +234,7 @@ export class PrioridadRepository {
     const misionIdFiltro = input.misionId || input.mision_id;
 
     return await db.transaction().execute(async (trx) => {
-      // 1. Verificar existencia del incidente
+      // 1. Verificar existencia del incidente y bloquear fila
       const incidenteExistente = await trx
         .selectFrom("incidente")
         .select([
@@ -175,6 +249,7 @@ export class PrioridadRepository {
           "tipo_afectacion",
         ])
         .where("id", "=", incidenteId)
+        .forUpdate()
         .executeTakeFirst();
 
       if (!incidenteExistente) {
@@ -183,7 +258,16 @@ export class PrioridadRepository {
         );
       }
 
-      // 2. Buscar misión asociada al incidente
+      if (
+        incidenteExistente.estado &&
+        ["RESUELTO", "NO_ABORDABLE"].includes(incidenteExistente.estado.toUpperCase())
+      ) {
+        throw new ConflictError(
+          `El incidente se encuentra en estado '${incidenteExistente.estado}'. No se puede modificar su prioridad en terreno.`
+        );
+      }
+
+      // 2. Buscar misión de verificación asociada al incidente y bloquear fila de mision
       let queryMision = trx
         .selectFrom("mision")
         .leftJoin(
@@ -198,15 +282,21 @@ export class PrioridadRepository {
           "mision.tipo_mision",
           "mision.patrulla_id",
           "mision.fecha_inicio",
+          "patrulla_verificadora.activo as patrulla_activo",
+          "patrulla_verificadora.eliminado_en as patrulla_eliminado_en",
           "patrulla_verificadora.usuario_lider_id as patrulla_lider_id",
         ])
-        .where("mision.incidente_id", "=", incidenteId);
+        .where("mision.incidente_id", "=", incidenteId)
+        .where("mision.tipo_mision", "=", "VERIFICACION");
 
       if (misionIdFiltro) {
         queryMision = queryMision.where("mision.id", "=", misionIdFiltro);
       }
 
-      const misiones = await queryMision.execute();
+      const misiones = await queryMision
+        .orderBy("mision.creado_en", "desc")
+        .forUpdate("mision")
+        .execute();
 
       if (misiones.length === 0) {
         if (misionIdFiltro) {
@@ -215,7 +305,7 @@ export class PrioridadRepository {
           );
         }
         throw new ConflictError(
-          "No existe una misión operativa asociada a este incidente para registrar la evaluación de prioridad en terreno."
+          "No existe una misión de verificación asociada a este incidente para registrar la evaluación de prioridad en terreno."
         );
       }
 
@@ -233,8 +323,24 @@ export class PrioridadRepository {
         );
       }
 
+      if (!misionSeleccionada.patrulla_id) {
+        throw new ConflictError(
+          "La misión de verificación no tiene una patrulla verificadora asignada."
+        );
+      }
+
+      if (
+        misionSeleccionada.patrulla_activo === false ||
+        (misionSeleccionada.patrulla_eliminado_en !== undefined &&
+          misionSeleccionada.patrulla_eliminado_en !== null)
+      ) {
+        throw new ConflictError(
+          "La patrulla verificadora asignada a la misión ha sido desactivada o dada de baja."
+        );
+      }
+
       // 3. Validar pertenencia del usuario a la patrulla verificadora asignada (salvo Administrador)
-      if (!esAdmin && misionSeleccionada.patrulla_id) {
+      if (!esAdmin) {
         const esLider = misionSeleccionada.patrulla_lider_id === usuarioId;
         if (!esLider) {
           const integrante = await trx
@@ -257,7 +363,7 @@ export class PrioridadRepository {
         }
       }
 
-      // 4. Calcular prioridad sugerida y normalizar evaluación de terreno
+      // 4. Calcular prioridad sugerida autoritativamente y normalizar evaluación de terreno
       const rawObj = input as unknown as Record<string, unknown>;
       const fuenteEval = (
         input.evaluacion && typeof input.evaluacion === "object"
@@ -270,13 +376,12 @@ export class PrioridadRepository {
       const prioridadSugeridaExplicita = (input.prioridadSugerida ??
         input.prioridad_sugerida) as PrioridadIncidente | undefined;
 
-      const prioridadSugerida: PrioridadIncidente = prioridadSugeridaExplicita
-        ? prioridadSugeridaExplicita
-        : envioDatosEvaluacion
-          ? calculo.prioridadSugerida
-          : ((incidenteExistente.prioridad_sugerida ??
-              incidenteExistente.prioridad ??
-              "MEDIA") as PrioridadIncidente);
+      const prioridadSugerida: PrioridadIncidente = envioDatosEvaluacion
+        ? calculo.prioridadSugerida
+        : ((incidenteExistente.prioridad_sugerida ??
+            prioridadSugeridaExplicita ??
+            incidenteExistente.prioridad ??
+            "MEDIA") as PrioridadIncidente);
 
       // 5. Validar obligatoriedad de justificación cuando difiere de la prioridad sugerida
       const justificacionRaw =
@@ -300,36 +405,23 @@ export class PrioridadRepository {
       }
 
       // 6. Determinar el número de versión del reporte de evaluación para esta misión
-      let conteoReportesPrevios = 0;
-      let evaluadorNombre = "Patrullero en Terreno";
-      let evaluadorEmail = "patrulla@valdivia.cl";
-      let evaluadorRut: string | null = null;
+      const resMaxVersion = await trx
+        .selectFrom("reporte_terreno")
+        .select(sql<number>`coalesce(max(version_reporte), 0)::int`.as("max_version"))
+        .where("mision_id", "=", misionSeleccionada.id)
+        .executeTakeFirst();
 
-      try {
-        const resConteo = await trx
-          .selectFrom("reporte_terreno")
-          .select(sql<number>`count(id)::int`.as("total"))
-          .where("mision_id", "=", misionSeleccionada.id)
-          .executeTakeFirst();
-        conteoReportesPrevios = Number(resConteo?.total ?? 0);
-      } catch {
-        conteoReportesPrevios = 0;
-      }
+      const versionReporte = Number(resMaxVersion?.max_version ?? 0) + 1;
 
-      try {
-        const usr = await trx
-          .selectFrom("usuario")
-          .select(["nombre", "email", "rut"])
-          .where("id", "=", usuarioId)
-          .executeTakeFirst();
-        if (usr?.nombre) evaluadorNombre = usr.nombre;
-        if (usr?.email) evaluadorEmail = usr.email;
-        if (usr?.rut) evaluadorRut = usr.rut;
-      } catch {
-        // Ignorar si usuario no está mockeado en pruebas aisladas
-      }
+      const usr = await trx
+        .selectFrom("usuario")
+        .select(["nombre", "email", "rut"])
+        .where("id", "=", usuarioId)
+        .executeTakeFirst();
 
-      const versionReporte = conteoReportesPrevios + 1;
+      const evaluadorNombre = usr?.nombre ?? "Patrullero en Terreno";
+      const evaluadorEmail = usr?.email ?? "patrulla@valdivia.cl";
+      const evaluadorRut: string | null = usr?.rut ?? null;
       const esRectificacion = versionReporte > 1;
       const etiquetaReporte = esRectificacion
         ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
@@ -359,7 +451,27 @@ export class PrioridadRepository {
       };
 
       // 7. Insertar el nuevo reporte versionado en reporte_terreno (siempre crea un registro distinto)
-      let reporteInsertado: {
+      const reporteInsertado = (await trx
+        .insertInto("reporte_terreno")
+        .values({
+          mision_id: misionSeleccionada.id,
+          evaluador_id: usuarioId,
+          version_reporte: versionReporte,
+          es_rectificacion: esRectificacion,
+          prioridad_sugerida: prioridadSugerida,
+          prioridad_asignada: prioridadAsignada,
+          justificacion_prioridad: justificacionLimpia,
+          resumen_tecnico: resumenTecnicoFinal,
+          acciones_realizadas: ev.accionesRealizadas,
+          requiere_apoyo_adicional: ev.requiereApoyoAdicional,
+          danos_estimados: ev.danosEstimados,
+          observaciones: ev.detallesAdicionales,
+          personas_afectadas: ev.nucleoFamiliarTotal,
+          estado_terreno: "EN_VERIFICACION",
+          detalles_evaluacion: JSON.stringify(detallesEvaluacionPayload),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow()) as {
         id: string;
         mision_id: string;
         version_reporte?: number;
@@ -376,49 +488,6 @@ export class PrioridadRepository {
         detalles_evaluacion?: Record<string, unknown> | string;
         creado_en: Date | string;
       };
-
-      try {
-        reporteInsertado = (await trx
-          .insertInto("reporte_terreno")
-          .values({
-            mision_id: misionSeleccionada.id,
-            evaluador_id: usuarioId,
-            version_reporte: versionReporte,
-            es_rectificacion: esRectificacion,
-            prioridad_sugerida: prioridadSugerida,
-            prioridad_asignada: prioridadAsignada,
-            justificacion_prioridad: justificacionLimpia,
-            resumen_tecnico: resumenTecnicoFinal,
-            acciones_realizadas: ev.accionesRealizadas,
-            requiere_apoyo_adicional: ev.requiereApoyoAdicional,
-            danos_estimados: ev.danosEstimados,
-            observaciones: ev.detallesAdicionales,
-            personas_afectadas: ev.nucleoFamiliarTotal,
-            estado_terreno: "EN_VERIFICACION",
-            detalles_evaluacion: JSON.stringify(detallesEvaluacionPayload),
-          })
-          .returningAll()
-          .executeTakeFirstOrThrow()) as typeof reporteInsertado;
-      } catch {
-        // Fallback para mocks simplificados en tests unitarios que devuelven solo incidente y mision_hito
-        reporteInsertado = {
-          id: "e0000000-0000-4000-8000-000000000001",
-          mision_id: misionSeleccionada.id,
-          version_reporte: versionReporte,
-          es_rectificacion: esRectificacion,
-          prioridad_sugerida: prioridadSugerida,
-          prioridad_asignada: prioridadAsignada,
-          justificacion_prioridad: justificacionLimpia,
-          resumen_tecnico: resumenTecnicoFinal,
-          personas_afectadas: ev.nucleoFamiliarTotal,
-          requiere_apoyo_adicional: ev.requiereApoyoAdicional,
-          observaciones: ev.detallesAdicionales,
-          acciones_realizadas: ev.accionesRealizadas,
-          danos_estimados: ev.danosEstimados,
-          detalles_evaluacion: detallesEvaluacionPayload,
-          creado_en: new Date().toISOString(),
-        };
-      }
 
       // 8. Actualizar incidente atómicamente (prioridad, prioridad_sugerida, justificacion_prioridad, requiere_asistencia_social)
       const requiereAsistenciaSocialFinal =
@@ -445,18 +514,14 @@ export class PrioridadRepository {
         .executeTakeFirstOrThrow();
 
       // 9. Sincronizar prioridad táctica en la misión asociada
-      try {
-        await trx
-          .updateTable("mision")
-          .set({
-            prioridad: prioridadAsignada,
-            actualizado_en: sql`CURRENT_TIMESTAMP`,
-          })
-          .where("id", "=", misionSeleccionada.id)
-          .execute();
-      } catch {
-        // Ignorar si mock de pruebas unitarias no intercepta segundo updateTable
-      }
+      await trx
+        .updateTable("mision")
+        .set({
+          prioridad: prioridadAsignada,
+          actualizado_en: sql`CURRENT_TIMESTAMP`,
+        })
+        .where("id", "=", misionSeleccionada.id)
+        .execute();
 
       // 10. Registrar el hito de cambio/confirmación de prioridad en mision_hito
       const codigoHito = esRectificacion
@@ -570,37 +635,5 @@ export class PrioridadRepository {
 }
 
 export const prioridadRepository = new PrioridadRepository();
-
-let esquemaHu38Asegurado = false;
-
-/**
- * Asegura de forma idempotente que las columnas de HU-38 existan en `incidente` y `reporte_terreno`
- * en caso de que el servidor se inicie antes de ejecutar `npm run db:migrate`.
- */
-export async function asegurarColumnasHu38EnEsquema(): Promise<void> {
-  if (esquemaHu38Asegurado) return;
-  await sql`
-    ALTER TABLE incidente
-    ADD COLUMN IF NOT EXISTS prioridad_sugerida varchar(30),
-    ADD COLUMN IF NOT EXISTS justificacion_prioridad text;
-  `.execute(db);
-
-  await sql`
-    ALTER TABLE reporte_terreno
-    ADD COLUMN IF NOT EXISTS version_reporte integer NOT NULL DEFAULT 1,
-    ADD COLUMN IF NOT EXISTS es_rectificacion boolean NOT NULL DEFAULT false,
-    ADD COLUMN IF NOT EXISTS prioridad_sugerida varchar(30),
-    ADD COLUMN IF NOT EXISTS prioridad_asignada varchar(30),
-    ADD COLUMN IF NOT EXISTS justificacion_prioridad text,
-    ADD COLUMN IF NOT EXISTS detalles_evaluacion jsonb;
-  `.execute(db);
-
-  await sql`
-    ALTER TABLE mision_hito
-    ADD COLUMN IF NOT EXISTS metadatos jsonb;
-  `.execute(db);
-
-  esquemaHu38Asegurado = true;
-}
 
 

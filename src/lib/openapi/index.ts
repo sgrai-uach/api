@@ -1001,7 +1001,7 @@ registry.registerPath({
   description:
     "Permite a la patrulla verificadora reclasificar técnicamente la tipología del incidente tras la evaluación presencial en terreno, corrigiendo tipificaciones ciudadanas inexactas. Requiere que la misión asignada haya sido aceptada previamente (estado EN_CURSO) y justificación obligatoria del cambio. Actualiza atómicamente incidente.tipo_incidente_id y sincroniza incidente.tipo_afectacion, registra el hito en mision_hito ('Tipología reclasificada en terreno a: [Nombre del Tipo]. Justificación: [Motivo]') y emite el evento WebSocket 'incidente:actualizado' a la sala 'sala:encargados'. Requiere el permiso RBAC 'misiones:terreno:verificar'.",
   tags: ["Incidentes"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     headers: z.object({
       authorization: z.string().optional().describe("Token Bearer JWT de la patrulla verificadora"),
@@ -2722,7 +2722,7 @@ registry.registerPath({
   description:
     "Calcula determinísticamente la prioridad_sugerida (BAJA, MEDIA, ALTA, CRITICA), el puntaje acumulado y los factores gatillantes a partir de los datos demográficos, vulnerabilidad (niños, adultos mayores, discapacitados, electrodependientes, mascotas), compromiso de vivienda y riesgos activos constatados por la patrulla verificadora. Requiere permiso 'misiones:terreno:verificar'.",
   tags: ["Incidentes", "Misiones"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: z.string().uuid().describe("UUID del incidente a evaluar"),
@@ -2761,7 +2761,7 @@ registry.registerPath({
   description:
     "Permite a la patrulla verificadora confirmar o modificar la prioridad del incidente basándose en la evaluación técnica en terreno y la prioridad_sugerida por el sistema. Si la prioridad asignada difiere de la sugerida, exige justificacion_prioridad (mínimo 5 caracteres). Ejecuta en una transacción atómica: (1) inserta un nuevo reporte versionado en reporte_terreno (version_reporte = N + 1, preservando reportes anteriores), (2) actualiza incidente.prioridad, incidente.prioridad_sugerida e incidente.justificacion_prioridad, y (3) registra el hito PRIORIDAD_ASIGNADA o PRIORIDAD_RECTIFICADA en mision_hito. Emite los eventos WebSocket 'incidente:actualizado' y 'mision:actualizada' al Centro de Mando. Requiere permiso 'misiones:terreno:verificar' y misión en estado EN_CURSO.",
   tags: ["Incidentes", "Misiones"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: z.string().uuid().describe("UUID del incidente a priorizar"),
