@@ -3,6 +3,7 @@ import {
   crearMisionVerificacionRepo,
   aceptarMisionPatrullaRepo,
   asignarCuadrillaIncidenteRepo,
+  rechazarMisionCuadrillaRepo,
 } from "./mision.repository";
 import type {
   MisionDetalleCompleto,
@@ -15,6 +16,8 @@ import type {
   AceptarMisionResponse,
   AsignarCuadrillaMisionInput,
   AsignarCuadrillaMisionResponse,
+  RechazarMisionInput,
+  RechazarMisionResponse,
 } from "./mision.schema";
 import {
   notificarMisionAsignada,
@@ -25,6 +28,7 @@ import {
   tieneConexionEnSala,
   notificarPatrullaLiberada,
   emitirCuadrillaActualizada,
+  notificarMisionRechazada,
 } from "@/lib/socket";
 import { marcarNotificacionEnviadaRepo } from "./notificacion-mision.repository";
 
@@ -501,6 +505,84 @@ export async function aceptarMisionService(
     data: {
       mision: resultado.mision,
       patrulla: resultado.patrulla,
+      incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
+
+/**
+ * HU-41 - Servicio de negocio para rechazar una misión asignada a una cuadrilla operativa.
+ *
+ * 1. Invoca la transacción atómica en repositorio (`mision.estado = 'RECHAZADA'`,
+ *    `justificacion_rechazo`, `cuadrilla.estado = 'DISPONIBLE'`, retorno de incidente
+ *    a `'VERIFICANDO'` o `'REPORTADO'`, registro del hito `'RECHAZADA'` en `mision_hito`).
+ * 2. Emite en tiempo real vía Socket.io / Redis:
+ *    - `'mision:rechazada'` hacia la sala `'encargado'` (y `'sala:encargados'`, `'supervisor'`, `'cuadrilla:{id}'`).
+ *    - `'incidente:actualizado'` para habilitar la reasignación inmediata en el Kanban.
+ *    - `'cuadrilla:actualizada'` para reflejar disponibilidad `'DISPONIBLE'`.
+ */
+export async function rechazarMisionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: RechazarMisionInput
+): Promise<RechazarMisionResponse> {
+  const resultado = await rechazarMisionCuadrillaRepo(
+    misionId,
+    usuarioId,
+    input.justificacionRechazo,
+    esAdmin,
+    {
+      latitud: input.latitud,
+      longitud: input.longitud,
+    }
+  );
+
+  try {
+    notificarMisionRechazada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      tipoMision: resultado.mision.tipoMision,
+      motivo: resultado.mision.justificacionRechazo,
+      justificacionRechazo: resultado.mision.justificacionRechazo,
+      cuadrillaId: resultado.cuadrilla.id,
+      cuadrillaNombre: resultado.cuadrilla.nombre,
+      patrullaId: null,
+      patrullaNombre: null,
+      incidenteId: resultado.incidente?.id ?? null,
+      incidenteCodigo: resultado.incidente?.codigo ?? null,
+      rechazadoPorId: usuarioId,
+      rechazadoEn: resultado.mision.actualizadoEn,
+    });
+
+    if (resultado.incidente) {
+      notificarIncidenteActualizado({
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        nuevoEstado: resultado.incidente.estado,
+        prioridad: resultado.incidente.prioridad,
+        actualizadoEn: resultado.mision.actualizadoEn,
+      });
+    }
+
+    emitirCuadrillaActualizada({
+      id: resultado.cuadrilla.id,
+      nombre: resultado.cuadrilla.nombre,
+      estado: resultado.cuadrilla.estado,
+      delegacionId: resultado.cuadrilla.delegacionId ?? null,
+    });
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras rechazar misión:", error);
+  }
+
+  const estadoIncidente = resultado.incidente?.estado ?? "REPORTADO";
+
+  return {
+    message: `Misión rechazada exitosamente. La cuadrilla ha vuelto a estado DISPONIBLE y el incidente ha retornado a ${estadoIncidente} para su reasignación.`,
+    data: {
+      mision: resultado.mision,
+      cuadrilla: resultado.cuadrilla,
       incidente: resultado.incidente,
       hito: resultado.hito,
     },

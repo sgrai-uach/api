@@ -45,6 +45,7 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 | `GET` | `/api/misiones/{id}` | `misiones:leer` | Consultar detalle exhaustivo de una misión por su ID (incidente, cuadrilla/patrulla, tiempos y reportes con adjuntos - HU-17). |
 | `POST` | `/api/misiones` | `misiones:asignar` | Despacho y asignación de misión operativa a terreno: verificación primaria con patrulla (HU-20) o atención técnica con cuadrilla liberando la patrulla previa (HU-21 / Regla ICS §3.2). |
 | `POST` | `/api/misiones/{id}/aceptar` | `misiones:terreno:verificar` | Confirmar y aceptar misión asignada desde terreno (PWA), transicionando de `DESPACHADA` a `EN_CURSO`, registrando `fecha_inicio` y el hito `'Misión Aceptada por Patrulla'` en `mision_hito` (HU-36). |
+| `POST` | `/api/misiones/{id}/rechazar` | `misiones:terreno:ejecutar` | Rechazar asignación de misión por Delegado de Cuadrilla con justificación técnica obligatoria (≥ 5 caracteres, Regla §3.3), devolviendo la cuadrilla a `DISPONIBLE` y el incidente a `VERIFICANDO` o `REPORTADO` (HU-41). |
 | `PATCH` | `/api/terreno/notificaciones/{id}/estado` | `misiones:terreno:verificar` | Confirmar de forma idempotente acuse de recibo técnico ('RECIBIDA') o lectura operativa ('LEIDA') desde terreno (HU-35). |
 | `GET` | `/api/terreno/misiones/pendientes` | `misiones:terreno:verificar` | Consultar misiones asignadas con notificaciones en PENDIENTE_ENVIO o ENVIADA para reconciliación offline (HU-35). |
 
@@ -610,11 +611,39 @@ Permite al cliente móvil (`sgrai-pwa`) consultar las misiones asignadas cuyas n
 
 ---
 
+### 3.8. `POST /api/misiones/{id}/rechazar` (HU-41: Rechazo Motivado de Misión por Cuadrilla)
+
+Permite al **Delegado de Cuadrilla** rechazar la solicitud de asignación a una misión ingresando una justificación técnica obligatoria cuando existan motivos de fuerza mayor que impidan la atención.
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `x-user-id` en entorno de pruebas)
+- **Permiso RBAC requerido:** `misiones:terreno:ejecutar` (asignado a `DELEGADO_CUADRILLA` y `ADMIN` mediante migración `057_permiso_misiones_terreno_ejecutar.ts`).
+- **Control de Pertenencia:** El usuario autenticado debe ser el delegado asignado a la cuadrilla (`cuadrilla.usuario_delegado_id`) o un integrante activo en `cuadrilla_personal` (salvo rol `ADMIN`).
+
+#### Regla de Negocio §3.3 y Transacción Atómica
+1. **Validación estricta de justificación:** El campo `justificacion_rechazo` (o `justificacionRechazo`) debe contener al menos **5 caracteres útiles** tras aplicar `.trim()`. De lo contrario, la API responde `400 Bad Request`.
+2. **Transacción Atómica Kysely (`FOR UPDATE OF mision`):**
+   - Actualiza `mision.estado = 'RECHAZADA'`, persiste `justificacion_rechazo` y estampa `fecha_cierre = CURRENT_TIMESTAMP`.
+   - Devuelve la cuadrilla activa a estado `DISPONIBLE` (si no posee otra misión activa) y restaura `usuario.estado_operativo = 'disponible'` para su dotación.
+   - Retorna el incidente asociado a `VERIFICANDO` (si contaba con una misión previa `VERIFICACION` en estado `COMPLETADA`) o a `REPORTADO` (si fue despacho directo) para habilitar su reasignación inmediata en el Centro de Mando.
+   - Registra el hito `'RECHAZADA'` con la justificación y coordenadas GPS opcionales en `mision_hito`.
+
+#### Cuerpo de la Petición (Request Body)
+```json
+{
+  "justificacion_rechazo": "Camión tolva presenta falla hidráulica en ruta de salida desde base.",
+  "latitud": -39.81422,
+  "longitud": -73.24589
+}
+```
+
+---
+
 ## 4. Códigos de Estado y Errores Esperables
 
 - **`400 Bad Request`:**
   - En `GET /api/misiones`: Parámetros de consulta no conformes al esquema Zod (ej. `page < 1`, `limit > 100`, valores de enum desconocidos o `delegacionId` no UUID).
   - En `GET /api/misiones/{id}` y `POST /api/misiones/{id}/aceptar`: El parámetro `id` no cumple el estándar UUID versión 4 o se envía una coordenada GPS incompleta (`latitud` sin `longitud` o viceversa).
+  - En `POST /api/misiones/{id}/rechazar`: `justificacion_rechazo` ausente, vacía o con menos de 5 caracteres útiles (Regla §3.3), UUID no válido, JSON malformado o coordenadas GPS fuera de rango WGS84 / sin paridad.
   - En `GET /api/misiones/{id}`: El parámetro `id` no cumple el estándar UUID versión 4.
   - En `PATCH /api/terreno/notificaciones/{id}/estado`: El parámetro `id` no cumple el estándar UUID versión 4; el body no es JSON válido o el estado no es `"RECIBIDA"` ni `"LEIDA"`.
   - En `POST /api/misiones`: Body no es JSON válido o los identificadores no son UUIDs válidos.
@@ -685,4 +714,8 @@ Al confirmarse la asignación de misiones operativas mediante `POST /api/misione
 7. **`mision:actualizada`**:
    - **Salas destino:** `encargado`, `sala:encargados` y `supervisor`.
    - **Propósito:** Notificar al Centro de Mando la aceptación en terreno de una misión (`DESPACHADA` → `EN_CURSO`) junto con el hito `MISION_ACEPTADA` registrado en `mision_hito` (HU-36).
+8. **`mision:rechazada` (HU-41)**:
+   - **Salas destino:** `encargado`, `sala:encargados`, `supervisor` y `cuadrilla:{cuadrillaId}`.
+   - **Payload:** `{ misionId, codigo, tipoMision, motivo, justificacionRechazo, cuadrillaId, cuadrillaNombre, patrullaId, patrullaNombre, incidenteId, incidenteCodigo, rechazadoPorId, rechazadoEn }`.
+   - **Propósito:** Emitir alerta prioritaria inmediata al Centro de Mando cuando una cuadrilla rechaza una asignación, permitiendo la reasignación inmediata del incidente.
 

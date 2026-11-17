@@ -154,6 +154,8 @@ import {
   AceptarMisionResponseSchema,
   AsignarCuadrillaMisionInputSchema,
   AsignarCuadrillaMisionResponseSchema,
+  RechazarMisionBodySchema,
+  RechazarMisionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -2631,6 +2633,61 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor al consultar misiones pendientes",
+    },
+  },
+});
+
+// POST /api/misiones/{id}/rechazar (HU-41: Rechazo de asignación de misión por Delegado de Cuadrilla)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/rechazar",
+  summary: "Rechazar asignación de misión por Delegado de Cuadrilla (HU-41)",
+  description:
+    "Permite al Delegado de cuadrilla rechazar una misión asignada ingresando una justificación técnica obligatoria (mínimo 5 caracteres según Regla §3.3). Ejecuta una transacción atómica que: (1) actualiza mision.estado = 'RECHAZADA' y persiste justificacion_rechazo, (2) devuelve la cuadrilla a DISPONIBLE y libera su dotación, (3) retorna el incidente a VERIFICANDO o REPORTADO para reasignación, y (4) registra el hito 'RECHAZADA' en mision_hito. Emite la alerta prioritaria WebSocket mision:rechazada hacia la sala encargado. Requiere permiso 'misiones:terreno:ejecutar'.",
+  tags: ["Misiones"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      required: true,
+      content: {
+        "application/json": {
+          schema: RechazarMisionBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Misión rechazada exitosamente, cuadrilla liberada e incidente retornado para reasignación",
+      content: {
+        "application/json": {
+          schema: RechazarMisionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos de entrada inválidos, justificación vacía o menor a 5 caracteres (Regla §3.3), o coordenadas WGS84 inválidas",
+    },
+    401: {
+      description: "No autenticado, token ausente o usuario inactivo",
+    },
+    403: {
+      description:
+        "Acceso denegado. Se requiere permiso 'misiones:terreno:ejecutar' y pertenecer a la cuadrilla asignada (o rol Administrador)",
+    },
+    404: {
+      description: "Misión no encontrada",
+    },
+    409: {
+      description:
+        "Conflicto: la misión ya fue rechazada, no está en estado DESPACHADA, o no tiene una cuadrilla asignada",
+    },
+    500: {
+      description: "Error interno del servidor al procesar el rechazo de la misión",
     },
   },
 });

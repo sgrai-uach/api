@@ -1234,3 +1234,361 @@ export async function aceptarMisionPatrullaRepo(
     };
   });
 }
+
+// ========================================================
+// HU-41: Rechazar Asignación de Misión por Cuadrilla
+// ========================================================
+
+export interface RechazarMisionCuadrillaResult {
+  mision: {
+    id: string;
+    codigo: string;
+    tipoMision: "VERIFICACION" | "ATENCION_CUADRILLA" | "PREVENCION" | "RECUPERACION" | "ASISTENCIA_SOCIAL";
+    estado: "PLANIFICADA" | "DESPACHADA" | "EN_CURSO" | "COMPLETADA" | "CANCELADA" | "RECHAZADA";
+    justificacionRechazo: string;
+    fechaCierre: string;
+    actualizadoEn: string;
+  };
+  cuadrilla: {
+    id: string;
+    nombre: string;
+    estado: string;
+    delegacionId?: string | null;
+    usuarioDelegadoId?: string | null;
+  };
+  incidente: {
+    id: string;
+    codigo: string;
+    estado: string;
+    prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+  } | null;
+  hito: {
+    id: string;
+    misionId: string;
+    hito: string;
+    descripcion: string;
+    registradoPorId: string | null;
+    latitud: number | null;
+    longitud: number | null;
+    creadoEn: string;
+  };
+}
+
+/**
+ * Libera la disponibilidad operativa de la dotación humana de una cuadrilla
+ * cuando su misión es rechazada o finalizada, retornando a `'disponible'`.
+ */
+export async function liberarDotacionCuadrillaDeMision(
+  trx: MisionTrx,
+  cuadrillaId: string,
+  usuarioDelegadoId: string | null
+): Promise<void> {
+  await trx
+    .updateTable("usuario")
+    .set({
+      estado_operativo: "disponible",
+      actualizado_en: sql`CURRENT_TIMESTAMP`,
+    })
+    .where("activo", "=", true)
+    .where("estado_operativo", "=", "en_mision")
+    .where(
+      "id",
+      "in",
+      trx
+        .selectFrom("cuadrilla_personal")
+        .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+        .select("personal.usuario_id")
+        .where("cuadrilla_personal.cuadrilla_id", "=", cuadrillaId)
+        .where("cuadrilla_personal.activo", "=", true)
+        .where("cuadrilla_personal.desvinculado_en", "is", null)
+    )
+    .execute();
+
+  if (usuarioDelegadoId) {
+    await trx
+      .updateTable("usuario")
+      .set({
+        estado_operativo: "disponible",
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", usuarioDelegadoId)
+      .where("activo", "=", true)
+      .where("estado_operativo", "=", "en_mision")
+      .execute();
+  }
+}
+
+/**
+ * HU-41 - Ejecuta la transacción atómica cuando un Delegado de Cuadrilla rechaza
+ * una misión asignada ingresando una justificación técnica obligatoria (Regla §3.3):
+ *
+ * 1. Bloquea la misión (`FOR UPDATE OF mision`) y valida existencia y asignación a cuadrilla.
+ * 2. Valida pertenencia del usuario como delegado o integrante activo de la cuadrilla (salvo ADMIN).
+ * 3. Valida que la misión se encuentre en estado `DESPACHADA`.
+ * 4. Actualiza `mision.estado = 'RECHAZADA'`, `justificacion_rechazo` y `fecha_cierre`.
+ * 5. Devuelve la cuadrilla activa a `DISPONIBLE` (si no posee otra misión activa) y libera su dotación.
+ * 6. Retorna el incidente asociado a `VERIFICANDO` (si tuvo verificación previa completada) o `REPORTADO`.
+ * 7. Registra el hito `'RECHAZADA'` con la justificación en `mision_hito`.
+ */
+export async function rechazarMisionCuadrillaRepo(
+  misionId: string,
+  usuarioId: string,
+  justificacionRechazo: string,
+  esAdmin: boolean,
+  input?: { latitud?: number; longitud?: number }
+): Promise<RechazarMisionCuadrillaResult> {
+  return await db.transaction().execute(async (trx) => {
+    // 1. Consultar misión con bloqueo pesimista
+    const misionExistente = await trx
+      .selectFrom("mision")
+      .leftJoin("cuadrilla", "cuadrilla.id", "mision.cuadrilla_id")
+      .leftJoin("incidente", "incidente.id", "mision.incidente_id")
+      .select([
+        "mision.id",
+        "mision.codigo",
+        "mision.estado",
+        "mision.tipo_mision",
+        "mision.cuadrilla_id",
+        "mision.incidente_id",
+        "cuadrilla.nombre as cuadrilla_nombre",
+        "cuadrilla.estado as cuadrilla_estado",
+        "cuadrilla.activo as cuadrilla_activo",
+        "cuadrilla.eliminado_en as cuadrilla_eliminado_en",
+        "cuadrilla.delegacion_id as cuadrilla_delegacion_id",
+        "cuadrilla.usuario_delegado_id as cuadrilla_delegado_id",
+        "incidente.codigo as incidente_codigo",
+        "incidente.estado as incidente_estado",
+        "incidente.prioridad as incidente_prioridad",
+      ])
+      .where("mision.id", "=", misionId)
+      .forUpdate("mision")
+      .executeTakeFirst();
+
+    if (!misionExistente) {
+      throw new NotFoundError("No se encontró ninguna misión con el identificador proporcionado.");
+    }
+
+    // 2. Validar que la misión esté asignada a una cuadrilla operativa
+    if (!misionExistente.cuadrilla_id) {
+      throw new ConflictError(
+        "La misión indicada no tiene una cuadrilla operativa asignada para ser rechazada."
+      );
+    }
+
+    // 3. Validar pertenencia del usuario a la cuadrilla asignada (salvo Administrador)
+    if (!esAdmin) {
+      const esDelegadoDirecto = misionExistente.cuadrilla_delegado_id === usuarioId;
+      if (!esDelegadoDirecto) {
+        const integrante = await trx
+          .selectFrom("cuadrilla_personal")
+          .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+          .select("cuadrilla_personal.id")
+          .where("cuadrilla_personal.cuadrilla_id", "=", misionExistente.cuadrilla_id)
+          .where("cuadrilla_personal.activo", "=", true)
+          .where("cuadrilla_personal.desvinculado_en", "is", null)
+          .where("personal.usuario_id", "=", usuarioId)
+          .executeTakeFirst();
+
+        if (!integrante) {
+          throw new ForbiddenError(
+            "No está autorizado para rechazar una misión asignada a otra cuadrilla operativa."
+          );
+        }
+      }
+    }
+
+    // 4. Validar estado actual de la misión
+    if (misionExistente.estado === "RECHAZADA") {
+      throw new ConflictError("La misión ya ha sido rechazada previamente.");
+    }
+
+    if (misionExistente.estado !== "DESPACHADA") {
+      throw new ConflictError(
+        `La misión no se encuentra en estado 'DESPACHADA' para ser rechazada (estado actual: '${misionExistente.estado}').`
+      );
+    }
+
+    // 5. Actualizar misión a RECHAZADA con control de concurrencia
+    const misionActualizada = await trx
+      .updateTable("mision")
+      .set({
+        estado: "RECHAZADA",
+        justificacion_rechazo: justificacionRechazo,
+        fecha_cierre: sql`CURRENT_TIMESTAMP`,
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", misionId)
+      .where("estado", "=", "DESPACHADA")
+      .returning([
+        "id",
+        "codigo",
+        "tipo_mision",
+        "estado",
+        "justificacion_rechazo",
+        "fecha_cierre",
+        "actualizado_en",
+      ])
+      .executeTakeFirst();
+
+    if (!misionActualizada) {
+      throw new ConflictError(
+        "La misión ya no se encuentra en estado 'DESPACHADA' debido a una actualización concurrente."
+      );
+    }
+
+    // 6. Devolver cuadrilla a estado DISPONIBLE (si está activa y no tiene otra misión activa)
+    let cuadrillaNombre = misionExistente.cuadrilla_nombre ?? "Cuadrilla Operativa";
+    let cuadrillaEstado = misionExistente.cuadrilla_estado ?? "DISPONIBLE";
+    let cuadrillaDelegacionId = misionExistente.cuadrilla_delegacion_id ?? null;
+    let cuadrillaDelegadoId = misionExistente.cuadrilla_delegado_id ?? null;
+
+    if (misionExistente.cuadrilla_activo !== false && !misionExistente.cuadrilla_eliminado_en) {
+      const otraMisionActiva = await trx
+        .selectFrom("mision")
+        .select("id")
+        .where("cuadrilla_id", "=", misionExistente.cuadrilla_id)
+        .where("id", "!=", misionId)
+        .where("estado", "in", ["DESPACHADA", "EN_CURSO"])
+        .executeTakeFirst();
+
+      if (!otraMisionActiva) {
+        const cuadrillaRes = await trx
+          .updateTable("cuadrilla")
+          .set({
+            estado: "DISPONIBLE",
+            actualizado_en: sql`CURRENT_TIMESTAMP`,
+            actualizado_por_id: usuarioId,
+          })
+          .where("id", "=", misionExistente.cuadrilla_id)
+          .where("activo", "=", true)
+          .where("eliminado_en", "is", null)
+          .returning([
+            "id",
+            "nombre",
+            "estado",
+            "delegacion_id",
+            "usuario_delegado_id",
+          ])
+          .executeTakeFirst();
+
+        if (cuadrillaRes) {
+          cuadrillaNombre = cuadrillaRes.nombre;
+          cuadrillaEstado = cuadrillaRes.estado;
+          cuadrillaDelegacionId = cuadrillaRes.delegacion_id;
+          cuadrillaDelegadoId = cuadrillaRes.usuario_delegado_id;
+        }
+
+        await liberarDotacionCuadrillaDeMision(
+          trx,
+          misionExistente.cuadrilla_id,
+          cuadrillaDelegadoId
+        );
+      }
+    }
+
+    // 7. Retornar incidente a VERIFICANDO (si ya fue verificado) o REPORTADO para reasignación
+    let incidenteResultado: RechazarMisionCuadrillaResult["incidente"] = null;
+
+    if (misionExistente.incidente_id) {
+      const verificacionCompletada = await trx
+        .selectFrom("mision")
+        .select("id")
+        .where("incidente_id", "=", misionExistente.incidente_id)
+        .where("tipo_mision", "=", "VERIFICACION")
+        .where("estado", "=", "COMPLETADA")
+        .executeTakeFirst();
+
+      const estadoDestino = verificacionCompletada ? "VERIFICANDO" : "REPORTADO";
+
+      let incidenteCodigo = misionExistente.incidente_codigo ?? "";
+      let incidenteEstado = estadoDestino;
+      let incidentePrioridad = (misionExistente.incidente_prioridad ?? "MEDIA") as
+        | "BAJA"
+        | "MEDIA"
+        | "ALTA"
+        | "CRITICA";
+
+      const incidenteRes = await trx
+        .updateTable("incidente")
+        .set({
+          estado: estadoDestino,
+          actualizado_en: sql`CURRENT_TIMESTAMP`,
+        })
+        .where("id", "=", misionExistente.incidente_id)
+        .where("estado", "in", ["EN_ATENCION", "VERIFICANDO", "REPORTADO"])
+        .returning(["id", "codigo", "estado", "prioridad"])
+        .executeTakeFirst();
+
+      if (incidenteRes) {
+        incidenteCodigo = incidenteRes.codigo;
+        incidenteEstado = incidenteRes.estado;
+        if (incidenteRes.prioridad) {
+          incidentePrioridad = incidenteRes.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+        }
+      } else if (misionExistente.incidente_estado) {
+        incidenteEstado = misionExistente.incidente_estado;
+      }
+
+      incidenteResultado = {
+        id: misionExistente.incidente_id,
+        codigo: incidenteCodigo,
+        estado: incidenteEstado,
+        prioridad: incidentePrioridad,
+      };
+    }
+
+    // 8. Registrar el hito de rechazo en mision_hito
+    const hito = await trx
+      .insertInto("mision_hito")
+      .values({
+        mision_id: misionId,
+        hito: "RECHAZADA",
+        descripcion: `Misión rechazada por cuadrilla: ${justificacionRechazo}`,
+        registrado_por_id: usuarioId,
+        latitud: input?.latitud != null ? String(input.latitud) : null,
+        longitud: input?.longitud != null ? String(input.longitud) : null,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    const fechaCierreIso = misionActualizada.fecha_cierre
+      ? new Date(misionActualizada.fecha_cierre).toISOString()
+      : new Date().toISOString();
+    const actualizadoEnIso = misionActualizada.actualizado_en
+      ? new Date(misionActualizada.actualizado_en).toISOString()
+      : new Date().toISOString();
+    const hitoCreadoEnIso = hito.creado_en
+      ? new Date(hito.creado_en).toISOString()
+      : new Date().toISOString();
+
+    return {
+      mision: {
+        id: misionActualizada.id,
+        codigo: misionActualizada.codigo,
+        tipoMision: misionActualizada.tipo_mision as RechazarMisionCuadrillaResult["mision"]["tipoMision"],
+        estado: misionActualizada.estado as RechazarMisionCuadrillaResult["mision"]["estado"],
+        justificacionRechazo: misionActualizada.justificacion_rechazo ?? justificacionRechazo,
+        fechaCierre: fechaCierreIso,
+        actualizadoEn: actualizadoEnIso,
+      },
+      cuadrilla: {
+        id: misionExistente.cuadrilla_id,
+        nombre: cuadrillaNombre,
+        estado: cuadrillaEstado,
+        delegacionId: cuadrillaDelegacionId,
+        usuarioDelegadoId: cuadrillaDelegadoId,
+      },
+      incidente: incidenteResultado,
+      hito: {
+        id: hito.id,
+        misionId: hito.mision_id,
+        hito: hito.hito,
+        descripcion: hito.descripcion,
+        registradoPorId: hito.registrado_por_id,
+        latitud: hito.latitud !== null ? Number(hito.latitud) : null,
+        longitud: hito.longitud !== null ? Number(hito.longitud) : null,
+        creadoEn: hitoCreadoEnIso,
+      },
+    };
+  });
+}
