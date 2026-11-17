@@ -515,6 +515,7 @@ export interface AdjuntoTable {
   aviso_id: string | null;
   incidente_id: string | null;
   reporte_terreno_id?: string | null;
+  sha256_hash?: string | null;
   creado_en: Generated<Date>;
 }
 
