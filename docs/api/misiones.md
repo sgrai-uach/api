@@ -47,6 +47,7 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 | `POST` | `/api/misiones/{id}/aceptar` | `misiones:terreno:verificar` | Confirmar y aceptar misión asignada desde terreno (PWA), transicionando de `DESPACHADA` a `EN_CURSO`, registrando `fecha_inicio` y el hito `'Misión Aceptada por Patrulla'` en `mision_hito` (HU-36). |
 | `POST` | `/api/incidentes/{id}/prioridad/calcular` | `misiones:terreno:verificar` | Calcular la `prioridad_sugerida` y factores gatillantes en base al formulario de evaluación técnica en terreno de la patrulla verificadora (HU-38). |
 | `PATCH` | `/api/incidentes/{id}/prioridad` | `misiones:terreno:verificar` | Confirmar o modificar la prioridad del incidente y enviar el reporte de evaluación en terreno versionado (`versionReporte: 1, 2...`) al Centro de Mando, registrando el hito `PRIORIDAD_ASIGNADA` o `PRIORIDAD_RECTIFICADA` en `mision_hito` (HU-38). |
+| `POST` | `/api/misiones/{id}/reporte` | `reportes:crear` | Enviar el informe técnico consolidado de verificación en terreno (`VERIFICACION_CIERRE`), cerrar la misión (`COMPLETADA`), liberar la patrulla (`DISPONIBLE`), gestionar la solicitud de Ficha FIBE (`requiere_asistencia_social`) y ejecutar el descarte fundado (`NO_ABORDABLE`) si corresponde (HU-39 / HU-86). |
 
 ---
 
@@ -513,6 +514,36 @@ Permite a la patrulla verificadora en terreno confirmar desde su dispositivo mó
 
 ---
 
+### 3.6. `POST /api/misiones/{id}/reporte` (HU-39 / HU-86: Enviar Informe Técnico de Verificación y Cerrar Misión)
+
+Permite a la patrulla verificadora enviar el informe técnico consolidado de verificación en terreno y cerrar su misión inicial de patrullaje. Absorbe la declaración fundada de no abordabilidad (fusión H39/H86).
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` en entorno interno/QA)
+- **Permiso RBAC requerido:** `reportes:crear`
+
+#### Reglas de Negocio y Transición Atómica
+1. **Validación de Misión Activa y Pertenencia:** La misión debe existir, encontrarse en estado `EN_CURSO` (si está en `DESPACHADA` o ya `COMPLETADA`, retorna `409 Conflict`) y pertenecer a la patrulla asignada al usuario autenticado (salvo rol `ADMIN`, en otro caso `403 Forbidden`).
+2. **Dictamen Operativo y No Abordabilidad (`NO_ABORDABLE`):**
+   - `dictamen`: obligatorio (`'REQUIERE_CUADRILLA'` o `'NO_ABORDABLE'`).
+   - Si `dictamen === 'NO_ABORDABLE'`, exige `motivo_no_abordable` de al menos 15 caracteres (`400 Bad Request` si falta o es menor).
+   - `resumen_tecnico`: obligatorio de al menos 10 caracteres.
+3. **Rescate y Modificación de Personas Damnificadas (`personas_afectadas`):**
+   - El endpoint `GET /api/misiones/{id}` expone `evaluaciones.personasAfectadasPrevias` (rescatado del último reporte de prioridad de HU-38) para precargar el formulario en la PWA.
+   - Si en `POST /api/misiones/{id}/reporte` el usuario envía `personas_afectadas` (manteniendo o modificando el valor previo), se persiste ese monto y se registra la trazabilidad de modificación en `detalles_evaluacion`; si se omite, el backend rescata automáticamente el valor del reporte previo de prioridad.
+4. **Ficha FIBE (`requiere_asistencia_social`) y Evidencia Fotográfica (HU-43):**
+   - La solicitud de Ficha FIBE (`requiere_asistencia_social`) reside exclusivamente en este informe de cierre (trasladada desde HU-38). Si se marca `true`, actualiza `incidente.requiere_asistencia_social = true`.
+   - El payload acepta `adjuntoIds` y/o `adjuntos` para asociar fotografías en `adjunto.reporte_terreno_id`, dejando lista la integración con HU-43.
+5. **Transacción Atómica (Kysely Transaction):**
+   - Inserta un nuevo registro en `reporte_terreno` con `evaluador_id = usuario.id`, `tipo_reporte = 'VERIFICACION_CIERRE'`, `dictamen`, `motivo_no_abordable` y `requiere_asistencia_social`.
+   - Actualiza `mision.estado = 'COMPLETADA'` y `mision.fecha_cierre = CURRENT_TIMESTAMP`.
+   - Libera `patrulla_verificadora.estado = 'DISPONIBLE'` (si no tiene otra misión activa concurrente).
+   - Si `dictamen === 'NO_ABORDABLE'`, transiciona `incidente.estado = 'NO_ABORDABLE'` fijando `incidente.fecha_cierre = CURRENT_TIMESTAMP` e `incidente.motivo_no_abordable`. Si es `'REQUIERE_CUADRILLA'`, mantiene el incidente en `'VERIFICANDO'` listo para despacho de cuadrilla (HU-21).
+   - Registra el hito `'VERIFICACION_COMPLETADA'` en `mision_hito`.
+6. **Tiempo Real (Socket.io / Redis):**
+   - Emite `mision:actualizada`, `incidente:actualizado` y `patrulla:actualizada` / `patrulla:liberada` hacia la sala `encargado` del Centro de Mando.
+
+---
+
 ## 4. Códigos de Estado y Errores Esperables
 
 - **`400 Bad Request`:**
@@ -577,6 +608,6 @@ Al confirmarse la asignación de misiones operativas mediante `POST /api/misione
 ## 6. Estado de Evaluaciones y Sincronización de Tipología (`GET /api/misiones` y `GET /api/misiones/{id}`)
 
 - En `GET /api/misiones`, cada ítem incluye `incidenteTipoAfectacion` y proyecta `titulo` sincronizado con la tipología actual del incidente para misiones `VERIFICACION`.
-- En `GET /api/misiones/{id}`, el objeto `evaluaciones` (`{ tipologiaEvaluada, tipologiaEvaluadaEn, prioridadEvaluada, prioridadEvaluadaEn, versionReportePrioridad }`) expone el estado persistido en servidor de las secciones de evaluación en terreno, permitiendo que la aplicación web contraiga e indique como completados los reportes ya enviados sin depender del almacenamiento local del dispositivo.
+- En `GET /api/misiones/{id}`, el objeto `evaluaciones` (`{ tipologiaEvaluada, tipologiaEvaluadaEn, prioridadEvaluada, prioridadEvaluadaEn, versionReportePrioridad, personasAfectadasPrevias, reporteVerificacionEnviado, reporteVerificacionEnviadoEn, dictamenVerificacion }`) expone el estado persistido en servidor de las secciones de evaluación en terreno, permitiendo que la aplicación web y la PWA precarguen `personasAfectadasPrevias` e indiquen como completados los reportes ya enviados sin depender del almacenamiento local del dispositivo.
 - Cada hito de `bitacoraTiempos` incluye `id` y `metadatos` opcionales para vincular directamente el reporte de reclasificación (`reclasificacion-{hitoId}`).
 
