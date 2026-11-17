@@ -73,14 +73,28 @@ export async function migrateToLatest() {
 
   await reconciliarMigracionesRenumeradas(migrationFolder);
 
+  const provider = new FileMigrationProvider({
+    fs,
+    path,
+    migrationFolder,
+    import: (filePath) => import(pathToFileURL(filePath).href),
+  });
+
+  try {
+    const availableMigrations = Object.keys(await provider.getMigrations());
+    if (availableMigrations.length > 0) {
+      await sql`
+        DELETE FROM kysely_migration
+        WHERE name NOT IN (${sql.join(availableMigrations.map((m) => sql`${m}`))})
+      `.execute(db);
+    }
+  } catch {
+    // Ignorar si la tabla kysely_migration aún no existe
+  }
+
   const migrator = new Migrator({
     db,
-    provider: new FileMigrationProvider({
-      fs,
-      path,
-      migrationFolder,
-      import: (filePath) => import(pathToFileURL(filePath).href),
-    }),
+    provider,
     allowUnorderedMigrations: true,
   });
 

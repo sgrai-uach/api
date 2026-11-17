@@ -11,6 +11,7 @@ export interface FilaMisionListado {
   estado: string;
   prioridad: string;
   justificacion_rechazo: string | null;
+  trazabilidad_notificacion?: string | null;
   incidente_id: string | null;
   incidente_codigo: string | null;
   incidente_tipo_afectacion?: string | null;
@@ -117,6 +118,13 @@ export async function listarMisionesPaginadoRepo(filtros: ListarMisionesQuery) {
       "mision.estado",
       "mision.prioridad",
       "mision.justificacion_rechazo",
+      sql<string | null>`(
+        SELECT nm.estado
+        FROM notificaciones_mision nm
+        WHERE nm.mision_id = mision.id
+        ORDER BY nm.creada_at DESC
+        LIMIT 1
+      )`.as("trazabilidad_notificacion"),
       "mision.incidente_id",
       "incidente.codigo as incidente_codigo",
       "incidente.tipo_afectacion as incidente_tipo_afectacion",

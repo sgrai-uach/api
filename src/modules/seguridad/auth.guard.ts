@@ -8,6 +8,7 @@ import {
   PERMISO_CREAR_PERSONAL,
   PERMISO_GESTIONAR_PERSONAL,
   PERMISO_ASIGNAR_MISION,
+  PERMISO_VERIFICAR_MISION_TERRENO,
 } from "./permisos.constants";
 import { seguridadService } from "./service";
 import type { UsuarioAutenticado } from "./types";
@@ -128,3 +129,19 @@ export async function verificarAsignarMision(
     "Acceso denegado. Se requiere el perfil de Administrador o el permiso 'misiones:asignar' para despachar misiones operativas."
   );
 }
+
+/**
+ * HU-35 - Valida que el usuario tenga rol de Administrador o el permiso
+ * 'misiones:terreno:verificar' para confirmar recepciones y consultar misiones en terreno.
+ */
+export async function verificarTerrenoMisiones(
+  request: NextRequest
+): Promise<UsuarioAutenticado> {
+  const usuarioId = await extraerUsuarioId(request);
+  return await seguridadService.validarAccesoRoles(
+    usuarioId,
+    [PERMISO_VERIFICAR_MISION_TERRENO],
+    "Acceso denegado. Se requiere el permiso 'misiones:terreno:verificar' para gestionar notificaciones de terreno."
+  );
+}
+

@@ -85,6 +85,8 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
         nombre: "Camioneta 4x4",
         cantidad_asignada: 1,
         es_individual: true,
+        descripcion: "Camioneta de rescate 4x4 doble cabina",
+        detalles: { patente: "KKLX-89", marca: "Toyota", modelo: "Hilux" },
       },
     ],
     trabajadores: [
@@ -96,6 +98,7 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
         rut: "16.222.333-4",
         cargo: "Motosierrista",
         especialidad: "Poda de Altura",
+        telefono: "+56912345678",
         asignado_en: new Date("2026-10-26T01:30:00Z"),
       },
     ],
@@ -272,6 +275,49 @@ describe("Servicios de Cuadrillas Operativas (cuadrilla.service.ts)", () => {
       expect(res.id).toBe(cuadrillaId);
       expect(res.recursos).toHaveLength(1);
       expect(res.trabajadores).toHaveLength(1);
+      expect(res.trabajadores[0].telefono).toBe("+56912345678");
+      expect(res.recursos[0].descripcion).toBe("Camioneta de rescate 4x4 doble cabina");
+      expect(res.recursos[0].especificaciones).toEqual({ patente: "KKLX-89", marca: "Toyota", modelo: "Hilux" });
+      expect(res.misionActiva).toBeNull();
+    });
+
+    it("debe retornar misión activa y enlace al incidente con cálculo de minutos transcurridos cuando está EN_MISION", async () => {
+      const fechaDespacho = new Date(Date.now() - 45 * 60 * 1000); // 45 minutos atrás
+      vi.spyOn(repo, "obtenerCuadrillaDetalleUnitario").mockResolvedValue({
+        ...resultadoConsolidadoMock,
+        estado: "EN_MISION",
+        mision_activa: {
+          id: "60000000-0000-4000-8000-000000000001",
+          codigo: "MIS-2026-0042",
+          titulo: "Atención anegamiento en Isla Teja",
+          tipo_mision: "ATENCION_CUADRILLA",
+          estado: "EN_CURSO",
+          fecha_despacho: fechaDespacho,
+          creado_en: fechaDespacho,
+          incidente: {
+            id: "70000000-0000-4000-8000-000000000001",
+            codigo: "INC-2026-0099",
+            tipo: "Inundación",
+            direccion: "Av. Los Robles 450",
+            latitud: -39.8152,
+            longitud: -73.2458,
+          },
+        },
+      });
+
+      const res = await obtenerCuadrillaPorId(cuadrillaId, usuarioAdminId);
+
+      expect(res.estado).toBe("EN_MISION");
+      expect(res.misionActiva).not.toBeNull();
+      expect(res.misionActiva?.id).toBe("60000000-0000-4000-8000-000000000001");
+      expect(res.misionActiva?.codigo).toBe("MIS-2026-0042");
+      expect(res.misionActiva?.estado).toBe("EN_CURSO");
+      expect(res.misionActiva?.tiempoTranscurridoMinutos).toBeGreaterThanOrEqual(44);
+      expect(res.misionActiva?.tiempoTranscurridoMinutos).toBeLessThanOrEqual(46);
+      expect(res.misionActiva?.incidente?.codigo).toBe("INC-2026-0099");
+      expect(res.misionActiva?.incidente?.direccion).toBe("Av. Los Robles 450");
+      expect(res.misionActiva?.incidente?.latitud).toBe(-39.8152);
+      expect(res.misionActiva?.incidente?.longitud).toBe(-73.2458);
     });
 
     it("debe lanzar NotFoundError si la cuadrilla no existe", async () => {

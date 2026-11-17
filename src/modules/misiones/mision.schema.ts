@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import {
+  EstadoNotificacionMisionEnum,
+  NotificacionMisionDetalleSchema,
+} from "./notificacion-mision.schema";
 
 extendZodWithOpenApi(z);
 
@@ -210,7 +214,10 @@ export const MisionDetalleCompletoSchema = z.object({
   estado: EstadoMisionEnum.openapi({ description: "Estado de ejecución actual de la misión" }),
   prioridad: PrioridadMisionEnum.openapi({ description: "Nivel de prioridad o urgencia" }),
   justificacionRechazo: z.string().nullable().openapi({ description: "Motivo documentado en caso de rechazo por la cuadrilla" }),
-  fechaInicio: z.string().nullable().openapi({ description: "Fecha y hora de despliegue o inicio en terreno (ISO 8601)" }),
+  trazabilidadNotificacion: EstadoNotificacionMisionEnum.optional().openapi({
+    description: "Estado actual de entrega y lectura de la notificación de esta misión (HU-35)",
+  }),
+  fechaInicio: z.string().nullable().openapi({ description: "Fecha de inicio de trabajos en terreno (ISO 8601)" }),
   fechaCierre: z.string().nullable().openapi({ description: "Fecha y hora de cierre formal de la misión (ISO 8601)" }),
   creadoEn: z.string().openapi({ description: "Fecha y hora de creación de la misión en formato ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Última fecha y hora de actualización en formato ISO 8601" }),
@@ -271,103 +278,6 @@ export const MisionDetalleResponseSchema = z.object({
 export type MisionDetalleResponse = z.infer<typeof MisionDetalleResponseSchema>;
 
 // ==========================================
-// HU-36: Aceptación de Misión por Patrulla Verificadora
-// ==========================================
-
-export const AceptarMisionInputSchema = z
-  .object({
-    latitud: z
-      .number({ message: "La latitud debe ser un número válido." })
-      .min(-90, "La latitud no puede ser menor a -90.")
-      .max(90, "La latitud no puede ser mayor a 90.")
-      .optional()
-      .openapi({
-        description: "Coordenada GPS opcional de latitud (WGS84) al momento de aceptar la misión desde la PWA",
-        example: -39.819588,
-      }),
-    longitud: z
-      .number({ message: "La longitud debe ser un número válido." })
-      .min(-180, "La longitud no puede ser menor a -180.")
-      .max(180, "La longitud no puede ser mayor a 180.")
-      .optional()
-      .openapi({
-        description: "Coordenada GPS opcional de longitud (WGS84) al momento de aceptar la misión desde la PWA",
-        example: -73.245209,
-      }),
-  })
-  .optional()
-  .openapi("AceptarMisionInput");
-
-export type AceptarMisionInput = z.infer<typeof AceptarMisionInputSchema>;
-
-export const MisionHitoRegistradoSchema = z
-  .object({
-    id: z.string().uuid().openapi({ description: "Identificador único UUID del hito registrado en mision_hito" }),
-    misionId: z.string().uuid().openapi({ description: "Identificador único UUID de la misión" }),
-    hito: z.string().openapi({ description: "Código canónico del hito", example: "MISION_ACEPTADA" }),
-    descripcion: z.string().openapi({
-      description: "Glosa descriptiva del hito operativo",
-      example: "Misión Aceptada por Patrulla",
-    }),
-    registradoPorId: z.string().uuid().nullable().openapi({
-      description: "UUID del funcionario de patrulla en sesión que confirmó la salida",
-    }),
-    latitud: z.number().nullable().openapi({ description: "Latitud reportada al momento del hito" }),
-    longitud: z.number().nullable().openapi({ description: "Longitud reportada al momento del hito" }),
-    creadoEn: z.string().openapi({ description: "Fecha y hora del hito en formato ISO 8601" }),
-  })
-  .openapi("MisionHitoRegistrado");
-
-export type MisionHitoRegistrado = z.infer<typeof MisionHitoRegistradoSchema>;
-
-export const AceptarMisionResponseSchema = z
-  .object({
-    message: z.string().openapi({
-      example: "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
-    }),
-    data: z.object({
-      mision: z.object({
-        id: z.string().uuid(),
-        codigo: z.string(),
-        titulo: z.string(),
-        descripcion: z.string().nullable(),
-        tipoMision: TipoMisionEnum,
-        estado: EstadoMisionEnum.openapi({ example: "EN_CURSO" }),
-        prioridad: PrioridadMisionEnum,
-        incidenteId: z.string().uuid().nullable(),
-        patrullaId: z.string().uuid().nullable(),
-        fechaInicio: z.string().openapi({
-          description: "Timestamp ISO 8601 fijado al momento de aceptar la misión",
-        }),
-        actualizadoEn: z.string(),
-      }),
-      patrulla: z
-        .object({
-          id: z.string().uuid(),
-          nombre: z.string(),
-          estado: z.string().openapi({
-            description: "Se mantiene en EN_VERIFICACION durante el trayecto y evaluación",
-            example: "EN_VERIFICACION",
-          }),
-        })
-        .nullable(),
-      incidente: z
-        .object({
-          id: z.string().uuid(),
-          codigo: z.string(),
-          estado: z.string().openapi({
-            description: "Permanece en estado canónico VERIFICANDO (no 'En camino')",
-            example: "VERIFICANDO",
-          }),
-        })
-        .nullable(),
-      hito: MisionHitoRegistradoSchema,
-    }),
-  })
-  .openapi("AceptarMisionResponse");
-
-export type AceptarMisionResponse = z.infer<typeof AceptarMisionResponseSchema>;
-
 // HU-20: Asignación de Patrulla Verificadora a Incidente
 // ==========================================
 
@@ -443,10 +353,116 @@ export const CrearMisionResponseSchema = z.object({
       descripcion: z.string(),
       creadoEn: z.string(),
     }),
+    notificacion: NotificacionMisionDetalleSchema.optional(),
   }),
 }).openapi("CrearMisionResponse");
 
 export type CrearMisionResponse = z.infer<typeof CrearMisionResponseSchema>;
+
+// ==========================================
+// HU-36: Aceptación de Misión por Patrulla Verificadora
+// ==========================================
+
+export const AceptarMisionInputSchema = z
+  .object({
+    latitud: z
+      .number({ message: "La latitud debe ser un número válido." })
+      .min(-90, "La latitud no puede ser menor a -90.")
+      .max(90, "La latitud no puede ser mayor a 90.")
+      .optional()
+      .openapi({
+        description: "Coordenada GPS opcional de latitud (WGS84) al momento de aceptar la misión desde la PWA",
+        example: -39.819588,
+      }),
+    longitud: z
+      .number({ message: "La longitud debe ser un número válido." })
+      .min(-180, "La longitud no puede ser menor a -180.")
+      .max(180, "La longitud no puede ser mayor a 180.")
+      .optional()
+      .openapi({
+        description: "Coordenada GPS opcional de longitud (WGS84) al momento de aceptar la misión desde la PWA",
+        example: -73.245209,
+      }),
+  })
+  .optional()
+  .refine(
+    (data) => !data || (data.latitud !== undefined) === (data.longitud !== undefined),
+    {
+      message: "Debe proporcionar tanto latitud como longitud si incluye coordenadas GPS.",
+      path: ["longitud"],
+    }
+  )
+  .openapi("AceptarMisionInput");
+
+export type AceptarMisionInput = z.infer<typeof AceptarMisionInputSchema>;
+
+export const MisionHitoRegistradoSchema = z
+  .object({
+    id: z.string().uuid().openapi({ description: "Identificador único UUID del hito registrado en mision_hito" }),
+    misionId: z.string().uuid().openapi({ description: "Identificador único UUID de la misión" }),
+    hito: z.string().openapi({ description: "Código canónico del hito", example: "MISION_ACEPTADA" }),
+    descripcion: z.string().openapi({
+      description: "Glosa descriptiva del hito operativo",
+      example: "Misión Aceptada por Patrulla",
+    }),
+    registradoPorId: z.string().uuid().nullable().openapi({
+      description: "UUID del funcionario de patrulla en sesión que confirmó la salida",
+    }),
+    latitud: z.number().nullable().openapi({ description: "Latitud reportada al momento del hito" }),
+    longitud: z.number().nullable().openapi({ description: "Longitud reportada al momento del hito" }),
+    creadoEn: z.string().openapi({ description: "Fecha y hora del hito en formato ISO 8601" }),
+  })
+  .openapi("MisionHitoRegistrado");
+
+export type MisionHitoRegistrado = z.infer<typeof MisionHitoRegistradoSchema>;
+
+export const AceptarMisionResponseSchema = z
+  .object({
+    message: z.string().openapi({
+      example: "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
+    }),
+    data: z.object({
+      mision: z.object({
+        id: z.string().uuid(),
+        codigo: z.string(),
+        titulo: z.string(),
+        descripcion: z.string().nullable(),
+        tipoMision: TipoMisionEnum,
+        estado: EstadoMisionEnum.openapi({ example: "EN_CURSO" }),
+        prioridad: PrioridadMisionEnum,
+        incidenteId: z.string().uuid().nullable(),
+        patrullaId: z.string().uuid().nullable(),
+        fechaInicio: z.string().openapi({
+          description: "Timestamp ISO 8601 fijado al momento de aceptar la misión",
+        }),
+        actualizadoEn: z.string(),
+      }),
+      patrulla: z
+        .object({
+          id: z.string().uuid(),
+          nombre: z.string(),
+          estado: z.string().openapi({
+            description: "Se mantiene en EN_VERIFICACION durante el trayecto y evaluación",
+            example: "EN_VERIFICACION",
+          }),
+        })
+        .nullable(),
+      incidente: z
+        .object({
+          id: z.string().uuid(),
+          codigo: z.string(),
+          estado: z.string().openapi({
+            description: "Permanece en estado canónico VERIFICANDO (no 'En camino')",
+            example: "VERIFICANDO",
+          }),
+        })
+        .nullable(),
+      hito: MisionHitoRegistradoSchema,
+    }),
+  })
+  .openapi("AceptarMisionResponse");
+
+export type AceptarMisionResponse = z.infer<typeof AceptarMisionResponseSchema>;
 
 // ==========================================
 // HU-21: Asignar Cuadrilla a Incidente y Liberar Patrulla
@@ -558,7 +574,7 @@ export const AsignarCuadrillaMisionResponseSchema = z
 export type AsignarCuadrillaMisionResponse = z.infer<typeof AsignarCuadrillaMisionResponseSchema>;
 
 // ==========================================
-// HU-39 / HU-86: Informe Técnico de Verificación en Terreno y Cierre de Misión
+// HU-39: Informe Técnico de Verificación en Terreno y Cierre de Misión
 // ==========================================
 
 /**
@@ -821,4 +837,3 @@ export const EnviarReporteVerificacionResponseSchema = z
 export type EnviarReporteVerificacionResponse = z.infer<
   typeof EnviarReporteVerificacionResponseSchema
 >;
-
