@@ -10,11 +10,10 @@ import {
   ForbiddenError,
   NotFoundError,
   ConflictError,
-  BadRequestError,
 } from "@/modules/seguridad/errors";
 
 vi.mock("@/modules/seguridad/auth.guard", () => ({
-  extraerUsuarioId: vi.fn(),
+  exigirUsuarioId: vi.fn(),
 }));
 
 vi.mock("@/modules/seguridad/auth.service", () => ({
@@ -37,9 +36,8 @@ describe("Route Handler PATCH /api/incidentes/[id]/tipologia (HU-37)", () => {
     vi.clearAllMocks();
   });
 
-  it("debe retornar 401 si no se provee cabecera de autenticación válida", async () => {
-    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(null);
-    vi.mocked(authService.verificarPermiso).mockRejectedValueOnce(
+  it("debe retornar 401 si no se provee cabecera de autenticación válida (incluso con x-user-id)", async () => {
+    vi.mocked(authGuard.exigirUsuarioId).mockRejectedValueOnce(
       new UnauthorizedError("Se requiere cabecera de autenticación Authorization: Bearer <token>.")
     );
 
@@ -47,6 +45,7 @@ describe("Route Handler PATCH /api/incidentes/[id]/tipologia (HU-37)", () => {
       `http://localhost:3000/api/incidentes/${incidenteId}/tipologia`,
       {
         method: "PATCH",
+        headers: { "x-user-id": "00000000-0000-4000-8000-000000000001" },
         body: JSON.stringify({
           tipoIncidenteId,
           justificacion: "Se constata inundación severa en viviendas.",
@@ -61,7 +60,7 @@ describe("Route Handler PATCH /api/incidentes/[id]/tipologia (HU-37)", () => {
   });
 
   it("debe retornar 403 si el usuario no posee el permiso RBAC misiones:terreno:verificar", async () => {
-    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUserId);
+    vi.mocked(authGuard.exigirUsuarioId).mockResolvedValueOnce(patrullaUserId);
     vi.mocked(authService.verificarPermiso).mockRejectedValueOnce(
       new ForbiddenError(`No cuenta con el permiso requerido: ${PERMISO_VERIFICAR_MISION_TERRENO}`)
     );
@@ -85,7 +84,7 @@ describe("Route Handler PATCH /api/incidentes/[id]/tipologia (HU-37)", () => {
   });
 
   it("debe retornar 400 si el parámetro id de ruta no es un UUID válido", async () => {
-    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUserId);
+    vi.mocked(authGuard.exigirUsuarioId).mockResolvedValueOnce(patrullaUserId);
     vi.mocked(authService.verificarPermiso).mockResolvedValueOnce({
       id: patrullaUserId,
       nombre: "Patrullero",
@@ -111,7 +110,7 @@ describe("Route Handler PATCH /api/incidentes/[id]/tipologia (HU-37)", () => {
   });
 
   it("debe retornar 400 si el body no contiene justificación válida (mínimo 5 caracteres)", async () => {
-    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUserId);
+    vi.mocked(authGuard.exigirUsuarioId).mockResolvedValueOnce(patrullaUserId);
     vi.mocked(authService.verificarPermiso).mockResolvedValueOnce({
       id: patrullaUserId,
       nombre: "Patrullero",
@@ -141,7 +140,7 @@ describe("Route Handler PATCH /api/incidentes/[id]/tipologia (HU-37)", () => {
   });
 
   it("debe retornar 400 si el body no contiene ni tipoIncidenteId ni tipo_incidente_id", async () => {
-    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUserId);
+    vi.mocked(authGuard.exigirUsuarioId).mockResolvedValueOnce(patrullaUserId);
     vi.mocked(authService.verificarPermiso).mockResolvedValueOnce({
       id: patrullaUserId,
       nombre: "Patrullero",
@@ -169,7 +168,7 @@ describe("Route Handler PATCH /api/incidentes/[id]/tipologia (HU-37)", () => {
   });
 
   it("debe retornar 409 si la misión no ha sido aceptada todavía (se encuentra en DESPACHADA)", async () => {
-    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUserId);
+    vi.mocked(authGuard.exigirUsuarioId).mockResolvedValueOnce(patrullaUserId);
     vi.mocked(authService.verificarPermiso).mockResolvedValueOnce({
       id: patrullaUserId,
       nombre: "Patrullero",
@@ -204,7 +203,7 @@ describe("Route Handler PATCH /api/incidentes/[id]/tipologia (HU-37)", () => {
   });
 
   it("debe retornar 404 si el tipo de incidente o el incidente no existen", async () => {
-    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUserId);
+    vi.mocked(authGuard.exigirUsuarioId).mockResolvedValueOnce(patrullaUserId);
     vi.mocked(authService.verificarPermiso).mockResolvedValueOnce({
       id: patrullaUserId,
       nombre: "Patrullero",
@@ -237,7 +236,7 @@ describe("Route Handler PATCH /api/incidentes/[id]/tipologia (HU-37)", () => {
   });
 
   it("debe retornar 200 y actualizar exitosamente la tipología e insertar el hito", async () => {
-    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUserId);
+    vi.mocked(authGuard.exigirUsuarioId).mockResolvedValueOnce(patrullaUserId);
     vi.mocked(authService.verificarPermiso).mockResolvedValueOnce({
       id: patrullaUserId,
       nombre: "Patrullero Costa",

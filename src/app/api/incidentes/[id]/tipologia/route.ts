@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ReclasificarTipologiaInputSchema } from "@/modules/incidentes/tipologia.schema";
 import { tipologiaService } from "@/modules/incidentes/tipologia.service";
-import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
+import { exigirUsuarioId } from "@/modules/seguridad/auth.guard";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
 import { PERMISO_VERIFICAR_MISION_TERRENO } from "@/modules/seguridad/permisos.constants";
 import {
@@ -37,10 +37,8 @@ interface RouteContext {
  */
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    // 1. Validar autenticación y permiso RBAC
-    const tokenUserId = await extraerUsuarioId(request);
-    const headerUserId = request.headers.get("x-user-id");
-    const usuarioId = tokenUserId || headerUserId;
+    // 1. Validar autenticación JWT Bearer y permiso RBAC
+    const usuarioId = await exigirUsuarioId(request);
 
     const usuarioAutenticado = await verificarPermiso(
       usuarioId,
