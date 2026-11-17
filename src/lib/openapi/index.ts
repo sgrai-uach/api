@@ -5,6 +5,8 @@ import {
 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
+import { AdjuntoCreadoResponseSchema } from "@/modules/evidencia/evidencia.schema";
+
 import {
   AvisoDetalleResponseSchema,
   AvisosPaginadosResponseSchema,
@@ -2676,6 +2678,68 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor al procesar el rechazo de la misión",
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/evidencia/adjuntos",
+  tags: ["Evidencia"],
+  summary: "Subir evidencia multimedia (HU-43)",
+  description:
+    "Permite adjuntar fotografías (JPEG, PNG, WebP), videos (MP4, WebM, MOV) o documentos técnicos (PDF) de hasta 10 MB asociados a un incidente o reporte de terreno. Requiere permiso RBAC 'reportes:crear'.",
+  request: {
+    body: {
+      required: true,
+      content: {
+        "multipart/form-data": {
+          schema: z.object({
+            file: z.string().openapi({ format: "binary", description: "Archivo multimedia o PDF (máx. 10 MB)" }),
+            incidente_id: z
+              .string()
+              .uuid()
+              .optional()
+              .openapi({ description: "UUID del incidente asociado (requerido si no se envía reporte_terreno_id)" }),
+            reporte_terreno_id: z
+              .string()
+              .uuid()
+              .optional()
+              .openapi({ description: "UUID del reporte de terreno asociado (requerido si no se envía incidente_id)" }),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Evidencia optimizada, almacenada y registrada exitosamente en la tabla adjunto",
+      content: {
+        "application/json": {
+          schema: AdjuntoCreadoResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Solicitud inválida: falta el archivo, archivo vacío o no se envió incidente_id ni reporte_terreno_id",
+    },
+    401: {
+      description: "No autenticado, token ausente o usuario inactivo",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere el permiso 'reportes:crear'",
+    },
+    404: {
+      description: "El incidente_id o reporte_terreno_id especificado no existe",
+    },
+    413: {
+      description: "El archivo supera el límite máximo permitido de 10 MB",
+    },
+    415: {
+      description: "Tipo MIME o firma binaria (magic bytes) no permitida",
+    },
+    500: {
+      description: "Error interno del servidor al almacenar la evidencia",
     },
   },
 });
