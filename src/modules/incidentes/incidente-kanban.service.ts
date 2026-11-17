@@ -35,6 +35,12 @@ export async function listarIncidentesKanbanService(
     justificacionPrioridad: fila.justificacion_prioridad ?? null,
     totalReportesTerreno: Number(fila.total_reportes_terreno ?? 0),
     requiereAsistenciaSocial: Boolean(fila.requiere_asistencia_social),
+    fechaCierre: fila.fecha_cierre
+      ? typeof fila.fecha_cierre === "string"
+        ? fila.fecha_cierre
+        : new Date(fila.fecha_cierre).toISOString()
+      : null,
+    motivoNoAbordable: fila.motivo_no_abordable ?? null,
     fuenteOrigen: fila.fuente_origen,
     informanteNombre: fila.informante_nombre,
     delegacionNombre: fila.delegacion_nombre,
@@ -103,6 +109,10 @@ export async function obtenerDetalleIncidenteService(
     reportesRaw.map((rep) => {
       const versionReporte = Number(rep.version_reporte ?? 1);
       const esRectificacion = Boolean(rep.es_rectificacion ?? versionReporte > 1);
+      const tipoReporte = rep.tipo_reporte ?? undefined;
+      const dictamen =
+        (rep.dictamen as "REQUIERE_CUADRILLA" | "NO_ABORDABLE" | null | undefined) ??
+        null;
       let evaluacionObj: Record<string, unknown> = {};
       if (typeof rep.detalles_evaluacion === "string") {
         try {
@@ -114,14 +124,55 @@ export async function obtenerDetalleIncidenteService(
         evaluacionObj = rep.detalles_evaluacion;
       }
 
+      const etiquetaReporte =
+        tipoReporte === "VERIFICACION_CIERRE"
+          ? dictamen === "NO_ABORDABLE"
+            ? "Informe Técnico de Verificación (Cierre — No Abordable)"
+            : "Informe Técnico de Verificación (Cierre — Requiere Cuadrilla)"
+          : esRectificacion
+            ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
+            : `Reporte de Evaluación #1 (Inicial)`;
+
+      const adjuntosMapeados = Array.isArray(rep.adjuntos)
+        ? rep.adjuntos.map((adj) => {
+            let urlNorm = adj.url;
+            if (
+              !urlNorm.startsWith("http://") &&
+              !urlNorm.startsWith("https://") &&
+              !urlNorm.startsWith("/")
+            ) {
+              urlNorm = `/${urlNorm}`;
+            }
+            return {
+              id: adj.id,
+              nombreArchivo: adj.nombre_archivo,
+              url: urlNorm,
+              tipoMime: adj.tipo_mime,
+              tamanoBytes: Number(adj.tamano_bytes),
+              creadoEn:
+                typeof adj.creado_en === "string"
+                  ? adj.creado_en
+                  : new Date(adj.creado_en).toISOString(),
+            };
+          })
+        : undefined;
+
       return {
         id: rep.id,
         misionId: rep.mision_id,
+        ...(tipoReporte ? { tipoReporte } : {}),
+        ...(rep.dictamen !== undefined ? { dictamen } : {}),
+        ...(rep.motivo_no_abordable !== undefined
+          ? { motivoNoAbordable: rep.motivo_no_abordable ?? null }
+          : {}),
+        ...(rep.requiere_asistencia_social !== undefined &&
+        rep.requiere_asistencia_social !== null
+          ? { requiereAsistenciaSocial: Boolean(rep.requiere_asistencia_social) }
+          : {}),
+        ...(rep.estado_terreno ? { estadoTerreno: rep.estado_terreno } : {}),
         versionReporte,
         esRectificacion,
-        etiquetaReporte: esRectificacion
-          ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
-          : `Reporte de Evaluación #1 (Inicial)`,
+        etiquetaReporte,
         prioridadSugerida:
           (rep.prioridad_sugerida as IncidenteDetalle["prioridadSugerida"]) ?? null,
         prioridadAsignada:
@@ -134,6 +185,7 @@ export async function obtenerDetalleIncidenteService(
         personasAfectadas: Number(rep.personas_afectadas ?? 0),
         requiereApoyoAdicional: Boolean(rep.requiere_apoyo_adicional),
         evaluacion: evaluacionObj,
+        ...(adjuntosMapeados ? { adjuntos: adjuntosMapeados } : {}),
         evaluador: {
           id: rep.evaluador_id,
           nombre: rep.evaluador_nombre ?? "Patrullero en Terreno",
@@ -264,6 +316,9 @@ export async function obtenerDetalleIncidenteService(
       creadoEn: topReporteTerreno.creadoEn,
       resumen: truncarResumen(textoBase),
       prioridadAsignada: topReporteTerreno.prioridadAsignada ?? null,
+      dictamen: topReporteTerreno.dictamen ?? null,
+      motivoNoAbordable: topReporteTerreno.motivoNoAbordable ?? null,
+      tipoReporte: topReporteTerreno.tipoReporte ?? null,
       versionReporte: topReporteTerreno.versionReporte,
       esRectificacion: topReporteTerreno.esRectificacion,
     };
@@ -285,6 +340,9 @@ export async function obtenerDetalleIncidenteService(
       creadoEn: reclasificacionTipologia.creadoEn,
       resumen: truncarResumen(`${glosaCambio} ${reclasificacionTipologia.justificacion}`),
       prioridadAsignada: null,
+      dictamen: null,
+      motivoNoAbordable: null,
+      tipoReporte: null,
       versionReporte: null,
       esRectificacion: false,
     };
@@ -308,6 +366,12 @@ export async function obtenerDetalleIncidenteService(
       (incidente as { justificacion_prioridad?: string | null }).justificacion_prioridad ??
       null,
     requiereAsistenciaSocial: Boolean(incidente.requiere_asistencia_social),
+    fechaCierre: incidente.fecha_cierre
+      ? typeof incidente.fecha_cierre === "string"
+        ? incidente.fecha_cierre
+        : new Date(incidente.fecha_cierre).toISOString()
+      : null,
+    motivoNoAbordable: incidente.motivo_no_abordable ?? null,
     fuenteOrigen: incidente.fuente_origen,
     asteriskCallId: incidente.asterisk_call_id,
     asteriskCallerPhone: incidente.asterisk_caller_phone,

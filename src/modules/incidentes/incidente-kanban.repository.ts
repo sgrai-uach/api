@@ -27,6 +27,8 @@ export interface FilaIncidenteResumen {
   justificacion_prioridad?: string | null;
   total_reportes_terreno?: number | string;
   requiere_asistencia_social: boolean;
+  fecha_cierre?: Date | string | null;
+  motivo_no_abordable?: string | null;
   fuente_origen: string;
   informante_nombre: string | null;
   delegacion_nombre: string | null;
@@ -168,6 +170,8 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
         "incidente.prioridad_sugerida",
         "incidente.justificacion_prioridad",
         "incidente.requiere_asistencia_social",
+        "incidente.fecha_cierre",
+        "incidente.motivo_no_abordable",
         "incidente.fuente_origen",
         "informante.nombre as informante_nombre",
         "delegacion.nombre as delegacion_nombre",
@@ -317,6 +321,8 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
         "incidente.prioridad_sugerida",
         "incidente.justificacion_prioridad",
         "incidente.requiere_asistencia_social",
+        "incidente.fecha_cierre",
+        "incidente.motivo_no_abordable",
         "incidente.fuente_origen",
         "incidente.asterisk_call_id",
         "incidente.asterisk_caller_phone",
@@ -474,11 +480,16 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     reclasificacionTipologiaRaw = null;
   }
 
-  // Consultar historial de reportes de evaluación en terreno asociados a las misiones del incidente (HU-38)
+  // Consultar historial de reportes de evaluación en terreno asociados a las misiones del incidente (HU-38 / HU-39)
   let reportesEvaluacionTerreno: Array<{
     id: string;
     mision_id: string;
     evaluador_id: string;
+    tipo_reporte?: string | null;
+    dictamen?: string | null;
+    motivo_no_abordable?: string | null;
+    requiere_asistencia_social?: boolean | null;
+    estado_terreno?: string | null;
     version_reporte?: number | null;
     es_rectificacion?: boolean | null;
     prioridad_sugerida?: string | null;
@@ -495,39 +506,111 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     evaluador_email: string | null;
     evaluador_rut: string | null;
     creado_en: Date | string;
+    adjuntos?: Array<{
+      id: string;
+      nombre_archivo: string;
+      url: string;
+      tipo_mime: string;
+      tamano_bytes: number | string | bigint;
+      creado_en: Date | string;
+    }>;
   }> = [];
 
   try {
     const misionIds = misiones.map((m) => m.id);
     if (misionIds.length > 0) {
-      reportesEvaluacionTerreno = await db
-        .selectFrom("reporte_terreno")
-        .leftJoin("usuario as evaluador", "evaluador.id", "reporte_terreno.evaluador_id")
-        .select([
-          "reporte_terreno.id",
-          "reporte_terreno.mision_id",
-          "reporte_terreno.evaluador_id",
-          "reporte_terreno.version_reporte",
-          "reporte_terreno.es_rectificacion",
-          "reporte_terreno.prioridad_sugerida",
-          "reporte_terreno.prioridad_asignada",
-          "reporte_terreno.justificacion_prioridad",
-          "reporte_terreno.resumen_tecnico",
-          "reporte_terreno.acciones_realizadas",
-          "reporte_terreno.danos_estimados",
-          "reporte_terreno.observaciones",
-          "reporte_terreno.personas_afectadas",
-          "reporte_terreno.requiere_apoyo_adicional",
-          "reporte_terreno.detalles_evaluacion",
-          "evaluador.nombre as evaluador_nombre",
-          "evaluador.email as evaluador_email",
-          "evaluador.rut as evaluador_rut",
-          "reporte_terreno.creado_en",
-        ])
-        .where("reporte_terreno.mision_id", "in", misionIds)
-        .orderBy("reporte_terreno.version_reporte", "desc")
-        .orderBy("reporte_terreno.creado_en", "desc")
-        .execute();
+      const ejecutarConsultaReportesInc = () =>
+        db
+          .selectFrom("reporte_terreno")
+          .leftJoin("usuario as evaluador", "evaluador.id", "reporte_terreno.evaluador_id")
+          .select([
+            "reporte_terreno.id",
+            "reporte_terreno.mision_id",
+            "reporte_terreno.evaluador_id",
+            "reporte_terreno.tipo_reporte",
+            "reporte_terreno.dictamen",
+            "reporte_terreno.motivo_no_abordable",
+            "reporte_terreno.requiere_asistencia_social",
+            "reporte_terreno.estado_terreno",
+            "reporte_terreno.version_reporte",
+            "reporte_terreno.es_rectificacion",
+            "reporte_terreno.prioridad_sugerida",
+            "reporte_terreno.prioridad_asignada",
+            "reporte_terreno.justificacion_prioridad",
+            "reporte_terreno.resumen_tecnico",
+            "reporte_terreno.acciones_realizadas",
+            "reporte_terreno.danos_estimados",
+            "reporte_terreno.observaciones",
+            "reporte_terreno.personas_afectadas",
+            "reporte_terreno.requiere_apoyo_adicional",
+            "reporte_terreno.detalles_evaluacion",
+            "evaluador.nombre as evaluador_nombre",
+            "evaluador.email as evaluador_email",
+            "evaluador.rut as evaluador_rut",
+            "reporte_terreno.creado_en",
+          ])
+          .where("reporte_terreno.mision_id", "in", misionIds)
+          .orderBy("reporte_terreno.version_reporte", "desc")
+          .orderBy("reporte_terreno.creado_en", "desc")
+          .execute();
+
+      let filasRep;
+      try {
+        filasRep = await ejecutarConsultaReportesInc();
+      } catch (err) {
+        if (esErrorColumnaInexistente(err)) {
+          await asegurarColumnasHu38EnEsquema();
+          filasRep = await ejecutarConsultaReportesInc();
+        } else {
+          throw err;
+        }
+      }
+
+      const repIds = filasRep.map((r) => r.id);
+      let adjFilas: Array<{
+        id: string;
+        nombre_archivo: string;
+        url: string;
+        tipo_mime: string;
+        tamano_bytes: number | string | bigint;
+        reporte_terreno_id?: string | null;
+        creado_en: Date | string;
+      }> = [];
+
+      if (repIds.length > 0) {
+        try {
+          adjFilas = await db
+            .selectFrom("adjunto")
+            .select([
+              "id",
+              "nombre_archivo",
+              "url",
+              "tipo_mime",
+              "tamano_bytes",
+              "reporte_terreno_id",
+              "creado_en",
+            ])
+            .where("reporte_terreno_id", "in", repIds)
+            .orderBy("creado_en", "asc")
+            .execute();
+        } catch {
+          adjFilas = [];
+        }
+      }
+
+      reportesEvaluacionTerreno = filasRep.map((rep) => ({
+        ...rep,
+        adjuntos: adjFilas
+          .filter((a) => a.reporte_terreno_id === rep.id)
+          .map((a) => ({
+            id: a.id,
+            nombre_archivo: a.nombre_archivo,
+            url: a.url,
+            tipo_mime: a.tipo_mime,
+            tamano_bytes: a.tamano_bytes,
+            creado_en: a.creado_en,
+          })),
+      }));
     }
   } catch {
     // Si la tabla o columnas no están presentes en mocks de pruebas aisladas, retornar vacío
@@ -543,10 +626,12 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
   } as {
     incidente: Omit<
       typeof incidente,
-      "prioridad_sugerida" | "justificacion_prioridad"
+      "prioridad_sugerida" | "justificacion_prioridad" | "fecha_cierre" | "motivo_no_abordable"
     > & {
       prioridad_sugerida?: typeof incidente.prioridad_sugerida;
       justificacion_prioridad?: typeof incidente.justificacion_prioridad;
+      fecha_cierre?: Date | string | null;
+      motivo_no_abordable?: string | null;
     };
     misiones: typeof misiones;
     recursosAsociados: typeof recursosAsociados;

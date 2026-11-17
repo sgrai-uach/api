@@ -20,7 +20,6 @@ describe("Motor de Cálculo de Prioridad Sugerida en Terreno (HU-38)", () => {
 
     expect(resultado.prioridadSugerida).toBe("BAJA");
     expect(resultado.puntajeTotal).toBe(7); // 5 (1 persona) + 2 (1 mascota)
-    expect(resultado.requiereAsistenciaSocialSugerido).toBe(false);
   });
 
   it("debe calcular prioridad MEDIA ante un núcleo familiar con daño LEVE y niños/mascotas", () => {
@@ -49,7 +48,6 @@ describe("Motor de Cálculo de Prioridad Sugerida en Terreno (HU-38)", () => {
     // 12 (4 personas) + 6 (1 niño) + 7 (1 adulto mayor) + 22 (MODERADO) = 47 pts -> ALTA
     expect(resultado.prioridadSugerida).toBe("ALTA");
     expect(resultado.puntajeTotal).toBe(47);
-    expect(resultado.requiereAsistenciaSocialSugerido).toBe(true);
   });
 
   it("debe calcular prioridad CRITICA inmediatamente si existe al menos una persona electrodependiente", () => {
@@ -60,7 +58,6 @@ describe("Motor de Cálculo de Prioridad Sugerida en Terreno (HU-38)", () => {
     });
 
     expect(resultado.prioridadSugerida).toBe("CRITICA");
-    expect(resultado.requiereAsistenciaSocialSugerido).toBe(true);
     expect(
       resultado.factoresGatillantes.some((f) => f.includes("electrodependientes"))
     ).toBe(true);

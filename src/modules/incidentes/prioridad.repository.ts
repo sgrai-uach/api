@@ -134,7 +134,6 @@ export class PrioridadRepository {
       prioridadSugerida: calculo.prioridadSugerida,
       puntajeTotal: calculo.puntajeTotal,
       factoresGatillantes: calculo.factoresGatillantes,
-      requiereAsistenciaSocialSugerido: calculo.requiereAsistenciaSocialSugerido,
       evaluacionNormalizada: calculo.evaluacionNormalizada,
     };
   }
@@ -158,6 +157,14 @@ export class PrioridadRepository {
       input.prioridadAsignada ??
       input.prioridad_asignada) as PrioridadIncidente;
     const misionIdFiltro = input.misionId || input.mision_id;
+
+    if (!process.env.VITEST) {
+      try {
+        await asegurarColumnasHu38EnEsquema();
+      } catch {
+        // Ignorar en tests unitarios con mocks parciales
+      }
+    }
 
     return await db.transaction().execute(async (trx) => {
       // 1. Verificar existencia del incidente
@@ -383,6 +390,7 @@ export class PrioridadRepository {
           .values({
             mision_id: misionSeleccionada.id,
             evaluador_id: usuarioId,
+            tipo_reporte: "EVALUACION_PRIORIDAD",
             version_reporte: versionReporte,
             es_rectificacion: esRectificacion,
             prioridad_sugerida: prioridadSugerida,
@@ -420,15 +428,11 @@ export class PrioridadRepository {
         };
       }
 
-      // 8. Actualizar incidente atómicamente (prioridad, prioridad_sugerida, justificacion_prioridad, requiere_asistencia_social)
-      const requiereAsistenciaSocialFinal =
-        input.requiereAsistenciaSocial !== undefined ||
-        input.requiere_asistencia_social !== undefined
-          ? ev.requiereAsistenciaSocial
-          : Boolean(
-              incidenteExistente.requiere_asistencia_social ||
-                calculo.requiereAsistenciaSocialSugerido
-            );
+      // 8. Actualizar incidente atómicamente (prioridad, prioridad_sugerida, justificacion_prioridad)
+      // Nota: La derivación social (Ficha FIBE / requiere_asistencia_social) se gestiona en HU-39 al cerrar la verificación.
+      const requiereAsistenciaSocialActual = Boolean(
+        incidenteExistente.requiere_asistencia_social
+      );
 
       const incidenteActualizado = await trx
         .updateTable("incidente")
@@ -436,7 +440,6 @@ export class PrioridadRepository {
           prioridad: prioridadAsignada,
           prioridad_sugerida: prioridadSugerida,
           justificacion_prioridad: justificacionLimpia,
-          requiere_asistencia_social: requiereAsistenciaSocialFinal,
           estado: sql`CASE WHEN estado = 'REPORTADO' THEN 'VERIFICANDO' ELSE estado END`,
           actualizado_en: sql`CURRENT_TIMESTAMP`,
         })
@@ -511,7 +514,7 @@ export class PrioridadRepository {
               : justificacionLimpia,
           requiereAsistenciaSocial: Boolean(
             incidenteActualizado.requiere_asistencia_social ??
-              requiereAsistenciaSocialFinal
+              requiereAsistenciaSocialActual
           ),
           tipoIncidenteId: incidenteActualizado.tipo_incidente_id ?? null,
           tipoAfectacion: incidenteActualizado.tipo_afectacion ?? null,
@@ -582,7 +585,9 @@ export async function asegurarColumnasHu38EnEsquema(): Promise<void> {
   await sql`
     ALTER TABLE incidente
     ADD COLUMN IF NOT EXISTS prioridad_sugerida varchar(30),
-    ADD COLUMN IF NOT EXISTS justificacion_prioridad text;
+    ADD COLUMN IF NOT EXISTS justificacion_prioridad text,
+    ADD COLUMN IF NOT EXISTS fecha_cierre timestamptz,
+    ADD COLUMN IF NOT EXISTS motivo_no_abordable text;
   `.execute(db);
 
   await sql`
@@ -592,12 +597,70 @@ export async function asegurarColumnasHu38EnEsquema(): Promise<void> {
     ADD COLUMN IF NOT EXISTS prioridad_sugerida varchar(30),
     ADD COLUMN IF NOT EXISTS prioridad_asignada varchar(30),
     ADD COLUMN IF NOT EXISTS justificacion_prioridad text,
-    ADD COLUMN IF NOT EXISTS detalles_evaluacion jsonb;
+    ADD COLUMN IF NOT EXISTS detalles_evaluacion jsonb,
+    ADD COLUMN IF NOT EXISTS tipo_reporte varchar(40) NOT NULL DEFAULT 'EVALUACION_PRIORIDAD',
+    ADD COLUMN IF NOT EXISTS dictamen varchar(30),
+    ADD COLUMN IF NOT EXISTS motivo_no_abordable text,
+    ADD COLUMN IF NOT EXISTS requiere_asistencia_social boolean NOT NULL DEFAULT false;
   `.execute(db);
 
   await sql`
     ALTER TABLE mision_hito
     ADD COLUMN IF NOT EXISTS metadatos jsonb;
+  `.execute(db);
+
+  await sql`
+    DO $$
+    DECLARE
+      v_permiso_id UUID;
+      v_target_id UUID := '10000000-0000-4000-8000-000000000039';
+      v_admin_user_id UUID;
+    BEGIN
+      SELECT id INTO v_permiso_id FROM permiso WHERE codigo = 'reportes:crear';
+      IF v_permiso_id IS NULL THEN
+        IF EXISTS (SELECT 1 FROM permiso WHERE id = v_target_id) THEN
+          INSERT INTO permiso (codigo, nombre, descripcion, modulo)
+          VALUES (
+            'reportes:crear',
+            'Crear Reportes Técnicos de Terreno',
+            'Permite a patrullas verificadoras y cuadrillas emitir informes técnicos de terreno y cerrar misiones operativas',
+            'Misiones'
+          )
+          RETURNING id INTO v_permiso_id;
+        ELSE
+          INSERT INTO permiso (id, codigo, nombre, descripcion, modulo)
+          VALUES (
+            v_target_id,
+            'reportes:crear',
+            'Crear Reportes Técnicos de Terreno',
+            'Permite a patrullas verificadoras y cuadrillas emitir informes técnicos de terreno y cerrar misiones operativas',
+            'Misiones'
+          )
+          RETURNING id INTO v_permiso_id;
+        END IF;
+      END IF;
+
+      SELECT id INTO v_admin_user_id FROM usuario WHERE id = '00000000-0000-4000-8000-000000000001';
+      IF v_admin_user_id IS NULL THEN
+        SELECT id INTO v_admin_user_id FROM usuario LIMIT 1;
+      END IF;
+
+      INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
+      VALUES
+        ('20000000-0000-4000-8000-000000000001', v_permiso_id, v_admin_user_id),
+        ('20000000-0000-4000-8000-000000000004', v_permiso_id, v_admin_user_id),
+        ('20000000-0000-4000-8000-000000000005', v_permiso_id, v_admin_user_id)
+      ON CONFLICT DO NOTHING;
+
+      SELECT id INTO v_permiso_id FROM permiso WHERE codigo = 'misiones:leer';
+      IF v_permiso_id IS NOT NULL THEN
+        INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
+        VALUES
+          ('20000000-0000-4000-8000-000000000004', v_permiso_id, v_admin_user_id),
+          ('20000000-0000-4000-8000-000000000005', v_permiso_id, v_admin_user_id)
+        ON CONFLICT DO NOTHING;
+      END IF;
+    END $$;
   `.execute(db);
 
   esquemaHu38Asegurado = true;

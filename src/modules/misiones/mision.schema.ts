@@ -22,6 +22,17 @@ export const TipoMisionEnum = z.enum([
 
 export const PrioridadMisionEnum = z.enum(["BAJA", "MEDIA", "ALTA", "CRITICA"]);
 
+export const DictamenAtencionEnum = z.enum(["REQUIERE_CUADRILLA", "NO_ABORDABLE"]);
+
+export const EstadoTerrenoVerificacionEnum = z.enum([
+  "CRITICO",
+  "ESTABLE",
+  "INACCESIBLE",
+  "CONTROLADO",
+  "EN_VERIFICACION",
+  "FINALIZADO",
+]);
+
 // Parámetro de ruta para consultar detalle de misión
 export const MisionIdParamSchema = z.string().uuid({
   message: "El identificador de la misión debe ser un UUID válido.",
@@ -59,6 +70,10 @@ export type EvaluadorTerreno = z.infer<typeof EvaluadorTerrenoSchema>;
 export const ReporteTerrenoDetalleSchema = z.object({
   id: z.string().uuid().openapi({ description: "Identificador único UUID del reporte de terreno" }),
   misionId: z.string().uuid().openapi({ description: "Identificador de la misión asociada" }),
+  tipoReporte: z.string().optional().openapi({ description: "Naturaleza del reporte (EVALUACION_PRIORIDAD, VERIFICACION_CIERRE, REPORTE_CUADRILLA)", example: "VERIFICACION_CIERRE" }),
+  dictamen: DictamenAtencionEnum.nullable().optional().openapi({ description: "Dictamen operativo de la patrulla verificadora al cerrar la verificación (HU-39)", example: "REQUIERE_CUADRILLA" }),
+  motivoNoAbordable: z.string().nullable().optional().openapi({ description: "Justificación obligatoria cuando el dictamen es NO_ABORDABLE (HU-39 / HU-86)" }),
+  requiereAsistenciaSocial: z.boolean().optional().openapi({ description: "Indica si se solicitó derivación social / Ficha FIBE en este reporte (HU-39)" }),
   versionReporte: z.number().int().optional().openapi({ description: "Número correlativo de versión del reporte en esta misión (1 = inicial, 2+ = rectificaciones)", example: 1 }),
   esRectificacion: z.boolean().optional().openapi({ description: "Indica si es una modificación/reenvío de evaluación en terreno", example: false }),
   etiquetaReporte: z.string().optional().openapi({ description: "Etiqueta legible del número de reporte para el Centro de Mando", example: "Reporte de Evaluación #1 (Inicial)" }),
@@ -91,6 +106,17 @@ export const MisionBitacoraHitoSchema = z.object({
   hora: z.string().openapi({ description: "Hora del hito en formato HH:MM:SS", example: "14:30:00" }),
   timestamp: z.string().openapi({ description: "Timestamp completo ISO 8601" }),
   descripcion: z.string().openapi({ description: "Glosa descriptiva del hito operativo" }),
+  registradoPor: z
+    .object({
+      id: z.string().uuid(),
+      nombre: z.string(),
+      email: z.string().email().optional(),
+    })
+    .nullable()
+    .optional()
+    .openapi({
+      description: "Funcionario que registró el hito en terreno o Centro de Mando",
+    }),
   metadatos: z.record(z.string(), z.unknown()).nullable().optional().openapi({
     description: "Metadatos estructurados del hito (ej. tipoAnterior y tipoNuevo en TIPOLOGIA_RECLASIFICADA)",
   }),
@@ -113,6 +139,8 @@ export const IncidenteMisionResumenSchema = z.object({
   prioridadSugerida: z.string().nullable().optional().openapi({ description: "Prioridad sugerida preliminarmente por el sistema (HU-38)" }),
   justificacionPrioridad: z.string().nullable().optional().openapi({ description: "Justificación técnica del ajuste de prioridad en terreno (HU-38)" }),
   requiereAsistenciaSocial: z.boolean().openapi({ description: "Requiere derivación social / ficha FIBE" }),
+  fechaCierre: z.string().nullable().optional().openapi({ description: "Fecha y hora de cierre del incidente si fue cerrado o declarado NO_ABORDABLE" }),
+  motivoNoAbordable: z.string().nullable().optional().openapi({ description: "Motivo fundado registrado si el incidente fue declarado NO_ABORDABLE" }),
   delegacionNombre: z.string().nullable().openapi({ description: "Delegación territorial asignada" }),
 });
 
@@ -221,10 +249,14 @@ export const MisionDetalleCompletoSchema = z.object({
       prioridadEvaluada: z.boolean(),
       prioridadEvaluadaEn: z.string().nullable(),
       versionReportePrioridad: z.number().int().nullable(),
+      personasAfectadasPrevias: z.number().int().optional(),
+      reporteVerificacionEnviado: z.boolean().optional(),
+      reporteVerificacionEnviadoEn: z.string().nullable().optional(),
+      dictamenVerificacion: DictamenAtencionEnum.nullable().optional(),
     })
     .optional()
     .openapi({
-      description: "Estado consolidado de evaluaciones en terreno realizadas en la misión (HU-37 / HU-38)",
+      description: "Estado consolidado de evaluaciones en terreno realizadas en la misión (HU-37 / HU-38 / HU-39)",
     }),
 });
 
@@ -524,4 +556,269 @@ export const AsignarCuadrillaMisionResponseSchema = z
   .openapi("AsignarCuadrillaMisionResponse");
 
 export type AsignarCuadrillaMisionResponse = z.infer<typeof AsignarCuadrillaMisionResponseSchema>;
+
+// ==========================================
+// HU-39 / HU-86: Informe Técnico de Verificación en Terreno y Cierre de Misión
+// ==========================================
+
+/**
+ * Sección preparada para integración con subida de evidencia fotográfica (HU-43).
+ */
+export const AdjuntoReporteInputSchema = z
+  .object({
+    id: z.string().uuid("El identificador del adjunto debe ser un UUID válido.").optional(),
+    nombreArchivo: z.string().max(255).optional(),
+    nombre_archivo: z.string().max(255).optional(),
+    url: z.string().max(500).optional(),
+    tipoMime: z.string().max(100).optional(),
+    tipo_mime: z.string().max(100).optional(),
+    tamanoBytes: z.number().int().nonnegative().optional(),
+    tamano_bytes: z.number().int().nonnegative().optional(),
+  })
+  .openapi("AdjuntoReporteInput");
+
+export type AdjuntoReporteInput = z.infer<typeof AdjuntoReporteInputSchema>;
+
+export const CrearReporteVerificacionInputSchema = z
+  .object({
+    dictamen: DictamenAtencionEnum.optional().openapi({
+      description: "Dictamen operativo de verificación en terreno: 'REQUIERE_CUADRILLA' o 'NO_ABORDABLE'",
+      example: "REQUIERE_CUADRILLA",
+    }),
+    dictamenAtencion: DictamenAtencionEnum.optional(),
+    dictamen_atencion: DictamenAtencionEnum.optional(),
+    motivoNoAbordable: z
+      .string()
+      .max(2000, "El motivo de no abordabilidad no puede exceder los 2000 caracteres.")
+      .nullable()
+      .optional()
+      .openapi({
+        description:
+          "Motivo técnico obligatorio (mínimo 15 caracteres) cuando el dictamen es NO_ABORDABLE (predio privado inaccesible, faja fiscal externa o falsa alarma)",
+        example:
+          "Emergencia emplazada dentro de predio privado cercado sin autorización de ingreso ni riesgo para vía pública.",
+      }),
+    motivo_no_abordable: z
+      .string()
+      .max(2000, "El motivo de no abordabilidad no puede exceder los 2000 caracteres.")
+      .nullable()
+      .optional(),
+    resumenTecnico: z
+      .string()
+      .max(2000, "El resumen técnico no puede exceder los 2000 caracteres.")
+      .optional()
+      .openapi({
+        description: "Resumen técnico consolidado del siniestro constatado en terreno (obligatorio, mínimo 10 caracteres)",
+        example:
+          "Se constata obstrucción completa de sumidero y socavón en berma norte; requiere cuadrilla vial con motobomba.",
+      }),
+    resumen_tecnico: z
+      .string()
+      .max(2000, "El resumen técnico no puede exceder los 2000 caracteres.")
+      .optional(),
+    estadoTerreno: z
+      .string()
+      .trim()
+      .min(1, "El estado del terreno no puede estar vacío.")
+      .max(50, "El estado del terreno no puede exceder los 50 caracteres.")
+      .optional()
+      .openapi({
+        description: "Estado operativo constatado del terreno (ej. CRITICO, ESTABLE, INACCESIBLE, CONTROLADO, FINALIZADO)",
+        example: "CRITICO",
+      }),
+    estado_terreno: z
+      .string()
+      .trim()
+      .min(1, "El estado del terreno no puede estar vacío.")
+      .max(50, "El estado del terreno no puede exceder los 50 caracteres.")
+      .optional(),
+    personasAfectadas: z
+      .number({ message: "La cantidad de personas afectadas debe ser un número entero." })
+      .int("La cantidad de personas afectadas debe ser un número entero.")
+      .min(0, "La cantidad de personas afectadas no puede ser negativa.")
+      .max(5000, "La cantidad de personas afectadas excede el máximo permitido.")
+      .optional()
+      .openapi({
+        description:
+          "Estimación de personas damnificadas. Si se omite, se rescata automáticamente del reporte de prioridad previo (HU-38); si se envía, permite confirmar o rectificar dicho conteo.",
+        example: 4,
+      }),
+    personas_afectadas: z
+      .number({ message: "La cantidad de personas afectadas debe ser un número entero." })
+      .int("La cantidad de personas afectadas debe ser un número entero.")
+      .min(0, "La cantidad de personas afectadas no puede ser negativa.")
+      .max(5000, "La cantidad de personas afectadas excede el máximo permitido.")
+      .optional(),
+    danosEstimados: z
+      .string()
+      .max(2000, "Los daños estimados no pueden exceder los 2000 caracteres.")
+      .nullable()
+      .optional()
+      .openapi({
+        description: "Descripción o estimación cuantitativa/cualitativa de daños materiales observados",
+        example: "Anegamiento de primer nivel en 2 viviendas y daño en cerco perimetral.",
+      }),
+    danos_estimados: z
+      .string()
+      .max(2000, "Los daños estimados no pueden exceder los 2000 caracteres.")
+      .nullable()
+      .optional(),
+    observaciones: z
+      .string()
+      .max(2000, "Las observaciones no pueden exceder los 2000 caracteres.")
+      .nullable()
+      .optional()
+      .openapi({
+        description: "Observaciones generales, condiciones de acceso o seguridad en terreno",
+        example: "Acceso despejado para camión aljibe por calle paralela.",
+      }),
+    accionesRealizadas: z
+      .string()
+      .max(1000, "Las acciones realizadas no pueden exceder los 1000 caracteres.")
+      .nullable()
+      .optional()
+      .openapi({
+        description: "Maniobras preliminares de contención o señalización realizadas por la patrulla",
+        example: "Instalación de conos preventivos y entrevista con vecinos afectados.",
+      }),
+    acciones_realizadas: z
+      .string()
+      .max(1000, "Las acciones realizadas no pueden exceder los 1000 caracteres.")
+      .nullable()
+      .optional(),
+    requiereAsistenciaSocial: z
+      .boolean()
+      .optional()
+      .openapi({
+        description: "Casilla de verificación que indica si requiere derivación a Asistente Social para Ficha FIBE (trasladada desde HU-38)",
+        example: true,
+      }),
+    requiere_asistencia_social: z.boolean().optional(),
+    adjuntoIds: z
+      .array(z.string().uuid("Cada identificador de adjunto debe ser un UUID válido."))
+      .max(20, "No se pueden vincular más de 20 adjuntos por reporte.")
+      .optional()
+      .openapi({
+        description: "Listado opcional de UUIDs de evidencias fotográficas previamente cargadas (integración preparada para HU-43)",
+      }),
+    adjunto_ids: z
+      .array(z.string().uuid("Cada identificador de adjunto debe ser un UUID válido."))
+      .max(20)
+      .optional(),
+    adjuntos: z
+      .array(AdjuntoReporteInputSchema)
+      .max(20, "No se pueden adjuntar más de 20 archivos por reporte.")
+      .optional()
+      .openapi({
+        description: "Metadatos opcionales de fotografías de evidencia técnica (sección reservada para integración con HU-43)",
+      }),
+    latitud: z
+      .number({ message: "La latitud debe ser un número válido." })
+      .finite("La latitud debe ser un número finito válido.")
+      .min(-90, "La latitud no puede ser menor a -90.")
+      .max(90, "La latitud no puede ser mayor a 90.")
+      .optional()
+      .openapi({
+        description: "Coordenada GPS opcional de latitud (WGS84) al cerrar la verificación",
+        example: -39.819588,
+      }),
+    longitud: z
+      .number({ message: "La longitud debe ser un número válido." })
+      .finite("La longitud debe ser un número finito válido.")
+      .min(-180, "La longitud no puede ser menor a -180.")
+      .max(180, "La longitud no puede ser mayor a 180.")
+      .optional()
+      .openapi({
+        description: "Coordenada GPS opcional de longitud (WGS84) al cerrar la verificación",
+        example: -73.245209,
+      }),
+  })
+  .superRefine((data, ctx) => {
+    const dictamen =
+      data.dictamen ?? data.dictamenAtencion ?? data.dictamen_atencion;
+
+    if (!dictamen) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dictamen"],
+        message:
+          "Debe seleccionar el dictamen de atención operativa ('REQUIERE_CUADRILLA' o 'NO_ABORDABLE').",
+      });
+    }
+
+    const resumenRaw = data.resumenTecnico ?? data.resumen_tecnico;
+    const resumenLimpio = typeof resumenRaw === "string" ? resumenRaw.trim() : "";
+    if (resumenLimpio.length < 10) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["resumen_tecnico"],
+        message:
+          "El resumen técnico del siniestro es obligatorio y debe contener al menos 10 caracteres.",
+      });
+    }
+
+    const motivoRaw = data.motivoNoAbordable ?? data.motivo_no_abordable;
+    const motivoLimpio = typeof motivoRaw === "string" ? motivoRaw.trim() : "";
+    if (dictamen === "NO_ABORDABLE" && motivoLimpio.length < 15) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["motivo_no_abordable"],
+        message:
+          "Cuando el dictamen es 'NO_ABORDABLE', el campo 'motivo_no_abordable' es obligatorio y debe contener al menos 15 caracteres.",
+      });
+    }
+  })
+  .openapi("CrearReporteVerificacionInput");
+
+export type CrearReporteVerificacionInput = z.infer<typeof CrearReporteVerificacionInputSchema>;
+
+export const EnviarReporteVerificacionResponseSchema = z
+  .object({
+    message: z.string().openapi({
+      example:
+        "Informe técnico de verificación registrado y misión cerrada exitosamente.",
+    }),
+    data: z.object({
+      reporteTerreno: ReporteTerrenoDetalleSchema,
+      mision: z.object({
+        id: z.string().uuid(),
+        codigo: z.string(),
+        titulo: z.string(),
+        tipoMision: TipoMisionEnum,
+        estado: EstadoMisionEnum.openapi({ example: "COMPLETADA" }),
+        prioridad: PrioridadMisionEnum,
+        incidenteId: z.string().uuid().nullable(),
+        patrullaId: z.string().uuid().nullable(),
+        fechaInicio: z.string().nullable(),
+        fechaCierre: z.string(),
+        actualizadoEn: z.string(),
+      }),
+      patrulla: z
+        .object({
+          id: z.string().uuid(),
+          nombre: z.string(),
+          estado: z.string().openapi({ example: "DISPONIBLE" }),
+        })
+        .nullable(),
+      incidente: z
+        .object({
+          id: z.string().uuid(),
+          codigo: z.string(),
+          estado: z.string().openapi({ example: "VERIFICANDO" }),
+          prioridad: z.string(),
+          requiereAsistenciaSocial: z.boolean(),
+          fechaCierre: z.string().nullable(),
+          motivoNoAbordable: z.string().nullable(),
+        })
+        .nullable(),
+      hito: MisionHitoRegistradoSchema.extend({
+        metadatos: z.record(z.string(), z.unknown()).nullable().optional(),
+      }),
+    }),
+  })
+  .openapi("EnviarReporteVerificacionResponse");
+
+export type EnviarReporteVerificacionResponse = z.infer<
+  typeof EnviarReporteVerificacionResponseSchema
+>;
 

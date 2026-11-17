@@ -23,7 +23,6 @@ export interface FamiliaAfectadaItem {
   personasElectrodependientes: number;
   mascotasAfectadas: number;
   nivelCompromisoVivienda: NivelCompromisoVivienda;
-  requiereAsistenciaSocial: boolean;
 }
 
 export interface EvaluacionTerrenoNormalizada {
@@ -38,7 +37,6 @@ export interface EvaluacionTerrenoNormalizada {
   viviendasAfectadas: number;
   nivelCompromisoVivienda: NivelCompromisoVivienda;
   requiereEvacuacion: boolean;
-  requiereAsistenciaSocial: boolean;
   requiereApoyoAdicional: boolean;
   riesgosActivos: RiesgosActivosEvaluacion;
   detallesAdicionales: string | null;
@@ -50,7 +48,6 @@ export interface ResultadoCalculoPrioridad {
   prioridadSugerida: PrioridadIncidente;
   puntajeTotal: number;
   factoresGatillantes: string[];
-  requiereAsistenciaSocialSugerido: boolean;
   evaluacionNormalizada: EvaluacionTerrenoNormalizada;
 }
 
@@ -118,7 +115,6 @@ export function normalizarEvaluacionTerreno(
   let sumaFamiliasElectro = 0;
   let sumaFamiliasMascotas = 0;
   let maxCompromisoFamilias: NivelCompromisoVivienda = "SIN_DANO";
-  let algunaFamiliaFibe = false;
 
   if (familiasRaw && familiasRaw.length > 0) {
     familiasNormalizadas = familiasRaw.map((f, idx) => {
@@ -134,7 +130,6 @@ export function normalizarEvaluacionTerreno(
       const fComp: NivelCompromisoVivienda = compromisosValidos.includes(fCompRaw as NivelCompromisoVivienda)
         ? (fCompRaw as NivelCompromisoVivienda)
         : "SIN_DANO";
-      const fFibe = bool(f.requiereAsistenciaSocial ?? f.requiere_asistencia_social, false);
 
       sumaFamiliasPersonas += fTotal;
       sumaFamiliasNinos += fNinos;
@@ -144,9 +139,6 @@ export function normalizarEvaluacionTerreno(
       sumaFamiliasMascotas += fMascotas;
       if (ordenCompromiso[fComp] > ordenCompromiso[maxCompromisoFamilias]) {
         maxCompromisoFamilias = fComp;
-      }
-      if (fFibe) {
-        algunaFamiliaFibe = true;
       }
 
       return {
@@ -159,7 +151,6 @@ export function normalizarEvaluacionTerreno(
         personasElectrodependientes: fElectro,
         mascotasAfectadas: fMascotas,
         nivelCompromisoVivienda: fComp,
-        requiereAsistenciaSocial: fFibe,
       };
     });
   }
@@ -210,9 +201,6 @@ export function normalizarEvaluacionTerreno(
       : "SIN_DANO";
 
   const requiereEvacuacion = bool(fuente.requiereEvacuacion ?? fuente.requiere_evacuacion, false);
-  const requiereAsistenciaSocial = familiasNormalizadas
-    ? algunaFamiliaFibe || bool(fuente.requiereAsistenciaSocial ?? fuente.requiere_asistencia_social, false)
-    : bool(fuente.requiereAsistenciaSocial ?? fuente.requiere_asistencia_social, false);
   const requiereApoyoAdicional = bool(
     fuente.requiereApoyoAdicional ?? fuente.requiere_apoyo_adicional,
     false
@@ -261,7 +249,6 @@ export function normalizarEvaluacionTerreno(
     viviendasAfectadas,
     nivelCompromisoVivienda,
     requiereEvacuacion,
-    requiereAsistenciaSocial,
     requiereApoyoAdicional,
     riesgosActivos,
     detallesAdicionales: str(
@@ -414,18 +401,10 @@ export function calcularPrioridadSugerida(
     prioridadSugerida = "BAJA";
   }
 
-  const requiereAsistenciaSocialSugerido =
-    ev.requiereAsistenciaSocial ||
-    ((ev.nivelCompromisoVivienda === "MODERADO" ||
-      ev.nivelCompromisoVivienda === "GRAVE_INHABITABLE") &&
-      ev.nucleoFamiliarTotal > 0) ||
-    ev.personasElectrodependientes > 0;
-
   return {
     prioridadSugerida,
     puntajeTotal,
     factoresGatillantes,
-    requiereAsistenciaSocialSugerido,
     evaluacionNormalizada: ev,
   };
 }

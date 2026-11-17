@@ -165,6 +165,9 @@ import {
   AceptarMisionResponseSchema,
   AsignarCuadrillaMisionInputSchema,
   AsignarCuadrillaMisionResponseSchema,
+  AdjuntoReporteInputSchema,
+  CrearReporteVerificacionInputSchema,
+  EnviarReporteVerificacionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -252,6 +255,9 @@ registry.register("ActualizarPrioridadIncidenteResponse", ActualizarPrioridadInc
 registry.register("ReporteEvaluacionTerrenoItem", ReporteEvaluacionTerrenoItemSchema);
 registry.register("IncidentePrioridadActualizadaResumen", IncidentePrioridadActualizadaResumenSchema);
 registry.register("MisionHitoPrioridad", MisionHitoPrioridadSchema);
+registry.register("AdjuntoReporteInput", AdjuntoReporteInputSchema);
+registry.register("CrearReporteVerificacionInput", CrearReporteVerificacionInputSchema);
+registry.register("EnviarReporteVerificacionResponse", EnviarReporteVerificacionResponseSchema);
 
 // Registrar esquemas de Eventos ATP (Puntos Críticos y Asistencia Social)
 registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
@@ -2659,6 +2665,55 @@ registry.registerPath({
     409: {
       description:
         "Conflicto: la misión no ha sido aceptada por la patrulla (debe estar en estado EN_CURSO)",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// POST /api/misiones/{id}/reporte (HU-39 / HU-86: Enviar informe técnico de verificación y cerrar misión)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/reporte",
+  summary: "Enviar informe técnico de verificación en terreno y cerrar misión inicial de patrullaje (HU-39 / HU-86)",
+  description:
+    "Permite a la patrulla verificadora enviar el informe técnico consolidado de terreno con dictamen operativo ('REQUIERE_CUADRILLA' o 'NO_ABORDABLE'), resumen técnico (>= 10 caracteres), estado del terreno, estimación de personas damnificadas (rescatable desde el reporte previo de prioridad HU-38 y modificable), daños estimados, observaciones, indicador de Ficha FIBE (requiere_asistencia_social) y sección preparada para evidencia fotográfica (HU-43). Ejecuta una transacción atómica que: (1) persiste el reporte en reporte_terreno con evaluador_id = usuario.id, (2) cierra la misión (COMPLETADA con fecha_cierre), (3) libera la patrulla a DISPONIBLE, (4) si es NO_ABORDABLE (exige motivo_no_abordable >= 15 caracteres), transiciona el incidente a NO_ABORDABLE con fecha_cierre y motivo, o si solicita Ficha FIBE marca incidente.requiere_asistencia_social = true, y (5) registra el hito VERIFICACION_COMPLETADA en mision_hito. Emite eventos WebSocket 'mision:actualizada', 'incidente:actualizado' y 'patrulla:actualizada' / 'patrulla:liberada'. Requiere permiso RBAC 'reportes:crear'.",
+  tags: ["Misiones", "Incidentes"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      description: "Informe técnico de verificación en terreno y dictamen de cierre",
+      content: {
+        "application/json": {
+          schema: CrearReporteVerificacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Informe técnico registrado y misión de verificación cerrada exitosamente",
+      content: {
+        "application/json": {
+          schema: EnviarReporteVerificacionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos de entrada inválidos (ej. resumen_tecnico < 10 caracteres o dictamen NO_ABORDABLE sin motivo_no_abordable >= 15 caracteres)",
+    },
+    401: { description: "No autenticado o token inválido" },
+    403: {
+      description:
+        "Sin permiso 'reportes:crear' o el usuario no pertenece a la patrulla asignada a la misión",
+    },
+    404: { description: "Misión no encontrada" },
+    409: {
+      description:
+        "Conflicto: la misión no se encuentra en estado EN_CURSO (ej. está DESPACHADA o ya fue COMPLETADA)",
     },
     500: { description: "Error interno del servidor" },
   },

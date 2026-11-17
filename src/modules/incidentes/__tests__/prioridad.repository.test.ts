@@ -306,7 +306,7 @@ describe("PrioridadRepository (HU-38)", () => {
                     prioridad: valores.prioridad,
                     prioridad_sugerida: valores.prioridad_sugerida,
                     justificacion_prioridad: valores.justificacion_prioridad,
-                    requiere_asistencia_social: valores.requiere_asistencia_social,
+                    requiere_asistencia_social: false,
                     actualizado_en: new Date("2026-11-11T22:00:00Z"),
                   }),
                 }),
@@ -379,6 +379,7 @@ describe("PrioridadRepository (HU-38)", () => {
     expect(res1.incidente.prioridad).toBe("ALTA");
     expect(res1.incidente.prioridadSugerida).toBe("MEDIA");
     expect(res1.incidente.modificoPrioridadSugerida).toBe(true);
+    expect(res1.incidente.requiereAsistenciaSocial).toBe(false);
     expect(res1.reporteTerreno.versionReporte).toBe(1);
     expect(res1.reporteTerreno.esRectificacion).toBe(false);
     expect(res1.hito.hito).toBe("PRIORIDAD_ASIGNADA");

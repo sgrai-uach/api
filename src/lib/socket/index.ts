@@ -42,6 +42,9 @@ export interface IncidenteActualizadoPayload {
   tipoIncidenteId?: string | null;
   tipoAfectacion?: string;
   justificacion?: string | null;
+  motivoNoAbordable?: string | null;
+  fechaCierre?: string | null;
+  dictamen?: string | null;
   reporteTerreno?: Record<string, unknown> | null;
 }
 
@@ -821,6 +824,7 @@ export interface MisionActualizadaPayload {
   cuadrillaId?: string | null;
   incidenteId?: string | null;
   fechaInicio: string | null;
+  fechaCierre?: string | null;
   hito: {
     id: string;
     hito: string;
@@ -828,12 +832,13 @@ export interface MisionActualizadaPayload {
     registradoPorId: string | null;
     creadoEn: string;
   };
+  reporteTerreno?: Record<string, unknown> | null;
   actualizadoEn: string;
 }
 
 /**
  * Emite una notificación en tiempo real hacia la sala 'encargado' del Centro de Mando
- * cuando una patrulla verificadora o unidad de terreno actualiza o acepta una misión (HU-36).
+ * cuando una patrulla verificadora o unidad de terreno actualiza o acepta una misión (HU-36 / HU-39).
  */
 export function notificarMisionActualizada(payload: MisionActualizadaPayload): void {
   if (ioInstance) {
@@ -850,16 +855,18 @@ export function notificarMisionActualizada(payload: MisionActualizadaPayload): v
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "encargado",
-          event: "mision:actualizada",
-          payload,
-        })
-      )
-      .catch(() => {});
+    for (const room of ["encargado", "sala:encargados", "supervisor"]) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "mision:actualizada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 
