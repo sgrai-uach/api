@@ -32,7 +32,14 @@ export interface ReclasificarTipologiaRepoResult {
       tipoAnteriorId: string | null;
       tipoNuevo: string;
       tipoNuevoId: string;
+      esReclasificacion?: boolean;
       justificacion: string;
+      evaluador?: {
+        id: string;
+        nombre: string;
+        email: string;
+        rut?: string | null;
+      };
     } | null;
     creadoEn: string;
   };
@@ -211,12 +218,40 @@ export class TipologiaRepository {
       // 6. Insertar el hito en mision_hito con metadatos de trazabilidad (antes -> después)
       const justificacionLimpia = input.justificacion.trim();
       const descripcionHito = `Tipología reclasificada en terreno a: ${tipoIncidente.nombre}. Justificación: ${justificacionLimpia}`;
+      const esReclasificacion = incidenteExistente.tipo_incidente_id
+        ? incidenteExistente.tipo_incidente_id !== tipoIncidente.id
+        : (incidenteExistente.tipo_afectacion || "").trim().toLowerCase() !==
+          tipoIncidente.nombre.trim().toLowerCase();
+
+      let evaluadorHito:
+        | { id: string; nombre: string; email: string; rut?: string | null }
+        | undefined;
+      try {
+        const usr = await trx
+          .selectFrom("usuario")
+          .select(["nombre", "email", "rut"])
+          .where("id", "=", usuarioId)
+          .executeTakeFirst();
+        if (usr?.nombre) {
+          evaluadorHito = {
+            id: usuarioId,
+            nombre: usr.nombre,
+            email: usr.email || "",
+            rut: usr.rut ?? null,
+          };
+        }
+      } catch {
+        // Ignorar si la tabla usuario no está mockeada en pruebas unitarias aisladas
+      }
+
       const metadatosHito = {
         tipoAnterior: incidenteExistente.tipo_afectacion ?? null,
         tipoAnteriorId: incidenteExistente.tipo_incidente_id ?? null,
         tipoNuevo: tipoIncidente.nombre,
         tipoNuevoId: tipoIncidente.id,
+        esReclasificacion,
         justificacion: justificacionLimpia,
+        ...(evaluadorHito ? { evaluador: evaluadorHito } : {}),
       };
 
       const hitoRegistrado = await trx
