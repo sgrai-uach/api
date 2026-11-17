@@ -454,6 +454,8 @@ export interface IncidenteTable {
   operador_id?: string | null;
   encargado_id: string | null;
   aviso_id?: string | null;
+  fecha_cierre?: ColumnType<Date | null, Date | string | null | undefined, Date | string | null>;
+  motivo_no_abordable?: ColumnType<string | null, string | null | undefined, string | null>;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }
@@ -503,10 +505,37 @@ export interface AdjuntoTable {
   creado_en: Generated<Date>;
 }
 
+export type DictamenVerificacion = "REQUIERE_CUADRILLA" | "NO_ABORDABLE";
+
+export type TipoReporteTerreno =
+  | "EVALUACION_PRIORIDAD"
+  | "VERIFICACION_CIERRE"
+  | "REPORTE_CUADRILLA";
+
 export interface ReporteTerrenoTable {
   id: Generated<string>;
   mision_id: string;
   evaluador_id: string;
+  tipo_reporte?: ColumnType<
+    TipoReporteTerreno | string,
+    TipoReporteTerreno | string | undefined,
+    TipoReporteTerreno | string
+  >;
+  dictamen?: ColumnType<
+    DictamenVerificacion | null,
+    DictamenVerificacion | null | undefined,
+    DictamenVerificacion | null
+  >;
+  motivo_no_abordable?: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
+  requiere_asistencia_social?: ColumnType<
+    boolean,
+    boolean | undefined,
+    boolean
+  >;
   resumen_tecnico: string;
   acciones_realizadas: string | null;
   requiere_apoyo_adicional: ColumnType<boolean, boolean | undefined, boolean>;
