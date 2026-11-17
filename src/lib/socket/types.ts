@@ -61,6 +61,24 @@ export interface ServerToClientEvents {
         prioridad?: string;
         asignadoEn: string;
     }) => void;
+    "mision:actualizada": (payload: {
+        misionId: string;
+        codigo: string;
+        estado: string;
+        tipoMision: string;
+        patrullaId?: string | null;
+        cuadrillaId?: string | null;
+        incidenteId?: string | null;
+        fechaInicio: string | null;
+        hito: {
+            id: string;
+            hito: string;
+            descripcion: string;
+            registradoPorId: string | null;
+            creadoEn: string;
+        };
+        actualizadoEn: string;
+    }) => void;
     "notificacion:trazabilidad_actualizada": (payload: {
         notificacionId: string;
         misionId: string;

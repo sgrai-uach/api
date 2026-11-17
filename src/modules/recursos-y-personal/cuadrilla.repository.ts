@@ -35,6 +35,8 @@ export interface FilaCuadrillaDetalleConsolidado {
     nombre: string;
     cantidad_asignada: number;
     es_individual: boolean;
+    descripcion?: string | null;
+    detalles?: Record<string, unknown> | null;
   }>;
   trabajadores: Array<{
     id: string;
@@ -44,8 +46,26 @@ export interface FilaCuadrillaDetalleConsolidado {
     rut: string | null;
     cargo: string | null;
     especialidad: string | null;
+    telefono?: string | null;
     asignado_en: Date;
   }>;
+  mision_activa?: {
+    id: string;
+    codigo: string;
+    titulo: string;
+    tipo_mision: string;
+    estado: string;
+    fecha_despacho: Date | null;
+    creado_en: Date;
+    incidente?: {
+      id: string;
+      codigo: string;
+      tipo?: string | null;
+      direccion?: string | null;
+      latitud?: number | null;
+      longitud?: number | null;
+    } | null;
+  } | null;
   totalRecursos?: number;
   totalTrabajadores?: number;
 }
@@ -156,6 +176,8 @@ export async function obtenerCuadrillaDetalleUnitario(
       "cuadrilla_recurso.id as id",
       "cuadrilla_recurso.recurso_id as recurso_id",
       "recurso.nombre as nombre",
+      "recurso.descripcion as descripcion",
+      "recurso.detalles as detalles",
       "cuadrilla_recurso.cantidad_asignada as cantidad_asignada",
       "recurso.es_individual as es_individual",
     ])
@@ -173,6 +195,8 @@ export async function obtenerCuadrillaDetalleUnitario(
         "cuadrilla_recurso.id as id",
         "cuadrilla_recurso.recurso_id as recurso_id",
         "recurso.nombre as nombre",
+        "recurso.descripcion as descripcion",
+        "recurso.detalles as detalles",
         "cuadrilla_recurso.cantidad_asignada as cantidad_asignada",
         "recurso.es_individual as es_individual",
       ])
@@ -191,6 +215,7 @@ export async function obtenerCuadrillaDetalleUnitario(
       "usuario.id as usuario_id",
       "usuario.nombre as nombre",
       "usuario.rut as rut",
+      "usuario.telefono as telefono",
       "personal.cargo as cargo",
       "personal.especialidad as especialidad",
       "cuadrilla_personal.asignado_en as asignado_en",
@@ -211,12 +236,68 @@ export async function obtenerCuadrillaDetalleUnitario(
         "usuario.id as usuario_id",
         "usuario.nombre as nombre",
         "usuario.rut as rut",
+        "usuario.telefono as telefono",
         "personal.cargo as cargo",
         "personal.especialidad as especialidad",
         "cuadrilla_personal.asignado_en as asignado_en",
       ])
       .where("cuadrilla_personal.cuadrilla_id", "=", id)
       .execute();
+  }
+
+  // Consultar misión activa si la cuadrilla se encuentra en misión
+  const misionActivaFila = await db
+    .selectFrom("mision")
+    .leftJoin("incidente", "incidente.id", "mision.incidente_id")
+    .select([
+      "mision.id as mision_id",
+      "mision.codigo as mision_codigo",
+      "mision.titulo as mision_titulo",
+      "mision.tipo_mision as tipo_mision",
+      "mision.estado as mision_estado",
+      "mision.fecha_inicio as fecha_despacho",
+      "mision.creado_en as mision_creado_en",
+      "incidente.id as incidente_id",
+      "incidente.codigo as incidente_codigo",
+      "incidente.tipo_afectacion as incidente_tipo",
+      "incidente.direccion_texto as incidente_direccion",
+      "incidente.latitud as incidente_latitud",
+      "incidente.longitud as incidente_longitud",
+    ])
+    .where("mision.cuadrilla_id", "=", id)
+    .where("mision.estado", "in", ["DESPACHADA", "EN_CURSO"])
+    .orderBy(sql`CASE WHEN mision.estado = 'EN_CURSO' THEN 0 ELSE 1 END`, "asc")
+    .orderBy(sql`mision.fecha_inicio DESC NULLS LAST`)
+    .orderBy("mision.creado_en", "desc")
+    .executeTakeFirst();
+
+  let mision_activa: FilaCuadrillaDetalleConsolidado["mision_activa"] = null;
+  if (misionActivaFila) {
+    mision_activa = {
+      id: misionActivaFila.mision_id,
+      codigo: misionActivaFila.mision_codigo,
+      titulo: misionActivaFila.mision_titulo,
+      tipo_mision: misionActivaFila.tipo_mision,
+      estado: misionActivaFila.mision_estado,
+      fecha_despacho: misionActivaFila.fecha_despacho ?? misionActivaFila.mision_creado_en,
+      creado_en: misionActivaFila.mision_creado_en,
+      incidente: misionActivaFila.incidente_id
+        ? {
+            id: misionActivaFila.incidente_id,
+            codigo: misionActivaFila.incidente_codigo ?? "",
+            tipo: misionActivaFila.incidente_tipo ?? null,
+            direccion: misionActivaFila.incidente_direccion ?? null,
+            latitud:
+              misionActivaFila.incidente_latitud != null
+                ? Number(misionActivaFila.incidente_latitud)
+                : null,
+            longitud:
+              misionActivaFila.incidente_longitud != null
+                ? Number(misionActivaFila.incidente_longitud)
+                : null,
+          }
+        : null,
+    };
   }
 
   return {
@@ -243,6 +324,8 @@ export async function obtenerCuadrillaDetalleUnitario(
       nombre: r.nombre,
       cantidad_asignada: Number(r.cantidad_asignada),
       es_individual: Boolean(r.es_individual),
+      descripcion: r.descripcion ?? null,
+      detalles: (r.detalles as Record<string, unknown>) ?? null,
     })),
     trabajadores: trabajadores.map((t) => ({
       id: t.id,
@@ -252,8 +335,10 @@ export async function obtenerCuadrillaDetalleUnitario(
       rut: t.rut,
       cargo: t.cargo,
       especialidad: t.especialidad,
+      telefono: t.telefono ?? null,
       asignado_en: t.asignado_en,
     })),
+    mision_activa,
   };
 }
 
@@ -275,8 +360,8 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
 }> {
   let consultaBase = db
     .selectFrom("cuadrilla")
-    .innerJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
-    .innerJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id");
+    .leftJoin("delegacion", "delegacion.id", "cuadrilla.delegacion_id")
+    .leftJoin("usuario", "usuario.id", "cuadrilla.usuario_delegado_id");
 
   const soloInactivas =
     filtros.estado === "INACTIVAS" ||
@@ -377,6 +462,8 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
       "cuadrilla_recurso.cuadrilla_id as cuadrilla_id",
       "cuadrilla_recurso.recurso_id as recurso_id",
       "recurso.nombre as nombre",
+      "recurso.descripcion as descripcion",
+      "recurso.detalles as detalles",
       "cuadrilla_recurso.cantidad_asignada as cantidad_asignada",
       "recurso.es_individual as es_individual",
     ])
@@ -395,6 +482,7 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
       "usuario.id as usuario_id",
       "usuario.nombre as nombre",
       "usuario.rut as rut",
+      "usuario.telefono as telefono",
       "personal.cargo as cargo",
       "personal.especialidad as especialidad",
       "cuadrilla_personal.asignado_en as asignado_en",
@@ -410,6 +498,8 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
     nombre: string;
     cantidad_asignada: number;
     es_individual: boolean;
+    descripcion?: string | null;
+    detalles?: Record<string, unknown> | null;
   }>>();
 
   for (const r of recursosLote) {
@@ -420,6 +510,8 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
       nombre: r.nombre,
       cantidad_asignada: Number(r.cantidad_asignada),
       es_individual: Boolean(r.es_individual),
+      descripcion: r.descripcion ?? null,
+      detalles: (r.detalles as Record<string, unknown>) ?? null,
     });
     recursosPorCuadrilla.set(r.cuadrilla_id, arr);
   }
@@ -432,6 +524,7 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
     rut: string | null;
     cargo: string | null;
     especialidad: string | null;
+    telefono?: string | null;
     asignado_en: Date;
   }>>();
 
@@ -445,6 +538,7 @@ export async function listarCuadrillasPaginadas(filtros: FiltrosListarCuadrillas
       rut: t.rut,
       cargo: t.cargo,
       especialidad: t.especialidad,
+      telefono: t.telefono ?? null,
       asignado_en: t.asignado_en,
     });
     trabajadoresPorCuadrilla.set(t.cuadrilla_id, arr);
@@ -1122,6 +1216,8 @@ export async function actualizarCuadrillaConDotacionTransaccional(
         "cuadrilla_recurso.id as id",
         "cuadrilla_recurso.recurso_id as recurso_id",
         "recurso.nombre as nombre",
+        "recurso.descripcion as descripcion",
+        "recurso.detalles as detalles",
         "cuadrilla_recurso.cantidad_asignada as cantidad_asignada",
         "recurso.es_individual as es_individual",
       ])
@@ -1141,6 +1237,7 @@ export async function actualizarCuadrillaConDotacionTransaccional(
         "usuario.id as usuario_id",
         "usuario.nombre as nombre",
         "usuario.rut as rut",
+        "usuario.telefono as telefono",
         "personal.cargo as cargo",
         "personal.especialidad as especialidad",
         "cuadrilla_personal.asignado_en as asignado_en",
@@ -1174,6 +1271,8 @@ export async function actualizarCuadrillaConDotacionTransaccional(
         nombre: r.nombre,
         cantidad_asignada: Number(r.cantidad_asignada),
         es_individual: Boolean(r.es_individual),
+        descripcion: r.descripcion ?? null,
+        detalles: (r.detalles as Record<string, unknown>) ?? null,
       })),
       trabajadores: trabajadoresAsignados.map((t) => ({
         id: t.id,
@@ -1183,6 +1282,7 @@ export async function actualizarCuadrillaConDotacionTransaccional(
         rut: t.rut,
         cargo: t.cargo,
         especialidad: t.especialidad,
+        telefono: t.telefono ?? null,
         asignado_en: t.asignado_en,
       })),
       totalRecursos: recursosAsignados.length,

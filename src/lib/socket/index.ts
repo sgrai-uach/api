@@ -786,6 +786,60 @@ export function notificarMisionAsignada(payload: {
   }
 }
 
+export interface MisionActualizadaPayload {
+  misionId: string;
+  codigo: string;
+  estado: string;
+  tipoMision: string;
+  patrullaId?: string | null;
+  cuadrillaId?: string | null;
+  incidenteId?: string | null;
+  fechaInicio: string | null;
+  hito: {
+    id: string;
+    hito: string;
+    descripcion: string;
+    registradoPorId: string | null;
+    creadoEn: string;
+  };
+  actualizadoEn: string;
+}
+
+/**
+ * Emite una notificación en tiempo real hacia la sala 'encargado' del Centro de Mando
+ * cuando una patrulla verificadora o unidad de terreno actualiza o acepta una misión (HU-36).
+ *
+ * No se realiza broadcast global: el evento se emite únicamente a las salas
+ * `encargado`, `sala:encargados` y `supervisor`.
+ */
+export function notificarMisionActualizada(payload: MisionActualizadaPayload): void {
+  const rooms = ["encargado", "sala:encargados", "supervisor"];
+
+  if (ioInstance) {
+    for (const room of rooms) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to(room) as any).emit("mision:actualizada", payload);
+    }
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "mision:actualizada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
+  }
+}
+
 /**
  * Emite el evento de trazabilidad de notificación hacia las salas de monitoreo de la Central.
  */

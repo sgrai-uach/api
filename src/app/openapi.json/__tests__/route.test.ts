@@ -9,7 +9,14 @@ describe("Endpoint GET /openapi.json", () => {
     const spec = await res.json();
     expect(spec.openapi).toBe("3.0.0");
     expect(spec.info.title).toContain("SGRAI API");
-    expect(spec.info.version).toBe("0.11.0");
+    expect(spec.info.version).toBe("0.12.0");
+
+    // Esquemas de seguridad (BearerAuth)
+    expect(spec.components.securitySchemes).toBeDefined();
+    expect(spec.components.securitySchemes.BearerAuth).toBeDefined();
+    expect(spec.components.securitySchemes.BearerAuth.type).toBe("http");
+    expect(spec.components.securitySchemes.BearerAuth.scheme).toBe("bearer");
+    expect(spec.components.securitySchemes.BearerAuth.bearerFormat).toBe("JWT");
 
     // Rutas de Patrullas Verificadoras (HU-16, HU-84, HU-85)
     expect(spec.paths["/api/patrullas"]).toBeDefined();
@@ -101,8 +108,36 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/seguridad/usuario-activo"]).toBeDefined();
     expect(spec.paths["/api/seguridad/usuario-activo"].get).toBeDefined();
 
-    // Esquemas registrados en components/schemas (HU-9)
+    // Esquemas registrados en components/schemas (HU-9, HU-20, HU-21, HU-22)
     expect(spec.components.schemas.EliminarRecursoResponse).toBeDefined();
+    expect(spec.components.schemas.MisionActivaCuadrilla).toBeDefined();
+    expect(spec.components.schemas.MisionActivaIncidente).toBeDefined();
+    expect(spec.components.schemas.CrearMisionVerificacionInput).toBeDefined();
+    expect(spec.components.schemas.CrearMisionResponse).toBeDefined();
+    expect(spec.components.schemas.AsignarCuadrillaMisionInput).toBeDefined();
+    expect(spec.components.schemas.AsignarCuadrillaMisionResponse).toBeDefined();
+
+    // Contrato unificado POST /api/misiones (HU-20 + HU-21 sin colisión)
+    const postMisionesReqSchema =
+      spec.paths["/api/misiones"].post.requestBody.content["application/json"].schema;
+    const reqRefs = JSON.stringify(postMisionesReqSchema);
+    expect(reqRefs).toContain("CrearMisionVerificacionInput");
+    expect(reqRefs).toContain("AsignarCuadrillaMisionInput");
+
+    const postMisionesResSchema =
+      spec.paths["/api/misiones"].post.responses["201"].content["application/json"].schema;
+    const resRefs = JSON.stringify(postMisionesResSchema);
+    expect(resRefs).toContain("CrearMisionResponse");
+    expect(resRefs).toContain("AsignarCuadrillaMisionResponse");
+
+    // Rutas adicionales de Salud y Alias de Patrullas
+    expect(spec.paths["/api/health"]?.get).toBeDefined();
+    expect(spec.paths["/api/patrullas/{id}/estado"]?.patch).toBeDefined();
+
+    // Coherencia de seguridad BearerAuth en endpoints protegidos
+    expect(spec.paths["/api/recursos"].post.security).toEqual([{ BearerAuth: [] }]);
+    expect(spec.paths["/api/seguridad/roles"].get.security).toEqual([{ BearerAuth: [] }]);
+    expect(spec.paths["/api/incidentes"].get.security).toEqual([{ BearerAuth: [] }]);
 
     // Rutas de Misiones (HU-17)
     expect(spec.paths["/api/misiones/{id}"]).toBeDefined();
