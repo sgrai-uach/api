@@ -1,11 +1,11 @@
 {
   "name": "api",
-  "version": "0.10.0",
+  "version": "0.12.0",
   "private": true,
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "dev:next": "next dev",
-    "build": "next build",
+    "build": "node -e \"require('fs').rmSync('.next/dev',{recursive:true,force:true})\" && next build",
     "start": "NODE_ENV=production tsx src/server.ts",
     "lint": "eslint",
     "test": "vitest run",

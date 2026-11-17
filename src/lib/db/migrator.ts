@@ -70,7 +70,6 @@ export async function reconciliarMigracionesRenumeradas(migrationFolder: string)
 export async function migrateToLatest() {
   console.log("Ejecutando migraciones Kysely de base de datos...");
   const migrationFolder = path.join(__dirname, "migrations");
-
   await reconciliarMigracionesRenumeradas(migrationFolder);
 
   const migrator = new Migrator({

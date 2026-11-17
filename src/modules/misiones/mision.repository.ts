@@ -4,10 +4,12 @@ import { NotFoundError, ConflictError, ForbiddenError } from "@/modules/segurida
 import { asegurarColumnasHu38EnEsquema } from "@/modules/incidentes/prioridad.repository";
 import type { Database } from "@/lib/db/types";
 import type {
-  AceptarMisionInput,
   CrearMisionVerificacionInput,
   AsignarCuadrillaMisionInput,
+  AceptarMisionInput,
 } from "./mision.schema";
+import { crearNotificacionMisionRepo } from "./notificacion-mision.repository";
+import type { NotificacionMisionDetalle } from "./notificacion-mision.schema";
 
 function esErrorColumnaInexistente(err: unknown): boolean {
   return (
@@ -30,6 +32,7 @@ export interface MisionDetalleQueryResult {
     estado: string;
     prioridad: string;
     justificacion_rechazo: string | null;
+    trazabilidad_notificacion?: string | null;
     incidente_id: string | null;
     prevencion_id: string | null;
     cuadrilla_id: string | null;
@@ -173,6 +176,13 @@ export async function obtenerMisionDetallePorIdRepo(
         "mision.estado",
         "mision.prioridad",
         "mision.justificacion_rechazo",
+        sql<string | null>`(
+          SELECT nm.estado
+          FROM notificaciones_mision nm
+          WHERE nm.mision_id = mision.id
+          ORDER BY nm.creada_at DESC
+          LIMIT 1
+        )`.as("trazabilidad_notificacion"),
         "mision.incidente_id",
         "mision.prevencion_id",
         "mision.cuadrilla_id",
@@ -434,215 +444,6 @@ export async function obtenerMisionDetallePorIdRepo(
   };
 }
 
-
-export interface AceptarMisionPatrullaResult {
-  mision: {
-    id: string;
-    codigo: string;
-    titulo: string;
-    descripcion: string | null;
-    tipoMision: "VERIFICACION" | "ATENCION_CUADRILLA" | "PREVENCION" | "RECUPERACION" | "ASISTENCIA_SOCIAL";
-    estado: "PLANIFICADA" | "DESPACHADA" | "EN_CURSO" | "COMPLETADA" | "CANCELADA" | "RECHAZADA";
-    prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
-    incidenteId: string | null;
-    patrullaId: string | null;
-    fechaInicio: string;
-    actualizadoEn: string;
-  };
-  patrulla: {
-    id: string;
-    nombre: string;
-    estado: string;
-  } | null;
-  incidente: {
-    id: string;
-    codigo: string;
-    estado: string;
-  } | null;
-  hito: {
-    id: string;
-    misionId: string;
-    hito: string;
-    descripcion: string;
-    registradoPorId: string | null;
-    latitud: number | null;
-    longitud: number | null;
-    creadoEn: string;
-  };
-}
-
-/**
- * HU-36 - Ejecuta la transición atómica cuando una patrulla verificadora confirma y acepta
- * la misión asignada desde su dispositivo móvil (PWA):
- * 1. Verifica que la misión exista y que el usuario esté autorizado para la patrulla asignada.
- * 2. Actualiza atómicamente `mision.estado` de `DESPACHADA` a `EN_CURSO` y fija `mision.fecha_inicio = CURRENT_TIMESTAMP`.
- * 3. Mantiene `patrulla_verificadora.estado` en `EN_VERIFICACION` e `incidente.estado` en `VERIFICANDO`.
- * 4. Registra el hito `'MISION_ACEPTADA'` (`'Misión Aceptada por Patrulla'`) en `mision_hito` vinculando al usuario en sesión.
- */
-export async function aceptarMisionPatrullaRepo(
-  misionId: string,
-  usuarioId: string,
-  esAdmin: boolean,
-  input?: AceptarMisionInput
-): Promise<AceptarMisionPatrullaResult> {
-  return await db.transaction().execute(async (trx) => {
-    // 1. Consultar la misión con su patrulla e incidente asociado
-    const misionExistente = await trx
-      .selectFrom("mision")
-      .leftJoin("patrulla_verificadora", "patrulla_verificadora.id", "mision.patrulla_id")
-      .leftJoin("usuario as lider", "lider.id", "patrulla_verificadora.usuario_lider_id")
-      .leftJoin("rol as rol_lider", "rol_lider.id", "lider.rol_id")
-      .leftJoin("incidente", "incidente.id", "mision.incidente_id")
-      .select([
-        "mision.id",
-        "mision.codigo",
-        "mision.estado",
-        "mision.patrulla_id",
-        "mision.incidente_id",
-        "patrulla_verificadora.nombre as patrulla_nombre",
-        "patrulla_verificadora.estado as patrulla_estado",
-        "patrulla_verificadora.usuario_lider_id as patrulla_lider_id",
-        "rol_lider.codigo as lider_rol_codigo",
-        "rol_lider.nombre as lider_rol_nombre",
-        "incidente.codigo as incidente_codigo",
-        "incidente.estado as incidente_estado",
-      ])
-      .where("mision.id", "=", misionId)
-      .executeTakeFirst();
-
-    if (!misionExistente) {
-      throw new NotFoundError("No se encontró ninguna misión con el identificador proporcionado.");
-    }
-
-    // 2. Validar pertenencia a la patrulla verificadora asignada (salvo Administrador)
-    if (!esAdmin && misionExistente.patrulla_id) {
-      const esLiderDirecto = misionExistente.patrulla_lider_id === usuarioId;
-      const liderEsPatrulla =
-        misionExistente.lider_rol_codigo === "PATRULLA_VERIFICADORA" ||
-        misionExistente.lider_rol_nombre === "Patrulla Verificadora";
-
-      if (!esLiderDirecto && liderEsPatrulla) {
-        const integrante = await trx
-          .selectFrom("patrulla_personal")
-          .innerJoin("personal", "personal.id", "patrulla_personal.personal_id")
-          .select("patrulla_personal.id")
-          .where("patrulla_personal.patrulla_id", "=", misionExistente.patrulla_id)
-          .where("personal.usuario_id", "=", usuarioId)
-          .executeTakeFirst();
-
-        if (!integrante) {
-          throw new ForbiddenError(
-            "No está autorizado para aceptar una misión asignada a otra patrulla verificadora."
-          );
-        }
-      }
-    }
-
-    // 3. Transición atómica con control de concurrencia condicional (estado = 'DESPACHADA')
-    const misionActualizada = await trx
-      .updateTable("mision")
-      .set({
-        estado: "EN_CURSO",
-        fecha_inicio: sql`CURRENT_TIMESTAMP`,
-        actualizado_en: sql`CURRENT_TIMESTAMP`,
-      })
-      .where("id", "=", misionId)
-      .where("estado", "=", "DESPACHADA")
-      .returningAll()
-      .executeTakeFirst();
-
-    if (!misionActualizada) {
-      const misionReciente = await trx
-        .selectFrom("mision")
-        .select("estado")
-        .where("id", "=", misionId)
-        .executeTakeFirst();
-
-      const estadoActual = misionReciente?.estado ?? misionExistente.estado;
-      throw new ConflictError(
-        `La misión no puede ser aceptada porque su estado actual es '${estadoActual}'. Solo se pueden aceptar misiones en estado 'DESPACHADA'.`
-      );
-    }
-
-    // 3.1 Transición automática del incidente a VERIFICANDO si se encontraba en REPORTADO
-    if (misionExistente.incidente_id) {
-      await trx
-        .updateTable("incidente")
-        .set({
-          estado: "VERIFICANDO",
-          actualizado_en: sql`CURRENT_TIMESTAMP`,
-        })
-        .where("id", "=", misionExistente.incidente_id)
-        .where("estado", "=", "REPORTADO")
-        .execute();
-    }
-
-    // 4. Registrar el hito automático en mision_hito vinculando al usuario en sesión
-    const hitoRegistrado = await trx
-      .insertInto("mision_hito")
-      .values({
-        mision_id: misionId,
-        hito: "MISION_ACEPTADA",
-        descripcion: "Misión Aceptada por Patrulla",
-        registrado_por_id: usuarioId,
-        latitud: input?.latitud ?? null,
-        longitud: input?.longitud ?? null,
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow();
-
-    const fechaInicioIso = misionActualizada.fecha_inicio
-      ? new Date(misionActualizada.fecha_inicio).toISOString()
-      : new Date().toISOString();
-    const actualizadoEnIso = misionActualizada.actualizado_en
-      ? new Date(misionActualizada.actualizado_en).toISOString()
-      : new Date().toISOString();
-    const hitoCreadoEnIso = hitoRegistrado.creado_en
-      ? new Date(hitoRegistrado.creado_en).toISOString()
-      : new Date().toISOString();
-
-    return {
-      mision: {
-        id: misionActualizada.id,
-        codigo: misionActualizada.codigo,
-        titulo: misionActualizada.titulo,
-        descripcion: misionActualizada.descripcion,
-        tipoMision: misionActualizada.tipo_mision as AceptarMisionPatrullaResult["mision"]["tipoMision"],
-        estado: misionActualizada.estado as AceptarMisionPatrullaResult["mision"]["estado"],
-        prioridad: misionActualizada.prioridad as AceptarMisionPatrullaResult["mision"]["prioridad"],
-        incidenteId: misionActualizada.incidente_id,
-        patrullaId: misionActualizada.patrulla_id,
-        fechaInicio: fechaInicioIso,
-        actualizadoEn: actualizadoEnIso,
-      },
-      patrulla: misionExistente.patrulla_id
-        ? {
-          id: misionExistente.patrulla_id,
-          nombre: misionExistente.patrulla_nombre ?? "Patrulla Verificadora",
-          estado: misionExistente.patrulla_estado ?? "EN_VERIFICACION",
-        }
-        : null,
-      incidente: misionExistente.incidente_id
-        ? {
-          id: misionExistente.incidente_id,
-          codigo: misionExistente.incidente_codigo ?? "",
-          estado: "VERIFICANDO",
-        }
-        : null,
-      hito: {
-        id: hitoRegistrado.id,
-        misionId: hitoRegistrado.mision_id,
-        hito: hitoRegistrado.hito,
-        descripcion: hitoRegistrado.descripcion,
-        registradoPorId: hitoRegistrado.registrado_por_id,
-        latitud: hitoRegistrado.latitud !== null ? Number(hitoRegistrado.latitud) : null,
-        longitud: hitoRegistrado.longitud !== null ? Number(hitoRegistrado.longitud) : null,
-        creadoEn: hitoCreadoEnIso,
-      },
-    };
-  });
-}
-
 export interface MisionVerificacionCreadaResult {
   mision: {
     id: string;
@@ -661,6 +462,9 @@ export interface MisionVerificacionCreadaResult {
   incidente: {
     id: string;
     codigo: string;
+    folio?: string | null;
+    tipoAfectacion?: string | null;
+    direccion?: string | null;
     estado: string;
     prioridad: string;
   };
@@ -677,6 +481,7 @@ export interface MisionVerificacionCreadaResult {
     descripcion: string;
     creadoEn: string;
   };
+  notificacion: NotificacionMisionDetalle;
 }
 
 /**
@@ -695,7 +500,16 @@ export async function crearMisionVerificacionRepo(
     // 1. Validar existencia y estado del incidente con bloqueo pesimista (FOR UPDATE)
     const incidente = await trx
       .selectFrom("incidente")
-      .select(["id", "codigo", "estado", "prioridad", "tipo_afectacion", "delegacion_id"])
+      .select([
+        "id",
+        "codigo",
+        "folio",
+        "estado",
+        "prioridad",
+        "tipo_afectacion",
+        "direccion_texto",
+        "delegacion_id",
+      ])
       .where("id", "=", input.incidenteId)
       .forUpdate()
       .executeTakeFirst();
@@ -819,6 +633,13 @@ export async function crearMisionVerificacionRepo(
       .returningAll()
       .executeTakeFirstOrThrow();
 
+    // 7. Crear registro inicial de notificación en estado PENDIENTE_ENVIO
+    const notificacionInicial = await crearNotificacionMisionRepo(
+      nuevaMision.id,
+      input.patrullaId,
+      trx
+    );
+
     return {
       mision: {
         id: nuevaMision.id,
@@ -837,6 +658,9 @@ export async function crearMisionVerificacionRepo(
       incidente: {
         id: incidenteActualizado.id,
         codigo: incidenteActualizado.codigo,
+        folio: incidente.folio ?? null,
+        tipoAfectacion: incidente.tipo_afectacion ?? null,
+        direccion: incidente.direccion_texto ?? null,
         estado: incidenteActualizado.estado,
         prioridad: incidenteActualizado.prioridad,
       },
@@ -853,6 +677,7 @@ export async function crearMisionVerificacionRepo(
         descripcion: hitoInicial.descripcion,
         creadoEn: new Date(hitoInicial.creado_en).toISOString(),
       },
+      notificacion: notificacionInicial,
     };
   });
 }
@@ -1274,6 +1099,230 @@ export async function asignarCuadrillaIncidenteRepo(
         creadoEn: new Date(hitoCuadrillaRow.creado_en).toISOString(),
       },
       hitoPatrulla,
+    };
+  });
+}
+export interface AceptarMisionPatrullaResult {
+  mision: {
+    id: string;
+    codigo: string;
+    titulo: string;
+    descripcion: string | null;
+    tipoMision: "VERIFICACION" | "ATENCION_CUADRILLA" | "PREVENCION" | "RECUPERACION" | "ASISTENCIA_SOCIAL";
+    estado: "PLANIFICADA" | "DESPACHADA" | "EN_CURSO" | "COMPLETADA" | "CANCELADA" | "RECHAZADA";
+    prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+    incidenteId: string | null;
+    patrullaId: string | null;
+    fechaInicio: string;
+    actualizadoEn: string;
+  };
+  patrulla: {
+    id: string;
+    nombre: string;
+    estado: string;
+  } | null;
+  incidente: {
+    id: string;
+    codigo: string;
+    estado: string;
+  } | null;
+  hito: {
+    id: string;
+    misionId: string;
+    hito: string;
+    descripcion: string;
+    registradoPorId: string | null;
+    latitud: number | null;
+    longitud: number | null;
+    creadoEn: string;
+  };
+}
+
+/**
+ * HU-36 - Ejecuta la transición atómica cuando una patrulla verificadora confirma y acepta
+ * la misión asignada desde su dispositivo móvil (PWA):
+ * 1. Verifica con bloqueo pesimista que la misión exista, tenga patrulla asignada y que el usuario esté autorizado.
+ * 2. Verifica las invariantes ICS: patrulla activa en 'EN_VERIFICACION' e incidente asociado en 'VERIFICANDO'.
+ * 3. Actualiza atómicamente `mision.estado` de `DESPACHADA` a `EN_CURSO` y fija `mision.fecha_inicio = CURRENT_TIMESTAMP`.
+ * 4. Registra el hito `'MISION_ACEPTADA'` (`'Misión Aceptada por Patrulla'`) en `mision_hito` vinculando al usuario en sesión.
+ */
+export async function aceptarMisionPatrullaRepo(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input?: AceptarMisionInput
+): Promise<AceptarMisionPatrullaResult> {
+  return await db.transaction().execute(async (trx) => {
+    // 1. Consultar la misión con bloqueo pesimista (FOR UPDATE OF mision) junto a su patrulla e incidente asociado
+    const misionExistente = await trx
+      .selectFrom("mision")
+      .leftJoin("patrulla_verificadora", "patrulla_verificadora.id", "mision.patrulla_id")
+      .leftJoin("incidente", "incidente.id", "mision.incidente_id")
+      .select([
+        "mision.id",
+        "mision.codigo",
+        "mision.estado",
+        "mision.patrulla_id",
+        "mision.incidente_id",
+        "patrulla_verificadora.nombre as patrulla_nombre",
+        "patrulla_verificadora.estado as patrulla_estado",
+        "patrulla_verificadora.eliminado_en as patrulla_eliminado_en",
+        "patrulla_verificadora.usuario_lider_id as patrulla_lider_id",
+        "incidente.codigo as incidente_codigo",
+        "incidente.estado as incidente_estado",
+      ])
+      .where("mision.id", "=", misionId)
+      .forUpdate("mision")
+      .executeTakeFirst();
+
+    if (!misionExistente) {
+      throw new NotFoundError("No se encontró ninguna misión con el identificador proporcionado.");
+    }
+
+    // 2. Validar explícitamente que la misión tenga una patrulla verificadora asignada (BUG-H36-API-01)
+    if (!misionExistente.patrulla_id) {
+      throw new ConflictError(
+        "La misión indicada no tiene una patrulla verificadora asignada."
+      );
+    }
+
+    // 3. Validar pertenencia del operador a la patrulla verificadora asignada, salvo Administrador (BUG-H36-API-01)
+    if (!esAdmin) {
+      const esLiderDirecto = misionExistente.patrulla_lider_id === usuarioId;
+      if (!esLiderDirecto) {
+        const integrante = await trx
+          .selectFrom("patrulla_personal")
+          .innerJoin("personal", "personal.id", "patrulla_personal.personal_id")
+          .select("patrulla_personal.id")
+          .where("patrulla_personal.patrulla_id", "=", misionExistente.patrulla_id)
+          .where("personal.usuario_id", "=", usuarioId)
+          .executeTakeFirst();
+
+        if (!integrante) {
+          throw new ForbiddenError(
+            "No está autorizado para aceptar una misión asignada a otra patrulla verificadora."
+          );
+        }
+      }
+    }
+
+    // 4. Validar invariantes ICS sobre el estado activo de la patrulla (EN_VERIFICACION) y del incidente (VERIFICANDO) (BUG-H36-API-04)
+    if (
+      misionExistente.patrulla_eliminado_en !== undefined &&
+      misionExistente.patrulla_eliminado_en !== null
+    ) {
+      throw new ConflictError(
+        "La patrulla verificadora asignada a la misión ha sido desactivada o dada de baja."
+      );
+    }
+
+    if (
+      misionExistente.patrulla_estado !== undefined &&
+      misionExistente.patrulla_estado !== null &&
+      misionExistente.patrulla_estado !== "EN_VERIFICACION"
+    ) {
+      throw new ConflictError(
+        `La patrulla verificadora asignada no se encuentra en estado 'EN_VERIFICACION' (estado actual: '${misionExistente.patrulla_estado}').`
+      );
+    }
+
+    if (
+      misionExistente.incidente_id &&
+      misionExistente.incidente_estado !== undefined &&
+      misionExistente.incidente_estado !== null &&
+      misionExistente.incidente_estado !== "VERIFICANDO"
+    ) {
+      throw new ConflictError(
+        `El incidente asociado no se encuentra en estado 'VERIFICANDO' (estado actual: '${misionExistente.incidente_estado}').`
+      );
+    }
+
+    // 5. Transición atómica con control de concurrencia condicional (estado = 'DESPACHADA')
+    const misionActualizada = await trx
+      .updateTable("mision")
+      .set({
+        estado: "EN_CURSO",
+        fecha_inicio: sql`CURRENT_TIMESTAMP`,
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", misionId)
+      .where("estado", "=", "DESPACHADA")
+      .returningAll()
+      .executeTakeFirst();
+
+    if (!misionActualizada) {
+      const misionReciente = await trx
+        .selectFrom("mision")
+        .select("estado")
+        .where("id", "=", misionId)
+        .executeTakeFirst();
+
+      const estadoActual = misionReciente?.estado ?? misionExistente.estado;
+      throw new ConflictError(
+        `La misión no puede ser aceptada porque su estado actual es '${estadoActual}'. Solo se pueden aceptar misiones en estado 'DESPACHADA'.`
+      );
+    }
+
+    // 6. Registrar el hito automático en mision_hito vinculando al usuario en sesión
+    const hitoRegistrado = await trx
+      .insertInto("mision_hito")
+      .values({
+        mision_id: misionId,
+        hito: "MISION_ACEPTADA",
+        descripcion: "Misión Aceptada por Patrulla",
+        registrado_por_id: usuarioId,
+        latitud: input?.latitud ?? null,
+        longitud: input?.longitud ?? null,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    const fechaInicioIso = misionActualizada.fecha_inicio
+      ? new Date(misionActualizada.fecha_inicio).toISOString()
+      : new Date().toISOString();
+    const actualizadoEnIso = misionActualizada.actualizado_en
+      ? new Date(misionActualizada.actualizado_en).toISOString()
+      : new Date().toISOString();
+    const hitoCreadoEnIso = hitoRegistrado.creado_en
+      ? new Date(hitoRegistrado.creado_en).toISOString()
+      : new Date().toISOString();
+
+    return {
+      mision: {
+        id: misionActualizada.id,
+        codigo: misionActualizada.codigo,
+        titulo: misionActualizada.titulo,
+        descripcion: misionActualizada.descripcion,
+        tipoMision: misionActualizada.tipo_mision as AceptarMisionPatrullaResult["mision"]["tipoMision"],
+        estado: misionActualizada.estado as AceptarMisionPatrullaResult["mision"]["estado"],
+        prioridad: misionActualizada.prioridad as AceptarMisionPatrullaResult["mision"]["prioridad"],
+        incidenteId: misionActualizada.incidente_id,
+        patrullaId: misionActualizada.patrulla_id,
+        fechaInicio: fechaInicioIso,
+        actualizadoEn: actualizadoEnIso,
+      },
+      patrulla: {
+        id: misionExistente.patrulla_id,
+        nombre: misionExistente.patrulla_nombre ?? "Patrulla Verificadora",
+        estado: "EN_VERIFICACION",
+      },
+      incidente: misionExistente.incidente_id
+        ? {
+            id: misionExistente.incidente_id,
+            codigo: misionExistente.incidente_codigo ?? "",
+            estado: "VERIFICANDO",
+          }
+        : null,
+      hito: {
+        id: hitoRegistrado.id,
+        misionId: hitoRegistrado.mision_id,
+        hito: hitoRegistrado.hito,
+        descripcion: hitoRegistrado.descripcion,
+        registradoPorId: hitoRegistrado.registrado_por_id,
+        latitud: hitoRegistrado.latitud !== null ? Number(hitoRegistrado.latitud) : null,
+        longitud: hitoRegistrado.longitud !== null ? Number(hitoRegistrado.longitud) : null,
+        creadoEn: hitoCreadoEnIso,
+      },
     };
   });
 }
