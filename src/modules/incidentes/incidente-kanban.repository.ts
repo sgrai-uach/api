@@ -20,6 +20,7 @@ export interface FilaIncidenteResumen {
   total_misiones: number | string;
   tiene_mision_despachada?: boolean;
   tiene_mision_en_curso?: boolean;
+  trazabilidad_notificacion?: string | null;
   verificado?: boolean | number;
   reclasificado_en_terreno?: boolean | number;
   justificacion_reclasificacion?: string | null;
@@ -31,28 +32,6 @@ export interface FilaIncidenteResumen {
  * Consulta la lista paginada de incidentes con filtros opcionales para el tablero Kanban.
  */
 export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQuery) {
-  // Sincronización defensiva: garantizar consistencia operacional si un incidente
-  // posee una misión aceptada en terreno (EN_CURSO) pero persistía en REPORTADO
-  try {
-    await db
-      .updateTable("incidente")
-      .set({
-        estado: "VERIFICANDO",
-        actualizado_en: sql`CURRENT_TIMESTAMP`,
-      })
-      .where("estado", "=", "REPORTADO")
-      .where("id", "in", (eb) =>
-        eb
-          .selectFrom("mision")
-          .select("mision.incidente_id")
-          .where("mision.estado", "=", "EN_CURSO")
-          .where("mision.incidente_id", "is not", null)
-      )
-      .execute();
-  } catch {
-    // Si la base de datos o el mock no implementa updateTable en tests unitarios aislados, ignorar
-  }
-
   let consultaBase = db
     .selectFrom("incidente")
     .leftJoin("informante", "informante.id", "incidente.informante_id")
@@ -163,6 +142,14 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
           .select(sql<number>`count(mision.id)::int`.as("count"))
           .whereRef("mision.incidente_id", "=", "incidente.id")
           .as("total_misiones"),
+      sql<string | null>`(
+        SELECT nm.estado
+        FROM notificaciones_mision nm
+        INNER JOIN mision m ON m.id = nm.mision_id
+        WHERE m.incidente_id = incidente.id
+        ORDER BY nm.creada_at DESC
+        LIMIT 1
+      )`.as("trazabilidad_notificacion"),
       (eb) =>
         eb
           .selectFrom("mision")
@@ -188,34 +175,24 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
       (eb) =>
         eb
           .selectFrom("mision")
-          .leftJoin("mision_hito", "mision_hito.mision_id", "mision.id")
           .select(
             sql<boolean>`case when count(mision.id) > 0 then true else false end`.as("verificado")
           )
           .whereRef("mision.incidente_id", "=", "incidente.id")
           .where("mision.tipo_mision", "=", "VERIFICACION")
-          .where((ebOr) =>
-            ebOr.or([
-              ebOr("mision.estado", "=", "COMPLETADA"),
-              ebOr("mision_hito.hito", "=", "TIPOLOGIA_RECLASIFICADA"),
-            ])
-          )
+          .where("mision.estado", "=", "COMPLETADA")
           .as("verificado"),
       (eb) =>
         eb
           .selectFrom("mision")
-          .leftJoin("mision_hito", "mision_hito.mision_id", "mision.id")
+          .innerJoin("mision_hito", "mision_hito.mision_id", "mision.id")
           .select(
-            sql<boolean>`case when count(mision.id) > 0 then true else false end`.as("reclasificado_en_terreno")
+            sql<boolean>`case when count(mision_hito.id) > 0 then true else false end`.as(
+              "reclasificado_en_terreno"
+            )
           )
           .whereRef("mision.incidente_id", "=", "incidente.id")
-          .where("mision.tipo_mision", "=", "VERIFICACION")
-          .where((ebOr) =>
-            ebOr.or([
-              ebOr("mision.estado", "=", "COMPLETADA"),
-              ebOr("mision_hito.hito", "=", "TIPOLOGIA_RECLASIFICADA"),
-            ])
-          )
+          .where("mision_hito.hito", "=", "TIPOLOGIA_RECLASIFICADA")
           .as("reclasificado_en_terreno"),
       (eb) =>
         eb
@@ -230,11 +207,10 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
     ])
     .orderBy(
       sql`case when exists (
-        select 1 from mision m 
-        left join mision_hito mh on mh.mision_id = m.id
-        where m.incidente_id = incidente.id 
-          and m.tipo_mision = 'VERIFICACION' 
-          and (m.estado = 'COMPLETADA' or mh.hito = 'TIPOLOGIA_RECLASIFICADA')
+        select 1 from mision m
+        where m.incidente_id = incidente.id
+          and m.tipo_mision = 'VERIFICACION'
+          and m.estado = 'COMPLETADA'
       ) then 1 else 0 end`,
       "desc"
     )
@@ -320,6 +296,13 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
       "cuadrilla.id as cuadrilla_id",
       "cuadrilla.nombre as cuadrilla_nombre",
       "cuadrilla.estado as cuadrilla_estado",
+      sql<string | null>`(
+        SELECT nm.estado
+        FROM notificaciones_mision nm
+        WHERE nm.mision_id = mision.id
+        ORDER BY nm.creada_at DESC
+        LIMIT 1
+      )`.as("trazabilidad_notificacion"),
     ])
     .where("mision.incidente_id", "=", id)
     .orderBy("mision.creado_en", "asc")

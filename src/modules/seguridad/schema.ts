@@ -270,6 +270,10 @@ export const UsuarioActivoItemSchema = z
       description: "UUID de la delegación territorial a la que pertenece (si aplica)",
       example: "30000000-0000-4000-8000-000000000001",
     }),
+    delegacionNombre: z.string().nullable().optional().openapi({
+      description: "Nombre de la delegación territorial adscrita",
+      example: "Delegación Municipal Norte",
+    }),
     rol: UsuarioActivoRolSchema.openapi({
       description: "Información del rol institucional asignado",
     }),
@@ -368,6 +372,10 @@ export const UsuarioPerfilSesionSchema = z
     delegacionId: z.string().uuid().nullable().openapi({
       description: "UUID de la delegación territorial asignada (si aplica)",
       example: "30000000-0000-4000-8000-000000000001",
+    }),
+    delegacionNombre: z.string().nullable().optional().openapi({
+      description: "Nombre de la delegación territorial asignada (si aplica)",
+      example: "Delegación Municipal Calle Calle",
     }),
     permisos: z.array(z.string()).openapi({
       description: "Lista de códigos de permisos activos del usuario",

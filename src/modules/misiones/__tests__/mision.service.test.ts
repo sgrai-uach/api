@@ -11,10 +11,28 @@ vi.mock("../mision.repository", () => ({
   crearMisionVerificacionRepo: vi.fn(),
 }));
 
+vi.mock("../notificacion-mision.repository", () => ({
+  marcarNotificacionEnviadaRepo: vi.fn().mockImplementation((id: string) =>
+    Promise.resolve({
+      id,
+      misionId: "60000000-0000-4000-8000-000000000001",
+      patrullaId: "f1000000-0000-4000-8000-000000000001",
+      estado: "ENVIADA",
+      intentosEnvio: 1,
+      creadaAt: "2026-10-27T17:00:00.000Z",
+      enviadaAt: "2026-10-27T17:00:01.000Z",
+      recibidaAt: null,
+      leidaAt: null,
+    })
+  ),
+}));
+
 vi.mock("@/lib/socket", () => ({
   notificarMisionAsignada: vi.fn(),
   notificarIncidenteActualizado: vi.fn(),
   notificarPatrullaActualizada: vi.fn(),
+  notificarTrazabilidadActualizada: vi.fn(),
+  tieneConexionEnSala: vi.fn().mockResolvedValue(true),
 }));
 
 describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
@@ -229,13 +247,14 @@ describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
       hitos: [
         {
           id: "hito-1",
+          mision_id: "60000000-0000-4000-8000-000000000003",
           hito: "TIPOLOGIA_RECLASIFICADA",
           descripcion:
             "Tipología reclasificada en terreno a: Corte de agua potable. Justificación: Se constata matriz rota y sin suministro de agua en el sector.",
+          registrado_por_id: "00000000-0000-4000-8000-000000000004",
           latitud: -39.82,
           longitud: -73.24,
           creado_en: new Date("2026-11-10T05:15:00Z"),
-          registrador_nombre: "Cristóbal Felipe Veas Huequemán",
         },
       ],
     });
@@ -288,7 +307,6 @@ describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
           latitud: null,
           longitud: null,
           creado_en: new Date("2026-10-27T17:00:00Z"),
-          registrador_nombre: null,
         },
       ],
     });
@@ -350,6 +368,17 @@ describe("Mision Service - asignarPatrullaVerificacionService (HU-20)", () => {
         hito: "DESPACHADA",
         descripcion: "Misión de verificación asignada y despachada a la patrulla Patrulla Norte 1.",
         creadoEn: "2026-10-27T17:00:00.000Z",
+      },
+      notificacion: {
+        id: "80000000-0000-4000-8000-000000000001",
+        misionId: "60000000-0000-4000-8000-000000000001",
+        patrullaId: inputMock.patrullaId,
+        estado: "PENDIENTE_ENVIO" as const,
+        intentosEnvio: 0,
+        creadaAt: "2026-10-27T17:00:00.000Z",
+        enviadaAt: null,
+        recibidaAt: null,
+        leidaAt: null,
       },
     });
 

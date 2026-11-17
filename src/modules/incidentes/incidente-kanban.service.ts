@@ -10,6 +10,7 @@ import type {
   IncidenteResumen,
   MisionDetalle,
 } from "./incidente-kanban.schema";
+import type { EstadoNotificacionMision } from "@/modules/misiones/notificacion-mision.schema";
 
 /**
  * Obtiene la lista paginada de incidentes para el tablero Kanban con sus metadatos de paginación.
@@ -38,8 +39,14 @@ export async function listarIncidentesKanbanService(
     totalMisiones: Number(fila.total_misiones ?? 0),
     tieneMisionDespachada: Boolean(fila.tiene_mision_despachada),
     tieneMisionEnCurso: Boolean(fila.tiene_mision_en_curso),
+    ...(fila.trazabilidad_notificacion
+      ? {
+          trazabilidadNotificacion:
+            fila.trazabilidad_notificacion as EstadoNotificacionMision,
+        }
+      : {}),
     verificado: Boolean(fila.verificado),
-    reclasificadoEnTerreno: Boolean(fila.verificado || fila.reclasificado_en_terreno),
+    reclasificadoEnTerreno: Boolean(fila.reclasificado_en_terreno),
     justificacionReclasificacion: fila.justificacion_reclasificacion ?? null,
     creadoEn:
       typeof fila.creado_en === "string"
@@ -82,7 +89,7 @@ export async function obtenerDetalleIncidenteService(
   const tieneVerificacionCompletada = misiones.some(
     (m) => m.tipo_mision === "VERIFICACION" && m.estado === "COMPLETADA"
   );
-  const esVerificado = Boolean(tieneVerificacionCompletada || justificacionReclasificacion);
+  const esReclasificado = Boolean(justificacionReclasificacion);
 
   const misionesMapeadas: MisionDetalle[] = misiones.map((m) => ({
     id: m.id,
@@ -93,6 +100,12 @@ export async function obtenerDetalleIncidenteService(
     estado: m.estado,
     prioridad: m.prioridad,
     justificacionRechazo: m.justificacion_rechazo,
+    ...(m.trazabilidad_notificacion
+      ? {
+          trazabilidadNotificacion:
+            m.trazabilidad_notificacion as EstadoNotificacionMision,
+        }
+      : {}),
     patrulla: m.patrulla_id
       ? {
           id: m.patrulla_id,
@@ -161,8 +174,8 @@ export async function obtenerDetalleIncidenteService(
       : null,
     misiones: misionesMapeadas,
     recursosAsociados,
-    verificado: esVerificado,
-    reclasificadoEnTerreno: esVerificado,
+    verificado: tieneVerificacionCompletada,
+    reclasificadoEnTerreno: esReclasificado,
     justificacionReclasificacion: justificacionReclasificacion ?? null,
     creadoEn:
       typeof incidente.creado_en === "string"
