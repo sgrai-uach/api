@@ -143,7 +143,15 @@ import {
 import {
   CrearEventoRecuperacionInputSchema,
   CrearEventoRecuperacionResponseSchema,
+  EditarEventoRecuperacionInputSchema,
+  EditarEventoRecuperacionResponseSchema,
   EventoRecuperacionResponseSchema,
+  ListarRecuperacionesQuerySchema,
+  ListarRecuperacionesResponseSchema,
+  OperativoRecuperacionItemSchema,
+  RecuperacionDetalleResponseSchema,
+  ObtenerRecuperacionDetalleResponseSchema,
+  RecuperacionIdParamSchema,
 } from "@/modules/eventos-atp/recuperacion.schema";
 
 import {
@@ -1794,6 +1802,10 @@ registry.registerPath({
 registry.register("CrearEventoRecuperacionInput", CrearEventoRecuperacionInputSchema);
 registry.register("EventoRecuperacion", EventoRecuperacionResponseSchema);
 registry.register("CrearEventoRecuperacionResponse", CrearEventoRecuperacionResponseSchema);
+registry.register("OperativoRecuperacionItem", OperativoRecuperacionItemSchema);
+registry.register("ListarRecuperacionesResponse", ListarRecuperacionesResponseSchema);
+registry.register("RecuperacionDetalleResponse", RecuperacionDetalleResponseSchema);
+registry.register("ObtenerRecuperacionDetalleResponse", ObtenerRecuperacionDetalleResponseSchema);
 
 registry.registerPath({
   method: "post",
@@ -1844,6 +1856,170 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor",
+    },
+  },
+});
+
+// GET /api/eventos-atp/recuperacion (HU-73)
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion",
+  summary: "Listar operativos de recuperación post-desastre (H73)",
+  description:
+    "Retorna una lista paginada y filtrable de todos los operativos de recuperación registrados para seguimiento del Encargado. Responde bajo el estándar de contratos H34 (page, limit, total, totalPages) e incluye el desglose de insumos asignados.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    headers: z.object({
+      "authorization": z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer JWT de sesión institucional" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (Encargado, Administrador o Supervisor)" }),
+    }),
+    query: ListarRecuperacionesQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado de operativos de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarRecuperacionesResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta o paginación inválidos",
+    },
+    401: {
+      description: "No autenticado / sesión ausente o expirada",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recuperacion:leer'",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la consulta",
+    },
+  },
+});
+
+// GET /api/eventos-atp/recuperacion/{id} (H73 / H74)
+registry.register("ObtenerRecuperacionDetalleResponse", ObtenerRecuperacionDetalleResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion/{id}",
+  summary: "Obtener detalle completo de operativo de recuperación (H73 / H74)",
+  description:
+    "Retorna la información exhaustiva de un operativo de recuperación: recursos detallados asignados, misión táctica, patrulla en terreno, fecha estimada de término y la línea de tiempo unificada del historial.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    params: z.object({
+      id: RecuperacionIdParamSchema,
+    }),
+    headers: z.object({
+      "authorization": z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer JWT de sesión institucional" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del operativo de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ObtenerRecuperacionDetalleResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador UUID de operativo inválido",
+    },
+    401: {
+      description: "No autenticado / sesión ausente o expirada",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recuperacion:leer'",
+    },
+    404: {
+      description: "Operativo de recuperación no encontrado",
+    },
+    500: {
+      description: "Error interno del servidor al consultar el operativo",
+    },
+  },
+});
+
+// PATCH /api/eventos-atp/recuperacion/{id} (HU-74)
+registry.register("EditarEventoRecuperacionInput", EditarEventoRecuperacionInputSchema);
+registry.register("EditarEventoRecuperacionResponse", EditarEventoRecuperacionResponseSchema);
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/eventos-atp/recuperacion/{id}",
+  summary: "Editar planificación de un operativo de recuperación activo (HU-74)",
+  description:
+    "Permite al Encargado modificar la descripción de tareas, fecha estimada de término, dotación de insumos/recursos y/o patrulla verificadora asignada a un operativo de recuperación activo. Bloquea la edición con 409 Conflict si el operativo está en estado COMPLETADA o CANCELADA, libera la patrulla anterior si no tiene otras misiones activas, registra auditoría (actualizado_en, actualizado_por_id) y hito de reasignación, sincroniza la descripción de la misión vinculada y emite eventos en tiempo real ('recuperacion:actualizada', 'mision:asignada', 'mision:reasignada').",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    params: z.object({
+      id: RecuperacionIdParamSchema,
+    }),
+    headers: z.object({
+      "authorization": z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer JWT de sesión institucional" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
+    }),
+    body: {
+      description: "Campos de planificación a actualizar (al menos uno requerido)",
+      content: {
+        "application/json": {
+          schema: EditarEventoRecuperacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Planificación del operativo de recuperación actualizada exitosamente",
+      content: {
+        "application/json": {
+          schema: EditarEventoRecuperacionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos, UUID inválido o fecha estimada anterior a la creación",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id o token ausente o inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recuperacion:editar'",
+    },
+    404: {
+      description: "Operativo de recuperación, patrulla o recurso no encontrado",
+    },
+    409: {
+      description: "Conflicto: operativo en estado COMPLETADA/CANCELADA, patrulla no disponible o stock insuficiente en bodega",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la edición del operativo",
     },
   },
 });
