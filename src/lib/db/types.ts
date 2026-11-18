@@ -264,7 +264,9 @@ export interface RecuperacionTable {
   >;
   familias_afectadas: ColumnType<number, number | undefined, number>;
   delegacion_id: string | null;
+  fecha_estimada_fin: Date | null;
   creado_por_id: string;
+  actualizado_por_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }
