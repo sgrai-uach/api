@@ -9,6 +9,7 @@ export interface ServerToClientEvents {
     "recurso:actualizado": (payload: unknown) => void;
     "prevencion:creada": (payload: unknown) => void;
     "recuperacion:creada": (payload: unknown) => void;
+    "recuperacion:actualizada": (payload: unknown) => void;
     "asistencia_social:creada": (payload: unknown) => void;
     "punto_critico:creado": (payload: unknown) => void;
     "punto_critico:eliminado": (payload: {

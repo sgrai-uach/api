@@ -273,6 +273,7 @@ export interface RecuperacionRecursoTable {
   id: Generated<string>;
   recuperacion_id: string;
   recurso_id: string;
+  mision_id?: string | null;
   cantidad_asignada: number;
   creado_en: Generated<Date>;
 }
