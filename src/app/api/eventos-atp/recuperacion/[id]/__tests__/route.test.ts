@@ -150,6 +150,81 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)"
     expect(body.data.historial).toHaveLength(1);
     expect(body.data.recursos[0].nombre).toBe("Frazadas Térmicas");
   });
+
+  it("debe responder 200 OK para un operativo planificado sin mision ni patrulla asignada (REC-2026-0013)", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+
+    const operativoPlanificadoId = "73100000-0000-4000-8000-000000000003";
+    const detallePlanificadoMock: RecuperacionDetalleResponse = {
+      id: operativoPlanificadoId,
+      codigo: "REC-2026-0013",
+      nombre: "Distribución de víveres y kits de calefacción en campamento",
+      descripcion: "Entrega de cajas de alimentos de emergencia",
+      sector: "Campamento Los Jazmines, Angachilla",
+      direccionTexto: "Acceso Sur Poniente s/n",
+      prioridad: "CRITICA",
+      contactoNombre: "Rosa Alarcón",
+      contactoTelefono: "+56965432109",
+      latitud: -39.831,
+      longitud: -73.2289,
+      estado: "PLANIFICADA",
+      familiasAfectadas: 42,
+      delegacion: {
+        id: "30000000-0000-4000-8000-000000000002",
+        codigo: "DEL-SUR",
+        nombre: "Delegación Sur",
+      },
+      creadoPor: {
+        id: usuarioEncargadoId,
+        nombre: "Encargado de Operaciones",
+      },
+      mision: null,
+      patrulla: null,
+      recursos: [
+        {
+          recursoId: "73000000-0000-4000-8000-000000000002",
+          nombre: "Cajas de Alimentos",
+          cantidadAsignada: 45,
+        },
+      ],
+      cantidadInsumosAsignados: 45,
+      totalTiposInsumos: 1,
+      historial: [
+        {
+          id: `rec-creacion-${operativoPlanificadoId}`,
+          tipo: "CREACION",
+          titulo: "Operativo Planificado",
+          descripcion: "Entrega de cajas de alimentos de emergencia",
+          registradoPor: {
+            id: usuarioEncargadoId,
+            nombre: "Encargado de Operaciones",
+          },
+          creadoEn: "2026-11-01T10:00:00.000Z",
+        },
+      ],
+      creadoEn: "2026-11-01T10:00:00.000Z",
+      actualizadoEn: "2026-11-01T10:00:00.000Z",
+      fechaEstimadaFin: null,
+      actualizadoPorId: null,
+      fechaCierre: null,
+      observacionesCierre: null,
+    };
+
+    vi.spyOn(recuperacionService, "obtenerDetalleRecuperacionService").mockResolvedValueOnce(detallePlanificadoMock);
+
+    const req = new NextRequest(`http://localhost:3000/api/eventos-atp/recuperacion/${operativoPlanificadoId}`, {
+      headers: { "x-user-id": usuarioEncargadoId },
+    });
+    const res = await GET(req, { params: Promise.resolve({ id: operativoPlanificadoId }) });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.codigo).toBe("REC-2026-0013");
+    expect(body.data.mision).toBeNull();
+    expect(body.data.patrulla).toBeNull();
+    expect(body.data.fechaEstimadaFin).toBeNull();
+    expect(body.data.estado).toBe("PLANIFICADA");
+  });
 });
 
 describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () => {

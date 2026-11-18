@@ -401,6 +401,15 @@ export async function registrarHitoReasignacionMision(
     .execute();
 }
 
+function formatearFechaIso(fecha: unknown): string | null {
+  if (!fecha) return null;
+  if (fecha instanceof Date) {
+    return isNaN(fecha.getTime()) ? null : fecha.toISOString();
+  }
+  const d = new Date(fecha as string | number);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 /**
  * Consulta paginada y filtrable de operativos de recuperación (H73).
  * Retorna las filas mapeadas con su delegación y el resumen consolidado de recursos asignados.
@@ -416,7 +425,7 @@ export async function listarRecuperacionesPaginadoRepo(
   let baseQuery = db
     .selectFrom("recuperacion")
     .leftJoin("delegacion", "delegacion.id", "recuperacion.delegacion_id")
-    .where("recuperacion.eliminado_en", "is", null);
+    .where((eb) => eb(sql`to_jsonb(recuperacion)->>'eliminado_en'`, "is", null));
 
   if (filtros.delegacionId) {
     baseQuery = baseQuery.where("recuperacion.delegacion_id", "=", filtros.delegacionId);
@@ -482,7 +491,7 @@ export async function listarRecuperacionesPaginadoRepo(
       "recuperacion.delegacion_id",
       sql<string | null>`COALESCE(delegacion.codigo, delegacion.codigo_delegacion)`.as("delegacion_codigo"),
       sql<string | null>`COALESCE(delegacion.nombre, delegacion.nombre_delegacion)`.as("delegacion_nombre"),
-      "recuperacion.fecha_cierre",
+      sql<Date | null>`CASE WHEN (to_jsonb(recuperacion) ? 'fecha_cierre') THEN (to_jsonb(recuperacion)->>'fecha_cierre')::timestamptz ELSE NULL END`.as("fecha_cierre"),
       "recuperacion.creado_en",
       "recuperacion.actualizado_en",
     ])
@@ -555,19 +564,9 @@ export async function listarRecuperacionesPaginadoRepo(
       cantidadInsumosAsignados: infoInsumos.totalUnidades,
       totalTiposInsumos: infoInsumos.recursosResumen.length,
       recursosResumen: infoInsumos.recursosResumen,
-      creadoEn:
-        fila.creado_en instanceof Date
-          ? fila.creado_en.toISOString()
-          : new Date(fila.creado_en).toISOString(),
-      actualizadoEn:
-        fila.actualizado_en instanceof Date
-          ? fila.actualizado_en.toISOString()
-          : new Date(fila.actualizado_en).toISOString(),
-      fechaCierre: fila.fecha_cierre
-        ? fila.fecha_cierre instanceof Date
-          ? fila.fecha_cierre.toISOString()
-          : new Date(fila.fecha_cierre).toISOString()
-        : null,
+      creadoEn: formatearFechaIso(fila.creado_en) ?? new Date().toISOString(),
+      actualizadoEn: formatearFechaIso(fila.actualizado_en) ?? new Date().toISOString(),
+      fechaCierre: formatearFechaIso(fila.fecha_cierre),
     };
   });
 
@@ -584,7 +583,7 @@ export async function obtenerRecuperacionDetallePorIdRepo(
   const recuperacion = await db
     .selectFrom("recuperacion")
     .leftJoin("delegacion", "delegacion.id", "recuperacion.delegacion_id")
-    .innerJoin("usuario as creador", "creador.id", "recuperacion.creado_por_id")
+    .leftJoin("usuario as creador", "creador.id", "recuperacion.creado_por_id")
     .select([
       "recuperacion.id",
       "recuperacion.codigo",
@@ -603,16 +602,16 @@ export async function obtenerRecuperacionDetallePorIdRepo(
       sql<string | null>`COALESCE(delegacion.codigo, delegacion.codigo_delegacion)`.as("delegacion_codigo"),
       sql<string | null>`COALESCE(delegacion.nombre, delegacion.nombre_delegacion)`.as("delegacion_nombre"),
       "recuperacion.creado_por_id",
-      "creador.nombre as creador_nombre",
-      "recuperacion.fecha_estimada_fin",
-      "recuperacion.actualizado_por_id",
-      "recuperacion.fecha_cierre",
-      "recuperacion.observaciones_cierre",
+      sql<string | null>`COALESCE(creador.nombre, TRIM(CONCAT(COALESCE(creador.nombres, ''), ' ', COALESCE(creador.apellidos, ''))), 'Encargado de Operaciones')`.as("creador_nombre"),
+      sql<Date | null>`CASE WHEN (to_jsonb(recuperacion) ? 'fecha_estimada_fin') THEN (to_jsonb(recuperacion)->>'fecha_estimada_fin')::timestamptz ELSE NULL END`.as("fecha_estimada_fin"),
+      sql<string | null>`CASE WHEN (to_jsonb(recuperacion) ? 'actualizado_por_id') THEN (to_jsonb(recuperacion)->>'actualizado_por_id')::uuid ELSE NULL END`.as("actualizado_por_id"),
+      sql<Date | null>`CASE WHEN (to_jsonb(recuperacion) ? 'fecha_cierre') THEN (to_jsonb(recuperacion)->>'fecha_cierre')::timestamptz ELSE NULL END`.as("fecha_cierre"),
+      sql<string | null>`CASE WHEN (to_jsonb(recuperacion) ? 'observaciones_cierre') THEN (to_jsonb(recuperacion)->>'observaciones_cierre') ELSE NULL END`.as("observaciones_cierre"),
       "recuperacion.creado_en",
       "recuperacion.actualizado_en",
     ])
     .where("recuperacion.id", "=", id)
-    .where("recuperacion.eliminado_en", "is", null)
+    .where((eb) => eb(sql`to_jsonb(recuperacion)->>'eliminado_en'`, "is", null))
     .executeTakeFirst();
 
   if (!recuperacion) {
@@ -632,12 +631,12 @@ export async function obtenerRecuperacionDetallePorIdRepo(
     .execute();
 
   let cantidadTotalUnidades = 0;
-  const recursos = insumos.map((i) => {
+  const recursos = (insumos || []).map((i) => {
     const cant = Number(i.cantidad_asignada ?? 0);
     cantidadTotalUnidades += cant;
     return {
       recursoId: i.recurso_id,
-      nombre: i.recurso_nombre,
+      nombre: i.recurso_nombre || "Recurso",
       cantidadAsignada: cant,
     };
   });
@@ -666,16 +665,13 @@ export async function obtenerRecuperacionDetallePorIdRepo(
   historial.push({
     id: `rec-creacion-${recuperacion.id}`,
     tipo: "CREACION",
-    titulo: "Operativo Planificado y Despachado",
+    titulo: recuperacion.estado === "PLANIFICADA" ? "Operativo Planificado" : "Operativo Planificado y Despachado",
     descripcion: recuperacion.descripcion ?? "Despliegue de recuperación registrado en el sistema.",
     registradoPor: {
-      id: recuperacion.creado_por_id,
+      id: recuperacion.creado_por_id || "00000000-0000-4000-8000-000000000003",
       nombre: recuperacion.creador_nombre || "Encargado de Operaciones",
     },
-    creadoEn:
-      recuperacion.creado_en instanceof Date
-        ? recuperacion.creado_en.toISOString()
-        : new Date(recuperacion.creado_en).toISOString(),
+    creadoEn: formatearFechaIso(recuperacion.creado_en) ?? new Date().toISOString(),
   });
 
   // 2. Hitos de misión si existe misión
@@ -707,10 +703,7 @@ export async function obtenerRecuperacionDetallePorIdRepo(
               nombre: h.usuario_nombre || "Personal de Terreno",
             }
           : null,
-        creadoEn:
-          h.creado_en instanceof Date
-            ? h.creado_en.toISOString()
-            : new Date(h.creado_en).toISOString(),
+        creadoEn: formatearFechaIso(h.creado_en) ?? new Date().toISOString(),
       });
     }
 
@@ -742,10 +735,7 @@ export async function obtenerRecuperacionDetallePorIdRepo(
               nombre: r.usuario_nombre || "Patrulla Verificadora",
             }
           : null,
-        creadoEn:
-          r.creado_en instanceof Date
-            ? r.creado_en.toISOString()
-            : new Date(r.creado_en).toISOString(),
+        creadoEn: formatearFechaIso(r.creado_en) ?? new Date().toISOString(),
       });
     }
   }
@@ -758,13 +748,10 @@ export async function obtenerRecuperacionDetallePorIdRepo(
       titulo: `Operativo ${recuperacion.estado === "COMPLETADA" ? "Completado" : "Cancelado"}`,
       descripcion: recuperacion.observaciones_cierre ?? null,
       registradoPor: null,
-      creadoEn: recuperacion.fecha_cierre
-        ? recuperacion.fecha_cierre instanceof Date
-          ? recuperacion.fecha_cierre.toISOString()
-          : new Date(recuperacion.fecha_cierre).toISOString()
-        : recuperacion.actualizado_en instanceof Date
-          ? recuperacion.actualizado_en.toISOString()
-          : new Date(recuperacion.actualizado_en).toISOString(),
+      creadoEn:
+        formatearFechaIso(recuperacion.fecha_cierre) ??
+        formatearFechaIso(recuperacion.actualizado_en) ??
+        new Date().toISOString(),
     });
   }
 
@@ -775,12 +762,12 @@ export async function obtenerRecuperacionDetallePorIdRepo(
     id: recuperacion.id,
     codigo: recuperacion.codigo,
     nombre: recuperacion.nombre,
-    descripcion: recuperacion.descripcion,
+    descripcion: recuperacion.descripcion ?? null,
     sector: recuperacion.sector,
-    direccionTexto: recuperacion.direccion_texto,
+    direccionTexto: recuperacion.direccion_texto ?? null,
     prioridad: recuperacion.prioridad as RecuperacionDetalleResponse["prioridad"],
-    contactoNombre: recuperacion.contacto_nombre,
-    contactoTelefono: recuperacion.contacto_telefono,
+    contactoNombre: recuperacion.contacto_nombre ?? null,
+    contactoTelefono: recuperacion.contacto_telefono ?? null,
     latitud: Number(recuperacion.latitud),
     longitud: Number(recuperacion.longitud),
     estado: recuperacion.estado as RecuperacionDetalleResponse["estado"],
@@ -793,7 +780,7 @@ export async function obtenerRecuperacionDetallePorIdRepo(
         }
       : null,
     creadoPor: {
-      id: recuperacion.creado_por_id,
+      id: recuperacion.creado_por_id || "00000000-0000-4000-8000-000000000003",
       nombre: recuperacion.creador_nombre || "Encargado de Operaciones",
     },
     mision: mision?.mision_id
@@ -816,25 +803,11 @@ export async function obtenerRecuperacionDetallePorIdRepo(
     cantidadInsumosAsignados: cantidadTotalUnidades,
     totalTiposInsumos: recursos.length,
     historial,
-    creadoEn:
-      recuperacion.creado_en instanceof Date
-        ? recuperacion.creado_en.toISOString()
-        : new Date(recuperacion.creado_en).toISOString(),
-    actualizadoEn:
-      recuperacion.actualizado_en instanceof Date
-        ? recuperacion.actualizado_en.toISOString()
-        : new Date(recuperacion.actualizado_en).toISOString(),
-    fechaEstimadaFin: recuperacion.fecha_estimada_fin
-      ? recuperacion.fecha_estimada_fin instanceof Date
-        ? recuperacion.fecha_estimada_fin.toISOString()
-        : new Date(recuperacion.fecha_estimada_fin).toISOString()
-      : null,
+    creadoEn: formatearFechaIso(recuperacion.creado_en) ?? new Date().toISOString(),
+    actualizadoEn: formatearFechaIso(recuperacion.actualizado_en) ?? new Date().toISOString(),
+    fechaEstimadaFin: formatearFechaIso(recuperacion.fecha_estimada_fin),
     actualizadoPorId: recuperacion.actualizado_por_id ?? null,
-    fechaCierre: recuperacion.fecha_cierre
-      ? recuperacion.fecha_cierre instanceof Date
-        ? recuperacion.fecha_cierre.toISOString()
-        : new Date(recuperacion.fecha_cierre).toISOString()
-      : null,
+    fechaCierre: formatearFechaIso(recuperacion.fecha_cierre),
     observacionesCierre: recuperacion.observaciones_cierre ?? null,
   };
 }

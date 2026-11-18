@@ -1023,6 +1023,81 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
       expect(detalle.recursos).toHaveLength(1);
     });
 
+    it("debe retornar correctamente el detalle de un operativo planificado sin mision ni patrulla asignada (REC-2026-0013)", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce({
+        id: usuarioId,
+        nombre: "Encargado de Operaciones",
+        rol: "ENCARGADO",
+      });
+
+      const operativoPlanificadoId = "73100000-0000-4000-8000-000000000003";
+      const detallePlanificadoMock: RecuperacionDetalleResponse = {
+        id: operativoPlanificadoId,
+        codigo: "REC-2026-0013",
+        nombre: "Distribución de víveres y kits de calefacción en campamento",
+        descripcion: "Entrega de cajas de alimentos de emergencia",
+        sector: "Campamento Los Jazmines, Angachilla",
+        direccionTexto: "Acceso Sur Poniente s/n",
+        prioridad: "CRITICA",
+        contactoNombre: "Rosa Alarcón",
+        contactoTelefono: "+56965432109",
+        latitud: -39.831,
+        longitud: -73.2289,
+        estado: "PLANIFICADA",
+        familiasAfectadas: 42,
+        delegacion: {
+          id: "30000000-0000-4000-8000-000000000002",
+          codigo: "DEL-SUR",
+          nombre: "Delegación Sur",
+        },
+        creadoPor: {
+          id: usuarioId,
+          nombre: "Encargado de Operaciones",
+        },
+        mision: null,
+        patrulla: null,
+        recursos: [
+          {
+            recursoId: "73000000-0000-4000-8000-000000000002",
+            nombre: "Cajas de Alimentos",
+            cantidadAsignada: 45,
+          },
+        ],
+        cantidadInsumosAsignados: 45,
+        totalTiposInsumos: 1,
+        historial: [
+          {
+            id: `rec-creacion-${operativoPlanificadoId}`,
+            tipo: "CREACION",
+            titulo: "Operativo Planificado",
+            descripcion: "Entrega de cajas de alimentos de emergencia",
+            registradoPor: {
+              id: usuarioId,
+              nombre: "Encargado de Operaciones",
+            },
+            creadoEn: "2026-11-01T10:00:00.000Z",
+          },
+        ],
+        creadoEn: "2026-11-01T10:00:00.000Z",
+        actualizadoEn: "2026-11-01T10:00:00.000Z",
+        fechaEstimadaFin: null,
+        actualizadoPorId: null,
+        fechaCierre: null,
+        observacionesCierre: null,
+      };
+
+      vi.spyOn(repo, "obtenerRecuperacionDetallePorIdRepo").mockResolvedValueOnce(detallePlanificadoMock);
+
+      const detalle = await obtenerDetalleRecuperacionService(operativoPlanificadoId, usuarioId);
+
+      expect(detalle.codigo).toBe("REC-2026-0013");
+      expect(detalle.mision).toBeNull();
+      expect(detalle.patrulla).toBeNull();
+      expect(detalle.fechaEstimadaFin).toBeNull();
+      expect(detalle.estado).toBe("PLANIFICADA");
+      expect(detalle.recursos).toHaveLength(1);
+    });
+
     it("debe lanzar NotFoundError si el operativo no existe", async () => {
       vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce({
         id: usuarioId,
