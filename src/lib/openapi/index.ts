@@ -145,6 +145,7 @@ import {
   CrearEventoRecuperacionResponseSchema,
   EditarEventoRecuperacionInputSchema,
   EditarEventoRecuperacionResponseSchema,
+  ObtenerEventoRecuperacionResponseSchema,
   EventoRecuperacionResponseSchema,
 } from "@/modules/eventos-atp/recuperacion.schema";
 
@@ -1850,7 +1851,56 @@ registry.registerPath({
   },
 });
 
-// 27. PATCH /api/eventos-atp/recuperacion/{id} (HU-74)
+// 27. GET /api/eventos-atp/recuperacion/{id} (HU-74)
+registry.register("ObtenerEventoRecuperacionResponse", ObtenerEventoRecuperacionResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion/{id}",
+  summary: "Obtener detalle de un operativo de recuperación (HU-74)",
+  description:
+    "Retorna el detalle completo de un operativo de recuperación, incluyendo patrulla asignada, recursos, misión vinculada y fechaEstimadaFin para precargar el modal de edición.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().openapi({ description: "UUID del operativo de recuperación" }),
+    }),
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Detalle del operativo de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ObtenerEventoRecuperacionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador de operativo inválido",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id o token ausente o inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recuperacion:editar'",
+    },
+    404: {
+      description: "Operativo de recuperación no encontrado",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 28. PATCH /api/eventos-atp/recuperacion/{id} (HU-74)
 registry.register("EditarEventoRecuperacionInput", EditarEventoRecuperacionInputSchema);
 registry.register("EditarEventoRecuperacionResponse", EditarEventoRecuperacionResponseSchema);
 
@@ -1859,7 +1909,7 @@ registry.registerPath({
   path: "/api/eventos-atp/recuperacion/{id}",
   summary: "Editar planificación de un operativo de recuperación activo (HU-74)",
   description:
-    "Permite al Encargado modificar la descripción de tareas, fecha estimada de término y dotación de insumos/recursos de un operativo de recuperación activo. Bloquea la edición con 409 Conflict si el operativo está en estado COMPLETADA o CANCELADA, registra auditoría (actualizado_en, actualizado_por_id), sincroniza la descripción de la misión vinculada y emite el evento en tiempo real 'recuperacion:actualizada'.",
+    "Permite al Encargado modificar la descripción de tareas, fecha estimada de término, dotación de insumos/recursos y/o patrulla verificadora asignada a un operativo de recuperación activo. Bloquea la edición con 409 Conflict si el operativo está en estado COMPLETADA o CANCELADA, libera la patrulla anterior si no tiene otras misiones activas, registra auditoría (actualizado_en, actualizado_por_id) y hito de reasignación, sincroniza la descripción de la misión vinculada y emite eventos en tiempo real ('recuperacion:actualizada', 'mision:asignada', 'mision:reasignada').",
   tags: ["Eventos ATP / Recuperación"],
   request: {
     params: z.object({
@@ -1900,10 +1950,10 @@ registry.registerPath({
       description: "Acceso denegado. Se requiere permiso 'recuperacion:editar'",
     },
     404: {
-      description: "Operativo de recuperación o recurso no encontrado",
+      description: "Operativo de recuperación, patrulla o recurso no encontrado",
     },
     409: {
-      description: "Conflicto: operativo en estado COMPLETADA/CANCELADA o stock insuficiente en bodega",
+      description: "Conflicto: operativo en estado COMPLETADA/CANCELADA, patrulla no disponible o stock insuficiente en bodega",
     },
     500: {
       description: "Error interno del servidor",

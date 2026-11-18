@@ -61,7 +61,8 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
-| `PATCH` | `/api/eventos-atp/recuperacion/{id}` | Modificar descripción de tareas, fecha estimada de término y dotación de insumos de un operativo de recuperación activo (HU-74). |
+| `GET` | `/api/eventos-atp/recuperacion/{id}` | Obtener el detalle completo de un operativo de recuperación (patrulla, recursos, misión y fechaEstimadaFin) para precarga de edición (HU-74). |
+| `PATCH` | `/api/eventos-atp/recuperacion/{id}` | Modificar descripción de tareas, fecha estimada de término, dotación de insumos y/o patrulla asignada de un operativo de recuperación activo (HU-74). |
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
 
@@ -565,20 +566,25 @@ Permite al perfil **Encargado de Operaciones** (o Administrador) crear un evento
 
 ---
 
-## 8.1. Detalle de Endpoint: `PATCH /api/eventos-atp/recuperacion/{id}` (HU-74)
+## 8.1. Detalle de Endpoints: `GET` y `PATCH /api/eventos-atp/recuperacion/{id}` (HU-74)
 
-Permite al **Encargado de Operaciones** (o Administrador con permiso `recuperacion:editar`) modificar la planificación de un operativo de recuperación activo: descripción de tareas, fecha estimada de término y dotación de insumos/recursos.
+Permite al **Encargado de Operaciones** (o Administrador con permiso `recuperacion:editar`) consultar el detalle de un operativo de recuperación (`GET`) y modificar su planificación (`PATCH`): descripción de tareas, fecha estimada de término (`fechaEstimadaFin`), dotación de insumos/recursos (`recursos`) y/o patrulla verificadora asignada (`patrullaId`).
 
 ### Reglas de Negocio Aplicadas
 - **Bloqueo por estado culminado:** Si el operativo se encuentra en estado `COMPLETADA` o `CANCELADA`, la edición es rechazada con `409 Conflict`.
 - **Auditoría de edición:** Toda actualización persiste `actualizado_en` y `actualizado_por_id` con el UUID del usuario autenticado.
 - **Reasignación diferencial de recursos:** Si se envía `recursos`, se calcula la diferencia respecto a `recuperacion_recurso`: se devuelve al inventario lo reducido o removido y se descuenta lo agregado/incrementado previa validación de stock (`409 Conflict` si es insuficiente). Si `recursos` se omite, la dotación actual se mantiene intacta.
-- **Sincronización operativa:** Si se modifica `descripcion`, se sincroniza `mision.descripcion` en la misión vinculada y se emite el evento WebSocket `recuperacion:actualizada`.
+- **Reasignación de patrulla verificadora (`patrullaId`):**
+  - Valida existencia (`404 Not Found`) y disponibilidad (`estado = DISPONIBLE`, `409 Conflict` si está ocupada).
+  - Libera la patrulla anterior a `DISPONIBLE` (y a su líder a `disponible`) siempre que no tenga otra misión activa.
+  - Asigna la nueva patrulla a la `mision` vinculada (pasándola a `EN_RECUPERACION` y a su líder a `en_mision`) y registra el hito `REASIGNACION_PATRULLA` en `mision_hito`.
+- **Sincronización operativa y tiempo real:** Si se modifica `descripcion`, se sincroniza `mision.descripcion`. Tras el commit, se emite `recuperacion:actualizada` (con el detalle actualizado de `patrulla` y `mision`), `mision:asignada` a la nueva patrulla y `mision:reasignada` a la patrulla liberada.
 - **Validación temporal:** Si se envía `fechaEstimadaFin` (ISO-8601), no puede ser anterior a `creado_en` (`400 Bad Request`).
 
 ### Errores Esperables No Obvios
 - `403 Forbidden`: El usuario no posee el permiso `recuperacion:editar`.
-- `409 Conflict`: El operativo está en estado `COMPLETADA` o `CANCELADA`, o no hay stock suficiente para incrementar un recurso solicitado.
+- `404 Not Found`: El operativo, la patrulla o alguno de los recursos no existe.
+- `409 Conflict`: El operativo está en estado `COMPLETADA` o `CANCELADA`, la nueva patrulla no está `DISPONIBLE`, o no hay stock suficiente para incrementar un recurso solicitado.
 
 ---
 
