@@ -976,7 +976,6 @@ Permite consultar la ficha completa y consolidada de un evento de recuperación 
 | Cabecera | Tipo | Obligatorio | Descripción |
 |---|---|---|---|
 | `Authorization` | `string` | Sí | Token Bearer JWT (`Bearer <token>`). Requiere permiso `misiones:leer`, `recuperacion:crear` o `misiones:asignar` (Encargado, Administrador o Supervisor). |
-| `X-User-Id` | `UUID` | No | Identificador UUID opcional del usuario autenticado. |
 
 ### Respuestas HTTP
 
@@ -1053,18 +1052,18 @@ Permite al **Encargado de Operaciones** asignar una patrulla verificadora dispon
    - Al confirmar, incrementa `cantidad_en_uso` en la tabla `recurso`. Si el remanente disponible llega a 0, transiciona a `NO_DISPONIBLE`; si es $\le$ `cantidad_minima`, transiciona a `BAJO_STOCK`.
 4. **Activos Individuales (`es_individual = true`, vehículos, bombas, motosierras):**
    - La cantidad asignada debe ser exactamente 1 (`400 Bad Request` si es mayor).
-   - Se prohíbe la asignación si el activo se encuentra en estado `EN_MANTENCION`, `NO_DISPONIBLE` o `ASIGNADO` (`409 Conflict`).
-   - Al asignarse, transiciona a estado `ASIGNADO` con `cantidad_en_uso = 1`.
+   - Se prohíbe la asignación si el activo se encuentra en estado `EN_MANTENCION`, `NO_DISPONIBLE` o `ASIGNADO` (`409 Conflict`), o si `cantidad_inventario - cantidad_en_uso < 1`.
+   - Al asignarse, incrementa `cantidad_en_uso` en 1. Si el stock disponible remanente llega a 0, transiciona a estado `ASIGNADO` o `NO_DISPONIBLE`.
 5. **Transición Táctica de Misión y Patrulla:**
    - La patrulla verificadora seleccionada debe estar en estado `'DISPONIBLE'` (`409 Conflict` si está ocupada o no disponible).
-   - Se genera una misión táctica con `tipo_mision = 'RECUPERACION'`, vinculada al `recuperacion_id` y al `patrulla_id`.
+   - Se genera una misión táctica con `tipo_mision = 'RECUPERACION'` en estado `'DESPACHADA'` con `fecha_inicio = null` (inicia al arribar a terreno), registrando el hito inicial en `mision_hito`.
    - La patrulla transiciona automáticamente al estado `'EN_RECUPERACION'`.
    - El funcionario líder pasa a `usuario.estado_operativo = 'en_mision'`.
    - Los materiales asignados se persisten en la tabla `recuperacion_recurso` vinculados a la `mision_id`.
    - El evento de recuperación permanece en estado `PLANIFICADA` hasta que la patrulla confirme la llegada a terreno.
 6. **Sincronización en Tiempo Real:**
    - Emite el evento WebSocket `recuperacion:actualizada` hacia las salas `"sala:encargados"`, `"encargado"` y `"mapa"`.
-   - Emite el evento WebSocket `recurso:actualizado` por cada recurso modificado en bodega hacia `"encargado"` y `"supervisor"`.
+   - Emite el evento WebSocket `recurso:actualizado` por cada recurso modificado en bodega hacia `"encargado"` y `"supervisor"` (payload con nomenclatura camelCase y `cantidadDisponible`).
    - Emite el evento WebSocket `patrulla:actualizada` con el estado `EN_RECUPERACION`.
 
 ### Cabeceras Requeridas
@@ -1072,7 +1071,6 @@ Permite al **Encargado de Operaciones** asignar una patrulla verificadora dispon
 | Cabecera | Tipo | Obligatorio | Descripción |
 |---|---|---|---|
 | `Authorization` | `string` | Sí | Token Bearer JWT (`Bearer <token>`). Requiere permiso `misiones:asignar`. |
-| `X-User-Id` | `UUID` | No | Identificador UUID opcional del usuario autenticado. |
 
 ### Cuerpo de la Petición (Request Body JSON)
 

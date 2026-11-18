@@ -1900,19 +1900,9 @@ registry.registerPath({
   description:
     "Permite consultar la información integral de un evento de recuperación territorial, incluyendo su localización, misiones tácticas desplegadas y el listado de insumos y recursos asignados.",
   tags: ["Eventos ATP / Recuperación"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: RecuperacionIdParamSchema,
-    headers: z.object({
-      authorization: z
-        .string()
-        .optional()
-        .openapi({ description: "Token Bearer del usuario con permiso 'misiones:leer' o 'recuperacion:crear'" }),
-      "x-user-id": z
-        .string()
-        .uuid()
-        .optional()
-        .openapi({ description: "UUID del usuario autenticado" }),
-    }),
   },
   responses: {
     200: {
@@ -1942,19 +1932,9 @@ registry.registerPath({
   description:
     "Permite al Encargado asignar una patrulla verificadora disponible y recursos de bodega con control transaccional estricto FOR UPDATE (§3.6), creando una misión táctica de recuperación y transicionando la patrulla a EN_RECUPERACION.",
   tags: ["Eventos ATP / Recuperación"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: RecuperacionIdParamSchema,
-    headers: z.object({
-      authorization: z
-        .string()
-        .optional()
-        .openapi({ description: "Token Bearer del usuario con permiso 'misiones:asignar'" }),
-      "x-user-id": z
-        .string()
-        .uuid()
-        .optional()
-        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
-    }),
     body: {
       description: "Patrulla verificadora a despachar y listado de recursos logísticos solicitados",
       content: {

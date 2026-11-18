@@ -270,16 +270,18 @@ export function emitirRecursoActualizado(recurso: Record<string, unknown>): void
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "encargado",
-          event: "recurso:actualizado",
-          payload: recurso,
-        })
-      )
-      .catch(() => {});
+    for (const room of ["encargado", "supervisor"]) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "recurso:actualizado",
+            payload: recurso,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 
@@ -399,16 +401,18 @@ export function emitirRecuperacionActualizada(payload: unknown): void {
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "sala:encargados",
-          event: "recuperacion:actualizada",
-          payload,
-        })
-      )
-      .catch(() => {});
+    for (const room of ["sala:encargados", "encargado", "mapa"]) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "recuperacion:actualizada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 

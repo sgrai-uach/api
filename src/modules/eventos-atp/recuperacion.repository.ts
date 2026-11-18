@@ -32,41 +32,66 @@ export interface DatosInsertarMisionRecuperacionRepo {
 }
 
 export async function generarSiguienteCodigoRecuperacion(trx: KyselyTrx): Promise<string> {
+  await sql`SELECT pg_advisory_xact_lock(hashtext('recuperacion_codigo_seq'))`.execute(trx);
   const anio = new Date().getFullYear();
   const prefijo = `REC-${anio}-`;
 
-  const conteo = await trx
+  const ultimaRecuperacion = await trx
     .selectFrom("recuperacion")
+    .select("codigo")
     .where("codigo", "like", `${prefijo}%`)
-    .select(sql<number>`count(*)::int`.as("total"))
+    .orderBy("codigo", "desc")
+    .limit(1)
     .executeTakeFirst();
 
-  const secuencia = (conteo?.total ?? 0) + 1;
-  return `${prefijo}${String(secuencia).padStart(4, "0")}`;
+  let correlativo = 1;
+  if (ultimaRecuperacion?.codigo) {
+    const partes = ultimaRecuperacion.codigo.split("-");
+    const num = parseInt(partes[2] || "0", 10);
+    if (!isNaN(num) && num >= 1) {
+      correlativo = num + 1;
+    }
+  }
+  return `${prefijo}${String(correlativo).padStart(4, "0")}`;
 }
 
 export async function generarSiguienteCodigoMision(trx: KyselyTrx): Promise<string> {
+  await sql`SELECT pg_advisory_xact_lock(hashtext('mision_codigo_seq'))`.execute(trx);
   const anio = new Date().getFullYear();
   const prefijo = `MIS-${anio}-`;
 
-  const conteo = await trx
+  const ultimaMision = await trx
     .selectFrom("mision")
+    .select("codigo")
     .where("codigo", "like", `${prefijo}%`)
-    .select(sql<number>`count(*)::int`.as("total"))
+    .orderBy("codigo", "desc")
+    .limit(1)
     .executeTakeFirst();
 
-  const secuencia = (conteo?.total ?? 0) + 1;
-  return `${prefijo}${String(secuencia).padStart(4, "0")}`;
+  let correlativo = 1;
+  if (ultimaMision?.codigo) {
+    const partes = ultimaMision.codigo.split("-");
+    const num = parseInt(partes[2] || "0", 10);
+    if (!isNaN(num) && num >= 1) {
+      correlativo = num + 1;
+    }
+  }
+  return `${prefijo}${String(correlativo).padStart(4, "0")}`;
 }
 
-export async function buscarPatrullaPorId(trx: KyselyTrx, patrullaId: string) {
-  return trx
+export async function buscarPatrullaPorId(trx: KyselyTrx, patrullaId: string, bloquear: boolean = false) {
+  let query = trx
     .selectFrom("patrulla_verificadora")
     .select(["id", "nombre", "estado", "delegacion_id", "usuario_lider_id"])
     .where("id", "=", patrullaId)
     .where("eliminado_en", "is", null)
-    .where("activo", "=", true)
-    .executeTakeFirst();
+    .where("activo", "=", true);
+
+  if (bloquear) {
+    query = query.forUpdate();
+  }
+
+  return query.executeTakeFirst();
 }
 
 export async function obtenerRecursosParaBloqueo(trx: KyselyTrx, recursoIds: string[]) {
@@ -127,7 +152,25 @@ export async function insertarMisionRecuperacion(trx: KyselyTrx, datos: DatosIns
       recuperacion_id: datos.recuperacionId,
       encargado_id: datos.encargadoId,
       creado_por_id: datos.creadoPorId,
-      fecha_inicio: new Date(),
+      fecha_inicio: null,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+}
+
+export async function registrarHitoMisionInicial(
+  trx: KyselyTrx,
+  misionId: string,
+  operadorId: string,
+  patrullaNombre: string
+) {
+  return trx
+    .insertInto("mision_hito")
+    .values({
+      mision_id: misionId,
+      hito: "DESPACHADA",
+      descripcion: `Misión de recuperación asignada y despachada a la patrulla ${patrullaNombre}.`,
+      registrado_por_id: operadorId,
     })
     .returningAll()
     .executeTakeFirstOrThrow();
@@ -190,13 +233,18 @@ export async function actualizarEstadoPatrulla(
   patrullaId: string,
   nuevoEstado: EstadoPatrulla = "EN_RECUPERACION"
 ) {
-  await trx
+  return trx
     .updateTable("patrulla_verificadora")
     .set({
       estado: nuevoEstado,
+      actualizado_en: new Date(),
     })
     .where("id", "=", patrullaId)
-    .execute();
+    .where("estado", "=", "DISPONIBLE")
+    .where("eliminado_en", "is", null)
+    .where("activo", "=", true)
+    .returning(["id", "nombre", "estado", "delegacion_id", "usuario_lider_id"])
+    .executeTakeFirst();
 }
 
 export async function actualizarEstadoPersonalLider(
@@ -204,23 +252,14 @@ export async function actualizarEstadoPersonalLider(
   usuarioLiderId: string,
   nuevoEstado: EstadoOperativo = "en_mision"
 ) {
-  // H11: la disponibilidad reside en `usuario.estado_operativo`
+  // H11: la disponibilidad operativa reside en `usuario.estado_operativo`
+  // No mutar `personal.disponible_terreno` para preservar la aptitud para otras cuadrillas/patrullas
   await trx
     .updateTable("usuario")
     .set({
       estado_operativo: nuevoEstado,
     })
     .where("id", "=", usuarioLiderId)
-    .execute();
-
-  // La aptitud para terreno se mantiene en la ficha opcional de personal
-  await trx
-    .updateTable("personal")
-    .set({
-      disponible_terreno: false,
-      updated_at: new Date(),
-    })
-    .where("usuario_id", "=", usuarioLiderId)
     .execute();
 }
 
@@ -232,8 +271,12 @@ export async function buscarDelegacionPorId(trx: KyselyTrx | typeof db, delegaci
     .executeTakeFirst();
 }
 
-export async function buscarRecuperacionPorId(trx: KyselyTrx | typeof db, recuperacionId: string) {
-  return trx
+export async function buscarRecuperacionPorId(
+  trx: KyselyTrx | typeof db,
+  recuperacionId: string,
+  bloquear: boolean = false
+) {
+  const query = trx
     .selectFrom("recuperacion")
     .select([
       "id",
@@ -254,8 +297,13 @@ export async function buscarRecuperacionPorId(trx: KyselyTrx | typeof db, recupe
       "creado_en",
       "actualizado_en",
     ])
-    .where("id", "=", recuperacionId)
-    .executeTakeFirst();
+    .where("id", "=", recuperacionId);
+
+  if (bloquear) {
+    return query.forUpdate().executeTakeFirst();
+  }
+
+  return query.executeTakeFirst();
 }
 
 export async function actualizarRecursoGranelUso(
@@ -312,11 +360,37 @@ export async function actualizarRecursoIndividualAsignado(
   trx: KyselyTrx,
   recursoId: string
 ) {
+  const recurso = await trx
+    .selectFrom("recurso")
+    .select([
+      "id",
+      "nombre",
+      "cantidad_inventario",
+      "cantidad_en_uso",
+      "cantidad_minima",
+      "es_individual",
+    ])
+    .where("id", "=", recursoId)
+    .executeTakeFirstOrThrow();
+
+  const enUsoActual = Number(recurso.cantidad_en_uso ?? 0);
+  const inventario = Number(recurso.cantidad_inventario);
+  const cantidadMinima = Number(recurso.cantidad_minima ?? 0);
+  const nuevoEnUso = enUsoActual + 1;
+  const nuevoDisponible = Math.max(0, inventario - nuevoEnUso);
+
+  let nuevoEstado: EstadoRecurso = "DISPONIBLE";
+  if (nuevoDisponible === 0) {
+    nuevoEstado = "ASIGNADO";
+  } else if (nuevoDisponible <= cantidadMinima) {
+    nuevoEstado = "BAJO_STOCK";
+  }
+
   return trx
     .updateTable("recurso")
     .set({
-      cantidad_en_uso: 1,
-      estado: "ASIGNADO",
+      cantidad_en_uso: nuevoEnUso,
+      estado: nuevoEstado,
       actualizado_en: new Date(),
     })
     .where("id", "=", recursoId)

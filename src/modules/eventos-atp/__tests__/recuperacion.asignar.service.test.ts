@@ -177,6 +177,19 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Recuperación (HU-32)"
         actualizado_en: new Date(),
       });
 
+      const spyRegistrarHito = vi
+        .spyOn(repo, "registrarHitoMisionInicial")
+        .mockResolvedValueOnce({
+          id: "00000000-0000-4000-8000-000000000099",
+          mision_id: "60000000-0000-4000-8000-000000000001",
+          hito: "DESPACHADA",
+          descripcion: "Misión despachada",
+          latitud: null,
+          longitud: null,
+          registrado_por_id: usuarioId,
+          creado_en: new Date(),
+        });
+
       const spyInsertarRecursosConMision = vi
         .spyOn(repo, "insertarRecursosRecuperacionConMision")
         .mockResolvedValueOnce();
@@ -203,7 +216,13 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Recuperación (HU-32)"
 
       const spyActualizarPatrulla = vi
         .spyOn(repo, "actualizarEstadoPatrulla")
-        .mockResolvedValueOnce();
+        .mockResolvedValueOnce({
+          id: "50000000-0000-4000-8000-000000000001",
+          nombre: "Patrulla Norte",
+          estado: "EN_RECUPERACION",
+          delegacion_id: null,
+          usuario_lider_id: "00000000-0000-4000-8000-000000000002",
+        });
       const spyActualizarLider = vi
         .spyOn(repo, "actualizarEstadoPersonalLider")
         .mockResolvedValueOnce();
@@ -247,6 +266,7 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Recuperación (HU-32)"
         },
       ]);
 
+      expect(spyRegistrarHito).toHaveBeenCalled();
       expect(spyActualizarPatrulla).toHaveBeenCalledWith(mockTrx, mockPatrulla.id, "EN_RECUPERACION");
       expect(spyActualizarLider).toHaveBeenCalledWith(mockTrx, mockPatrulla.usuario_lider_id, "en_mision");
       expect(spyEmitirRecuperacion).toHaveBeenCalled();

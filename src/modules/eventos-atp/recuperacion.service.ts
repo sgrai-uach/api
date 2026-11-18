@@ -250,8 +250,8 @@ export async function asignarRecursosRecuperacionService(
   usuarioId: string
 ): Promise<AsignarRecursosRecuperacionResponseData> {
   const { resultado, recursosParaSocket, patrullaPayload } = await db.transaction().execute(async (trx) => {
-    // 1. Validar existencia del evento de recuperación
-    const evento = await repo.buscarRecuperacionPorId(trx, recuperacionId);
+    // 1. Validar existencia del evento de recuperación con bloqueo transaccional
+    const evento = await repo.buscarRecuperacionPorId(trx, recuperacionId, true);
     if (!evento) {
       throw new NotFoundError("El evento de recuperación indicado no fue encontrado.");
     }
@@ -262,8 +262,8 @@ export async function asignarRecursosRecuperacionService(
       );
     }
 
-    // 2. Validar existencia y disponibilidad de la patrulla verificadora
-    const patrulla = await repo.buscarPatrullaPorId(trx, input.patrullaId);
+    // 2. Validar existencia y disponibilidad de la patrulla verificadora con bloqueo pesimista
+    const patrulla = await repo.buscarPatrullaPorId(trx, input.patrullaId, true);
     if (!patrulla) {
       throw new NotFoundError("La patrulla verificadora indicada no fue encontrada.");
     }
@@ -317,6 +317,15 @@ export async function asignarRecursosRecuperacionService(
             `El activo individual "${recurso.nombre}" ya se encuentra asignado a otra misión u operación activa.`
           );
         }
+
+        const inventario = Number(recurso.cantidad_inventario);
+        const enUso = Number(recurso.cantidad_en_uso ?? 0);
+        const disponible = Math.max(0, inventario - enUso);
+        if (disponible < 1) {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" no cuenta con unidades disponibles para asignación (inventario: ${inventario}, en uso: ${enUso}).`
+          );
+        }
       } else {
         // Insumo a granel
         const inventario = Number(recurso.cantidad_inventario);
@@ -334,7 +343,7 @@ export async function asignarRecursosRecuperacionService(
     // 6. Generar correlativo de misión oficial
     const codigoMision = await repo.generarSiguienteCodigoMision(trx);
 
-    // 7. Insertar misión táctica tipo RECUPERACION
+    // 7. Insertar misión táctica tipo RECUPERACION (fecha_inicio en null para estado DESPACHADA)
     const nuevaMision = await repo.insertarMisionRecuperacion(trx, {
       codigo: codigoMision,
       titulo: `Despacho operativo: ${evento.nombre}`,
@@ -345,6 +354,9 @@ export async function asignarRecursosRecuperacionService(
       encargadoId: usuarioId,
       creadoPorId: usuarioId,
     });
+
+    // 7.1. Registrar hito inicial en bitácora táctica (mision_hito)
+    await repo.registrarHitoMisionInicial(trx, nuevaMision.id, usuarioId, patrulla.nombre);
 
     // 8. Registrar asignaciones de recursos vinculadas a la misión e impactar inventario
     const asignaciones = Array.from(mapaRecursosSolicitados.entries()).map(([recursoId, cantidad]) => ({
@@ -368,20 +380,39 @@ export async function asignarRecursosRecuperacionService(
         recursoActualizado = await repo.actualizarRecursoGranelUso(trx, recurso.id, cantidadSolicitada);
       }
 
+      const inv = Number(recursoActualizado.cantidad_inventario);
+      const uso = Number(recursoActualizado.cantidad_en_uso);
+
       recursosDetalleRespuesta.push({
         recursoId: recursoActualizado.id,
         nombre: recursoActualizado.nombre,
         esIndividual: recursoActualizado.es_individual,
         cantidadAsignada: cantidadSolicitada,
-        cantidadEnUso: Number(recursoActualizado.cantidad_en_uso),
+        cantidadEnUso: uso,
         estadoRecurso: recursoActualizado.estado,
       });
 
-      recursosParaSocket.push(recursoActualizado as unknown as Record<string, unknown>);
+      recursosParaSocket.push({
+        id: recursoActualizado.id,
+        nombre: recursoActualizado.nombre,
+        esIndividual: recursoActualizado.es_individual,
+        estado: recursoActualizado.estado,
+        cantidadInventario: inv,
+        cantidadEnUso: uso,
+        cantidadDisponible: Math.max(0, inv - uso),
+        cantidadMinima: Number(recursoActualizado.cantidad_minima ?? 0),
+        actualizadoEn: new Date().toISOString(),
+      });
     }
 
-    // 9. Actualizar patrulla a EN_RECUPERACION
-    await repo.actualizarEstadoPatrulla(trx, patrulla.id, "EN_RECUPERACION");
+    // 9. Actualizar patrulla a EN_RECUPERACION atómicamente verificando concurrencia
+    const patrullaActualizada = await repo.actualizarEstadoPatrulla(trx, patrulla.id, "EN_RECUPERACION");
+    if (!patrullaActualizada) {
+      throw new PatrullaNoDisponibleError(
+        `La patrulla "${patrulla.nombre}" ya no se encuentra en estado 'DISPONIBLE' (fue modificada concurrentemente).`
+      );
+    }
+
     if (patrulla.usuario_lider_id) {
       await repo.actualizarEstadoPersonalLider(trx, patrulla.usuario_lider_id, "en_mision");
     }
