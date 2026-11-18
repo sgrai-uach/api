@@ -5,7 +5,13 @@ import type {
   EventoRecuperacionResponse,
 } from "./recuperacion.schema";
 import * as repo from "./recuperacion.repository";
-import { emitirRecuperacionCreada, emitirRecuperacionActualizada } from "@/lib/socket";
+import type { KyselyTrx } from "./recuperacion.repository";
+import {
+  emitirRecuperacionCreada,
+  emitirRecuperacionActualizada,
+  emitirPatrullaLiberadaDeOperativo,
+  notificarMisionAsignada,
+} from "@/lib/socket";
 
 export class PatrullaNoDisponibleError extends Error {
   constructor(message: string) {
@@ -222,16 +228,131 @@ export async function crearEventoRecuperacionService(
   return eventoCreado;
 }
 
+async function construirRespuestaRecuperacion(
+  trx: KyselyTrx,
+  registro: Awaited<ReturnType<typeof repo.actualizarRecuperacion>>,
+  recursosRespuesta: Array<{ recursoId: string; nombre: string; cantidadAsignada: number }>
+): Promise<EventoRecuperacionResponse> {
+  let delegacionData = null;
+  if (registro.delegacion_id) {
+    const del = await repo.buscarDelegacionPorId(trx, registro.delegacion_id);
+    if (del) {
+      delegacionData = {
+        id: del.id,
+        codigo: del.codigo || del.codigo_delegacion || "",
+        nombre: del.nombre || del.nombre_delegacion || "",
+      };
+    }
+  }
+
+  const mision = await repo.buscarMisionPorRecuperacionId(trx, registro.id);
+  const patrulla = mision?.patrulla_id
+    ? await repo.buscarPatrullaPorId(trx, mision.patrulla_id)
+    : null;
+
+  return {
+    id: registro.id,
+    codigo: registro.codigo,
+    nombre: registro.nombre,
+    descripcion: registro.descripcion,
+    sector: registro.sector,
+    direccionTexto: registro.direccion_texto,
+    prioridad: registro.prioridad,
+    contactoNombre: registro.contacto_nombre,
+    contactoTelefono: registro.contacto_telefono,
+    latitud: Number(registro.latitud),
+    longitud: Number(registro.longitud),
+    estado: registro.estado,
+    familiasAfectadas: Number(registro.familias_afectadas),
+    delegacion: delegacionData,
+    mision: mision
+      ? {
+          id: mision.id,
+          codigo: mision.codigo,
+          titulo: mision.titulo,
+          estado: mision.estado,
+          tipoMision: mision.tipo_mision,
+        }
+      : {
+          id: "00000000-0000-0000-0000-000000000000",
+          codigo: "",
+          titulo: registro.nombre,
+          estado: registro.estado,
+          tipoMision: "RECUPERACION",
+        },
+    patrulla: patrulla
+      ? {
+          id: patrulla.id,
+          nombre: patrulla.nombre,
+          estado: patrulla.estado,
+        }
+      : {
+          id: "00000000-0000-0000-0000-000000000000",
+          nombre: "Sin patrulla asignada",
+          estado: "DISPONIBLE",
+        },
+    recursos: recursosRespuesta,
+    creadoPorId: registro.creado_por_id,
+    fechaEstimadaFin: registro.fecha_estimada_fin
+      ? registro.fecha_estimada_fin instanceof Date
+        ? registro.fecha_estimada_fin.toISOString()
+        : String(registro.fecha_estimada_fin)
+      : null,
+    actualizadoPorId: registro.actualizado_por_id ?? null,
+    creadoEn:
+      registro.creado_en instanceof Date
+        ? registro.creado_en.toISOString()
+        : String(registro.creado_en),
+    actualizadoEn:
+      registro.actualizado_en instanceof Date
+        ? registro.actualizado_en.toISOString()
+        : String(registro.actualizado_en),
+  };
+}
+
+/**
+ * Obtiene el detalle completo de un operativo de recuperación para precarga de edición (HU-74).
+ */
+export async function obtenerEventoRecuperacionPorIdService(
+  recuperacionId: string
+): Promise<EventoRecuperacionResponse> {
+  return db.transaction().execute(async (trx) => {
+    const registro = await repo.buscarRecuperacionPorId(trx, recuperacionId);
+    if (!registro) {
+      throw new NotFoundError("El operativo de recuperación indicado no fue encontrado.");
+    }
+
+    const asignaciones = await repo.listarRecursosAsignadosRecuperacion(trx, recuperacionId);
+    const recursosRespuesta = asignaciones.map((r) => ({
+      recursoId: r.recursoId,
+      nombre: r.nombre,
+      cantidadAsignada: Number(r.cantidadAsignada),
+    }));
+
+    return construirRespuestaRecuperacion(trx, registro, recursosRespuesta);
+  });
+}
+
 /**
  * Servicio de negocio para editar la planificación de un operativo de recuperación activo (HU-74).
  * Bloquea la edición en estados COMPLETADA o CANCELADA, registra auditoría (actualizado_en, actualizado_por_id),
- * recalcula diferencias de stock de recursos de forma atómica y sincroniza la misión asociada.
+ * recalcula diferencias de stock de recursos de forma atómica, permite reasignar patrulla verificadora
+ * liberando la anterior y sincroniza la misión asociada.
  */
 export async function editarEventoRecuperacionService(
   recuperacionId: string,
   input: EditarEventoRecuperacionInput,
   usuarioId: string
 ): Promise<EventoRecuperacionResponse> {
+  let patrullaReasignadaInfo: {
+    misionId: string;
+    codigoMision: string;
+    patrullaAnteriorId: string | null;
+    patrullaNuevaId: string;
+    prioridad: string;
+    direccion: string | null;
+  } | null = null;
+
   const eventoActualizado = await db.transaction().execute(async (trx) => {
     // 1. Verificar existencia del operativo
     const actual = await repo.buscarRecuperacionPorId(trx, recuperacionId);
@@ -359,14 +480,84 @@ export async function editarEventoRecuperacionService(
       }));
     }
 
-    // 5. Actualizar evento de recuperación con auditoría
+    // 5. Reasignar patrulla verificadora si se proporcionó `patrullaId`
+    if (input.patrullaId !== undefined) {
+      const nuevaPatrulla = await repo.buscarPatrullaPorId(trx, input.patrullaId);
+      if (!nuevaPatrulla) {
+        throw new NotFoundError("La patrulla verificadora indicada no fue encontrada.");
+      }
+
+      const misionActual = await repo.buscarMisionPorRecuperacionId(trx, recuperacionId);
+      const patrullaAnteriorId = misionActual?.patrulla_id ?? null;
+
+      if (patrullaAnteriorId !== input.patrullaId) {
+        if (nuevaPatrulla.estado !== "DISPONIBLE") {
+          throw new PatrullaNoDisponibleError(
+            `La patrulla "${nuevaPatrulla.nombre}" no está disponible para asignación (estado actual: ${nuevaPatrulla.estado}).`
+          );
+        }
+
+        // Liberar patrulla anterior si no tiene otras misiones activas
+        if (patrullaAnteriorId) {
+          const otrasMisiones = await repo.contarOtrasMisionesActivasPatrulla(
+            trx,
+            patrullaAnteriorId,
+            misionActual?.id
+          );
+          if (otrasMisiones === 0) {
+            const patrullaAnterior = await repo.buscarPatrullaPorId(trx, patrullaAnteriorId);
+            await repo.actualizarEstadoPatrulla(trx, patrullaAnteriorId, "DISPONIBLE");
+            if (patrullaAnterior?.usuario_lider_id) {
+              await repo.actualizarEstadoPersonalLider(
+                trx,
+                patrullaAnterior.usuario_lider_id,
+                "disponible",
+                true
+              );
+            }
+          }
+        }
+
+        // Asignar nueva patrulla a la misión y actualizar su estado operativo
+        if (misionActual) {
+          await repo.reasignarPatrullaMision(trx, misionActual.id, nuevaPatrulla.id);
+          await repo.registrarHitoReasignacionMision(trx, {
+            misionId: misionActual.id,
+            descripcion: `Patrulla reasignada a "${nuevaPatrulla.nombre}" durante edición de operativo ${actual.codigo}.`,
+            registradoPorId: usuarioId,
+            latitud: Number(actual.latitud),
+            longitud: Number(actual.longitud),
+          });
+          patrullaReasignadaInfo = {
+            misionId: misionActual.id,
+            codigoMision: misionActual.codigo,
+            patrullaAnteriorId,
+            patrullaNuevaId: nuevaPatrulla.id,
+            prioridad: actual.prioridad,
+            direccion: actual.direccion_texto ?? actual.sector,
+          };
+        }
+
+        await repo.actualizarEstadoPatrulla(trx, nuevaPatrulla.id, "EN_RECUPERACION");
+        if (nuevaPatrulla.usuario_lider_id) {
+          await repo.actualizarEstadoPersonalLider(
+            trx,
+            nuevaPatrulla.usuario_lider_id,
+            "en_mision",
+            false
+          );
+        }
+      }
+    }
+
+    // 6. Actualizar evento de recuperación con auditoría
     const actualizada = await repo.actualizarRecuperacion(trx, recuperacionId, {
       descripcion: input.descripcion,
       fechaEstimadaFin: fechaEstimadaFinParsed,
       actualizadoPorId: usuarioId,
     });
 
-    // 6. Sincronizar descripción de misión vinculada si cambió la descripción
+    // 7. Sincronizar descripción de misión vinculada si cambió la descripción
     if (input.descripcion !== undefined) {
       await repo.sincronizarDescripcionMisionRecuperacion(
         trx,
@@ -375,89 +566,35 @@ export async function editarEventoRecuperacionService(
       );
     }
 
-    // 7. Construir respuesta estructurada
-    let delegacionData = null;
-    if (actualizada.delegacion_id) {
-      const del = await repo.buscarDelegacionPorId(trx, actualizada.delegacion_id);
-      if (del) {
-        delegacionData = {
-          id: del.id,
-          codigo: del.codigo || del.codigo_delegacion || "",
-          nombre: del.nombre || del.nombre_delegacion || "",
-        };
-      }
-    }
-
-    const mision = await repo.buscarMisionPorRecuperacionId(trx, recuperacionId);
-    const patrulla = mision?.patrulla_id
-      ? await repo.buscarPatrullaPorId(trx, mision.patrulla_id)
-      : null;
-
-    const respuesta: EventoRecuperacionResponse = {
-      id: actualizada.id,
-      codigo: actualizada.codigo,
-      nombre: actualizada.nombre,
-      descripcion: actualizada.descripcion,
-      sector: actualizada.sector,
-      direccionTexto: actualizada.direccion_texto,
-      prioridad: actualizada.prioridad,
-      contactoNombre: actualizada.contacto_nombre,
-      contactoTelefono: actualizada.contacto_telefono,
-      latitud: Number(actualizada.latitud),
-      longitud: Number(actualizada.longitud),
-      estado: actualizada.estado,
-      familiasAfectadas: Number(actualizada.familias_afectadas),
-      delegacion: delegacionData,
-      mision: mision
-        ? {
-            id: mision.id,
-            codigo: mision.codigo,
-            titulo: mision.titulo,
-            estado: mision.estado,
-            tipoMision: mision.tipo_mision,
-          }
-        : {
-            id: "00000000-0000-0000-0000-000000000000",
-            codigo: "",
-            titulo: actualizada.nombre,
-            estado: actualizada.estado,
-            tipoMision: "RECUPERACION",
-          },
-      patrulla: patrulla
-        ? {
-            id: patrulla.id,
-            nombre: patrulla.nombre,
-            estado: patrulla.estado,
-          }
-        : {
-            id: "00000000-0000-0000-0000-000000000000",
-            nombre: "Sin patrulla asignada",
-            estado: "DISPONIBLE",
-          },
-      recursos: recursosRespuesta,
-      creadoPorId: actualizada.creado_por_id,
-      fechaEstimadaFin: actualizada.fecha_estimada_fin
-        ? actualizada.fecha_estimada_fin instanceof Date
-          ? actualizada.fecha_estimada_fin.toISOString()
-          : String(actualizada.fecha_estimada_fin)
-        : null,
-      actualizadoPorId: actualizada.actualizado_por_id ?? usuarioId,
-      creadoEn:
-        actualizada.creado_en instanceof Date
-          ? actualizada.creado_en.toISOString()
-          : String(actualizada.creado_en),
-      actualizadoEn:
-        actualizada.actualizado_en instanceof Date
-          ? actualizada.actualizado_en.toISOString()
-          : String(actualizada.actualizado_en),
-    };
-
-    return respuesta;
+    // 8. Construir respuesta estructurada
+    return construirRespuestaRecuperacion(trx, actualizada, recursosRespuesta);
   });
 
-  // 8. Notificar en tiempo real vía Socket.io y Redis
+  // 9. Notificar en tiempo real vía Socket.io y Redis
   try {
     emitirRecuperacionActualizada(eventoActualizado);
+
+    if (patrullaReasignadaInfo) {
+      notificarMisionAsignada({
+        misionId: patrullaReasignadaInfo.misionId,
+        codigo: patrullaReasignadaInfo.codigoMision,
+        tipoMision: "RECUPERACION",
+        patrullaId: patrullaReasignadaInfo.patrullaNuevaId,
+        direccion: patrullaReasignadaInfo.direccion,
+        prioridad: patrullaReasignadaInfo.prioridad,
+        asignadoEn: eventoActualizado.actualizadoEn,
+      });
+
+      if (patrullaReasignadaInfo.patrullaAnteriorId) {
+        emitirPatrullaLiberadaDeOperativo({
+          recuperacionId,
+          misionId: patrullaReasignadaInfo.misionId,
+          codigoMision: patrullaReasignadaInfo.codigoMision,
+          patrullaAnteriorId: patrullaReasignadaInfo.patrullaAnteriorId,
+          patrullaNuevaId: patrullaReasignadaInfo.patrullaNuevaId,
+        });
+      }
+    }
   } catch (err) {
     console.error("Error al emitir notificación Socket.io de actualización de recuperación:", err);
   }

@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { EditarEventoRecuperacionInputSchema } from "@/modules/eventos-atp/recuperacion.schema";
 import {
+  obtenerEventoRecuperacionPorIdService,
   editarEventoRecuperacionService,
   NotFoundError,
   StockInsuficienteError,
+  PatrullaNoDisponibleError,
   RecuperacionNoEditableError,
   FechaEstimadaInvalidaError,
 } from "@/modules/eventos-atp/recuperacion.service";
@@ -20,9 +22,61 @@ interface RouteContext {
 const IdParamSchema = z.string().uuid("El identificador del operativo debe ser un UUID válido.");
 
 /**
+ * GET /api/eventos-atp/recuperacion/[id]
+ * Obtiene el detalle completo de un operativo de recuperación (incluyendo patrulla,
+ * recursos y fechaEstimadaFin) para precargar el modal de edición (HU-74).
+ */
+export async function GET(req: NextRequest, context: RouteContext) {
+  try {
+    const usuarioId = await extraerUsuarioId(req);
+    await verificarPermiso(usuarioId, PERMISO_EDITAR_RECUPERACION);
+
+    const { id } = await context.params;
+    const validacionId = IdParamSchema.safeParse(id);
+    if (!validacionId.success) {
+      return NextResponse.json(
+        {
+          message: "Identificador de operativo inválido.",
+          errors: validacionId.error.issues.map((issue) => ({
+            campo: "id",
+            mensaje: issue.message,
+          })),
+        },
+        { status: 400 }
+      );
+    }
+
+    const operativo = await obtenerEventoRecuperacionPorIdService(validacionId.data);
+    return NextResponse.json({ data: operativo }, { status: 200 });
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ message: error.message }, { status: 401 });
+    }
+
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ message: error.message }, { status: 403 });
+    }
+
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ message: error.message }, { status: 404 });
+    }
+
+    console.error("Error al obtener operativo de recuperación:", error);
+    return NextResponse.json(
+      {
+        message:
+          "Error interno del servidor al obtener el detalle del operativo de recuperación.",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * PATCH /api/eventos-atp/recuperacion/[id]
- * Modifica la descripción de tareas, fecha estimada de término y dotación de insumos
- * de un operativo de recuperación activo, bloqueando estados COMPLETADA y CANCELADA (HU-74).
+ * Modifica la descripción de tareas, fecha estimada de término, dotación de insumos
+ * y/o patrulla verificadora asignada a un operativo de recuperación activo,
+ * bloqueando estados COMPLETADA y CANCELADA (HU-74).
  */
 export async function PATCH(req: NextRequest, context: RouteContext) {
   try {
@@ -102,7 +156,8 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 
     if (
       error instanceof RecuperacionNoEditableError ||
-      error instanceof StockInsuficienteError
+      error instanceof StockInsuficienteError ||
+      error instanceof PatrullaNoDisponibleError
     ) {
       return NextResponse.json({ message: error.message }, { status: 409 });
     }

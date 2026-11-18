@@ -217,7 +217,8 @@ export async function actualizarEstadoPatrulla(
 export async function actualizarEstadoPersonalLider(
   trx: KyselyTrx,
   usuarioLiderId: string,
-  nuevoEstado: EstadoOperativo = "en_mision"
+  nuevoEstado: EstadoOperativo = "en_mision",
+  disponibleTerreno = false
 ) {
   // H11: la disponibilidad reside en `usuario.estado_operativo`
   await trx
@@ -232,7 +233,7 @@ export async function actualizarEstadoPersonalLider(
   await trx
     .updateTable("personal")
     .set({
-      disponible_terreno: false,
+      disponible_terreno: disponibleTerreno,
       updated_at: new Date(),
     })
     .where("usuario_id", "=", usuarioLiderId)
@@ -333,5 +334,62 @@ export async function eliminarRecursosRecuperacion(
   await trx
     .deleteFrom("recuperacion_recurso")
     .where("recuperacion_id", "=", recuperacionId)
+    .execute();
+}
+
+export async function contarOtrasMisionesActivasPatrulla(
+  trx: KyselyTrx,
+  patrullaId: string,
+  excluirMisionId?: string
+): Promise<number> {
+  let query = trx
+    .selectFrom("mision")
+    .select(trx.fn.count<string>("id").as("total"))
+    .where("patrulla_id", "=", patrullaId)
+    .where("estado", "in", ["PLANIFICADA", "DESPACHADA", "EN_CURSO"]);
+
+  if (excluirMisionId) {
+    query = query.where("id", "!=", excluirMisionId);
+  }
+
+  const row = await query.executeTakeFirst();
+  return Number(row?.total ?? 0);
+}
+
+export async function reasignarPatrullaMision(
+  trx: KyselyTrx,
+  misionId: string,
+  nuevaPatrullaId: string
+) {
+  await trx
+    .updateTable("mision")
+    .set({
+      patrulla_id: nuevaPatrullaId,
+      actualizado_en: new Date(),
+    })
+    .where("id", "=", misionId)
+    .execute();
+}
+
+export async function registrarHitoReasignacionMision(
+  trx: KyselyTrx,
+  datos: {
+    misionId: string;
+    descripcion: string;
+    registradoPorId: string;
+    latitud?: number | null;
+    longitud?: number | null;
+  }
+) {
+  await trx
+    .insertInto("mision_hito")
+    .values({
+      mision_id: datos.misionId,
+      hito: "REASIGNACION_PATRULLA",
+      descripcion: datos.descripcion,
+      registrado_por_id: datos.registradoPorId,
+      latitud: datos.latitud ?? null,
+      longitud: datos.longitud ?? null,
+    })
     .execute();
 }

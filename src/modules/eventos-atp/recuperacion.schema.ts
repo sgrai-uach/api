@@ -127,15 +127,24 @@ export const EditarEventoRecuperacionInputSchema = z
       .openapi({
         description: "Nueva dotación completa de insumos/recursos asignados al operativo",
       }),
+    patrullaId: z
+      .string()
+      .uuid("El UUID de la patrulla verificadora debe ser válido")
+      .optional()
+      .openapi({
+        description: "UUID de la nueva patrulla verificadora disponible asignada al operativo",
+        example: "50000000-0000-4000-8000-000000000002",
+      }),
   })
   .refine(
     (data) =>
       data.descripcion !== undefined ||
       data.fechaEstimadaFin !== undefined ||
-      data.recursos !== undefined,
+      data.recursos !== undefined ||
+      data.patrullaId !== undefined,
     {
       message:
-        "Debe proporcionar al menos un campo para actualizar (descripcion, fechaEstimadaFin o recursos).",
+        "Debe proporcionar al menos un campo para actualizar (descripcion, fechaEstimadaFin, recursos o patrullaId).",
     }
   );
 
@@ -223,3 +232,12 @@ export const EditarEventoRecuperacionResponseSchema = z.object({
 });
 
 export type EditarEventoRecuperacionResponse = z.infer<typeof EditarEventoRecuperacionResponseSchema>;
+
+/**
+ * Respuesta JSON exitosa HTTP 200 para GET /api/eventos-atp/recuperacion/{id}
+ */
+export const ObtenerEventoRecuperacionResponseSchema = z.object({
+  data: EventoRecuperacionResponseSchema,
+});
+
+export type ObtenerEventoRecuperacionResponse = z.infer<typeof ObtenerEventoRecuperacionResponseSchema>;

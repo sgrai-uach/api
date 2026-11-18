@@ -412,6 +412,38 @@ export function emitirRecuperacionActualizada(payload: unknown): void {
 }
 
 /**
+ * Notifica a la patrulla liberada que su misión de recuperación fue reasignada a otra unidad (HU-74).
+ */
+export function emitirPatrullaLiberadaDeOperativo(payload: {
+  recuperacionId: string;
+  misionId: string;
+  codigoMision: string;
+  patrullaAnteriorId: string;
+  patrullaNuevaId: string;
+}): void {
+  const room = `patrulla:${payload.patrullaAnteriorId}`;
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to(room) as any).emit("mision:reasignada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room,
+          event: "mision:reasignada",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
+/**
  * Emite la notificación de nuevo evento de asistencia social creado al panel de eventos pendientes
  * y a las vistas de Encargado, Asistente Social y Administrador (H28).
  */
