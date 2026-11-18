@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { PATCH } from "../route";
+import { GET, PATCH } from "../route";
 import * as recuperacionService from "@/modules/eventos-atp/recuperacion.service";
 import type { EventoRecuperacionResponse } from "@/modules/eventos-atp/recuperacion.schema";
 import * as authGuard from "@/modules/seguridad/auth.guard";
@@ -213,5 +213,101 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
     const body = await res.json();
     expect(body.data.descripcion).toBe(payloadValido.descripcion);
     expect(body.data.actualizadoPorId).toBe(usuarioEncargadoId);
+  });
+
+  it("debe responder 409 Conflict si la nueva patrulla indicada no está disponible", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
+    vi.spyOn(recuperacionService, "editarEventoRecuperacionService").mockRejectedValueOnce(
+      new recuperacionService.PatrullaNoDisponibleError(
+        'La patrulla "Patrulla Beta" no está disponible para asignación.'
+      )
+    );
+
+    const req = new NextRequest(
+      `http://localhost:3000/api/eventos-atp/recuperacion/${recuperacionId}`,
+      {
+        method: "PATCH",
+        headers: { "x-user-id": usuarioEncargadoId },
+        body: JSON.stringify({
+          patrullaId: "50000000-0000-4000-8000-000000000002",
+        }),
+      }
+    );
+
+    const res = await PATCH(req, makeContext());
+    expect(res.status).toBe(409);
+  });
+
+  it("GET debe responder 200 OK con el detalle completo del operativo para precarga", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
+    vi.spyOn(recuperacionService, "obtenerEventoRecuperacionPorIdService").mockResolvedValueOnce({
+      id: recuperacionId,
+      codigo: "REC-2026-0001",
+      nombre: "Operativo Collico",
+      descripcion: "Descripción",
+      sector: "Collico",
+      direccionTexto: null,
+      prioridad: "ALTA",
+      contactoNombre: null,
+      contactoTelefono: null,
+      latitud: -39.8142,
+      longitud: -73.2459,
+      estado: "EN_EJECUCION",
+      familiasAfectadas: 4,
+      delegacion: null,
+      mision: {
+        id: "60000000-0000-4000-8000-000000000001",
+        codigo: "MIS-2026-0042",
+        titulo: "Operativo Collico",
+        estado: "DESPACHADA",
+        tipoMision: "RECUPERACION",
+      },
+      patrulla: {
+        id: "50000000-0000-4000-8000-000000000001",
+        nombre: "Patrulla Alfa",
+        estado: "EN_RECUPERACION",
+      },
+      recursos: [],
+      creadoPorId: usuarioEncargadoId,
+      fechaEstimadaFin: "2026-11-20T18:00:00.000Z",
+      actualizadoPorId: null,
+      creadoEn: "2026-11-10T10:00:00.000Z",
+      actualizadoEn: "2026-11-10T10:00:00.000Z",
+    });
+
+    const req = new NextRequest(
+      `http://localhost:3000/api/eventos-atp/recuperacion/${recuperacionId}`,
+      {
+        method: "GET",
+        headers: { "x-user-id": usuarioEncargadoId },
+      }
+    );
+
+    const res = await GET(req, makeContext());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.patrulla.nombre).toBe("Patrulla Alfa");
+    expect(body.data.fechaEstimadaFin).toBe("2026-11-20T18:00:00.000Z");
+  });
+
+  it("GET debe responder 404 si el operativo no existe", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
+    vi.spyOn(recuperacionService, "obtenerEventoRecuperacionPorIdService").mockRejectedValueOnce(
+      new recuperacionService.NotFoundError("El operativo de recuperación indicado no fue encontrado.")
+    );
+
+    const req = new NextRequest(
+      `http://localhost:3000/api/eventos-atp/recuperacion/${recuperacionId}`,
+      {
+        method: "GET",
+        headers: { "x-user-id": usuarioEncargadoId },
+      }
+    );
+
+    const res = await GET(req, makeContext());
+    expect(res.status).toBe(404);
   });
 });

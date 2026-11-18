@@ -7,6 +7,7 @@ import {
 import {
   crearEventoRecuperacionService,
   editarEventoRecuperacionService,
+  obtenerEventoRecuperacionPorIdService,
   PatrullaNoDisponibleError,
   StockInsuficienteError,
   NotFoundError,
@@ -595,6 +596,193 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
           usuarioId
         )
       ).rejects.toThrow(StockInsuficienteError);
+    });
+
+    it("debe reasignar patrulla verificadora liberando la anterior, registrar hito y emitir Socket.io", async () => {
+      const mockTrx = {} as KyselyTrx;
+      mockTx(mockTrx);
+
+      const patrullaAnteriorId = "50000000-0000-4000-8000-000000000001";
+      const patrullaNuevaId = "50000000-0000-4000-8000-000000000002";
+      const liderAnteriorId = "00000000-0000-4000-8000-000000000010";
+      const liderNuevoId = "00000000-0000-4000-8000-000000000011";
+      const misionId = "60000000-0000-4000-8000-000000000001";
+
+      vi.spyOn(repo, "buscarRecuperacionPorId").mockResolvedValueOnce(mockRecuperacionBase);
+      vi.spyOn(repo, "listarRecursosAsignadosRecuperacion").mockResolvedValueOnce([]);
+      vi.spyOn(repo, "buscarMisionPorRecuperacionId")
+        .mockResolvedValueOnce({
+          id: misionId,
+          codigo: "MIS-2026-0042",
+          titulo: "Operativo Collico",
+          estado: "DESPACHADA",
+          tipo_mision: "RECUPERACION",
+          patrulla_id: patrullaAnteriorId,
+        })
+        .mockResolvedValueOnce({
+          id: misionId,
+          codigo: "MIS-2026-0042",
+          titulo: "Operativo Collico",
+          estado: "DESPACHADA",
+          tipo_mision: "RECUPERACION",
+          patrulla_id: patrullaNuevaId,
+        });
+
+      vi.spyOn(repo, "buscarPatrullaPorId")
+        .mockResolvedValueOnce({
+          id: patrullaNuevaId,
+          nombre: "Patrulla Beta",
+          estado: "DISPONIBLE",
+          delegacion_id: null,
+          usuario_lider_id: liderNuevoId,
+        })
+        .mockResolvedValueOnce({
+          id: patrullaAnteriorId,
+          nombre: "Patrulla Alfa",
+          estado: "EN_RECUPERACION",
+          delegacion_id: null,
+          usuario_lider_id: liderAnteriorId,
+        })
+        .mockResolvedValueOnce({
+          id: patrullaNuevaId,
+          nombre: "Patrulla Beta",
+          estado: "EN_RECUPERACION",
+          delegacion_id: null,
+          usuario_lider_id: liderNuevoId,
+        });
+
+      vi.spyOn(repo, "contarOtrasMisionesActivasPatrulla").mockResolvedValueOnce(0);
+      const spyEstadoPatrulla = vi
+        .spyOn(repo, "actualizarEstadoPatrulla")
+        .mockResolvedValue(undefined);
+      const spyEstadoLider = vi
+        .spyOn(repo, "actualizarEstadoPersonalLider")
+        .mockResolvedValue(undefined);
+      const spyReasignarMision = vi
+        .spyOn(repo, "reasignarPatrullaMision")
+        .mockResolvedValueOnce(undefined);
+      const spyHito = vi
+        .spyOn(repo, "registrarHitoReasignacionMision")
+        .mockResolvedValueOnce(undefined);
+      vi.spyOn(repo, "actualizarRecuperacion").mockResolvedValueOnce({
+        ...mockRecuperacionBase,
+        actualizado_por_id: usuarioId,
+        actualizado_en: new Date("2026-11-18T12:00:00.000Z"),
+      });
+
+      const spySocketRec = vi
+        .spyOn(socketModule, "emitirRecuperacionActualizada")
+        .mockImplementation(() => {});
+      const spySocketAsignada = vi
+        .spyOn(socketModule, "notificarMisionAsignada")
+        .mockImplementation(() => {});
+      const spySocketLiberada = vi
+        .spyOn(socketModule, "emitirPatrullaLiberadaDeOperativo")
+        .mockImplementation(() => {});
+
+      const resultado = await editarEventoRecuperacionService(
+        recuperacionId,
+        { patrullaId: patrullaNuevaId },
+        usuarioId
+      );
+
+      expect(spyEstadoPatrulla).toHaveBeenCalledWith(mockTrx, patrullaAnteriorId, "DISPONIBLE");
+      expect(spyEstadoLider).toHaveBeenCalledWith(mockTrx, liderAnteriorId, "disponible", true);
+      expect(spyReasignarMision).toHaveBeenCalledWith(mockTrx, misionId, patrullaNuevaId);
+      expect(spyHito).toHaveBeenCalledTimes(1);
+      expect(spyEstadoPatrulla).toHaveBeenCalledWith(mockTrx, patrullaNuevaId, "EN_RECUPERACION");
+      expect(spyEstadoLider).toHaveBeenCalledWith(mockTrx, liderNuevoId, "en_mision", false);
+      expect(resultado.patrulla.id).toBe(patrullaNuevaId);
+      expect(spySocketRec).toHaveBeenCalledTimes(1);
+      expect(spySocketAsignada).toHaveBeenCalledWith(
+        expect.objectContaining({ misionId, patrullaId: patrullaNuevaId })
+      );
+      expect(spySocketLiberada).toHaveBeenCalledWith(
+        expect.objectContaining({ patrullaAnteriorId, patrullaNuevaId })
+      );
+    });
+
+    it("debe rechazar con PatrullaNoDisponibleError (409) si la nueva patrulla no está DISPONIBLE", async () => {
+      const mockTrx = {} as KyselyTrx;
+      mockTx(mockTrx);
+
+      const patrullaOcupadaId = "50000000-0000-4000-8000-000000000009";
+      vi.spyOn(repo, "buscarRecuperacionPorId").mockResolvedValueOnce(mockRecuperacionBase);
+      vi.spyOn(repo, "listarRecursosAsignadosRecuperacion").mockResolvedValueOnce([]);
+      vi.spyOn(repo, "buscarPatrullaPorId").mockResolvedValueOnce({
+        id: patrullaOcupadaId,
+        nombre: "Patrulla Ocupada",
+        estado: "EN_VERIFICACION",
+        delegacion_id: null,
+        usuario_lider_id: null,
+      });
+      vi.spyOn(repo, "buscarMisionPorRecuperacionId").mockResolvedValueOnce({
+        id: "60000000-0000-4000-8000-000000000001",
+        codigo: "MIS-2026-0042",
+        titulo: "Operativo Collico",
+        estado: "DESPACHADA",
+        tipo_mision: "RECUPERACION",
+        patrulla_id: "50000000-0000-4000-8000-000000000001",
+      });
+
+      await expect(
+        editarEventoRecuperacionService(
+          recuperacionId,
+          { patrullaId: patrullaOcupadaId },
+          usuarioId
+        )
+      ).rejects.toThrow(PatrullaNoDisponibleError);
+    });
+
+    it("debe rechazar con NotFoundError (404) si la nueva patrulla indicada no existe", async () => {
+      const mockTrx = {} as KyselyTrx;
+      mockTx(mockTrx);
+
+      vi.spyOn(repo, "buscarRecuperacionPorId").mockResolvedValueOnce(mockRecuperacionBase);
+      vi.spyOn(repo, "listarRecursosAsignadosRecuperacion").mockResolvedValueOnce([]);
+      vi.spyOn(repo, "buscarPatrullaPorId").mockResolvedValueOnce(undefined);
+
+      await expect(
+        editarEventoRecuperacionService(
+          recuperacionId,
+          { patrullaId: "50000000-0000-4000-8000-000000000099" },
+          usuarioId
+        )
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it("debe obtener el detalle completo del operativo vía obtenerEventoRecuperacionPorIdService", async () => {
+      const mockTrx = {} as KyselyTrx;
+      mockTx(mockTrx);
+
+      vi.spyOn(repo, "buscarRecuperacionPorId").mockResolvedValueOnce({
+        ...mockRecuperacionBase,
+        fecha_estimada_fin: new Date("2026-11-22T18:00:00.000Z"),
+      });
+      vi.spyOn(repo, "listarRecursosAsignadosRecuperacion").mockResolvedValueOnce([
+        { recursoId: recurso1Id, nombre: "Frazadas", cantidadAsignada: 5 },
+      ]);
+      vi.spyOn(repo, "buscarMisionPorRecuperacionId").mockResolvedValueOnce({
+        id: "60000000-0000-4000-8000-000000000001",
+        codigo: "MIS-2026-0042",
+        titulo: "Operativo Collico",
+        estado: "DESPACHADA",
+        tipo_mision: "RECUPERACION",
+        patrulla_id: "50000000-0000-4000-8000-000000000001",
+      });
+      vi.spyOn(repo, "buscarPatrullaPorId").mockResolvedValueOnce({
+        id: "50000000-0000-4000-8000-000000000001",
+        nombre: "Patrulla Alfa",
+        estado: "EN_RECUPERACION",
+        delegacion_id: null,
+        usuario_lider_id: null,
+      });
+
+      const detalle = await obtenerEventoRecuperacionPorIdService(recuperacionId);
+      expect(detalle.id).toBe(recuperacionId);
+      expect(detalle.fechaEstimadaFin).toBe("2026-11-22T18:00:00.000Z");
+      expect(detalle.patrulla.nombre).toBe("Patrulla Alfa");
+      expect(detalle.recursos).toHaveLength(1);
     });
   });
 });
