@@ -4,7 +4,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   // 1. Ampliar tabla recuperacion con columnas para enlace ATP, cierre y borrado lógico
   await sql`
     ALTER TABLE recuperacion
-    ADD COLUMN IF NOT EXISTS evento_atp_id UUID REFERENCES evento_atp(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS evento_atp_id UUID,
     ADD COLUMN IF NOT EXISTS fecha_cierre TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS observaciones_cierre TEXT,
     ADD COLUMN IF NOT EXISTS eliminado_en TIMESTAMPTZ;
