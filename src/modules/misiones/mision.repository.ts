@@ -1,7 +1,16 @@
 import { db } from "@/lib/db";
-import { sql } from "kysely";
-import { NotFoundError, ConflictError } from "@/modules/seguridad/errors";
-import type { CrearMisionVerificacionInput } from "./mision.schema";
+import { sql, type Transaction } from "kysely";
+import { NotFoundError, ConflictError, ForbiddenError } from "@/modules/seguridad/errors";
+import type { Database } from "@/lib/db/types";
+import type {
+  CrearMisionVerificacionInput,
+  AsignarCuadrillaMisionInput,
+  AceptarMisionInput,
+} from "./mision.schema";
+import { crearNotificacionMisionRepo } from "./notificacion-mision.repository";
+import type { NotificacionMisionDetalle } from "./notificacion-mision.schema";
+
+export type MisionTrx = Transaction<Database>;
 
 export interface MisionDetalleQueryResult {
   mision: {
@@ -13,6 +22,7 @@ export interface MisionDetalleQueryResult {
     estado: string;
     prioridad: string;
     justificacion_rechazo: string | null;
+    trazabilidad_notificacion?: string | null;
     incidente_id: string | null;
     prevencion_id: string | null;
     cuadrilla_id: string | null;
@@ -145,6 +155,13 @@ export async function obtenerMisionDetallePorIdRepo(
       "mision.estado",
       "mision.prioridad",
       "mision.justificacion_rechazo",
+      sql<string | null>`(
+        SELECT nm.estado
+        FROM notificaciones_mision nm
+        WHERE nm.mision_id = mision.id
+        ORDER BY nm.creada_at DESC
+        LIMIT 1
+      )`.as("trazabilidad_notificacion"),
       "mision.incidente_id",
       "mision.prevencion_id",
       "mision.cuadrilla_id",
@@ -352,6 +369,9 @@ export interface MisionVerificacionCreadaResult {
   incidente: {
     id: string;
     codigo: string;
+    folio?: string | null;
+    tipoAfectacion?: string | null;
+    direccion?: string | null;
     estado: string;
     prioridad: string;
   };
@@ -368,6 +388,7 @@ export interface MisionVerificacionCreadaResult {
     descripcion: string;
     creadoEn: string;
   };
+  notificacion: NotificacionMisionDetalle;
 }
 
 /**
@@ -386,7 +407,16 @@ export async function crearMisionVerificacionRepo(
     // 1. Validar existencia y estado del incidente con bloqueo pesimista (FOR UPDATE)
     const incidente = await trx
       .selectFrom("incidente")
-      .select(["id", "codigo", "estado", "prioridad", "tipo_afectacion", "delegacion_id"])
+      .select([
+        "id",
+        "codigo",
+        "folio",
+        "estado",
+        "prioridad",
+        "tipo_afectacion",
+        "direccion_texto",
+        "delegacion_id",
+      ])
       .where("id", "=", input.incidenteId)
       .forUpdate()
       .executeTakeFirst();
@@ -510,6 +540,13 @@ export async function crearMisionVerificacionRepo(
       .returningAll()
       .executeTakeFirstOrThrow();
 
+    // 7. Crear registro inicial de notificación en estado PENDIENTE_ENVIO
+    const notificacionInicial = await crearNotificacionMisionRepo(
+      nuevaMision.id,
+      input.patrullaId,
+      trx
+    );
+
     return {
       mision: {
         id: nuevaMision.id,
@@ -528,6 +565,9 @@ export async function crearMisionVerificacionRepo(
       incidente: {
         id: incidenteActualizado.id,
         codigo: incidenteActualizado.codigo,
+        folio: incidente.folio ?? null,
+        tipoAfectacion: incidente.tipo_afectacion ?? null,
+        direccion: incidente.direccion_texto ?? null,
         estado: incidenteActualizado.estado,
         prioridad: incidenteActualizado.prioridad,
       },
@@ -544,7 +584,653 @@ export async function crearMisionVerificacionRepo(
         descripcion: hitoInicial.descripcion,
         creadoEn: new Date(hitoInicial.creado_en).toISOString(),
       },
+      notificacion: notificacionInicial,
     };
   });
 }
 
+// ========================================================
+// HU-21: Asignar Cuadrilla a Incidente y Liberar Patrulla
+// ========================================================
+
+export interface AsignarCuadrillaResult {
+  mision: {
+    id: string;
+    codigo: string;
+    titulo: string;
+    descripcion: string | null;
+    tipoMision: "ATENCION_CUADRILLA";
+    estado: "DESPACHADA";
+    prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+    incidenteId: string;
+    cuadrillaId: string;
+    encargadoId: string | null;
+    creadoPorId: string;
+    fechaInicio: string | null;
+    creadoEn: string;
+  };
+  cuadrilla: {
+    id: string;
+    nombre: string;
+    estado: "EN_MISION";
+    delegacionId?: string | null;
+  };
+  incidente: {
+    id: string;
+    codigo: string;
+    estado: "EN_ATENCION";
+    prioridad: string;
+  };
+  patrullaLiberada: {
+    id: string;
+    nombre: string;
+    estado: "DISPONIBLE";
+    misionPreviaId?: string | null;
+  } | null;
+  hitoCuadrilla: {
+    id: string;
+    misionId: string;
+    hito: string;
+    descripcion: string;
+    creadoEn: string;
+  };
+  hitoPatrulla: {
+    id: string;
+    misionId: string;
+    hito: string;
+    descripcion: string;
+    creadoEn: string;
+  } | null;
+}
+
+/**
+ * Sincroniza la disponibilidad operativa de la dotación humana de una cuadrilla.
+ *
+ * Cuando una cuadrilla es despachada a terreno, su dotación (integrantes activos de
+ * `cuadrilla_personal` y el delegado de la cuadrilla) debe quedar en estado 'en_mision',
+ * que es el atributo que consume la vista de personal del SGRAI
+ * (`usuario.estado_operativo`, única fuente de verdad desde la migración 025).
+ *
+ * Reglas:
+ * - Solo se actualizan usuarios activos.
+ * - No se sobrescriben estados no operativos ('licencia', 'descanso', 'inactivo').
+ * - No se altera `personal.disponible_terreno` (aptitud para terreno, no disponibilidad).
+ */
+export async function marcarDotacionCuadrillaEnMision(
+  trx: MisionTrx,
+  cuadrillaId: string,
+  usuarioDelegadoId: string | null
+): Promise<void> {
+  // 1. Integrantes activos de la cuadrilla
+  await trx
+    .updateTable("usuario")
+    .set({
+      estado_operativo: "en_mision",
+      actualizado_en: sql`CURRENT_TIMESTAMP`,
+    })
+    .where("activo", "=", true)
+    .where("estado_operativo", "in", ["disponible", "en_mision"])
+    .where(
+      "id",
+      "in",
+      trx
+        .selectFrom("cuadrilla_personal")
+        .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+        .select("personal.usuario_id")
+        .where("cuadrilla_personal.cuadrilla_id", "=", cuadrillaId)
+        .where("cuadrilla_personal.activo", "=", true)
+        .where("cuadrilla_personal.desvinculado_en", "is", null)
+    )
+    .execute();
+
+  // 2. Delegado de la cuadrilla (puede no estar registrado en cuadrilla_personal)
+  if (usuarioDelegadoId) {
+    await trx
+      .updateTable("usuario")
+      .set({
+        estado_operativo: "en_mision",
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", usuarioDelegadoId)
+      .where("activo", "=", true)
+      .where("estado_operativo", "in", ["disponible", "en_mision"])
+      .execute();
+  }
+}
+
+export async function asignarCuadrillaIncidenteRepo(
+  input: AsignarCuadrillaMisionInput,
+  usuarioId: string
+): Promise<AsignarCuadrillaResult> {
+  return await db.transaction().execute(async (trx) => {
+    // 1. Bloqueo pesimista en lecturas iniciales (BUG-H21-API-01)
+    const incidente = await trx
+      .selectFrom("incidente")
+      .select(["id", "codigo", "estado", "prioridad", "delegacion_id", "tipo_afectacion"])
+      .where("id", "=", input.incidenteId)
+      .forUpdate()
+      .executeTakeFirst();
+
+    if (!incidente) {
+      throw new NotFoundError("No se encontró ningún incidente con el identificador proporcionado.");
+    }
+
+    if (incidente.estado !== "REPORTADO" && incidente.estado !== "VERIFICANDO") {
+      throw new ConflictError(
+        `El incidente no puede ser asignado a cuadrilla porque su estado actual es '${incidente.estado}'. Solo se pueden despachar cuadrillas a incidentes en estado 'REPORTADO' o 'VERIFICANDO'.`
+      );
+    }
+
+    // 2. Bloqueo pesimista y validación de cuadrilla activa (BUG-H21-API-01, BUG-H21-API-02)
+    const cuadrilla = await trx
+      .selectFrom("cuadrilla")
+      .select(["id", "nombre", "estado", "delegacion_id", "usuario_delegado_id"])
+      .where("id", "=", input.cuadrillaId)
+      .where("eliminado_en", "is", null)
+      .where("activo", "=", true)
+      .forUpdate()
+      .executeTakeFirst();
+
+    if (!cuadrilla) {
+      throw new NotFoundError("No se encontró ninguna cuadrilla con el identificador proporcionado.");
+    }
+
+    if (cuadrilla.estado !== "DISPONIBLE") {
+      throw new ConflictError(
+        `La cuadrilla '${cuadrilla.nombre}' no está disponible para asignación (estado actual: '${cuadrilla.estado}'). Solo cuadrillas en estado 'DISPONIBLE' pueden ser despachadas.`
+      );
+    }
+
+    // 3. Buscar si el incidente tiene una misión de verificación activa y patrulla asignada
+    const misionVerificacionActiva = await trx
+      .selectFrom("mision")
+      .innerJoin("patrulla_verificadora", "patrulla_verificadora.id", "mision.patrulla_id")
+      .select([
+        "mision.id as mision_id",
+        "mision.codigo as mision_codigo",
+        "mision.estado as mision_estado",
+        "mision.prioridad as mision_prioridad",
+        "patrulla_verificadora.id as patrulla_id",
+        "patrulla_verificadora.nombre as patrulla_nombre",
+        "patrulla_verificadora.estado as patrulla_estado",
+      ])
+      .where("mision.incidente_id", "=", input.incidenteId)
+      .where("mision.tipo_mision", "=", "VERIFICACION")
+      .where("mision.estado", "in", ["DESPACHADA", "EN_CURSO", "COMPLETADA"])
+      .orderBy("mision.creado_en", "desc")
+      .executeTakeFirst();
+
+    // 3.1. Validación previa: Si está VERIFICANDO y hay patrulla asignada, debe existir reporte técnico de terreno
+    if (misionVerificacionActiva && incidente.estado === "VERIFICANDO") {
+      const reporteTerreno = await trx
+        .selectFrom("reporte_terreno")
+        .select("id")
+        .where("mision_id", "=", misionVerificacionActiva.mision_id)
+        .executeTakeFirst();
+
+      const hitoEvaluacion = await trx
+        .selectFrom("mision_hito")
+        .select("id")
+        .where("mision_id", "=", misionVerificacionActiva.mision_id)
+        .where("hito", "in", [
+          "EVALUACION_COMPLETADA",
+          "REPORTE_EMITIDO",
+          "VERIFICACION_COMPLETADA",
+          "EVALUACION_FINALIZADA",
+          "REPORTE_TERRENO_REGISTRADO",
+        ])
+        .executeTakeFirst();
+
+      if (!reporteTerreno && !hitoEvaluacion) {
+        throw new ConflictError(
+          `No es posible despachar una cuadrilla operativa: la patrulla verificadora asignada ('${misionVerificacionActiva.patrulla_nombre}') aún no ha finalizado la evaluación técnica en terreno.`,
+          "VERIFICACION_EN_CURSO",
+          {
+            incidenteId: input.incidenteId,
+            misionVerificacionId: misionVerificacionActiva.mision_id,
+            patrullaId: misionVerificacionActiva.patrulla_id,
+            patrullaNombre: misionVerificacionActiva.patrulla_nombre,
+            estadoMision: misionVerificacionActiva.mision_estado,
+          }
+        );
+      }
+    }
+
+    // 4. Determinar prioridad: heredar de misión de verificación activa o incidente
+    const prioridadFinal = (
+      input.prioridad ??
+      misionVerificacionActiva?.mision_prioridad ??
+      incidente.prioridad ??
+      "MEDIA"
+    ) as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+
+    // 5. Generar código correlativo de misión protegido contra colisiones concurrentes (advisory lock) (BUG-H21-API-01)
+    await sql`SELECT pg_advisory_xact_lock(hashtext('mision_codigo_seq'))`.execute(trx);
+
+    const year = new Date().getFullYear();
+    const prefijo = `MIS-${year}-`;
+
+    const ultimaMision = await trx
+      .selectFrom("mision")
+      .select("codigo")
+      .where("codigo", "like", `${prefijo}%`)
+      .orderBy("codigo", "desc")
+      .limit(1)
+      .executeTakeFirst();
+
+    let correlativo = 1;
+    if (ultimaMision?.codigo) {
+      const partes = ultimaMision.codigo.split("-");
+      const num = parseInt(partes[2] || "0", 10);
+      if (!isNaN(num) && num >= 1) {
+        correlativo = num + 1;
+      }
+    }
+    const nuevoCodigo = `${prefijo}${String(correlativo).padStart(4, "0")}`;
+    const tituloFinal = input.titulo?.trim() || `Atención táctica - Incidente ${incidente.codigo}`;
+
+    // 6. Crear misión para la cuadrilla (DESPACHADA, fecha_inicio = null)
+    const nuevaMision = await trx
+      .insertInto("mision")
+      .values({
+        codigo: nuevoCodigo,
+        titulo: tituloFinal,
+        descripcion: input.descripcion?.trim() || null,
+        tipo_mision: "ATENCION_CUADRILLA",
+        estado: "DESPACHADA",
+        prioridad: prioridadFinal,
+        incidente_id: input.incidenteId,
+        cuadrilla_id: input.cuadrillaId,
+        encargado_id: usuarioId,
+        creado_por_id: usuarioId,
+        fecha_inicio: null,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // 7. Transición atómica de cuadrilla a 'EN_MISION' con precondición de estado (BUG-H21-API-01)
+    const cuadrillaActualizada = await trx
+      .updateTable("cuadrilla")
+      .set({
+        estado: "EN_MISION",
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+        actualizado_por_id: usuarioId,
+      })
+      .where("id", "=", input.cuadrillaId)
+      .where("estado", "=", "DISPONIBLE")
+      .returning("id")
+      .executeTakeFirst();
+
+    if (!cuadrillaActualizada) {
+      throw new ConflictError(
+        `La cuadrilla '${cuadrilla.nombre}' ya fue asignada concurrentemente a otra misión.`
+      );
+    }
+
+    // 7.1. Sincronizar la disponibilidad de la dotación humana de la cuadrilla ('en_mision')
+    await marcarDotacionCuadrillaEnMision(
+      trx,
+      input.cuadrillaId,
+      cuadrilla.usuario_delegado_id
+    );
+
+    // 8. Transición atómica de incidente a 'EN_ATENCION' con precondición de estado (BUG-H21-API-01)
+    const incidenteActualizado = await trx
+      .updateTable("incidente")
+      .set({
+        estado: "EN_ATENCION",
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", input.incidenteId)
+      .where("estado", "in", ["REPORTADO", "VERIFICANDO"])
+      .returning(["id", "codigo", "estado", "prioridad"])
+      .executeTakeFirst();
+
+    if (!incidenteActualizado) {
+      throw new ConflictError(`El incidente ya fue actualizado concurrentemente a otro estado.`);
+    }
+
+    // 9. Registrar hito en mision_hito para la nueva misión de cuadrilla
+    const hitoCuadrillaRow = await trx
+      .insertInto("mision_hito")
+      .values({
+        mision_id: nuevaMision.id,
+        hito: "CUADRILLA_DESPACHADA",
+        descripcion: "Cuadrilla despachada a terreno para resolución táctica del incidente",
+        registrado_por_id: usuarioId,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // 10. Regla §3.2 ICS: Liberar patrulla verificadora y completar su misión si existía (BUG-H21-API-03)
+    let patrullaLiberada: AsignarCuadrillaResult["patrullaLiberada"] = null;
+    let hitoPatrulla: AsignarCuadrillaResult["hitoPatrulla"] = null;
+
+    if (misionVerificacionActiva) {
+      // a) Solo cerrar la misión de verificación previa e insertar hito si NO estaba ya COMPLETADA
+      if (misionVerificacionActiva.mision_estado !== "COMPLETADA") {
+        await trx
+          .updateTable("mision")
+          .set({
+            estado: "COMPLETADA",
+            fecha_cierre: sql`CURRENT_TIMESTAMP`,
+            actualizado_en: sql`CURRENT_TIMESTAMP`,
+          })
+          .where("id", "=", misionVerificacionActiva.mision_id)
+          .execute();
+
+        const hitoPatrullaRow = await trx
+          .insertInto("mision_hito")
+          .values({
+            mision_id: misionVerificacionActiva.mision_id,
+            hito: "VERIFICACION_FINALIZADA",
+            descripcion:
+              "Misión de verificación concluida automáticamente por asignación y relevo de cuadrilla operativa",
+            registrado_por_id: usuarioId,
+          })
+          .returningAll()
+          .executeTakeFirstOrThrow();
+
+        hitoPatrulla = {
+          id: hitoPatrullaRow.id,
+          misionId: hitoPatrullaRow.mision_id,
+          hito: hitoPatrullaRow.hito,
+          descripcion: hitoPatrullaRow.descripcion,
+          creadoEn: new Date(hitoPatrullaRow.creado_en).toISOString(),
+        };
+      }
+
+      // b) Verificar si la patrulla tiene otra misión activa (DESPACHADA o EN_CURSO) en otro incidente
+      const otraMisionActiva = await trx
+        .selectFrom("mision")
+        .select("id")
+        .where("patrulla_id", "=", misionVerificacionActiva.patrulla_id)
+        .where("id", "!=", misionVerificacionActiva.mision_id)
+        .where("estado", "in", ["DESPACHADA", "EN_CURSO"])
+        .executeTakeFirst();
+
+      // c) Liberar patrulla verificadora solo si no tiene otra misión activa y no está NO_DISPONIBLE
+      if (!otraMisionActiva && misionVerificacionActiva.patrulla_estado !== "NO_DISPONIBLE") {
+        await trx
+          .updateTable("patrulla_verificadora")
+          .set({
+            estado: "DISPONIBLE",
+            actualizado_en: sql`CURRENT_TIMESTAMP`,
+          })
+          .where("id", "=", misionVerificacionActiva.patrulla_id)
+          .execute();
+
+        patrullaLiberada = {
+          id: misionVerificacionActiva.patrulla_id,
+          nombre: misionVerificacionActiva.patrulla_nombre,
+          estado: "DISPONIBLE",
+          misionPreviaId: misionVerificacionActiva.mision_id,
+        };
+      }
+    }
+
+    return {
+      mision: {
+        id: nuevaMision.id,
+        codigo: nuevaMision.codigo,
+        titulo: nuevaMision.titulo,
+        descripcion: nuevaMision.descripcion,
+        tipoMision: "ATENCION_CUADRILLA",
+        estado: "DESPACHADA",
+        prioridad: nuevaMision.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA",
+        incidenteId: input.incidenteId,
+        cuadrillaId: input.cuadrillaId,
+        encargadoId: nuevaMision.encargado_id,
+        creadoPorId: nuevaMision.creado_por_id,
+        fechaInicio: nuevaMision.fecha_inicio ? new Date(nuevaMision.fecha_inicio).toISOString() : null,
+        creadoEn: new Date(nuevaMision.creado_en).toISOString(),
+      },
+      cuadrilla: {
+        id: cuadrilla.id,
+        nombre: cuadrilla.nombre,
+        estado: "EN_MISION",
+        delegacionId: cuadrilla.delegacion_id,
+      },
+      incidente: {
+        id: incidenteActualizado.id,
+        codigo: incidenteActualizado.codigo,
+        estado: "EN_ATENCION",
+        prioridad: incidenteActualizado.prioridad,
+      },
+      patrullaLiberada,
+      hitoCuadrilla: {
+        id: hitoCuadrillaRow.id,
+        misionId: hitoCuadrillaRow.mision_id,
+        hito: hitoCuadrillaRow.hito,
+        descripcion: hitoCuadrillaRow.descripcion,
+        creadoEn: new Date(hitoCuadrillaRow.creado_en).toISOString(),
+      },
+      hitoPatrulla,
+    };
+  });
+}
+
+export interface AceptarMisionPatrullaResult {
+  mision: {
+    id: string;
+    codigo: string;
+    titulo: string;
+    descripcion: string | null;
+    tipoMision: "VERIFICACION" | "ATENCION_CUADRILLA" | "PREVENCION" | "RECUPERACION" | "ASISTENCIA_SOCIAL";
+    estado: "PLANIFICADA" | "DESPACHADA" | "EN_CURSO" | "COMPLETADA" | "CANCELADA" | "RECHAZADA";
+    prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+    incidenteId: string | null;
+    patrullaId: string | null;
+    fechaInicio: string;
+    actualizadoEn: string;
+  };
+  patrulla: {
+    id: string;
+    nombre: string;
+    estado: string;
+  } | null;
+  incidente: {
+    id: string;
+    codigo: string;
+    estado: string;
+  } | null;
+  hito: {
+    id: string;
+    misionId: string;
+    hito: string;
+    descripcion: string;
+    registradoPorId: string | null;
+    latitud: number | null;
+    longitud: number | null;
+    creadoEn: string;
+  };
+}
+
+/**
+ * HU-36 - Ejecuta la transición atómica cuando una patrulla verificadora confirma y acepta
+ * la misión asignada desde su dispositivo móvil (PWA):
+ * 1. Verifica con bloqueo pesimista que la misión exista, tenga patrulla asignada y que el usuario esté autorizado.
+ * 2. Verifica las invariantes ICS: patrulla activa en 'EN_VERIFICACION' e incidente asociado en 'VERIFICANDO'.
+ * 3. Actualiza atómicamente `mision.estado` de `DESPACHADA` a `EN_CURSO` y fija `mision.fecha_inicio = CURRENT_TIMESTAMP`.
+ * 4. Registra el hito `'MISION_ACEPTADA'` (`'Misión Aceptada por Patrulla'`) en `mision_hito` vinculando al usuario en sesión.
+ */
+export async function aceptarMisionPatrullaRepo(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input?: AceptarMisionInput
+): Promise<AceptarMisionPatrullaResult> {
+  return await db.transaction().execute(async (trx) => {
+    // 1. Consultar la misión con bloqueo pesimista (FOR UPDATE OF mision) junto a su patrulla e incidente asociado
+    const misionExistente = await trx
+      .selectFrom("mision")
+      .leftJoin("patrulla_verificadora", "patrulla_verificadora.id", "mision.patrulla_id")
+      .leftJoin("incidente", "incidente.id", "mision.incidente_id")
+      .select([
+        "mision.id",
+        "mision.codigo",
+        "mision.estado",
+        "mision.patrulla_id",
+        "mision.incidente_id",
+        "patrulla_verificadora.nombre as patrulla_nombre",
+        "patrulla_verificadora.estado as patrulla_estado",
+        "patrulla_verificadora.eliminado_en as patrulla_eliminado_en",
+        "patrulla_verificadora.usuario_lider_id as patrulla_lider_id",
+        "incidente.codigo as incidente_codigo",
+        "incidente.estado as incidente_estado",
+      ])
+      .where("mision.id", "=", misionId)
+      .forUpdate("mision")
+      .executeTakeFirst();
+
+    if (!misionExistente) {
+      throw new NotFoundError("No se encontró ninguna misión con el identificador proporcionado.");
+    }
+
+    // 2. Validar explícitamente que la misión tenga una patrulla verificadora asignada (BUG-H36-API-01)
+    if (!misionExistente.patrulla_id) {
+      throw new ConflictError(
+        "La misión indicada no tiene una patrulla verificadora asignada."
+      );
+    }
+
+    // 3. Validar pertenencia del operador a la patrulla verificadora asignada, salvo Administrador (BUG-H36-API-01)
+    if (!esAdmin) {
+      const esLiderDirecto = misionExistente.patrulla_lider_id === usuarioId;
+      if (!esLiderDirecto) {
+        const integrante = await trx
+          .selectFrom("patrulla_personal")
+          .innerJoin("personal", "personal.id", "patrulla_personal.personal_id")
+          .select("patrulla_personal.id")
+          .where("patrulla_personal.patrulla_id", "=", misionExistente.patrulla_id)
+          .where("personal.usuario_id", "=", usuarioId)
+          .executeTakeFirst();
+
+        if (!integrante) {
+          throw new ForbiddenError(
+            "No está autorizado para aceptar una misión asignada a otra patrulla verificadora."
+          );
+        }
+      }
+    }
+
+    // 4. Validar invariantes ICS sobre el estado activo de la patrulla (EN_VERIFICACION) y del incidente (VERIFICANDO) (BUG-H36-API-04)
+    if (
+      misionExistente.patrulla_eliminado_en !== undefined &&
+      misionExistente.patrulla_eliminado_en !== null
+    ) {
+      throw new ConflictError(
+        "La patrulla verificadora asignada a la misión ha sido desactivada o dada de baja."
+      );
+    }
+
+    if (
+      misionExistente.patrulla_estado !== undefined &&
+      misionExistente.patrulla_estado !== null &&
+      misionExistente.patrulla_estado !== "EN_VERIFICACION"
+    ) {
+      throw new ConflictError(
+        `La patrulla verificadora asignada no se encuentra en estado 'EN_VERIFICACION' (estado actual: '${misionExistente.patrulla_estado}').`
+      );
+    }
+
+    if (
+      misionExistente.incidente_id &&
+      misionExistente.incidente_estado !== undefined &&
+      misionExistente.incidente_estado !== null &&
+      misionExistente.incidente_estado !== "VERIFICANDO"
+    ) {
+      throw new ConflictError(
+        `El incidente asociado no se encuentra en estado 'VERIFICANDO' (estado actual: '${misionExistente.incidente_estado}').`
+      );
+    }
+
+    // 5. Transición atómica con control de concurrencia condicional (estado = 'DESPACHADA')
+    const misionActualizada = await trx
+      .updateTable("mision")
+      .set({
+        estado: "EN_CURSO",
+        fecha_inicio: sql`CURRENT_TIMESTAMP`,
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", misionId)
+      .where("estado", "=", "DESPACHADA")
+      .returningAll()
+      .executeTakeFirst();
+
+    if (!misionActualizada) {
+      const misionReciente = await trx
+        .selectFrom("mision")
+        .select("estado")
+        .where("id", "=", misionId)
+        .executeTakeFirst();
+
+      const estadoActual = misionReciente?.estado ?? misionExistente.estado;
+      throw new ConflictError(
+        `La misión no puede ser aceptada porque su estado actual es '${estadoActual}'. Solo se pueden aceptar misiones en estado 'DESPACHADA'.`
+      );
+    }
+
+    // 6. Registrar el hito automático en mision_hito vinculando al usuario en sesión
+    const hitoRegistrado = await trx
+      .insertInto("mision_hito")
+      .values({
+        mision_id: misionId,
+        hito: "MISION_ACEPTADA",
+        descripcion: "Misión Aceptada por Patrulla",
+        registrado_por_id: usuarioId,
+        latitud: input?.latitud ?? null,
+        longitud: input?.longitud ?? null,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    const fechaInicioIso = misionActualizada.fecha_inicio
+      ? new Date(misionActualizada.fecha_inicio).toISOString()
+      : new Date().toISOString();
+    const actualizadoEnIso = misionActualizada.actualizado_en
+      ? new Date(misionActualizada.actualizado_en).toISOString()
+      : new Date().toISOString();
+    const hitoCreadoEnIso = hitoRegistrado.creado_en
+      ? new Date(hitoRegistrado.creado_en).toISOString()
+      : new Date().toISOString();
+
+    return {
+      mision: {
+        id: misionActualizada.id,
+        codigo: misionActualizada.codigo,
+        titulo: misionActualizada.titulo,
+        descripcion: misionActualizada.descripcion,
+        tipoMision: misionActualizada.tipo_mision as AceptarMisionPatrullaResult["mision"]["tipoMision"],
+        estado: misionActualizada.estado as AceptarMisionPatrullaResult["mision"]["estado"],
+        prioridad: misionActualizada.prioridad as AceptarMisionPatrullaResult["mision"]["prioridad"],
+        incidenteId: misionActualizada.incidente_id,
+        patrullaId: misionActualizada.patrulla_id,
+        fechaInicio: fechaInicioIso,
+        actualizadoEn: actualizadoEnIso,
+      },
+      patrulla: {
+        id: misionExistente.patrulla_id,
+        nombre: misionExistente.patrulla_nombre ?? "Patrulla Verificadora",
+        estado: "EN_VERIFICACION",
+      },
+      incidente: misionExistente.incidente_id
+        ? {
+            id: misionExistente.incidente_id,
+            codigo: misionExistente.incidente_codigo ?? "",
+            estado: "VERIFICANDO",
+          }
+        : null,
+      hito: {
+        id: hitoRegistrado.id,
+        misionId: hitoRegistrado.mision_id,
+        hito: hitoRegistrado.hito,
+        descripcion: hitoRegistrado.descripcion,
+        registradoPorId: hitoRegistrado.registrado_por_id,
+        latitud: hitoRegistrado.latitud !== null ? Number(hitoRegistrado.latitud) : null,
+        longitud: hitoRegistrado.longitud !== null ? Number(hitoRegistrado.longitud) : null,
+        creadoEn: hitoCreadoEnIso,
+      },
+    };
+  });
+}

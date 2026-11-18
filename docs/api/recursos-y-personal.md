@@ -725,17 +725,110 @@ Desactiva mediante **baja lógica (soft delete)** una patrulla verificadora que 
 
 ---
 
-### 3.8. `GET /api/cuadrillas` (Listado Paginado de Cuadrillas con Filtros - H81 / H79)
-Retorna la nómina paginada de cuadrillas operativas municipales con sus respectivos delegados, recursos asignados y dotación de trabajadores.
+### 3.8. `GET /api/cuadrillas` (Listado Paginado de Cuadrillas con Filtros — H80 / Estándar H34)
+Retorna la nómina paginada de cuadrillas operativas municipales con sus respectivos delegados, recursos asignados, dotación de trabajadores y conteos consolidados, implementando el estándar unificado de filtros y paginación (H34 / H80).
 
 - **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` para retrocompatibilidad interna).
 - **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:leer`, `recursos:gestionar` o rol `ADMIN`.
-- **Parámetros de Consulta (Query Params):**
-  - `pagina` / `page` (`number`, default `1`): Número de página.
-  - `limite` / `limit` (`number`, default `10`, max `100`): Cantidad de registros por página.
-  - `q` / `busqueda` (`string`): Búsqueda parcial insensible a mayúsculas sobre nombre de cuadrilla, o nombre o RUT del delegado.
-  - `delegacionId` (`UUID`): Filtra por delegación municipal adscrita.
-  - `estado` (`string`): Filtra por estado operativo (`DISPONIBLE`, `EN_MISION`, `NO_DISPONIBLE`).
+
+#### Parámetros de Consulta (Query Params — Estándar H34)
+
+| Parámetro | In | Tipo | Requerido | Descripción | Ejemplo |
+|---|---|---|---|---|---|
+| `pagina` | query | integer | No | Número de página a consultar (base 1, default `1`) | `1` |
+| `page` | query | integer | No | Alias de `pagina` | `1` |
+| `limite` | query | integer | No | Cantidad de registros por página (default `10`, máx. `100`) | `10` |
+| `limit` | query | integer | No | Alias de `limite` | `10` |
+| `busqueda` | query | string | No | Búsqueda textual libre por nombre de cuadrilla, delegado o RUT | `Vías` |
+| `q` | query | string | No | Alias de `busqueda` textual libre | `Vías` |
+| `delegacionId` | query | string (UUID) | No | Identificador UUID de delegación municipal para filtro territorial | `30000000-0000-4000-8000-000000000001` |
+| `estado` | query | string (Enum) | No | Estado operativo canónico (`DISPONIBLE`, `EN_MISION`, `NO_DISPONIBLE`) o vista especial (`INACTIVAS`, `TODAS`) | `DISPONIBLE` |
+| `activo` | query | boolean \| string | No | Filtro de vigencia: `true`, `false` o `all` | `true` |
+| `incluir_inactivas` | query | boolean | No | Incluye cuadrillas con baja lógica en el listado | `false` |
+| `incluirInactivas` | query | boolean | No | Alias de `incluir_inactivas` | `false` |
+
+> Los comodines SQL `%` y `_` enviados en `busqueda`/`q` se escapan y se buscan como texto literal.
+
+#### Ejemplo de Solicitud (cURL)
+
+```bash
+curl -X GET "http://localhost:3001/api/cuadrillas?delegacionId=30000000-0000-4000-8000-000000000001&estado=DISPONIBLE&pagina=1&limite=10" \
+  -H "Authorization: Bearer <token_jwt>" \
+  -H "Content-Type: application/json"
+```
+
+#### Ejemplo de Respuesta Exitosa (`HTTP 200 OK`)
+
+```json
+{
+  "message": "Listado de cuadrillas obtenido exitosamente",
+  "data": [
+    {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "nombre": "Cuadrilla Vías y Calles Central",
+      "estado": "DISPONIBLE",
+      "delegacion": {
+        "id": "30000000-0000-4000-8000-000000000001",
+        "nombre": "Delegación Municipal Calle Calle",
+        "codigo": "DEL_CALLE_CALLE"
+      },
+      "delegado": {
+        "id": "00000000-0000-4000-8000-000000000005",
+        "nombre": "Carlos Operativo",
+        "email": "carlos@valdivia.cl",
+        "rut": "15.123.456-7"
+      },
+      "recursos": [
+        {
+          "id": "cr-1",
+          "recursoId": "e1000000-0000-4000-8000-000000000001",
+          "nombre": "Camioneta 4x4",
+          "cantidadAsignada": 1,
+          "esIndividual": true
+        }
+      ],
+      "trabajadores": [
+        {
+          "id": "cp-1",
+          "personalId": "40000000-0000-4000-8000-000000000001",
+          "usuarioId": "user-trabajador-1",
+          "nombre": "Pedro Obrero",
+          "rut": "16.222.333-4",
+          "cargo": "Motosierrista",
+          "especialidad": "Poda de Altura",
+          "asignadoEn": "2026-10-24T12:00:00.000Z"
+        }
+      ],
+      "totalRecursos": 1,
+      "totalTrabajadores": 1,
+      "activo": true,
+      "creadoEn": "2026-10-24T12:00:00.000Z",
+      "eliminadoEn": null,
+      "actualizadoEn": "2026-10-26T01:30:00.000Z"
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "pagina": 1,
+    "limite": 10,
+    "paginasTotales": 1,
+    "page": 1,
+    "limit": 10,
+    "totalPages": 1,
+    "hasNext": false,
+    "hasPrev": false
+  }
+}
+```
+
+#### Códigos de Error
+
+| Código HTTP | Motivo | Detalle |
+|---|---|---|
+| `400 Bad Request` | Parámetros inválidos | Parámetros de query no cumplen con el esquema Zod (ej. `delegacionId` no es UUID, `limite > 100`, estado no reconocido). |
+| `401 Unauthorized` | No autenticado | Cabecera `Authorization: Bearer <token>` ausente, expirada o inválida. |
+| `403 Forbidden` | Permisos insuficientes | Usuario autenticado carece del permiso `recursos:leer` o no posee rol `ADMIN`. |
+| `500 Internal Server Error` | Error de servidor | Excepción no controlada o fallo de comunicación con la base de datos PostgreSQL. |
 
 ---
 
@@ -751,13 +844,105 @@ Permite dar de alta una nueva cuadrilla táctica municipal en estado inicial `DI
 
 ---
 
-### 3.10. `GET /api/cuadrillas/{id}` (Detalle Unitario de Cuadrilla - H81 / H79)
-Retorna el detalle completo y consolidado de una cuadrilla operativa específica por su identificador UUID.
+### 3.10. `GET /api/cuadrillas/{id}` (Detalle Unitario y Composición en Tiempo Real de Cuadrilla - H22 / H81 / H79)
+Retorna el detalle técnico y la composición completa y consolidada de una cuadrilla operativa específica por su identificador UUID. Permite al Encargado y operadores consultar en tiempo real los integrantes de la brigada, delegado a cargo, recursos y herramientas asignadas, y su misión en ejecución con tiempo transcurrido e incidente asociado.
 
 - **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id`).
-- **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:leer`, `recursos:gestionar` o rol `ADMIN`.
-- **Respuesta:** Detalle consolidado con su delegación, delegado, lista de recursos materiales (`cuadrilla_recurso`) y trabajadores operativos (`cuadrilla_personal`).
-- **Error 404:** Si la cuadrilla no existe o se encuentra eliminada lógicamente.
+- **Perfiles y permisos autorizados:** Requiere permiso RBAC `recursos:leer`, `recursos:gestionar` o rol `ADMIN` / `ENCARGADO`.
+- **Información provista en la respuesta:**
+  - **Identificación base:** Identificador UUID, nombre de cuadrilla, delegación base (`id`, `nombre`, `codigo`), estado operativo (`DISPONIBLE`, `EN_MISION`, `NO_DISPONIBLE`), indicador de baja lógica (`activo`) y fechas de auditoría.
+  - **Delegado Responsable:** `id`, `nombre`, `email`, `rut` del delegado a cargo.
+  - **Nómina de Integrantes (`cuadrilla_personal` / `cuadrilla_integrante`):** Lista completa de funcionarios adscritos con `id`, `personalId`, `usuarioId`, `nombre`, `rut`, `cargo`, `especialidad`, `telefono` de contacto y `asignadoEn`.
+  - **Recursos y Herramientas Asignadas (`cuadrilla_recurso`):** Detalle de inventario asignado con `id`, `recursoId`, `nombre`, `cantidadAsignada`, `esIndividual`, `descripcion` y `especificaciones` técnicas (atributos JSONB como marca, modelo, patente, etc.).
+  - **Misión Activa en Ejecución (`misionActiva`):** Si la cuadrilla se encuentra `EN_MISION` (o posee una misión en estado `DESPACHADA` o `EN_CURSO`), expone el identificador, código, título, tipo de misión, estado, `fechaDespacho`, `tiempoTranscurridoMinutos` calculado desde el despacho, y el objeto de `incidente` vinculado (`id`, `codigo`, `tipo`, `direccion`, `latitud`, `longitud`). Si la cuadrilla se encuentra `DISPONIBLE`, `misionActiva` se retorna como `null`.
+- **Códigos de Estado HTTP:**
+  - `200 OK`: Ficha técnica de la cuadrilla obtenida exitosamente.
+  - `400 Bad Request`: Si el identificador provisto no corresponde a un UUID válido.
+  - `401 Unauthorized`: Si falta el token de autorización o ha expirado.
+  - `403 Forbidden`: Si el usuario carece del permiso `recursos:leer` o no pertenece a los roles autorizados.
+  - `404 Not Found`: Si la cuadrilla especificada no existe en la base de datos.
+
+#### Ejemplo de Respuesta Exitosa (`200 OK`) — Cuadrilla `EN_MISION`:
+```json
+{
+  "message": "Detalle de cuadrilla operativa obtenido exitosamente",
+  "data": {
+    "id": "50000000-0000-4000-8000-000000000001",
+    "nombre": "Cuadrilla Vías y Despeje Urbano",
+    "estado": "EN_MISION",
+    "activo": true,
+    "delegacion": {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "nombre": "Delegación Municipal Norte",
+      "codigo": "DEL_NORTE"
+    },
+    "delegado": {
+      "id": "00000000-0000-4000-8000-000000000005",
+      "nombre": "Carlos Delegado",
+      "email": "carlos.delegado@valdivia.cl",
+      "rut": "15.123.456-7"
+    },
+    "recursos": [
+      {
+        "id": "cd100000-0000-4000-8000-000000000001",
+        "recursoId": "e1000000-0000-4000-8000-000000000001",
+        "nombre": "Camioneta de Rescate 4x4",
+        "cantidadAsignada": 1,
+        "esIndividual": true,
+        "descripcion": "Camioneta 4x4 doble cabina para rescate y traslado de cuadrilla",
+        "detalles": {
+          "patente": "KKLX-89",
+          "marca": "Toyota",
+          "modelo": "Hilux"
+        },
+        "especificaciones": {
+          "patente": "KKLX-89",
+          "marca": "Toyota",
+          "modelo": "Hilux"
+        }
+      }
+    ],
+    "trabajadores": [
+      {
+        "id": "cp100000-0000-4000-8000-000000000001",
+        "personalId": "40000000-0000-4000-8000-000000000001",
+        "usuarioId": "00000000-0000-4000-8000-000000000009",
+        "nombre": "Juan Trabajador",
+        "rut": "16.123.456-8",
+        "cargo": "Motosierrista",
+        "especialidad": "Poda y Despeje de Altura",
+        "telefono": "+56991234567",
+        "asignadoEn": "2026-10-26T01:00:00.000Z"
+      }
+    ],
+    "totalRecursos": 1,
+    "totalTrabajadores": 1,
+    "misionActiva": {
+      "id": "60000000-0000-4000-8000-000000000001",
+      "codigo": "MIS-2026-0042",
+      "titulo": "Atención anegamiento en Isla Teja",
+      "tipoMision": "ATENCION_CUADRILLA",
+      "estado": "EN_CURSO",
+      "fechaDespacho": "2026-11-08T09:30:00.000Z",
+      "tiempoTranscurridoMinutos": 45,
+      "incidente": {
+        "id": "70000000-0000-4000-8000-000000000001",
+        "codigo": "INC-2026-0042",
+        "tipo": "Inundación",
+        "direccion": "Av. Los Robles 450, Isla Teja",
+        "latitud": -39.8152,
+        "longitud": -73.2458
+      }
+    },
+    "creadoEn": "2026-10-24T12:00:00.000Z",
+    "actualizadoEn": "2026-10-26T01:00:00.000Z",
+    "actualizadoPorId": "00000000-0000-4000-8000-000000000001",
+    "creadoPorId": "00000000-0000-4000-8000-000000000001",
+    "eliminadoEn": null,
+    "eliminadoPorId": null
+  }
+}
+```
 
 ---
 

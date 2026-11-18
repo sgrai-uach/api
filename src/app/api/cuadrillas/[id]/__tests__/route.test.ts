@@ -54,6 +54,8 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
         nombre: "Camioneta de Rescate 4x4",
         cantidadAsignada: 1,
         esIndividual: true,
+        descripcion: "Camioneta equipada para terreno",
+        especificaciones: { patente: "KKLX-89", marca: "Toyota" },
       },
     ],
     trabajadores: [
@@ -65,11 +67,13 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
         rut: "16.123.456-8",
         cargo: "Motosierrista",
         especialidad: "Poda y Despeje",
+        telefono: "+56912345678",
         asignadoEn: "2026-10-26T01:00:00.000Z",
       },
     ],
     totalRecursos: 1,
     totalTrabajadores: 1,
+    misionActiva: null,
     creadoEn: "2026-10-24T12:00:00.000Z",
     actualizadoEn: "2026-10-26T01:00:00.000Z",
     actualizadoPorId: usuarioAdminId,
@@ -81,7 +85,7 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
   });
 
   describe("GET /api/cuadrillas/[id]", () => {
-    it("debe retornar 200 OK con el detalle unitario consolidado", async () => {
+    it("debe retornar 200 OK con el detalle unitario consolidado incluyendo teléfono de integrantes y especificaciones de recursos", async () => {
       vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
       vi.spyOn(cuadrillaService, "obtenerCuadrillaPorId").mockResolvedValue(cuadrillaRespuestaMock);
 
@@ -92,8 +96,60 @@ describe("Endpoint /api/cuadrillas/[id] (GET / PUT)", () => {
       const data = await res.json();
       expect(data.message).toBe("Detalle de cuadrilla operativa obtenido exitosamente");
       expect(data.data.id).toBe(cuadrillaIdValido);
-      expect(data.data.recursos).toHaveLength(1);
-      expect(data.data.trabajadores).toHaveLength(1);
+      expect(data.data.recursos[0].descripcion).toBe("Camioneta equipada para terreno");
+      expect(data.data.recursos[0].especificaciones).toEqual({ patente: "KKLX-89", marca: "Toyota" });
+      expect(data.data.trabajadores[0].telefono).toBe("+56912345678");
+      expect(data.data.misionActiva).toBeNull();
+    });
+
+    it("debe retornar misión activa e incidente vinculado con tiempo transcurrido cuando la cuadrilla está EN_MISION", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(usuarioAdminId);
+      vi.spyOn(cuadrillaService, "obtenerCuadrillaPorId").mockResolvedValue({
+        ...cuadrillaRespuestaMock,
+        estado: "EN_MISION",
+        misionActiva: {
+          id: "60000000-0000-4000-8000-000000000001",
+          codigo: "MIS-2026-0012",
+          titulo: "Atención anegamiento en Isla Teja",
+          tipoMision: "ATENCION_CUADRILLA",
+          estado: "EN_CURSO",
+          fechaDespacho: "2026-11-08T09:30:00.000Z",
+          tiempoTranscurridoMinutos: 45,
+          incidente: {
+            id: "70000000-0000-4000-8000-000000000001",
+            codigo: "INC-2026-0042",
+            tipo: "Inundación",
+            direccion: "Av. Los Robles 450",
+            latitud: -39.8152,
+            longitud: -73.2458,
+          },
+        },
+      });
+
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`);
+      const res = await GET(req, contextValido);
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.data.estado).toBe("EN_MISION");
+      expect(data.data.misionActiva).not.toBeNull();
+      expect(data.data.misionActiva.codigo).toBe("MIS-2026-0012");
+      expect(data.data.misionActiva.tiempoTranscurridoMinutos).toBe(45);
+      expect(data.data.misionActiva.incidente.codigo).toBe("INC-2026-0042");
+      expect(data.data.misionActiva.incidente.direccion).toBe("Av. Los Robles 450");
+    });
+
+    it("debe retornar 401 Unauthorized si falta el token de sesión", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValue(
+        new UnauthorizedError("Token no provisto")
+      );
+
+      const req = new NextRequest(`http://localhost:3000/api/cuadrillas/${cuadrillaIdValido}`);
+      const res = await GET(req, contextValido);
+
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.error).toBe("Unauthorized");
     });
 
     it("debe retornar 400 Bad Request si el id no es UUID", async () => {

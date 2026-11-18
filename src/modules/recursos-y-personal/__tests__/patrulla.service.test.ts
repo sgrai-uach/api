@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as authService from "@/modules/seguridad/auth.service";
-import { seguridadService } from "@/modules/seguridad/service";
 import * as socketModule from "@/lib/socket";
 import * as patrullaRepo from "../patrulla.repository";
 import {
