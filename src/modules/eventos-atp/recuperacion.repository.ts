@@ -150,10 +150,10 @@ export async function insertarRecursosRecuperacion(
     .execute();
 }
 
-export async function descontarStockRecurso(
+async function ajustarStockRecurso(
   trx: KyselyTrx,
   recursoId: string,
-  cantidadADescontar: number
+  deltaInventario: number
 ) {
   const recurso = await trx
     .selectFrom("recurso")
@@ -161,7 +161,7 @@ export async function descontarStockRecurso(
     .where("id", "=", recursoId)
     .executeTakeFirstOrThrow();
 
-  const nuevoInventario = Math.max(0, Number(recurso.cantidad_inventario) - cantidadADescontar);
+  const nuevoInventario = Math.max(0, Number(recurso.cantidad_inventario) + deltaInventario);
   const cantidadEnUso = Number(recurso.cantidad_en_uso ?? 0);
   const cantidadMinima = Number(recurso.cantidad_minima ?? 0);
   const disponible = Math.max(0, nuevoInventario - cantidadEnUso);
@@ -182,6 +182,22 @@ export async function descontarStockRecurso(
     })
     .where("id", "=", recursoId)
     .execute();
+}
+
+export async function descontarStockRecurso(
+  trx: KyselyTrx,
+  recursoId: string,
+  cantidadADescontar: number
+) {
+  return ajustarStockRecurso(trx, recursoId, -cantidadADescontar);
+}
+
+export async function devolverStockRecurso(
+  trx: KyselyTrx,
+  recursoId: string,
+  cantidadADevolver: number
+) {
+  return ajustarStockRecurso(trx, recursoId, cantidadADevolver);
 }
 
 export async function actualizarEstadoPatrulla(
@@ -229,4 +245,93 @@ export async function buscarDelegacionPorId(trx: KyselyTrx, delegacionId: string
     .select(["id", "codigo", "codigo_delegacion", "nombre", "nombre_delegacion"])
     .where("id", "=", delegacionId)
     .executeTakeFirst();
+}
+
+export async function buscarRecuperacionPorId(trx: KyselyTrx, id: string) {
+  return trx
+    .selectFrom("recuperacion")
+    .selectAll()
+    .where("id", "=", id)
+    .executeTakeFirst();
+}
+
+export async function listarRecursosAsignadosRecuperacion(
+  trx: KyselyTrx,
+  recuperacionId: string
+) {
+  return trx
+    .selectFrom("recuperacion_recurso as rr")
+    .innerJoin("recurso as r", "r.id", "rr.recurso_id")
+    .select([
+      "rr.recurso_id as recursoId",
+      "r.nombre as nombre",
+      "rr.cantidad_asignada as cantidadAsignada",
+    ])
+    .where("rr.recuperacion_id", "=", recuperacionId)
+    .execute();
+}
+
+export async function buscarMisionPorRecuperacionId(
+  trx: KyselyTrx,
+  recuperacionId: string
+) {
+  return trx
+    .selectFrom("mision")
+    .select(["id", "codigo", "titulo", "estado", "tipo_mision", "patrulla_id"])
+    .where("recuperacion_id", "=", recuperacionId)
+    .executeTakeFirst();
+}
+
+export async function actualizarRecuperacion(
+  trx: KyselyTrx,
+  id: string,
+  datos: {
+    descripcion?: string | null;
+    fechaEstimadaFin?: Date | null;
+    actualizadoPorId: string;
+  }
+) {
+  const valores: Record<string, unknown> = {
+    actualizado_por_id: datos.actualizadoPorId,
+    actualizado_en: new Date(),
+  };
+
+  if (datos.descripcion !== undefined) {
+    valores.descripcion = datos.descripcion;
+  }
+  if (datos.fechaEstimadaFin !== undefined) {
+    valores.fecha_estimada_fin = datos.fechaEstimadaFin;
+  }
+
+  return trx
+    .updateTable("recuperacion")
+    .set(valores)
+    .where("id", "=", id)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+}
+
+export async function sincronizarDescripcionMisionRecuperacion(
+  trx: KyselyTrx,
+  recuperacionId: string,
+  descripcion: string | null
+) {
+  await trx
+    .updateTable("mision")
+    .set({
+      descripcion,
+      actualizado_en: new Date(),
+    })
+    .where("recuperacion_id", "=", recuperacionId)
+    .execute();
+}
+
+export async function eliminarRecursosRecuperacion(
+  trx: KyselyTrx,
+  recuperacionId: string
+) {
+  await trx
+    .deleteFrom("recuperacion_recurso")
+    .where("recuperacion_id", "=", recuperacionId)
+    .execute();
 }

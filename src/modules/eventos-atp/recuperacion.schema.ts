@@ -93,6 +93,55 @@ export const CrearEventoRecuperacionInputSchema = z.object({
 export type CrearEventoRecuperacionInput = z.infer<typeof CrearEventoRecuperacionInputSchema>;
 
 /**
+ * Esquema de entrada para editar la planificación de un operativo de recuperación activo (HU-74).
+ */
+export const EditarEventoRecuperacionInputSchema = z
+  .object({
+    descripcion: z
+      .string()
+      .trim()
+      .min(3, "La descripción debe tener al menos 3 caracteres")
+      .max(1000, "La descripción no puede superar los 1000 caracteres")
+      .optional()
+      .nullable()
+      .openapi({
+        description: "Nueva descripción de tareas e indicaciones operativas",
+        example: "Ampliación de entrega de kits de techumbre y frazadas en sector Collico Alto",
+      }),
+    fechaEstimadaFin: z
+      .string()
+      .datetime({
+        offset: true,
+        message: "La fecha estimada de término debe tener formato ISO-8601 con zona horaria",
+      })
+      .optional()
+      .nullable()
+      .openapi({
+        description: "Fecha estimada de término del operativo en formato ISO-8601",
+        example: "2026-11-20T18:00:00.000Z",
+      }),
+    recursos: z
+      .array(ItemRecursoSolicitadoSchema)
+      .min(1, "Debe asignar al menos un recurso al operativo de recuperación")
+      .optional()
+      .openapi({
+        description: "Nueva dotación completa de insumos/recursos asignados al operativo",
+      }),
+  })
+  .refine(
+    (data) =>
+      data.descripcion !== undefined ||
+      data.fechaEstimadaFin !== undefined ||
+      data.recursos !== undefined,
+    {
+      message:
+        "Debe proporcionar al menos un campo para actualizar (descripcion, fechaEstimadaFin o recursos).",
+    }
+  );
+
+export type EditarEventoRecuperacionInput = z.infer<typeof EditarEventoRecuperacionInputSchema>;
+
+/**
  * Detalle del recurso asignado devuelto en la respuesta.
  */
 export const RecursoAsignadoItemResponseSchema = z.object({
@@ -147,6 +196,8 @@ export const EventoRecuperacionResponseSchema = z.object({
   patrulla: PatrullaAsignadaResumenSchema.openapi({ description: "Patrulla asignada a la operación" }),
   recursos: z.array(RecursoAsignadoItemResponseSchema).openapi({ description: "Recursos reservados o descontados para la entrega" }),
   creadoPorId: z.string().uuid().openapi({ description: "Identificador del Encargado que creó el evento" }),
+  fechaEstimadaFin: z.string().nullable().optional().openapi({ description: "Fecha estimada de término ISO 8601" }),
+  actualizadoPorId: z.string().uuid().nullable().optional().openapi({ description: "Identificador del usuario que realizó la última edición" }),
   creadoEn: z.string().openapi({ description: "Fecha de registro ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Fecha de actualización ISO 8601" }),
 });
@@ -162,3 +213,13 @@ export const CrearEventoRecuperacionResponseSchema = z.object({
 });
 
 export type CrearEventoRecuperacionResponse = z.infer<typeof CrearEventoRecuperacionResponseSchema>;
+
+/**
+ * Respuesta JSON exitosa HTTP 200 para PATCH /api/eventos-atp/recuperacion/{id}
+ */
+export const EditarEventoRecuperacionResponseSchema = z.object({
+  message: z.string().openapi({ example: "Planificación del operativo de recuperación actualizada exitosamente." }),
+  data: EventoRecuperacionResponseSchema,
+});
+
+export type EditarEventoRecuperacionResponse = z.infer<typeof EditarEventoRecuperacionResponseSchema>;
