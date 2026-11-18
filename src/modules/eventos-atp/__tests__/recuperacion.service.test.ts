@@ -3,11 +3,16 @@ import {
   CrearEventoRecuperacionInputSchema,
   CrearEventoRecuperacionInput,
   EditarEventoRecuperacionInputSchema,
+  ListarRecuperacionesQuerySchema,
+  OperativoRecuperacionItem,
+  RecuperacionDetalleResponse,
 } from "../recuperacion.schema";
 import {
   crearEventoRecuperacionService,
   editarEventoRecuperacionService,
   obtenerEventoRecuperacionPorIdService,
+  listarEventosRecuperacionService,
+  obtenerDetalleRecuperacionService,
   PatrullaNoDisponibleError,
   StockInsuficienteError,
   NotFoundError,
@@ -18,6 +23,8 @@ import * as repo from "../recuperacion.repository";
 import type { KyselyTrx } from "../recuperacion.repository";
 import { db } from "@/lib/db";
 import * as socketModule from "@/lib/socket";
+import * as authService from "@/modules/seguridad/auth.service";
+import { ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", () => {
   beforeEach(() => {
@@ -173,8 +180,12 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         familias_afectadas: inputValido.familiasAfectadas,
         delegacion_id: inputValido.delegacionId ?? null,
         fecha_estimada_fin: null,
+        evento_atp_id: null,
         creado_por_id: usuarioId,
         actualizado_por_id: null,
+        fecha_cierre: null,
+        observaciones_cierre: null,
+        eliminado_en: null,
         creado_en: new Date("2026-10-04T12:00:00Z"),
         actualizado_en: new Date("2026-10-04T12:00:00Z"),
       });
@@ -354,7 +365,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
     });
   });
 
-  describe("3. Edición de Planificación de Operativos de Recuperación (HU-74)", () => {
+  describe("5. Edición de Planificación de Operativos de Recuperación (HU-74)", () => {
     const recuperacionId = "70000000-0000-4000-8000-000000000001";
     const usuarioId = "00000000-0000-4000-8000-000000000003";
     const recurso1Id = "80000000-0000-4000-8000-000000000001";
@@ -377,6 +388,10 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
       familias_afectadas: 4,
       delegacion_id: null,
       fecha_estimada_fin: null,
+      evento_atp_id: null,
+      fecha_cierre: null,
+      observaciones_cierre: null,
+      eliminado_en: null,
       creado_por_id: usuarioId,
       actualizado_por_id: null,
       creado_en: new Date("2026-11-10T10:00:00.000Z"),
@@ -783,6 +798,243 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
       expect(detalle.fechaEstimadaFin).toBe("2026-11-22T18:00:00.000Z");
       expect(detalle.patrulla.nombre).toBe("Patrulla Alfa");
       expect(detalle.recursos).toHaveLength(1);
+    });
+  });
+
+  describe("3. Listado Paginado y Filtrable de Operativos (H73 - Zod y Servicio)", () => {
+    const usuarioId = "00000000-0000-4000-8000-000000000003";
+
+    it("debe aplicar valores de paginación por defecto en ListarRecuperacionesQuerySchema", () => {
+      const parsed = ListarRecuperacionesQuerySchema.safeParse({});
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.page).toBe(1);
+        expect(parsed.data.limit).toBe(20);
+        expect(parsed.data.ordenarPor).toBe("creadoEn");
+        expect(parsed.data.orden).toBe("desc");
+      }
+    });
+
+    it("debe validar filtros multicriterio (delegación, estado, prioridad y búsqueda)", () => {
+      const query = {
+        page: "2",
+        limit: "15",
+        delegacionId: "30000000-0000-4000-8000-000000000001",
+        estado: "EN_EJECUCION",
+        prioridad: "CRITICA",
+        busqueda: "Collico",
+      };
+      const parsed = ListarRecuperacionesQuerySchema.safeParse(query);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.page).toBe(2);
+        expect(parsed.data.limit).toBe(15);
+        expect(parsed.data.delegacionId).toBe("30000000-0000-4000-8000-000000000001");
+        expect(parsed.data.estado).toBe("EN_EJECUCION");
+        expect(parsed.data.prioridad).toBe("CRITICA");
+        expect(parsed.data.busqueda).toBe("Collico");
+      }
+    });
+
+    it("debe rechazar límites fuera de rango o UUIDs inválidos", () => {
+      expect(ListarRecuperacionesQuerySchema.safeParse({ limit: 150 }).success).toBe(false);
+      expect(ListarRecuperacionesQuerySchema.safeParse({ page: 0 }).success).toBe(false);
+      expect(ListarRecuperacionesQuerySchema.safeParse({ delegacionId: "no-uuid" }).success).toBe(false);
+    });
+
+    it("debe listar operativos bajo estándar H34 e incluir desglose de insumos", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce({
+        id: usuarioId,
+        nombre: "Encargado de Operaciones",
+        rol: "ENCARGADO",
+      });
+
+      const filasMock: OperativoRecuperacionItem[] = [
+        {
+          id: "70000000-0000-4000-8000-000000000001",
+          codigo: "REC-2026-0001",
+          nombre: "Entrega de frazadas en Collico",
+          descripcion: "Temporal de viento",
+          sector: "Collico",
+          direccionTexto: "Calle Los Robles 123",
+          prioridad: "ALTA",
+          estado: "PLANIFICADA",
+          familiasAfectadas: 4,
+          delegacion: {
+            id: "30000000-0000-4000-8000-000000000001",
+            codigo: "DEL-SUR",
+            nombre: "Delegación Municipal Sur",
+          },
+          cantidadInsumosAsignados: 15,
+          totalTiposInsumos: 2,
+          recursosResumen: [
+            {
+              recursoId: "80000000-0000-4000-8000-000000000001",
+              nombre: "Frazadas Térmicas",
+              cantidadAsignada: 10,
+            },
+            {
+              recursoId: "80000000-0000-4000-8000-000000000002",
+              nombre: "Sacos de Arena 25kg",
+              cantidadAsignada: 5,
+            },
+          ],
+          creadoEn: "2026-11-01T10:00:00.000Z",
+          actualizadoEn: "2026-11-01T10:00:00.000Z",
+          fechaCierre: null,
+        },
+      ];
+
+      vi.spyOn(repo, "listarRecuperacionesPaginadoRepo").mockResolvedValueOnce({
+        filas: filasMock,
+        total: 1,
+      });
+
+      const respuesta = await listarEventosRecuperacionService({ page: 1, limit: 10 }, usuarioId);
+
+      expect(respuesta.message).toContain("exitosamente");
+      expect(respuesta.data).toHaveLength(1);
+      expect(respuesta.data[0].codigo).toBe("REC-2026-0001");
+      expect(respuesta.data[0].cantidadInsumosAsignados).toBe(15);
+      expect(respuesta.data[0].totalTiposInsumos).toBe(2);
+      expect(respuesta.data[0].recursosResumen).toHaveLength(2);
+      expect(respuesta.meta).toEqual({
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+        hasNext: false,
+        hasPrev: false,
+      });
+    });
+
+    it("debe retornar data vacía y total 0 si no hay operativos registrados", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce({
+        id: usuarioId,
+        nombre: "Encargado de Operaciones",
+        rol: "ENCARGADO",
+      });
+
+      vi.spyOn(repo, "listarRecuperacionesPaginadoRepo").mockResolvedValueOnce({
+        filas: [],
+        total: 0,
+      });
+
+      const respuesta = await listarEventosRecuperacionService({ page: 1, limit: 20 }, usuarioId);
+
+      expect(respuesta.data).toEqual([]);
+      expect(respuesta.meta.total).toBe(0);
+      expect(respuesta.meta.totalPages).toBe(0);
+      expect(respuesta.meta.hasNext).toBe(false);
+    });
+
+    it("debe lanzar ForbiddenError si el usuario no tiene permiso recuperacion:leer", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockRejectedValueOnce(
+        new ForbiddenError("No cuenta con el permiso requerido: recuperacion:leer")
+      );
+
+      await expect(
+        listarEventosRecuperacionService({ page: 1, limit: 10 }, usuarioId)
+      ).rejects.toThrow(ForbiddenError);
+    });
+  });
+
+  describe("4. Detalle de Operativo para Drawer (H73)", () => {
+    const usuarioId = "00000000-0000-4000-8000-000000000003";
+    const operativoId = "70000000-0000-4000-8000-000000000001";
+
+    it("debe retornar el detalle exhaustivo con recursos e historial cronológico", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce({
+        id: usuarioId,
+        nombre: "Encargado de Operaciones",
+        rol: "ENCARGADO",
+      });
+
+      const detalleMock: RecuperacionDetalleResponse = {
+        id: operativoId,
+        codigo: "REC-2026-0001",
+        nombre: "Entrega de frazadas en Collico",
+        descripcion: "Damnificados por temporal",
+        sector: "Collico",
+        direccionTexto: "Calle Los Robles 123",
+        prioridad: "ALTA",
+        contactoNombre: "Don Pedro",
+        contactoTelefono: "+56999887766",
+        latitud: -39.8142,
+        longitud: -73.2459,
+        estado: "PLANIFICADA",
+        familiasAfectadas: 4,
+        delegacion: {
+          id: "30000000-0000-4000-8000-000000000001",
+          codigo: "DEL-SUR",
+          nombre: "Delegación Municipal Sur",
+        },
+        creadoPor: {
+          id: usuarioId,
+          nombre: "Encargado de Operaciones",
+        },
+        mision: {
+          id: "60000000-0000-4000-8000-000000000001",
+          codigo: "MIS-2026-0001",
+          titulo: "Entrega de frazadas en Collico",
+          estado: "DESPACHADA",
+          tipoMision: "RECUPERACION",
+        },
+        patrulla: {
+          id: "50000000-0000-4000-8000-000000000001",
+          nombre: "Patrulla Verificadora Alfa",
+          estado: "EN_RECUPERACION",
+        },
+        recursos: [
+          {
+            recursoId: "80000000-0000-4000-8000-000000000001",
+            nombre: "Frazadas Térmicas",
+            cantidadAsignada: 10,
+          },
+        ],
+        cantidadInsumosAsignados: 10,
+        totalTiposInsumos: 1,
+        historial: [
+          {
+            id: `rec-creacion-${operativoId}`,
+            tipo: "CREACION",
+            titulo: "Operativo Planificado y Despachado",
+            descripcion: "Damnificados por temporal",
+            registradoPor: {
+              id: usuarioId,
+              nombre: "Encargado de Operaciones",
+            },
+            creadoEn: "2026-11-01T10:00:00.000Z",
+          },
+        ],
+        creadoEn: "2026-11-01T10:00:00.000Z",
+        actualizadoEn: "2026-11-01T10:00:00.000Z",
+        fechaCierre: null,
+        observacionesCierre: null,
+      };
+
+      vi.spyOn(repo, "obtenerRecuperacionDetallePorIdRepo").mockResolvedValueOnce(detalleMock);
+
+      const detalle = await obtenerDetalleRecuperacionService(operativoId, usuarioId);
+
+      expect(detalle.codigo).toBe("REC-2026-0001");
+      expect(detalle.historial).toHaveLength(1);
+      expect(detalle.historial[0].tipo).toBe("CREACION");
+      expect(detalle.recursos).toHaveLength(1);
+    });
+
+    it("debe lanzar NotFoundError si el operativo no existe", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce({
+        id: usuarioId,
+        nombre: "Encargado de Operaciones",
+        rol: "ENCARGADO",
+      });
+
+      vi.spyOn(repo, "obtenerRecuperacionDetallePorIdRepo").mockResolvedValueOnce(null);
+
+      await expect(obtenerDetalleRecuperacionService("70000000-0000-4000-8000-000000000099", usuarioId)).rejects.toThrow(
+        NotFoundError
+      );
     });
   });
 });

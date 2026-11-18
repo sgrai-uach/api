@@ -145,8 +145,13 @@ import {
   CrearEventoRecuperacionResponseSchema,
   EditarEventoRecuperacionInputSchema,
   EditarEventoRecuperacionResponseSchema,
-  ObtenerEventoRecuperacionResponseSchema,
   EventoRecuperacionResponseSchema,
+  ListarRecuperacionesQuerySchema,
+  ListarRecuperacionesResponseSchema,
+  OperativoRecuperacionItemSchema,
+  RecuperacionDetalleResponseSchema,
+  ObtenerRecuperacionDetalleResponseSchema,
+  RecuperacionIdParamSchema,
 } from "@/modules/eventos-atp/recuperacion.schema";
 
 import {
@@ -1797,6 +1802,10 @@ registry.registerPath({
 registry.register("CrearEventoRecuperacionInput", CrearEventoRecuperacionInputSchema);
 registry.register("EventoRecuperacion", EventoRecuperacionResponseSchema);
 registry.register("CrearEventoRecuperacionResponse", CrearEventoRecuperacionResponseSchema);
+registry.register("OperativoRecuperacionItem", OperativoRecuperacionItemSchema);
+registry.register("ListarRecuperacionesResponse", ListarRecuperacionesResponseSchema);
+registry.register("RecuperacionDetalleResponse", RecuperacionDetalleResponseSchema);
+registry.register("ObtenerRecuperacionDetalleResponse", ObtenerRecuperacionDetalleResponseSchema);
 
 registry.registerPath({
   method: "post",
@@ -1851,26 +1860,76 @@ registry.registerPath({
   },
 });
 
-// 27. GET /api/eventos-atp/recuperacion/{id} (HU-74)
-registry.register("ObtenerEventoRecuperacionResponse", ObtenerEventoRecuperacionResponseSchema);
-
+// GET /api/eventos-atp/recuperacion (HU-73)
 registry.registerPath({
   method: "get",
-  path: "/api/eventos-atp/recuperacion/{id}",
-  summary: "Obtener detalle de un operativo de recuperación (HU-74)",
+  path: "/api/eventos-atp/recuperacion",
+  summary: "Listar operativos de recuperación post-desastre (H73)",
   description:
-    "Retorna el detalle completo de un operativo de recuperación, incluyendo patrulla asignada, recursos, misión vinculada y fechaEstimadaFin para precargar el modal de edición.",
+    "Retorna una lista paginada y filtrable de todos los operativos de recuperación registrados para seguimiento del Encargado. Responde bajo el estándar de contratos H34 (page, limit, total, totalPages) e incluye el desglose de insumos asignados.",
   tags: ["Eventos ATP / Recuperación"],
   request: {
-    params: z.object({
-      id: z.string().uuid().openapi({ description: "UUID del operativo de recuperación" }),
-    }),
     headers: z.object({
+      "authorization": z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer JWT de sesión institucional" }),
       "x-user-id": z
         .string()
         .uuid()
         .optional()
-        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
+        .openapi({ description: "UUID del usuario autenticado (Encargado, Administrador o Supervisor)" }),
+    }),
+    query: ListarRecuperacionesQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado de operativos de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarRecuperacionesResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta o paginación inválidos",
+    },
+    401: {
+      description: "No autenticado / sesión ausente o expirada",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recuperacion:leer'",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la consulta",
+    },
+  },
+});
+
+// GET /api/eventos-atp/recuperacion/{id} (H73 / H74)
+registry.register("ObtenerRecuperacionDetalleResponse", ObtenerRecuperacionDetalleResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion/{id}",
+  summary: "Obtener detalle completo de operativo de recuperación (H73 / H74)",
+  description:
+    "Retorna la información exhaustiva de un operativo de recuperación: recursos detallados asignados, misión táctica, patrulla en terreno, fecha estimada de término y la línea de tiempo unificada del historial.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    params: z.object({
+      id: RecuperacionIdParamSchema,
+    }),
+    headers: z.object({
+      "authorization": z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer JWT de sesión institucional" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado" }),
     }),
   },
   responses: {
@@ -1878,29 +1937,29 @@ registry.registerPath({
       description: "Detalle del operativo de recuperación obtenido exitosamente",
       content: {
         "application/json": {
-          schema: ObtenerEventoRecuperacionResponseSchema,
+          schema: ObtenerRecuperacionDetalleResponseSchema,
         },
       },
     },
     400: {
-      description: "Identificador de operativo inválido",
+      description: "Identificador UUID de operativo inválido",
     },
     401: {
-      description: "No autenticado / cabecera X-User-Id o token ausente o inválido",
+      description: "No autenticado / sesión ausente o expirada",
     },
     403: {
-      description: "Acceso denegado. Se requiere permiso 'recuperacion:editar'",
+      description: "Acceso denegado. Se requiere permiso 'recuperacion:leer'",
     },
     404: {
       description: "Operativo de recuperación no encontrado",
     },
     500: {
-      description: "Error interno del servidor",
+      description: "Error interno del servidor al consultar el operativo",
     },
   },
 });
 
-// 28. PATCH /api/eventos-atp/recuperacion/{id} (HU-74)
+// PATCH /api/eventos-atp/recuperacion/{id} (HU-74)
 registry.register("EditarEventoRecuperacionInput", EditarEventoRecuperacionInputSchema);
 registry.register("EditarEventoRecuperacionResponse", EditarEventoRecuperacionResponseSchema);
 
@@ -1913,9 +1972,13 @@ registry.registerPath({
   tags: ["Eventos ATP / Recuperación"],
   request: {
     params: z.object({
-      id: z.string().uuid().openapi({ description: "UUID del operativo de recuperación" }),
+      id: RecuperacionIdParamSchema,
     }),
     headers: z.object({
+      "authorization": z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer JWT de sesión institucional" }),
       "x-user-id": z
         .string()
         .uuid()
@@ -1956,7 +2019,7 @@ registry.registerPath({
       description: "Conflicto: operativo en estado COMPLETADA/CANCELADA, patrulla no disponible o stock insuficiente en bodega",
     },
     500: {
-      description: "Error interno del servidor",
+      description: "Error interno del servidor al procesar la edición del operativo",
     },
   },
 });

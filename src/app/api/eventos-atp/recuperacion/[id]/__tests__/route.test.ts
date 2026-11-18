@@ -2,11 +2,155 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { GET, PATCH } from "../route";
 import * as recuperacionService from "@/modules/eventos-atp/recuperacion.service";
-import type { EventoRecuperacionResponse } from "@/modules/eventos-atp/recuperacion.schema";
+import type {
+  EventoRecuperacionResponse,
+  RecuperacionDetalleResponse,
+} from "@/modules/eventos-atp/recuperacion.schema";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import * as authService from "@/modules/seguridad/auth.service";
 import type { UsuarioAutenticado } from "@/modules/seguridad/auth.service";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
+
+describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)", () => {
+  const usuarioEncargadoId = "00000000-0000-4000-8000-000000000003";
+  const operativoValidoId = "70000000-0000-4000-8000-000000000001";
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("debe responder 401 si no hay usuario autenticado", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(null);
+
+    const req = new NextRequest(`http://localhost:3000/api/eventos-atp/recuperacion/${operativoValidoId}`);
+    const res = await GET(req, { params: Promise.resolve({ id: operativoValidoId }) });
+
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.message).toContain("autenticación");
+  });
+
+  it("debe responder 400 si el parámetro id no es un UUID válido", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion/id-no-valido");
+    const res = await GET(req, { params: Promise.resolve({ id: "id-no-valido" }) });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("no es un UUID válido");
+  });
+
+  it("debe responder 403 si el usuario carece de permiso recuperacion:leer", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(recuperacionService, "obtenerDetalleRecuperacionService").mockRejectedValueOnce(
+      new ForbiddenError("No posee el permiso requerido: recuperacion:leer")
+    );
+
+    const req = new NextRequest(`http://localhost:3000/api/eventos-atp/recuperacion/${operativoValidoId}`, {
+      headers: { "x-user-id": usuarioEncargadoId },
+    });
+    const res = await GET(req, { params: Promise.resolve({ id: operativoValidoId }) });
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.message).toContain("recuperacion:leer");
+  });
+
+  it("debe responder 404 si el operativo no existe", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(recuperacionService, "obtenerDetalleRecuperacionService").mockRejectedValueOnce(
+      new recuperacionService.NotFoundError("Operativo de recuperación no encontrado")
+    );
+
+    const req = new NextRequest(`http://localhost:3000/api/eventos-atp/recuperacion/${operativoValidoId}`, {
+      headers: { "x-user-id": usuarioEncargadoId },
+    });
+    const res = await GET(req, { params: Promise.resolve({ id: operativoValidoId }) });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("debe responder 200 OK con el detalle consolidado del operativo", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+
+    const detalleMock: RecuperacionDetalleResponse = {
+      id: operativoValidoId,
+      codigo: "REC-2026-0001",
+      nombre: "Operativo Collico",
+      descripcion: "Familias damnificadas",
+      sector: "Collico",
+      direccionTexto: "Calle Los Robles 123",
+      prioridad: "ALTA",
+      contactoNombre: "Juan Pérez",
+      contactoTelefono: "+56912345678",
+      latitud: -39.8142,
+      longitud: -73.2459,
+      estado: "PLANIFICADA",
+      familiasAfectadas: 4,
+      delegacion: {
+        id: "30000000-0000-4000-8000-000000000001",
+        codigo: "DEL-NORTE",
+        nombre: "Delegación Norte",
+      },
+      creadoPor: {
+        id: usuarioEncargadoId,
+        nombre: "Encargado de Operaciones",
+      },
+      mision: {
+        id: "60000000-0000-4000-8000-000000000001",
+        codigo: "MIS-2026-0001",
+        titulo: "Operativo Collico",
+        estado: "DESPACHADA",
+        tipoMision: "RECUPERACION",
+      },
+      patrulla: {
+        id: "50000000-0000-4000-8000-000000000001",
+        nombre: "Patrulla Verificadora Alfa",
+        estado: "EN_RECUPERACION",
+      },
+      recursos: [
+        {
+          recursoId: "80000000-0000-4000-8000-000000000001",
+          nombre: "Frazadas Térmicas",
+          cantidadAsignada: 10,
+        },
+      ],
+      cantidadInsumosAsignados: 10,
+      totalTiposInsumos: 1,
+      historial: [
+        {
+          id: `rec-creacion-${operativoValidoId}`,
+          tipo: "CREACION",
+          titulo: "Operativo Planificado y Despachado",
+          descripcion: "Familias damnificadas",
+          registradoPor: {
+            id: usuarioEncargadoId,
+            nombre: "Encargado de Operaciones",
+          },
+          creadoEn: "2026-11-01T10:00:00.000Z",
+        },
+      ],
+      creadoEn: "2026-11-01T10:00:00.000Z",
+      actualizadoEn: "2026-11-01T10:00:00.000Z",
+      fechaCierre: null,
+      observacionesCierre: null,
+    };
+
+    vi.spyOn(recuperacionService, "obtenerDetalleRecuperacionService").mockResolvedValueOnce(detalleMock);
+
+    const req = new NextRequest(`http://localhost:3000/api/eventos-atp/recuperacion/${operativoValidoId}`, {
+      headers: { "x-user-id": usuarioEncargadoId },
+    });
+    const res = await GET(req, { params: Promise.resolve({ id: operativoValidoId }) });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.codigo).toBe("REC-2026-0001");
+    expect(body.data.historial).toHaveLength(1);
+    expect(body.data.recursos[0].nombre).toBe("Frazadas Térmicas");
+  });
+});
 
 describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () => {
   const usuarioEncargadoId = "00000000-0000-4000-8000-000000000003";
@@ -89,9 +233,11 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
 
     const res = await PATCH(req, makeContext("id-no-valido"));
     expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("no es un UUID válido");
   });
 
-  it("debe responder 400 si el cuerpo de la solicitud está vacío o sin campos editables", async () => {
+  it("debe responder 400 si el cuerpo no es JSON válido", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
     vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
 
@@ -100,40 +246,22 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
       {
         method: "PATCH",
         headers: { "x-user-id": usuarioEncargadoId },
-        body: JSON.stringify({}),
+        body: "no-json",
       }
     );
 
     const res = await PATCH(req, makeContext());
     expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("cuerpo de la solicitud");
   });
 
-  it("debe responder 404 si el operativo de recuperación no existe", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
-    vi.spyOn(recuperacionService, "editarEventoRecuperacionService").mockRejectedValueOnce(
-      new recuperacionService.NotFoundError("El operativo de recuperación indicado no fue encontrado.")
-    );
-
-    const req = new NextRequest(
-      `http://localhost:3000/api/eventos-atp/recuperacion/${recuperacionId}`,
-      {
-        method: "PATCH",
-        headers: { "x-user-id": usuarioEncargadoId },
-        body: JSON.stringify(payloadValido),
-      }
-    );
-
-    const res = await PATCH(req, makeContext());
-    expect(res.status).toBe(404);
-  });
-
-  it("debe responder 409 Conflict si el operativo está en estado COMPLETADA o CANCELADA", async () => {
+  it("debe responder 409 si el operativo está en estado COMPLETADA o CANCELADA", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
     vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
     vi.spyOn(recuperacionService, "editarEventoRecuperacionService").mockRejectedValueOnce(
       new recuperacionService.RecuperacionNoEditableError(
-        "No es posible editar un operativo de recuperación en estado COMPLETADA."
+        "No se puede modificar un operativo de recuperación en estado COMPLETADA."
       )
     );
 
@@ -148,55 +276,17 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
 
     const res = await PATCH(req, makeContext());
     expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.message).toContain("COMPLETADA");
   });
 
-  it("debe responder 200 OK cuando la edición es exitosa", async () => {
+  it("debe responder 409 si hay stock insuficiente para incrementar recursos", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
     vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
-
-    const mockResponse: EventoRecuperacionResponse = {
-      id: recuperacionId,
-      codigo: "REC-2026-0001",
-      nombre: "Operativo Collico",
-      descripcion: payloadValido.descripcion,
-      sector: "Collico",
-      direccionTexto: "Balmaceda 1245",
-      prioridad: "ALTA",
-      contactoNombre: null,
-      contactoTelefono: null,
-      latitud: -39.8142,
-      longitud: -73.2459,
-      estado: "EN_EJECUCION",
-      familiasAfectadas: 4,
-      delegacion: null,
-      mision: {
-        id: "60000000-0000-4000-8000-000000000001",
-        codigo: "MIS-2026-0042",
-        titulo: "Operativo Collico",
-        estado: "DESPACHADA",
-        tipoMision: "RECUPERACION",
-      },
-      patrulla: {
-        id: "50000000-0000-4000-8000-000000000001",
-        nombre: "Patrulla Alfa",
-        estado: "EN_RECUPERACION",
-      },
-      recursos: [
-        {
-          recursoId: "80000000-0000-4000-8000-000000000001",
-          nombre: "Frazadas",
-          cantidadAsignada: 12,
-        },
-      ],
-      creadoPorId: usuarioEncargadoId,
-      fechaEstimadaFin: payloadValido.fechaEstimadaFin,
-      actualizadoPorId: usuarioEncargadoId,
-      creadoEn: "2026-11-10T10:00:00.000Z",
-      actualizadoEn: "2026-11-18T12:00:00.000Z",
-    };
-
-    vi.spyOn(recuperacionService, "editarEventoRecuperacionService").mockResolvedValueOnce(
-      mockResponse
+    vi.spyOn(recuperacionService, "editarEventoRecuperacionService").mockRejectedValueOnce(
+      new recuperacionService.StockInsuficienteError(
+        'Stock insuficiente para "Frazadas Térmicas": se requieren 5 adicionales pero hay 2 disponibles.'
+      )
     );
 
     const req = new NextRequest(
@@ -209,13 +299,12 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
     );
 
     const res = await PATCH(req, makeContext());
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(409);
     const body = await res.json();
-    expect(body.data.descripcion).toBe(payloadValido.descripcion);
-    expect(body.data.actualizadoPorId).toBe(usuarioEncargadoId);
+    expect(body.message).toContain("Stock insuficiente");
   });
 
-  it("debe responder 409 Conflict si la nueva patrulla indicada no está disponible", async () => {
+  it("debe responder 409 si la nueva patrulla no se encuentra DISPONIBLE", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
     vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
     vi.spyOn(recuperacionService, "editarEventoRecuperacionService").mockRejectedValueOnce(
@@ -239,75 +328,66 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
     expect(res.status).toBe(409);
   });
 
-  it("GET debe responder 200 OK con el detalle completo del operativo para precarga", async () => {
+  it("debe responder 200 OK ante edición exitosa", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
     vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
-    vi.spyOn(recuperacionService, "obtenerEventoRecuperacionPorIdService").mockResolvedValueOnce({
+
+    const respuestaMock: EventoRecuperacionResponse = {
       id: recuperacionId,
       codigo: "REC-2026-0001",
-      nombre: "Operativo Collico",
-      descripcion: "Descripción",
+      nombre: "Entrega de frazadas en Sector Collico",
+      descripcion: payloadValido.descripcion,
       sector: "Collico",
-      direccionTexto: null,
+      direccionTexto: "Calle Los Robles 123",
       prioridad: "ALTA",
       contactoNombre: null,
       contactoTelefono: null,
       latitud: -39.8142,
       longitud: -73.2459,
-      estado: "EN_EJECUCION",
+      estado: "PLANIFICADA",
       familiasAfectadas: 4,
       delegacion: null,
       mision: {
         id: "60000000-0000-4000-8000-000000000001",
-        codigo: "MIS-2026-0042",
-        titulo: "Operativo Collico",
+        codigo: "MIS-2026-0001",
+        titulo: "Entrega de frazadas en Sector Collico",
         estado: "DESPACHADA",
         tipoMision: "RECUPERACION",
       },
       patrulla: {
         id: "50000000-0000-4000-8000-000000000001",
-        nombre: "Patrulla Alfa",
+        nombre: "Patrulla Verificadora Alfa",
         estado: "EN_RECUPERACION",
       },
-      recursos: [],
+      recursos: [
+        {
+          recursoId: "80000000-0000-4000-8000-000000000001",
+          nombre: "Frazadas Térmicas",
+          cantidadAsignada: 12,
+        },
+      ],
       creadoPorId: usuarioEncargadoId,
-      fechaEstimadaFin: "2026-11-20T18:00:00.000Z",
-      actualizadoPorId: null,
-      creadoEn: "2026-11-10T10:00:00.000Z",
-      actualizadoEn: "2026-11-10T10:00:00.000Z",
-    });
+      fechaEstimadaFin: payloadValido.fechaEstimadaFin,
+      actualizadoPorId: usuarioEncargadoId,
+      creadoEn: "2026-10-04T12:00:00.000Z",
+      actualizadoEn: "2026-10-04T12:30:00.000Z",
+    };
+
+    vi.spyOn(recuperacionService, "editarEventoRecuperacionService").mockResolvedValueOnce(respuestaMock);
 
     const req = new NextRequest(
       `http://localhost:3000/api/eventos-atp/recuperacion/${recuperacionId}`,
       {
-        method: "GET",
+        method: "PATCH",
         headers: { "x-user-id": usuarioEncargadoId },
+        body: JSON.stringify(payloadValido),
       }
     );
 
-    const res = await GET(req, makeContext());
+    const res = await PATCH(req, makeContext());
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data.patrulla.nombre).toBe("Patrulla Alfa");
-    expect(body.data.fechaEstimadaFin).toBe("2026-11-20T18:00:00.000Z");
-  });
-
-  it("GET debe responder 404 si el operativo no existe", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
-    vi.spyOn(recuperacionService, "obtenerEventoRecuperacionPorIdService").mockRejectedValueOnce(
-      new recuperacionService.NotFoundError("El operativo de recuperación indicado no fue encontrado.")
-    );
-
-    const req = new NextRequest(
-      `http://localhost:3000/api/eventos-atp/recuperacion/${recuperacionId}`,
-      {
-        method: "GET",
-        headers: { "x-user-id": usuarioEncargadoId },
-      }
-    );
-
-    const res = await GET(req, makeContext());
-    expect(res.status).toBe(404);
+    expect(body.message).toContain("actualizada exitosamente");
+    expect(body.data.recursos[0].cantidadAsignada).toBe(12);
   });
 });

@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { POST } from "../route";
+import { POST, GET } from "../route";
 import * as recuperacionService from "@/modules/eventos-atp/recuperacion.service";
-import type { EventoRecuperacionResponse } from "@/modules/eventos-atp/recuperacion.schema";
+import type {
+  EventoRecuperacionResponse,
+  ListarRecuperacionesResponse,
+} from "@/modules/eventos-atp/recuperacion.schema";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import * as authService from "@/modules/seguridad/auth.service";
 import type { UsuarioAutenticado } from "@/modules/seguridad/auth.service";
@@ -220,5 +223,117 @@ describe("Route Handler POST /api/eventos-atp/recuperacion (HU-29)", () => {
     expect(body.message).toContain("exitosamente");
     expect(body.data.codigo).toBe("REC-2026-0001");
     expect(body.data.patrulla.estado).toBe("EN_RECUPERACION");
+  });
+});
+
+describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73)", () => {
+  const usuarioEncargadoId = "00000000-0000-4000-8000-000000000003";
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("debe responder 401 si no hay usuario autenticado", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(null);
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion");
+    const res = await GET(req);
+
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.message).toContain("autenticación");
+  });
+
+  it("debe responder 403 si el usuario carece de permiso recuperacion:leer", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(recuperacionService, "listarEventosRecuperacionService").mockRejectedValueOnce(
+      new ForbiddenError("No cuenta con el permiso requerido: recuperacion:leer")
+    );
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion", {
+      headers: { "x-user-id": usuarioEncargadoId },
+    });
+    const res = await GET(req);
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.message).toContain("recuperacion:leer");
+  });
+
+  it("debe responder 400 si los query params son inválidos", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion?limit=500", {
+      headers: { "x-user-id": usuarioEncargadoId },
+    });
+    const res = await GET(req);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("inválidos");
+    expect(body.errors).toBeDefined();
+  });
+
+  it("debe responder 200 y retornar listado paginado bajo estándar H34", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+
+    const respuestaMock: ListarRecuperacionesResponse = {
+      message: "Listado de operativos de recuperación obtenido exitosamente",
+      data: [
+        {
+          id: "70000000-0000-4000-8000-000000000001",
+          codigo: "REC-2026-0001",
+          nombre: "Entrega de frazadas en Collico",
+          descripcion: "Temporal de viento",
+          sector: "Collico",
+          direccionTexto: "Calle Los Robles 123",
+          prioridad: "ALTA",
+          estado: "PLANIFICADA",
+          familiasAfectadas: 4,
+          delegacion: {
+            id: "30000000-0000-4000-8000-000000000001",
+            codigo: "DEL-SUR",
+            nombre: "Delegación Municipal Sur",
+          },
+          cantidadInsumosAsignados: 15,
+          totalTiposInsumos: 2,
+          recursosResumen: [
+            {
+              recursoId: "80000000-0000-4000-8000-000000000001",
+              nombre: "Frazadas Térmicas",
+              cantidadAsignada: 10,
+            },
+          ],
+          creadoEn: "2026-11-01T10:00:00.000Z",
+          actualizadoEn: "2026-11-01T10:00:00.000Z",
+          fechaCierre: null,
+        },
+      ],
+      meta: {
+        total: 1,
+        page: 1,
+        limit: 20,
+        totalPages: 1,
+        hasNext: false,
+        hasPrev: false,
+      },
+    };
+
+    vi.spyOn(recuperacionService, "listarEventosRecuperacionService").mockResolvedValueOnce(respuestaMock);
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp/recuperacion?delegacionId=30000000-0000-4000-8000-000000000001&estado=PLANIFICADA",
+      {
+        headers: { "x-user-id": usuarioEncargadoId },
+      }
+    );
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].codigo).toBe("REC-2026-0001");
+    expect(body.data[0].cantidadInsumosAsignados).toBe(15);
+    expect(body.meta.totalPages).toBe(1);
   });
 });

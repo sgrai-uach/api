@@ -3,7 +3,11 @@ import type {
   CrearEventoRecuperacionInput,
   EditarEventoRecuperacionInput,
   EventoRecuperacionResponse,
+  ListarRecuperacionesInput,
+  ListarRecuperacionesResponse,
+  RecuperacionDetalleResponse,
 } from "./recuperacion.schema";
+import { ListarRecuperacionesQuerySchema } from "./recuperacion.schema";
 import * as repo from "./recuperacion.repository";
 import type { KyselyTrx } from "./recuperacion.repository";
 import {
@@ -12,6 +16,9 @@ import {
   emitirPatrullaLiberadaDeOperativo,
   notificarMisionAsignada,
 } from "@/lib/socket";
+import { buildPaginationMeta } from "@/lib/shared/pagination.schema";
+import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { PERMISO_LEER_RECUPERACION } from "@/modules/seguridad/permisos.constants";
 
 export class PatrullaNoDisponibleError extends Error {
   constructor(message: string) {
@@ -311,6 +318,35 @@ async function construirRespuestaRecuperacion(
 }
 
 /**
+ * Servicio de listado paginado y filtrable de operativos de recuperación post-desastre (H73).
+ * Valida permiso RBAC 'recuperacion:leer', calcula metadatos H34 y retorna filas con desglose de insumos.
+ */
+export async function listarEventosRecuperacionService(
+  filtros: ListarRecuperacionesInput,
+  usuarioId?: string | null
+): Promise<ListarRecuperacionesResponse> {
+  // 1. Control de Acceso RBAC
+  await verificarPermiso(usuarioId, PERMISO_LEER_RECUPERACION);
+
+  // 2. Validar y normalizar parámetros
+  const queryValidada = ListarRecuperacionesQuerySchema.parse(filtros);
+
+  // 3. Consulta paginada y conteo en repositorio
+  const { filas, total } = await repo.listarRecuperacionesPaginadoRepo(queryValidada);
+
+  // 4. Metadatos bajo estándar H34
+  const page = queryValidada.page ?? queryValidada.pagina ?? 1;
+  const limit = queryValidada.limit ?? queryValidada.limite ?? 20;
+  const meta = buildPaginationMeta(total, page, limit);
+
+  return {
+    message: "Listado de operativos de recuperación obtenido exitosamente",
+    data: filas,
+    meta,
+  };
+}
+
+/**
  * Obtiene el detalle completo de un operativo de recuperación para precarga de edición (HU-74).
  */
 export async function obtenerEventoRecuperacionPorIdService(
@@ -344,16 +380,17 @@ export async function editarEventoRecuperacionService(
   input: EditarEventoRecuperacionInput,
   usuarioId: string
 ): Promise<EventoRecuperacionResponse> {
-  let patrullaReasignadaInfo: {
+  type PatrullaReasignadaData = {
     misionId: string;
     codigoMision: string;
     patrullaAnteriorId: string | null;
     patrullaNuevaId: string;
     prioridad: string;
     direccion: string | null;
-  } | null = null;
+  };
+  let patrullaReasignadaData: PatrullaReasignadaData | null = null;
 
-  const eventoActualizado = await db.transaction().execute(async (trx) => {
+  const { eventoActualizado, patrullaReasignadaInfo } = await db.transaction().execute(async (trx) => {
     // 1. Verificar existencia del operativo
     const actual = await repo.buscarRecuperacionPorId(trx, recuperacionId);
     if (!actual) {
@@ -528,7 +565,7 @@ export async function editarEventoRecuperacionService(
             latitud: Number(actual.latitud),
             longitud: Number(actual.longitud),
           });
-          patrullaReasignadaInfo = {
+          patrullaReasignadaData = {
             misionId: misionActual.id,
             codigoMision: misionActual.codigo,
             patrullaAnteriorId,
@@ -567,7 +604,11 @@ export async function editarEventoRecuperacionService(
     }
 
     // 8. Construir respuesta estructurada
-    return construirRespuestaRecuperacion(trx, actualizada, recursosRespuesta);
+    const respuesta = await construirRespuestaRecuperacion(trx, actualizada, recursosRespuesta);
+    return {
+      eventoActualizado: respuesta,
+      patrullaReasignadaInfo: patrullaReasignadaData,
+    };
   });
 
   // 9. Notificar en tiempo real vía Socket.io y Redis
@@ -600,4 +641,24 @@ export async function editarEventoRecuperacionService(
   }
 
   return eventoActualizado;
+}
+
+/**
+ * Servicio para consultar el detalle exhaustivo de un operativo de recuperación (H73 - Drawer).
+ * Valida permiso RBAC 'recuperacion:leer' y retorna detalle de recursos, misión e historial.
+ */
+export async function obtenerDetalleRecuperacionService(
+  id: string,
+  usuarioId?: string | null
+): Promise<RecuperacionDetalleResponse> {
+  // 1. Control de Acceso RBAC
+  await verificarPermiso(usuarioId, PERMISO_LEER_RECUPERACION);
+
+  // 2. Consulta en repositorio
+  const detalle = await repo.obtenerRecuperacionDetallePorIdRepo(id);
+  if (!detalle) {
+    throw new NotFoundError(`Operativo de recuperación con ID '${id}' no encontrado.`);
+  }
+
+  return detalle;
 }

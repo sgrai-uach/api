@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { EditarEventoRecuperacionInputSchema } from "@/modules/eventos-atp/recuperacion.schema";
 import {
-  obtenerEventoRecuperacionPorIdService,
+  RecuperacionIdParamSchema,
+  EditarEventoRecuperacionInputSchema,
+} from "@/modules/eventos-atp/recuperacion.schema";
+import {
+  obtenerDetalleRecuperacionService,
   editarEventoRecuperacionService,
   NotFoundError,
   StockInsuficienteError,
@@ -12,32 +14,44 @@ import {
 } from "@/modules/eventos-atp/recuperacion.service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
-import { PERMISO_EDITAR_RECUPERACION } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_EDITAR_RECUPERACION,
+} from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-const IdParamSchema = z.string().uuid("El identificador del operativo debe ser un UUID válido.");
-
 /**
  * GET /api/eventos-atp/recuperacion/[id]
- * Obtiene el detalle completo de un operativo de recuperación (incluyendo patrulla,
- * recursos y fechaEstimadaFin) para precargar el modal de edición (HU-74).
+ * Consulta el detalle estructurado de un operativo de recuperación post-desastre (H73 / H74).
+ * Alimenta el drawer lateral y el modal de edición en 'sgrai-web' con recursos, patrulla e historial.
+ * Requiere que el usuario posea el permiso 'recuperacion:leer' (Encargado, Administrador o Supervisor).
  */
-export async function GET(req: NextRequest, context: RouteContext) {
+export async function GET(req: NextRequest, props: RouteContext) {
   try {
-    const usuarioId = await extraerUsuarioId(req);
-    await verificarPermiso(usuarioId, PERMISO_EDITAR_RECUPERACION);
+    // 1. Extraer autenticación
+    const usuarioId =
+      (await extraerUsuarioId(req)) ||
+      req.headers.get("x-user-id")?.trim() ||
+      null;
 
-    const { id } = await context.params;
-    const validacionId = IdParamSchema.safeParse(id);
-    if (!validacionId.success) {
+    if (!usuarioId) {
+      return NextResponse.json(
+        { message: "Se requiere cabecera de autenticación Authorization: Bearer <token> o X-User-Id." },
+        { status: 401 }
+      );
+    }
+
+    // 2. Extraer y validar parámetro de ruta UUID
+    const { id } = await props.params;
+    const resultadoValidacion = RecuperacionIdParamSchema.safeParse(id);
+    if (!resultadoValidacion.success) {
       return NextResponse.json(
         {
-          message: "Identificador de operativo inválido.",
-          errors: validacionId.error.issues.map((issue) => ({
+          message: "El identificador del operativo de recuperación no es un UUID válido.",
+          errors: resultadoValidacion.error.issues.map((issue) => ({
             campo: "id",
             mensaje: issue.message,
           })),
@@ -46,8 +60,19 @@ export async function GET(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const operativo = await obtenerEventoRecuperacionPorIdService(validacionId.data);
-    return NextResponse.json({ data: operativo }, { status: 200 });
+    // 3. Consultar servicio de negocio
+    const detalle = await obtenerDetalleRecuperacionService(
+      resultadoValidacion.data,
+      usuarioId
+    );
+
+    return NextResponse.json(
+      {
+        message: "Detalle de operativo de recuperación obtenido exitosamente.",
+        data: detalle,
+      },
+      { status: 200 }
+    );
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ message: error.message }, { status: 401 });
@@ -57,16 +82,16 @@ export async function GET(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ message: error.message }, { status: 403 });
     }
 
-    if (error instanceof NotFoundError) {
-      return NextResponse.json({ message: error.message }, { status: 404 });
+    if (
+      error instanceof NotFoundError ||
+      (typeof error === "object" && error !== null && (error as { name?: string }).name === "NotFoundError")
+    ) {
+      return NextResponse.json({ message: (error as Error).message }, { status: 404 });
     }
 
-    console.error("Error al obtener operativo de recuperación:", error);
+    console.error("Error al obtener detalle de operativo de recuperación:", error);
     return NextResponse.json(
-      {
-        message:
-          "Error interno del servidor al obtener el detalle del operativo de recuperación.",
-      },
+      { message: "Error interno del servidor al procesar el detalle del operativo de recuperación." },
       { status: 500 }
     );
   }
@@ -86,11 +111,11 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 
     // 2. Validar parámetro de ruta [id]
     const { id } = await context.params;
-    const validacionId = IdParamSchema.safeParse(id);
+    const validacionId = RecuperacionIdParamSchema.safeParse(id);
     if (!validacionId.success) {
       return NextResponse.json(
         {
-          message: "Identificador de operativo inválido.",
+          message: "El identificador del operativo de recuperación no es un UUID válido.",
           errors: validacionId.error.issues.map((issue) => ({
             campo: "id",
             mensaje: issue.message,
