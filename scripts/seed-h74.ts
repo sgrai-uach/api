@@ -111,24 +111,27 @@ export async function sembrarFixtureH74() {
   // 2. Patrullas Verificadoras (una en recuperación y otra disponible para reasignación)
   await sql`
     INSERT INTO patrulla_verificadora (
-      id, codigo, nombre, estado, delegacion_id, vehiculo
+      id, codigo, nombre, estado, delegacion_id
     ) VALUES
     (
       ${IDS.patrullas.ocupada},
       'PV-H74-01',
       'Patrulla Verificadora Costa H74',
       'EN_RECUPERACION',
-      ${IDS.delegaciones.costa},
-      'Camioneta 4x4 Municipal #11'
+      ${IDS.delegaciones.costa}
     ),
     (
       ${IDS.patrullas.disponible},
       'PV-H74-02',
       'Patrulla Verificadora Norte H74',
       'DISPONIBLE',
-      ${IDS.delegaciones.norte},
-      'Camioneta 4x4 Municipal #12'
-    );
+      ${IDS.delegaciones.norte}
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      codigo = EXCLUDED.codigo,
+      nombre = EXCLUDED.nombre,
+      estado = EXCLUDED.estado,
+      delegacion_id = EXCLUDED.delegacion_id;
   `.execute(db);
 
   // 3. Operativos de Recuperación en los 4 estados
@@ -277,7 +280,55 @@ export async function sembrarFixtureH74() {
     );
   `.execute(db);
 
-  console.log("Fixture H74 sembrado exitosamente (4 operativos: EN_EJECUCION, PLANIFICADA, COMPLETADA, CANCELADA).");
+  // 6. Asegurar asignación de permiso RBAC recuperacion:editar a ENCARGADO y ADMIN
+  await sql`
+    DO $$
+    DECLARE
+      v_permiso_id UUID;
+      v_target_id UUID := '10000000-0000-4000-8000-000000000045';
+      v_admin_rol_id UUID := '20000000-0000-4000-8000-000000000001';
+      v_encargado_rol_id UUID := '20000000-0000-4000-8000-000000000003';
+    BEGIN
+      SELECT id INTO v_permiso_id FROM permiso WHERE codigo = 'recuperacion:editar';
+
+      IF v_permiso_id IS NULL THEN
+        IF EXISTS (SELECT 1 FROM permiso WHERE id = v_target_id) THEN
+          INSERT INTO permiso (codigo, nombre, descripcion, modulo)
+          VALUES (
+            'recuperacion:editar',
+            'Editar Operativo de Recuperación',
+            'Permite modificar la descripción, fecha estimada de término y dotación de insumos de operativos de recuperación activos',
+            'Eventos ATP'
+          )
+          RETURNING id INTO v_permiso_id;
+        ELSE
+          INSERT INTO permiso (id, codigo, nombre, descripcion, modulo)
+          VALUES (
+            v_target_id,
+            'recuperacion:editar',
+            'Editar Operativo de Recuperación',
+            'Permite modificar la descripción, fecha estimada de término y dotación de insumos de operativos de recuperación activos',
+            'Eventos ATP'
+          )
+          RETURNING id INTO v_permiso_id;
+        END IF;
+      END IF;
+
+      IF EXISTS (SELECT 1 FROM rol WHERE id = v_admin_rol_id) THEN
+        INSERT INTO rol_permiso (rol_id, permiso_id)
+        VALUES (v_admin_rol_id, v_permiso_id)
+        ON CONFLICT (rol_id, permiso_id) DO NOTHING;
+      END IF;
+
+      IF EXISTS (SELECT 1 FROM rol WHERE id = v_encargado_rol_id) THEN
+        INSERT INTO rol_permiso (rol_id, permiso_id)
+        VALUES (v_encargado_rol_id, v_permiso_id)
+        ON CONFLICT (rol_id, permiso_id) DO NOTHING;
+      END IF;
+    END $$;
+  `.execute(db);
+
+  console.log("Fixture H74 sembrado exitosamente (4 operativos: EN_EJECUCION, PLANIFICADA, COMPLETADA, CANCELADA y permiso RBAC asegurado).");
 }
 
 async function main() {
