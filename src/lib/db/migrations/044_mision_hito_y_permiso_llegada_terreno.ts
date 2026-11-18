@@ -1,7 +1,7 @@
 import { sql, type Kysely } from "kysely";
 
 /**
- * Migración 036: Tabla mision_hito y permiso RBAC misiones:terreno:ejecutar (HU-42)
+ * Migración 044: Tabla mision_hito y permiso RBAC misiones:terreno:ejecutar (HU-42)
  *
  * 1. Crea la tabla mision_hito si no existe para la bitácora cronológica de hitos de misión.
  * 2. Registra el permiso RBAC 'misiones:terreno:ejecutar' y lo asigna a DELEGADO_CUADRILLA y ADMIN.
