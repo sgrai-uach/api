@@ -18,20 +18,33 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     DO $$
     DECLARE
       v_permiso_id UUID;
+      v_target_id UUID := '10000000-0000-4000-8000-000000000045';
       v_admin_rol_id UUID := '20000000-0000-4000-8000-000000000001';
       v_encargado_rol_id UUID := '20000000-0000-4000-8000-000000000003';
     BEGIN
       SELECT id INTO v_permiso_id FROM permiso WHERE codigo = 'recuperacion:editar';
 
       IF v_permiso_id IS NULL THEN
-        INSERT INTO permiso (codigo, nombre, descripcion, modulo)
-        VALUES (
-          'recuperacion:editar',
-          'Editar Operativo de Recuperación',
-          'Permite modificar la descripción, fecha estimada de término y dotación de insumos de operativos de recuperación activos',
-          'Eventos ATP'
-        )
-        RETURNING id INTO v_permiso_id;
+        IF EXISTS (SELECT 1 FROM permiso WHERE id = v_target_id) THEN
+          INSERT INTO permiso (codigo, nombre, descripcion, modulo)
+          VALUES (
+            'recuperacion:editar',
+            'Editar Operativo de Recuperación',
+            'Permite modificar la descripción, fecha estimada de término y dotación de insumos de operativos de recuperación activos',
+            'Eventos ATP'
+          )
+          RETURNING id INTO v_permiso_id;
+        ELSE
+          INSERT INTO permiso (id, codigo, nombre, descripcion, modulo)
+          VALUES (
+            v_target_id,
+            'recuperacion:editar',
+            'Editar Operativo de Recuperación',
+            'Permite modificar la descripción, fecha estimada de término y dotación de insumos de operativos de recuperación activos',
+            'Eventos ATP'
+          )
+          RETURNING id INTO v_permiso_id;
+        END IF;
       END IF;
 
       IF EXISTS (SELECT 1 FROM rol WHERE id = v_admin_rol_id) THEN
