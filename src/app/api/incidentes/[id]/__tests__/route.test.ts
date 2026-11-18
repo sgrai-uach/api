@@ -124,6 +124,9 @@ describe("Route Handler GET /api/incidentes/[id]", () => {
       encargado: null,
       misiones: [],
       recursosAsociados: [],
+      verificado: false,
+      reclasificadoEnTerreno: false,
+      justificacionReclasificacion: null,
       creadoEn: "2026-09-22T10:00:00.000Z",
       actualizadoEn: "2026-09-22T10:30:00.000Z",
     };
