@@ -61,6 +61,7 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
+| `PATCH` | `/api/eventos-atp/recuperacion/{id}` | Modificar descripción de tareas, fecha estimada de término y dotación de insumos de un operativo de recuperación activo (HU-74). |
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
 
@@ -564,6 +565,23 @@ Permite al perfil **Encargado de Operaciones** (o Administrador) crear un evento
 
 ---
 
+## 8.1. Detalle de Endpoint: `PATCH /api/eventos-atp/recuperacion/{id}` (HU-74)
+
+Permite al **Encargado de Operaciones** (o Administrador con permiso `recuperacion:editar`) modificar la planificación de un operativo de recuperación activo: descripción de tareas, fecha estimada de término y dotación de insumos/recursos.
+
+### Reglas de Negocio Aplicadas
+- **Bloqueo por estado culminado:** Si el operativo se encuentra en estado `COMPLETADA` o `CANCELADA`, la edición es rechazada con `409 Conflict`.
+- **Auditoría de edición:** Toda actualización persiste `actualizado_en` y `actualizado_por_id` con el UUID del usuario autenticado.
+- **Reasignación diferencial de recursos:** Si se envía `recursos`, se calcula la diferencia respecto a `recuperacion_recurso`: se devuelve al inventario lo reducido o removido y se descuenta lo agregado/incrementado previa validación de stock (`409 Conflict` si es insuficiente). Si `recursos` se omite, la dotación actual se mantiene intacta.
+- **Sincronización operativa:** Si se modifica `descripcion`, se sincroniza `mision.descripcion` en la misión vinculada y se emite el evento WebSocket `recuperacion:actualizada`.
+- **Validación temporal:** Si se envía `fechaEstimadaFin` (ISO-8601), no puede ser anterior a `creado_en` (`400 Bad Request`).
+
+### Errores Esperables No Obvios
+- `403 Forbidden`: El usuario no posee el permiso `recuperacion:editar`.
+- `409 Conflict`: El operativo está en estado `COMPLETADA` o `CANCELADA`, o no hay stock suficiente para incrementar un recurso solicitado.
+
+---
+
 ## 9. Detalle de Endpoint: `POST /api/eventos-atp/prevencion` (HU-30)
 
 Permite al **Encargado de Operaciones** (o Administrador) registrar un nuevo Evento de Prevención georreferenciado sobre un punto crítico o mediante coordenadas libres en una delegación de Valdivia, asignando recursos logísticos opcionales y despachando de manera atómica una misión a una patrulla verificadora disponible.
@@ -812,6 +830,16 @@ Al completar exitosamente la transacción de creación del evento, el backend em
 * **Propósito en Frontend (`sgrai-web`):**
   - Actualizar inmediatamente el mapa interactivo (añadiendo el nuevo marcador del evento con sus coordenadas).
   - Actualizar la tabla de misiones en curso y la lista de patrullas disponibles/ocupadas sin requerir recargar la página.
+
+### Evento: `recuperacion:actualizada`
+
+Al editar exitosamente la planificación de un operativo de recuperación (`PATCH /api/eventos-atp/recuperacion/{id}`), el backend emite:
+
+* **Evento:** `recuperacion:actualizada`
+* **Salas:** `"sala:encargados"`, `"encargado"`, `"mapa"`
+* **Payload:** Objeto idéntico a la propiedad `data` de la respuesta `200 OK`.
+* **Propósito en Frontend (`sgrai-web` / `sgrai-pwa`):**
+  - Reflejar en vivo los cambios de descripción, fecha estimada de término y dotación de recursos asignados.
 
 ### Evento: `prevencion:creada`
 

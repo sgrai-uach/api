@@ -143,6 +143,8 @@ import {
 import {
   CrearEventoRecuperacionInputSchema,
   CrearEventoRecuperacionResponseSchema,
+  EditarEventoRecuperacionInputSchema,
+  EditarEventoRecuperacionResponseSchema,
   EventoRecuperacionResponseSchema,
 } from "@/modules/eventos-atp/recuperacion.schema";
 
@@ -1841,6 +1843,67 @@ registry.registerPath({
     },
     409: {
       description: "Conflicto operativo: Patrulla no disponible o stock insuficiente en bodega",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 27. PATCH /api/eventos-atp/recuperacion/{id} (HU-74)
+registry.register("EditarEventoRecuperacionInput", EditarEventoRecuperacionInputSchema);
+registry.register("EditarEventoRecuperacionResponse", EditarEventoRecuperacionResponseSchema);
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/eventos-atp/recuperacion/{id}",
+  summary: "Editar planificación de un operativo de recuperación activo (HU-74)",
+  description:
+    "Permite al Encargado modificar la descripción de tareas, fecha estimada de término y dotación de insumos/recursos de un operativo de recuperación activo. Bloquea la edición con 409 Conflict si el operativo está en estado COMPLETADA o CANCELADA, registra auditoría (actualizado_en, actualizado_por_id), sincroniza la descripción de la misión vinculada y emite el evento en tiempo real 'recuperacion:actualizada'.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    params: z.object({
+      id: z.string().uuid().openapi({ description: "UUID del operativo de recuperación" }),
+    }),
+    headers: z.object({
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
+    }),
+    body: {
+      description: "Campos de planificación a actualizar (al menos uno requerido)",
+      content: {
+        "application/json": {
+          schema: EditarEventoRecuperacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Planificación del operativo de recuperación actualizada exitosamente",
+      content: {
+        "application/json": {
+          schema: EditarEventoRecuperacionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos, UUID inválido o fecha estimada anterior a la creación",
+    },
+    401: {
+      description: "No autenticado / cabecera X-User-Id o token ausente o inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recuperacion:editar'",
+    },
+    404: {
+      description: "Operativo de recuperación o recurso no encontrado",
+    },
+    409: {
+      description: "Conflicto: operativo en estado COMPLETADA/CANCELADA o stock insuficiente en bodega",
     },
     500: {
       description: "Error interno del servidor",
