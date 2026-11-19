@@ -511,6 +511,8 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     personas_afectadas: number;
     requiere_apoyo_adicional: boolean;
     detalles_evaluacion?: Record<string, unknown> | string | null;
+    horas_hombre?: number | string | null;
+    materiales_consumidos?: unknown;
     evaluador_nombre: string | null;
     evaluador_email: string | null;
     evaluador_rut: string | null;
@@ -553,6 +555,8 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
             "reporte_terreno.personas_afectadas",
             "reporte_terreno.requiere_apoyo_adicional",
             "reporte_terreno.detalles_evaluacion",
+            "reporte_terreno.horas_hombre",
+            "reporte_terreno.materiales_consumidos",
             "evaluador.nombre as evaluador_nombre",
             "evaluador.email as evaluador_email",
             "evaluador.rut as evaluador_rut",

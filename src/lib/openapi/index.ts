@@ -181,6 +181,11 @@ import {
   AdjuntoReporteInputSchema,
   CrearReporteVerificacionInputSchema,
   EnviarReporteVerificacionResponseSchema,
+  MaterialConsumidoBodySchema,
+  MaterialConsumidoDetalleSchema,
+  CerrarMisionCuadrillaBodySchema,
+  RecursoConsumidoActualizadoSchema,
+  CerrarMisionCuadrillaResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -280,6 +285,11 @@ registry.register("MisionHitoPrioridad", MisionHitoPrioridadSchema);
 registry.register("AdjuntoReporteInput", AdjuntoReporteInputSchema);
 registry.register("CrearReporteVerificacionInput", CrearReporteVerificacionInputSchema);
 registry.register("EnviarReporteVerificacionResponse", EnviarReporteVerificacionResponseSchema);
+registry.register("MaterialConsumidoBody", MaterialConsumidoBodySchema);
+registry.register("MaterialConsumidoDetalle", MaterialConsumidoDetalleSchema);
+registry.register("CerrarMisionCuadrillaBody", CerrarMisionCuadrillaBodySchema);
+registry.register("RecursoConsumidoActualizado", RecursoConsumidoActualizadoSchema);
+registry.register("CerrarMisionCuadrillaResponse", CerrarMisionCuadrillaResponseSchema);
 
 // Registrar esquemas de Eventos ATP (Puntos Críticos y Asistencia Social)
 registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
@@ -2961,6 +2971,56 @@ registry.registerPath({
     409: {
       description:
         "Conflicto: la misión no se encuentra en estado EN_CURSO (ej. está DESPACHADA o ya fue COMPLETADA)",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// POST /api/misiones/{id}/cerrar (HU-68: Informe técnico final y cierre de misión de cuadrilla)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/cerrar",
+  summary: "Enviar informe técnico final y cerrar misión de cuadrilla en terreno (HU-68)",
+  description:
+    "Permite al Delegado de Cuadrilla completar y enviar el informe técnico final de resolución de la emergencia al culminar los trabajos. Ejecuta una transacción atómica que: (1) descuenta los materiales consumidos del inventario logístico (recurso y cuadrilla_recurso), (2) inserta el informe en reporte_terreno (tipo_reporte = 'REPORTE_CUADRILLA'), (3) actualiza mision.estado = 'COMPLETADA' con fecha_cierre = CURRENT_TIMESTAMP, (4) transiciona cuadrilla.estado = 'DISPONIBLE' y libera su dotación humana (si no posee otra misión activa), y (5) registra el hito MISION_COMPLETADA en mision_hito. El incidente no se cierra automáticamente y permanece en evaluación del Encargado (H86). Emite eventos WebSocket 'mision:actualizada' e 'incidente:actualizado' hacia las salas 'encargado' y 'mapa', además de 'cuadrilla:actualizada' y 'recurso:actualizado'. Requiere permiso RBAC 'misiones:terreno:ejecutar'.",
+  tags: ["Misiones", "Incidentes"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      required: true,
+      description: "Informe técnico final de faenas ejecutadas, materiales consumidos, horas hombre y evaluación del terreno",
+      content: {
+        "application/json": {
+          schema: CerrarMisionCuadrillaBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Informe técnico final registrado, misión cerrada y cuadrilla liberada exitosamente",
+      content: {
+        "application/json": {
+          schema: CerrarMisionCuadrillaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos de entrada inválidos (ej. resumen_faenas < 15 caracteres, horas_hombre <= 0, recurso_id duplicado o intento de consumir recurso individual/vehículo)",
+    },
+    401: { description: "No autenticado o token inválido" },
+    403: {
+      description:
+        "Acceso denegado. Se requiere permiso 'misiones:terreno:ejecutar' y pertenecer a la cuadrilla asignada (o rol Administrador)",
+    },
+    404: { description: "Misión o recurso material indicado no encontrado" },
+    409: {
+      description:
+        "Conflicto: la misión no está en estado EN_CURSO, no tiene cuadrilla asignada, o el stock del recurso consumido es insuficiente",
     },
     500: { description: "Error interno del servidor" },
   },

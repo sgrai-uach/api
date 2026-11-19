@@ -5,6 +5,7 @@ import {
   PaginationMetaSchema,
 } from "@/lib/shared/pagination.schema";
 import { EstadoNotificacionMisionEnum } from "@/modules/misiones/notificacion-mision.schema";
+import { MaterialConsumidoDetalleSchema } from "@/modules/misiones/mision.schema";
 
 extendZodWithOpenApi(z);
 
@@ -267,6 +268,8 @@ export const IncidenteDetalleSchema = z.object({
         observaciones: z.string().nullable(),
         personasAfectadas: z.number(),
         requiereApoyoAdicional: z.boolean(),
+        horasHombre: z.number().nullable().optional(),
+        materialesConsumidos: z.array(MaterialConsumidoDetalleSchema).optional(),
         evaluacion: z.record(z.string(), z.unknown()),
         adjuntos: z
           .array(
