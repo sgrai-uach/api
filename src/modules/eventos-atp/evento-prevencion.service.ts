@@ -1,7 +1,13 @@
 import { db } from "@/lib/db";
+import { buildPaginationMeta } from "@/lib/shared/pagination.schema";
 import type {
   CrearEventoPrevencionInput,
+  EstadoEventoPrevencion,
+  EventoPrevencionListadoItem,
   EventoPrevencionResponse,
+  ListarEventosPrevencionQuery,
+  ListarEventosPrevencionResponse,
+  PrioridadEventoPrevencion,
 } from "./evento-prevencion.schema";
 import * as repo from "./evento-prevencion.repository";
 import { emitirEventoPrevencionCreado } from "@/lib/socket";
@@ -220,4 +226,93 @@ export async function crearEventoPrevencionService(
   }
 
   return eventoCreado;
+}
+
+function toIsoString(fecha: Date | string | null | undefined): string | null {
+  if (!fecha) return null;
+  return fecha instanceof Date ? fecha.toISOString() : String(fecha);
+}
+
+/**
+ * Servicio de negocio para listar eventos de prevención paginados con filtros H34 (H76).
+ */
+export async function listarEventosPrevencionService(
+  filtros: ListarEventosPrevencionQuery
+): Promise<ListarEventosPrevencionResponse> {
+  const { total, eventos, misionesPorEvento, recursosPorEvento } =
+    await repo.listarEventosPrevencionPaginados(filtros);
+
+  const data: EventoPrevencionListadoItem[] = eventos.map((row) => {
+    const misionRow = misionesPorEvento.get(row.ep_id);
+    const recursos = recursosPorEvento.get(row.ep_id) ?? [];
+
+    return {
+      id: row.ep_id,
+      codigo: row.ep_codigo,
+      nombre: row.ep_nombre,
+      descripcion: row.ep_descripcion,
+      sector: row.ep_sector,
+      direccionTexto: row.ep_direccion_texto,
+      prioridad: row.ep_prioridad as PrioridadEventoPrevencion,
+      estado: row.ep_estado as EstadoEventoPrevencion,
+      latitud: Number(row.ep_latitud),
+      longitud: Number(row.ep_longitud),
+      ubicacionGeoJson: row.ep_ubicacion_geojson ?? null,
+      puntoCritico: row.pc_id
+        ? {
+            id: row.pc_id,
+            codigo: row.pc_codigo!,
+            nombre: row.pc_nombre!,
+            descripcion: row.pc_descripcion ?? null,
+            tipoRiesgo: row.pc_tipo_riesgo ?? null,
+            prioridad: (row.pc_prioridad ?? "MEDIA") as PrioridadEventoPrevencion,
+            latitud: Number(row.pc_latitud),
+            longitud: Number(row.pc_longitud),
+            ubicacionGeoJson: row.pc_ubicacion_geojson ?? null,
+          }
+        : null,
+      delegacion: row.del_id
+        ? {
+            id: row.del_id,
+            codigo: row.del_codigo ?? "",
+            nombre: row.del_nombre ?? "",
+          }
+        : null,
+      mision: misionRow
+        ? {
+            id: misionRow.m_id,
+            codigo: misionRow.m_codigo,
+            titulo: misionRow.m_titulo,
+            estado: misionRow.m_estado,
+            tipoMision: misionRow.m_tipo_mision,
+            fechaInicio: toIsoString(misionRow.m_fecha_inicio),
+            fechaCierre: toIsoString(misionRow.m_fecha_cierre),
+          }
+        : null,
+      patrulla: misionRow?.pv_id
+        ? {
+            id: misionRow.pv_id,
+            nombre: misionRow.pv_nombre!,
+            estado: misionRow.pv_estado!,
+          }
+        : null,
+      cuadrilla: misionRow?.c_id
+        ? {
+            id: misionRow.c_id,
+            nombre: misionRow.c_nombre!,
+            estado: misionRow.c_estado!,
+          }
+        : null,
+      recursos,
+      creadoPorId: row.ep_creado_por_id,
+      creadoEn: toIsoString(row.ep_creado_en)!,
+      actualizadoEn: toIsoString(row.ep_actualizado_en)!,
+    };
+  });
+
+  return {
+    message: "Eventos de prevención obtenidos exitosamente.",
+    data,
+    meta: buildPaginationMeta(total, filtros.page, filtros.limit),
+  };
 }

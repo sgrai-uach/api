@@ -550,6 +550,9 @@ export interface EventoPrevencionTable {
   creado_por_id: string;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
+  activo: ColumnType<boolean, boolean | undefined, boolean>;
+  eliminado_en: Date | null;
+  eliminado_por_id: string | null;
 }
 
 export interface EventoPrevencionRecursoTable {
