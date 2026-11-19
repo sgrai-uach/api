@@ -113,7 +113,13 @@ export async function obtenerDetalleMisionService(
     return null;
   }
 
-  const { mision, recursosCuadrilla, reportesTerreno: reportesRaw, hitos = [] } = resultado;
+  const {
+    mision,
+    recursosCuadrilla,
+    reportesTerreno: reportesRaw,
+    hitos = [],
+    adjuntosMision,
+  } = resultado;
 
   // 1. Bitácora de tiempos (incorporando hitos reales de mision_hito o fallback a timestamps)
   const bitacoraTiempos: MisionBitacoraHito[] = [];
@@ -410,6 +416,27 @@ export async function obtenerDetalleMisionService(
     .sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime());
   const ultimoReporteCuadrilla = reportesCuadrilla[0] ?? null;
 
+  const adjuntosMisionMapeados: AdjuntoEvidencia[] | undefined = Array.isArray(adjuntosMision)
+    ? adjuntosMision.map((adj) => {
+        let urlNormalizada = adj.url;
+        if (
+          !urlNormalizada.startsWith("http://") &&
+          !urlNormalizada.startsWith("https://") &&
+          !urlNormalizada.startsWith("/")
+        ) {
+          urlNormalizada = `/${urlNormalizada}`;
+        }
+        return {
+          id: adj.id,
+          nombreArchivo: adj.nombre_archivo,
+          url: urlNormalizada,
+          tipoMime: adj.tipo_mime,
+          tamanoBytes: Number(adj.tamano_bytes),
+          creadoEn: formatearFechaIso(adj.creado_en) || new Date().toISOString(),
+        };
+      })
+    : undefined;
+
   return {
     id: mision.id,
     codigo: mision.codigo,
@@ -440,6 +467,7 @@ export async function obtenerDetalleMisionService(
     patrulla,
     bitacoraTiempos,
     reportesTerreno: reportesMapeados,
+    ...(adjuntosMisionMapeados ? { adjuntos: adjuntosMisionMapeados } : {}),
     evaluaciones: {
       tipologiaEvaluada: hitosTipologia.length > 0,
       tipologiaEvaluadaEn: ultimoHitoTipologia

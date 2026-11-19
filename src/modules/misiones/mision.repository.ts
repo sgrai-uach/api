@@ -167,6 +167,15 @@ export interface MisionDetalleQueryResult {
     registrador_nombre?: string | null;
     registrador_email?: string | null;
   }>;
+  adjuntosMision?: Array<{
+    id: string;
+    nombre_archivo: string;
+    url: string;
+    tipo_mime: string;
+    tamano_bytes: number | string | bigint;
+    reporte_terreno_id?: string | null;
+    creado_en: Date | string;
+  }>;
 }
 
 /**
@@ -505,11 +514,39 @@ export async function obtenerMisionDetallePorIdRepo(
     // Si la tabla o mock no está presente en algún test unitario aislado
   }
 
+  // Adjuntos preliminares vinculados al incidente de la misión (antes o durante el informe de terreno)
+  let adjuntosMision: MisionDetalleQueryResult["adjuntosMision"];
+  if (mision.incidente_id) {
+    try {
+      const filasAdjMision = await db
+        .selectFrom("adjunto")
+        .select([
+          "id",
+          "nombre_archivo",
+          "url",
+          "tipo_mime",
+          "tamano_bytes",
+          "reporte_terreno_id",
+          "creado_en",
+        ])
+        .where("incidente_id", "=", mision.incidente_id)
+        .orderBy("creado_en", "asc")
+        .execute();
+
+      if (Array.isArray(filasAdjMision)) {
+        adjuntosMision = filasAdjMision;
+      }
+    } catch {
+      adjuntosMision = undefined;
+    }
+  }
+
   return {
     mision,
     recursosCuadrilla,
     reportesTerreno,
     hitos,
+    ...(adjuntosMision !== undefined ? { adjuntosMision } : {}),
   };
 }
 

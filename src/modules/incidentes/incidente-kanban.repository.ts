@@ -629,11 +629,45 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     // Si la tabla o columnas no están presentes en mocks de pruebas aisladas, retornar vacío
   }
 
+  let adjuntosIncidente: Array<{
+    id: string;
+    nombre_archivo: string;
+    url: string;
+    tipo_mime: string;
+    tamano_bytes: number | string | bigint;
+    reporte_terreno_id?: string | null;
+    creado_en: Date | string;
+  }> | undefined;
+
+  try {
+    const filasAdjInc = await db
+      .selectFrom("adjunto")
+      .select([
+        "id",
+        "nombre_archivo",
+        "url",
+        "tipo_mime",
+        "tamano_bytes",
+        "reporte_terreno_id",
+        "creado_en",
+      ])
+      .where("incidente_id", "=", id)
+      .orderBy("creado_en", "asc")
+      .execute();
+
+    if (Array.isArray(filasAdjInc)) {
+      adjuntosIncidente = filasAdjInc;
+    }
+  } catch {
+    adjuntosIncidente = undefined;
+  }
+
   return {
     incidente,
     misiones,
     recursosAsociados,
     reportesEvaluacionTerreno,
+    ...(adjuntosIncidente !== undefined ? { adjuntosIncidente } : {}),
     justificacionReclasificacion: hitoReclasificacion?.descripcion ?? null,
     reclasificacionTipologiaRaw,
   } as {
@@ -649,6 +683,7 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     misiones: typeof misiones;
     recursosAsociados: typeof recursosAsociados;
     reportesEvaluacionTerreno?: typeof reportesEvaluacionTerreno;
+    adjuntosIncidente?: typeof adjuntosIncidente;
     justificacionReclasificacion: string | null;
     reclasificacionTipologiaRaw?: typeof reclasificacionTipologiaRaw;
   };

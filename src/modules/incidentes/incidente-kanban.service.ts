@@ -98,6 +98,7 @@ export async function obtenerDetalleIncidenteService(
     misiones,
     recursosAsociados,
     reportesEvaluacionTerreno: reportesRaw = [],
+    adjuntosIncidente,
     justificacionReclasificacion,
     reclasificacionTipologiaRaw = null,
   } = resultado;
@@ -400,6 +401,30 @@ export async function obtenerDetalleIncidenteService(
     };
   }
 
+  const adjuntosIncidenteMapeados = Array.isArray(adjuntosIncidente)
+    ? adjuntosIncidente.map((adj) => {
+        let urlNorm = adj.url;
+        if (
+          !urlNorm.startsWith("http://") &&
+          !urlNorm.startsWith("https://") &&
+          !urlNorm.startsWith("/")
+        ) {
+          urlNorm = `/${urlNorm}`;
+        }
+        return {
+          id: adj.id,
+          nombreArchivo: adj.nombre_archivo,
+          url: urlNorm,
+          tipoMime: adj.tipo_mime,
+          tamanoBytes: Number(adj.tamano_bytes),
+          creadoEn:
+            typeof adj.creado_en === "string"
+              ? adj.creado_en
+              : new Date(adj.creado_en).toISOString(),
+        };
+      })
+    : undefined;
+
   return {
     id: incidente.id,
     codigo: incidente.codigo,
@@ -459,6 +484,7 @@ export async function obtenerDetalleIncidenteService(
     misiones: misionesMapeadas,
     recursosAsociados,
     reportesEvaluacionTerreno: reportesMapeados,
+    ...(adjuntosIncidenteMapeados ? { adjuntos: adjuntosIncidenteMapeados } : {}),
     verificado: esVerificado,
     reclasificadoEnTerreno: esVerificado,
     justificacionReclasificacion: justificacionReclasificacion ?? null,
