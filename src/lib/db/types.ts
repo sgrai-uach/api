@@ -548,6 +548,8 @@ export interface EventoPrevencionTable {
   longitud: ColumnType<number, number | string, number | string>;
   ubicacion: unknown;
   creado_por_id: string;
+  fecha_estimada_fin: Date | null;
+  actualizado_por_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
   activo: ColumnType<boolean, boolean | undefined, boolean>;

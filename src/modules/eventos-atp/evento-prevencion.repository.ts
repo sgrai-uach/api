@@ -76,6 +76,16 @@ export async function descontarStockRecurso(trx: Trx, recursoId: string, cantida
     .execute();
 }
 
+export async function devolverStockRecurso(trx: Trx, recursoId: string, cantidad: number) {
+  return await trx
+    .updateTable("recurso")
+    .set((eb) => ({
+      cantidad_inventario: eb("cantidad_inventario", "+", cantidad),
+    }))
+    .where("id", "=", recursoId)
+    .execute();
+}
+
 export async function generarSiguienteCodigoPrevencion(trx: Trx): Promise<string> {
   const anio = new Date().getFullYear();
   const prefijo = `PREV-${anio}-`;
@@ -163,6 +173,7 @@ export interface InsertarEventoPrevencionData {
   delegacionId: string;
   latitud: number;
   longitud: number;
+  fechaEstimadaFin?: Date | null;
   creadoPorId: string;
 }
 
@@ -170,16 +181,18 @@ export async function insertarEventoPrevencion(trx: Trx, data: InsertarEventoPre
   const query = sql`
     INSERT INTO evento_prevencion (
       codigo, nombre, descripcion, prioridad, estado, sector, direccion_texto,
-      punto_critico_id, delegacion_id, latitud, longitud, ubicacion, creado_por_id
+      punto_critico_id, delegacion_id, latitud, longitud, ubicacion, fecha_estimada_fin, creado_por_id
     ) VALUES (
       ${data.codigo}, ${data.nombre}, ${data.descripcion}, ${data.prioridad}, 'PLANIFICADA',
       ${data.sector ?? null}, ${data.direccionTexto ?? null}, ${data.puntoCriticoId ?? null},
       ${data.delegacionId}, ${data.latitud}, ${data.longitud},
       ST_SetSRID(ST_MakePoint(${data.longitud}, ${data.latitud}), 4326),
+      ${data.fechaEstimadaFin ?? null},
       ${data.creadoPorId}
     )
     RETURNING id, codigo, nombre, descripcion, prioridad, estado, sector, direccion_texto,
-              punto_critico_id, delegacion_id, latitud, longitud, creado_por_id, creado_en, actualizado_en
+              punto_critico_id, delegacion_id, latitud, longitud, fecha_estimada_fin,
+              creado_por_id, actualizado_por_id, creado_en, actualizado_en
   `;
 
   const result = await query.execute(trx);
@@ -196,7 +209,9 @@ export async function insertarEventoPrevencion(trx: Trx, data: InsertarEventoPre
     delegacion_id: string;
     latitud: number | string;
     longitud: number | string;
+    fecha_estimada_fin?: Date | null;
     creado_por_id: string;
+    actualizado_por_id?: string | null;
     creado_en: Date;
     actualizado_en: Date;
   };
@@ -324,7 +339,9 @@ export async function listarEventosPrevencionPaginados(
       "ep.latitud as ep_latitud",
       "ep.longitud as ep_longitud",
       sql<unknown>`ST_AsGeoJSON(ep.ubicacion)::json`.as("ep_ubicacion_geojson"),
+      "ep.fecha_estimada_fin as ep_fecha_estimada_fin",
       "ep.creado_por_id as ep_creado_por_id",
+      "ep.actualizado_por_id as ep_actualizado_por_id",
       "ep.creado_en as ep_creado_en",
       "ep.actualizado_en as ep_actualizado_en",
       "d.id as del_id",
@@ -410,4 +427,147 @@ export async function listarEventosPrevencionPaginados(
     misionesPorEvento,
     recursosPorEvento,
   };
+}
+
+
+export async function buscarEventoPrevencionParaEdicion(trx: Trx, eventoId: string) {
+  return await trx
+    .selectFrom("evento_prevencion")
+    .select([
+      "id",
+      "codigo",
+      "nombre",
+      "descripcion",
+      "prioridad",
+      "estado",
+      "sector",
+      "direccion_texto",
+      "punto_critico_id",
+      "delegacion_id",
+      "latitud",
+      "longitud",
+      "fecha_estimada_fin",
+      "activo",
+      "eliminado_en",
+      "creado_por_id",
+      "actualizado_por_id",
+      "creado_en",
+      "actualizado_en",
+    ])
+    .where("id", "=", eventoId)
+    .forUpdate()
+    .executeTakeFirst();
+}
+
+export async function listarRecursosAsignadosPrevencion(trx: Trx, eventoId: string) {
+  return await trx
+    .selectFrom("evento_prevencion_recurso as epr")
+    .innerJoin("recurso as r", "r.id", "epr.recurso_id")
+    .select([
+      "epr.recurso_id as recursoId",
+      "r.nombre as nombre",
+      "epr.cantidad_asignada as cantidadAsignada",
+    ])
+    .where("epr.evento_prevencion_id", "=", eventoId)
+    .execute();
+}
+
+export async function eliminarRecursosPrevencion(trx: Trx, eventoId: string) {
+  return await trx
+    .deleteFrom("evento_prevencion_recurso")
+    .where("evento_prevencion_id", "=", eventoId)
+    .execute();
+}
+
+export interface ActualizarEventoPrevencionData {
+  nombre?: string;
+  descripcion?: string;
+  prioridad?: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+  fechaEstimadaFin?: Date | null;
+  actualizadoPorId: string;
+}
+
+export async function actualizarEventoPrevencion(
+  trx: Trx,
+  eventoId: string,
+  data: ActualizarEventoPrevencionData
+) {
+  const valoresUpdate: Record<string, unknown> = {
+    actualizado_por_id: data.actualizadoPorId,
+    actualizado_en: new Date(),
+  };
+
+  if (data.nombre !== undefined) valoresUpdate.nombre = data.nombre;
+  if (data.descripcion !== undefined) valoresUpdate.descripcion = data.descripcion;
+  if (data.prioridad !== undefined) valoresUpdate.prioridad = data.prioridad;
+  if (data.fechaEstimadaFin !== undefined) valoresUpdate.fecha_estimada_fin = data.fechaEstimadaFin;
+
+  return await trx
+    .updateTable("evento_prevencion")
+    .set(valoresUpdate)
+    .where("id", "=", eventoId)
+    .returning([
+      "id",
+      "codigo",
+      "nombre",
+      "descripcion",
+      "prioridad",
+      "estado",
+      "sector",
+      "direccion_texto",
+      "punto_critico_id",
+      "delegacion_id",
+      "latitud",
+      "longitud",
+      "fecha_estimada_fin",
+      "creado_por_id",
+      "actualizado_por_id",
+      "creado_en",
+      "actualizado_en",
+    ])
+    .executeTakeFirstOrThrow();
+}
+
+export async function sincronizarMisionPrevencion(
+  trx: Trx,
+  eventoId: string,
+  data: {
+    titulo?: string;
+    descripcion?: string;
+    prioridad?: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+  }
+) {
+  const valoresUpdate: Record<string, unknown> = {};
+  if (data.titulo !== undefined) valoresUpdate.titulo = data.titulo;
+  if (data.descripcion !== undefined) valoresUpdate.descripcion = data.descripcion;
+  if (data.prioridad !== undefined) valoresUpdate.prioridad = data.prioridad;
+
+  if (Object.keys(valoresUpdate).length === 0) return;
+
+  valoresUpdate.actualizado_en = new Date();
+
+  await trx
+    .updateTable("mision")
+    .set(valoresUpdate)
+    .where("evento_prevencion_id", "=", eventoId)
+    .execute();
+}
+
+export async function obtenerMisionYPatrullaDeEventoPrevencion(trx: Trx, eventoId: string) {
+  return await trx
+    .selectFrom("mision as m")
+    .leftJoin("patrulla_verificadora as pv", "pv.id", "m.patrulla_id")
+    .select([
+      "m.id as m_id",
+      "m.codigo as m_codigo",
+      "m.titulo as m_titulo",
+      "m.estado as m_estado",
+      "m.tipo_mision as m_tipo_mision",
+      "pv.id as pv_id",
+      "pv.nombre as pv_nombre",
+      "pv.estado as pv_estado",
+    ])
+    .where("m.evento_prevencion_id", "=", eventoId)
+    .orderBy("m.creado_en", "desc")
+    .executeTakeFirst();
 }
