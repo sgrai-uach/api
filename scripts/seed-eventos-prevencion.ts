@@ -44,14 +44,12 @@ export async function sembrarEventosPrevencion() {
   const patrulla = await db
     .selectFrom("patrulla_verificadora")
     .select("id")
-    .where("activo", "=", true)
     .where("eliminado_en", "is", null)
     .executeTakeFirst();
 
   const cuadrilla = await db
     .selectFrom("cuadrilla")
     .select("id")
-    .where("activo", "=", true)
     .where("eliminado_en", "is", null)
     .executeTakeFirst();
 
