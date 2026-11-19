@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { CrearEventoPrevencionInputSchema } from "@/modules/eventos-atp/evento-prevencion.schema";
+import {
+  CrearEventoPrevencionInputSchema,
+  ListarEventosPrevencionQuerySchema,
+} from "@/modules/eventos-atp/evento-prevencion.schema";
 import {
   crearEventoPrevencionService,
+  listarEventosPrevencionService,
   PatrullaNoDisponibleError,
   NotFoundError,
   StockInsuficienteError,
@@ -12,7 +16,69 @@ import {
 } from "@/modules/seguridad/errors";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { seguridadService } from "@/modules/seguridad/service";
-import { PERMISO_CREAR_EVENTO_PREVENCION } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_CREAR_EVENTO_PREVENCION,
+  PERMISO_LEER_EVENTOS_PREVENCION,
+} from "@/modules/seguridad/permisos.constants";
+
+/**
+ * GET /api/eventos-atp/prevencion
+ * Listado paginado de eventos y misiones preventivas desplegadas en puntos críticos
+ * bajo estándar H34 (H76).
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const usuarioId = await extraerUsuarioId(req);
+
+    // Validar autorización RBAC (requiere permiso prevencion:eventos:leer)
+    await seguridadService.validarAccesoRoles(usuarioId, [
+      PERMISO_LEER_EVENTOS_PREVENCION,
+    ]);
+
+    const queryParams: Record<string, string> = {};
+    req.nextUrl.searchParams.forEach((value, key) => {
+      queryParams[key] = value;
+    });
+
+    const resultadoValidacion =
+      ListarEventosPrevencionQuerySchema.safeParse(queryParams);
+    if (!resultadoValidacion.success) {
+      return NextResponse.json(
+        {
+          message: "Parámetros de consulta inválidos para listar eventos de prevención.",
+          errors: resultadoValidacion.error.issues.map((issue) => ({
+            campo: issue.path.join("."),
+            mensaje: issue.message,
+          })),
+        },
+        { status: 400 }
+      );
+    }
+
+    const resultado = await listarEventosPrevencionService(
+      resultadoValidacion.data
+    );
+
+    return NextResponse.json(resultado, { status: 200 });
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ message: error.message }, { status: 401 });
+    }
+
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ message: error.message }, { status: 403 });
+    }
+
+    console.error("Error al listar eventos de prevención:", error);
+    return NextResponse.json(
+      {
+        message:
+          "Error interno del servidor al consultar eventos de prevención.",
+      },
+      { status: 500 }
+    );
+  }
+}
 
 /**
  * POST /api/eventos-atp/prevencion
