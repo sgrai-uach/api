@@ -37,6 +37,10 @@ export interface FilaIncidenteResumen {
   tiene_mision_en_curso?: boolean;
   trazabilidad_notificacion?: string | null;
   verificado?: boolean | number;
+  faenas_cuadrilla_completadas?: boolean | number;
+  estado_terreno_final?: string | null;
+  horas_hombre_registradas?: number | string | null;
+  dictamen_terreno?: string | null;
   reclasificado_en_terreno?: boolean | number;
   justificacion_reclasificacion?: string | null;
   creado_en: Date | string;
@@ -184,6 +188,58 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
             .select(sql<number>`count(mision.id)::int`.as("count"))
             .whereRef("mision.incidente_id", "=", "incidente.id")
             .as("total_misiones"),
+        sql<number>`(
+          SELECT count(rt.id)::int
+          FROM reporte_terreno rt
+          INNER JOIN mision m ON m.id = rt.mision_id
+          WHERE m.incidente_id = incidente.id
+        )`.as("total_reportes_terreno"),
+        sql<boolean>`(
+          EXISTS (
+            SELECT 1
+            FROM mision m
+            LEFT JOIN reporte_terreno rt ON rt.mision_id = m.id
+            WHERE m.incidente_id = incidente.id
+              AND (
+                (m.tipo_mision = 'ATENCION_CUADRILLA' AND m.estado = 'COMPLETADA')
+                OR rt.tipo_reporte = 'REPORTE_CUADRILLA'
+              )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM mision m2
+            WHERE m2.incidente_id = incidente.id
+              AND m2.tipo_mision = 'ATENCION_CUADRILLA'
+              AND m2.estado IN ('PLANIFICADA', 'DESPACHADA', 'EN_CURSO')
+          )
+        )`.as("faenas_cuadrilla_completadas"),
+        sql<string | null>`(
+          SELECT rt.estado_terreno
+          FROM reporte_terreno rt
+          INNER JOIN mision m ON m.id = rt.mision_id
+          WHERE m.incidente_id = incidente.id
+            AND rt.tipo_reporte = 'REPORTE_CUADRILLA'
+          ORDER BY rt.creado_en DESC
+          LIMIT 1
+        )`.as("estado_terreno_final"),
+        sql<number | null>`(
+          SELECT rt.horas_hombre
+          FROM reporte_terreno rt
+          INNER JOIN mision m ON m.id = rt.mision_id
+          WHERE m.incidente_id = incidente.id
+            AND rt.tipo_reporte = 'REPORTE_CUADRILLA'
+          ORDER BY rt.creado_en DESC
+          LIMIT 1
+        )`.as("horas_hombre_registradas"),
+        sql<string | null>`(
+          SELECT rt.dictamen
+          FROM reporte_terreno rt
+          INNER JOIN mision m ON m.id = rt.mision_id
+          WHERE m.incidente_id = incidente.id
+            AND rt.dictamen IS NOT NULL
+          ORDER BY rt.creado_en DESC
+          LIMIT 1
+        )`.as("dictamen_terreno"),
         sql<string | null>`(
           SELECT nm.estado
           FROM notificaciones_mision nm
@@ -272,6 +328,23 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
           where m.incidente_id = incidente.id 
             and m.tipo_mision = 'VERIFICACION' 
             and (m.estado = 'COMPLETADA' or mh.hito = 'TIPOLOGIA_RECLASIFICADA')
+        ) then 1 else 0 end`,
+        "desc"
+      )
+      .orderBy(
+        sql`case when upper(incidente.estado) = 'EN_ATENCION' and exists (
+          select 1 from mision m
+          left join reporte_terreno rt on rt.mision_id = m.id
+          where m.incidente_id = incidente.id
+            and (
+              (m.tipo_mision = 'ATENCION_CUADRILLA' and m.estado = 'COMPLETADA')
+              or rt.tipo_reporte = 'REPORTE_CUADRILLA'
+            )
+        ) and not exists (
+          select 1 from mision m2
+          where m2.incidente_id = incidente.id
+            and m2.tipo_mision = 'ATENCION_CUADRILLA'
+            and m2.estado in ('PLANIFICADA', 'DESPACHADA', 'EN_CURSO')
         ) then 1 else 0 end`,
         "desc"
       )

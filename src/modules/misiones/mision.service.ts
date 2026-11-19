@@ -850,6 +850,7 @@ export async function enviarReporteVerificacionService(
       tipoMision: resultado.mision.tipoMision,
       patrullaId: resultado.mision.patrullaId,
       incidenteId: resultado.mision.incidenteId,
+      incidenteCodigo: resultado.incidente?.codigo ?? null,
       fechaInicio: resultado.mision.fechaInicio,
       fechaCierre: resultado.mision.fechaCierre,
       hito: {
@@ -983,7 +984,9 @@ export async function cerrarMisionCuadrillaService(
       estado: resultado.mision.estado,
       tipoMision: resultado.mision.tipoMision,
       cuadrillaId: resultado.mision.cuadrillaId,
+      cuadrillaNombre: resultado.cuadrilla.nombre,
       incidenteId: resultado.mision.incidenteId,
+      incidenteCodigo: resultado.incidente?.codigo ?? null,
       fechaInicio: resultado.mision.fechaInicio,
       fechaCierre: resultado.mision.fechaCierre,
       hito: {

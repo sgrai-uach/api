@@ -307,5 +307,144 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
         evaluadorNombre: "Patrullero Jefe",
       });
     });
+
+    it("debe mapear faenasCuadrillaCompletadas, estadoTerrenoFinal y horasHombreRegistradas en Kanban y detalle (HU-68)", async () => {
+      const mockFilaCierre: repo.FilaIncidenteResumen = {
+        id: "a1000000-0000-4000-8000-000000000004",
+        codigo: "INC-2026-0004",
+        codigo_seguimiento: "10000004",
+        tipo_afectacion: "Anegamiento de calzada",
+        descripcion: "Sumideros tapados",
+        direccion_texto: "Av. Alemania 780",
+        latitud: -39.817,
+        longitud: -73.242,
+        estado: "EN_ATENCION",
+        prioridad: "ALTA",
+        requiere_asistencia_social: false,
+        fuente_origen: "CHATBOT",
+        informante_nombre: "Ana",
+        delegacion_nombre: "Norte",
+        total_misiones: 1,
+        total_reportes_terreno: 1,
+        faenas_cuadrilla_completadas: true,
+        estado_terreno_final: "CRITICO",
+        horas_hombre_registradas: "4.00",
+        dictamen_terreno: null,
+        verificado: false,
+        creado_en: new Date("2026-11-18T22:49:41Z"),
+        actualizado_en: new Date("2026-11-19T20:52:58Z"),
+      };
+
+      vi.mocked(repo.listarIncidentesPaginadosRepo).mockResolvedValueOnce({
+        filas: [mockFilaCierre],
+        total: 1,
+      });
+
+      const lista = await listarIncidentesKanbanService({ page: 1, limit: 20, estado: "EN_ATENCION" });
+      expect(lista.data[0].totalReportesTerreno).toBe(1);
+      expect(lista.data[0].faenasCuadrillaCompletadas).toBe(true);
+      expect(lista.data[0].estadoTerrenoFinal).toBe("CRITICO");
+      expect(lista.data[0].horasHombreRegistradas).toBe(4);
+
+      vi.mocked(repo.obtenerIncidenteDetallePorIdRepo).mockResolvedValueOnce({
+        incidente: {
+          id: "a1000000-0000-4000-8000-000000000004",
+          codigo: "INC-2026-0004",
+          codigo_seguimiento: "10000004",
+          tipo_afectacion: "Anegamiento de calzada",
+          descripcion: "Sumideros tapados",
+          direccion_texto: "Av. Alemania 780",
+          latitud: -39.817,
+          longitud: -73.242,
+          estado: "EN_ATENCION",
+          prioridad: "ALTA",
+          requiere_asistencia_social: false,
+          fuente_origen: "CHATBOT",
+          asterisk_call_id: null,
+          asterisk_caller_phone: null,
+          creado_en: new Date("2026-11-18T22:49:41Z"),
+          actualizado_en: new Date("2026-11-19T20:52:58Z"),
+          informante_id: null,
+          informante_rut: null,
+          informante_nombre: null,
+          informante_telefono: null,
+          delegacion_id: null,
+          delegacion_nombre: null,
+          delegacion_descripcion: null,
+          creador_id: null,
+          creador_nombre: null,
+          creador_email: null,
+          encargado_id: null,
+          encargado_nombre: null,
+          encargado_email: null,
+        },
+        misiones: [
+          {
+            id: "d1000000-0000-4000-8000-000000000002",
+            codigo: "MIS-2026-0002",
+            titulo: "Desagüe en Av. Alemania",
+            descripcion: null,
+            tipo_mision: "ATENCION_CUADRILLA",
+            estado: "COMPLETADA",
+            prioridad: "ALTA",
+            justificacion_rechazo: null,
+            fecha_inicio: new Date("2026-11-18T23:35:16Z"),
+            fecha_cierre: new Date("2026-11-19T20:52:58Z"),
+            creado_en: new Date("2026-11-18T22:49:41Z"),
+            patrulla_id: null,
+            patrulla_nombre: null,
+            patrulla_estado: null,
+            cuadrilla_id: "c1000000-0000-4000-8000-000000000001",
+            cuadrilla_nombre: "Cuadrilla Aguas Lluvias Alfa",
+            cuadrilla_estado: "DISPONIBLE",
+            trazabilidad_notificacion: null,
+          },
+        ],
+        recursosAsociados: [],
+        reportesEvaluacionTerreno: [
+          {
+            id: "rep-cuad-004",
+            mision_id: "d1000000-0000-4000-8000-000000000002",
+            evaluador_id: "u-1",
+            tipo_reporte: "REPORTE_CUADRILLA",
+            dictamen: null,
+            motivo_no_abordable: null,
+            requiere_asistencia_social: false,
+            estado_terreno: "CRITICO",
+            version_reporte: 1,
+            es_rectificacion: false,
+            prioridad_sugerida: "ALTA",
+            prioridad_asignada: "ALTA",
+            justificacion_prioridad: null,
+            resumen_tecnico: "Extracción de agua y limpieza de colector completada.",
+            acciones_realizadas: "Extracción de agua",
+            danos_estimados: null,
+            observaciones: "Observación secundaria",
+            personas_afectadas: 0,
+            requiere_apoyo_adicional: true,
+            horas_hombre: "4.00",
+            materiales_consumidos: [],
+            evaluador_nombre: "Carlos Delegado",
+            evaluador_email: "delegado@valdivia.cl",
+            evaluador_rut: null,
+            creado_en: new Date("2026-11-19T20:52:58Z"),
+          },
+        ],
+        justificacionReclasificacion: null,
+      });
+
+      const detalle = await obtenerDetalleIncidenteService("a1000000-0000-4000-8000-000000000004");
+      expect(detalle?.faenasCuadrillaCompletadas).toBe(true);
+      expect(detalle?.estadoTerrenoFinal).toBe("CRITICO");
+      expect(detalle?.horasHombreRegistradas).toBe(4);
+      expect(detalle?.ultimoReporte).toMatchObject({
+        reporteId: "rep-cuad-004",
+        tipoReporte: "REPORTE_CUADRILLA",
+        estadoTerreno: "CRITICO",
+        horasHombre: 4,
+        requiereApoyoAdicional: true,
+        resumen: "Extracción de agua y limpieza de colector completada.",
+      });
+    });
   });
 });

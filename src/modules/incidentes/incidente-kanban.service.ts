@@ -55,6 +55,16 @@ export async function listarIncidentesKanbanService(
         }
       : {}),
     verificado: Boolean(fila.verificado),
+    faenasCuadrillaCompletadas: Boolean(fila.faenas_cuadrilla_completadas),
+    estadoTerrenoFinal: fila.estado_terreno_final ?? null,
+    horasHombreRegistradas:
+      fila.horas_hombre_registradas !== null &&
+      fila.horas_hombre_registradas !== undefined
+        ? Number(fila.horas_hombre_registradas)
+        : null,
+    dictamenTerreno:
+      (fila.dictamen_terreno as "REQUIERE_CUADRILLA" | "NO_ABORDABLE" | null | undefined) ??
+      null,
     reclasificadoEnTerreno: Boolean(fila.verificado || fila.reclasificado_en_terreno),
     justificacionReclasificacion: fila.justificacion_reclasificacion ?? null,
     creadoEn:
@@ -343,10 +353,55 @@ export async function obtenerDetalleIncidenteService(
     return limpio.length > max ? `${limpio.slice(0, max - 1).trimEnd()}…` : limpio;
   };
 
-  let ultimoReporte: IncidenteDetalle["ultimoReporte"] = null;
-  const reportesOrdenadosFecha = [...reportesMapeados].sort(
-    (a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime()
+  const tieneCuadrillaActiva = misiones.some(
+    (m) =>
+      (m.tipo_mision === "ATENCION_CUADRILLA" || Boolean(m.cuadrilla_id)) &&
+      ["PLANIFICADA", "DESPACHADA", "EN_CURSO"].includes(m.estado)
   );
+  const reportesCuadrillaOrdenados = reportesMapeados
+    .filter((r) => r.tipoReporte === "REPORTE_CUADRILLA")
+    .sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime());
+  const topReporteCuadrilla = reportesCuadrillaOrdenados[0] ?? null;
+  const tieneCuadrillaCompletada =
+    misiones.some(
+      (m) => m.tipo_mision === "ATENCION_CUADRILLA" && m.estado === "COMPLETADA"
+    ) || reportesCuadrillaOrdenados.length > 0;
+  const faenasCuadrillaCompletadas = Boolean(
+    tieneCuadrillaCompletada && !tieneCuadrillaActiva
+  );
+  const estadoTerrenoFinal = topReporteCuadrilla?.estadoTerreno ?? null;
+  const horasHombreRegistradas =
+    topReporteCuadrilla?.horasHombre !== undefined
+      ? topReporteCuadrilla.horasHombre
+      : null;
+  const reporteConDictamen = [...reportesMapeados]
+    .filter((r) => r.dictamen === "REQUIERE_CUADRILLA" || r.dictamen === "NO_ABORDABLE")
+    .sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime())[0];
+  const dictamenTerreno =
+    reporteConDictamen?.dictamen ??
+    (incidente.estado?.toUpperCase() === "NO_ABORDABLE" ? "NO_ABORDABLE" : null);
+
+  let ultimoReporte: IncidenteDetalle["ultimoReporte"] = null;
+  const obtenerPesoReporte = (
+    rep: NonNullable<IncidenteDetalle["reportesEvaluacionTerreno"]>[number]
+  ): number => {
+    if (rep.tipoReporte === "REPORTE_CUADRILLA") return 2;
+    if (
+      rep.tipoReporte === "VERIFICACION_CIERRE" ||
+      rep.dictamen === "REQUIERE_CUADRILLA" ||
+      rep.dictamen === "NO_ABORDABLE"
+    ) {
+      return 1;
+    }
+    return 0;
+  };
+  const reportesOrdenadosFecha = [...reportesMapeados].sort((a, b) => {
+    const pesoDiff = obtenerPesoReporte(b) - obtenerPesoReporte(a);
+    if (pesoDiff !== 0) return pesoDiff;
+    const tDiff = new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime();
+    if (tDiff !== 0) return tDiff;
+    return Number(b.versionReporte ?? 0) - Number(a.versionReporte ?? 0);
+  });
   const topReporteTerreno = reportesOrdenadosFecha[0] ?? null;
 
   const tsReporte = topReporteTerreno ? new Date(topReporteTerreno.creadoEn).getTime() : -1;
@@ -357,9 +412,14 @@ export async function obtenerDetalleIncidenteService(
   if (topReporteTerreno && tsReporte >= tsReclasif) {
     const misionRef = misionesMapeadas.find((m) => m.id === topReporteTerreno.misionId);
     const textoBase =
-      topReporteTerreno.observaciones ||
-      topReporteTerreno.accionesRealizadas ||
-      topReporteTerreno.resumenTecnico;
+      topReporteTerreno.tipoReporte === "REPORTE_CUADRILLA"
+        ? topReporteTerreno.resumenTecnico ||
+          topReporteTerreno.accionesRealizadas ||
+          topReporteTerreno.observaciones ||
+          ""
+        : topReporteTerreno.observaciones ||
+          topReporteTerreno.accionesRealizadas ||
+          topReporteTerreno.resumenTecnico;
     ultimoReporte = {
       origen: "REPORTE_TERRENO",
       reporteId: topReporteTerreno.id,
@@ -372,6 +432,19 @@ export async function obtenerDetalleIncidenteService(
       dictamen: topReporteTerreno.dictamen ?? null,
       motivoNoAbordable: topReporteTerreno.motivoNoAbordable ?? null,
       tipoReporte: topReporteTerreno.tipoReporte ?? null,
+      ...(topReporteTerreno.estadoTerreno
+        ? { estadoTerreno: topReporteTerreno.estadoTerreno }
+        : {}),
+      ...(topReporteTerreno.etiquetaReporte
+        ? { etiquetaReporte: topReporteTerreno.etiquetaReporte }
+        : {}),
+      ...(topReporteTerreno.horasHombre !== undefined
+        ? { horasHombre: topReporteTerreno.horasHombre }
+        : {}),
+      requiereApoyoAdicional: topReporteTerreno.requiereApoyoAdicional,
+      ...(topReporteTerreno.materialesConsumidos !== undefined
+        ? { materialesConsumidos: topReporteTerreno.materialesConsumidos }
+        : {}),
       versionReporte: topReporteTerreno.versionReporte,
       esRectificacion: topReporteTerreno.esRectificacion,
     };
@@ -486,6 +559,10 @@ export async function obtenerDetalleIncidenteService(
     reportesEvaluacionTerreno: reportesMapeados,
     ...(adjuntosIncidenteMapeados ? { adjuntos: adjuntosIncidenteMapeados } : {}),
     verificado: esVerificado,
+    faenasCuadrillaCompletadas,
+    estadoTerrenoFinal,
+    horasHombreRegistradas,
+    dictamenTerreno,
     reclasificadoEnTerreno: esVerificado,
     justificacionReclasificacion: justificacionReclasificacion ?? null,
     reclasificacionTipologia,

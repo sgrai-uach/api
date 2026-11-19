@@ -68,7 +68,9 @@ export interface ServerToClientEvents {
         tipoMision: string;
         patrullaId?: string | null;
         cuadrillaId?: string | null;
+        cuadrillaNombre?: string | null;
         incidenteId?: string | null;
+        incidenteCodigo?: string | null;
         fechaInicio: string | null;
         fechaCierre?: string | null;
         hito: {
