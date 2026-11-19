@@ -563,12 +563,14 @@ export function emitirCuadrillaCreada(payload: unknown): void {
 }
 
 /**
- * Emite la notificación de cuadrilla actualizada con nueva dotación a las salas operativas (H81).
+ * Emite la notificación de cuadrilla actualizada con nueva dotación a las salas operativas (H81 / HU-68).
  */
 export function emitirCuadrillaActualizada(payload: unknown): void {
   emitirEvento("operaciones", "cuadrilla:actualizada", payload);
   emitirEvento("encargado", "cuadrilla:actualizada", payload);
+  emitirEvento("sala:encargados", "cuadrilla:actualizada", payload);
   emitirEvento("supervisor", "cuadrilla:actualizada", payload);
+  emitirEvento("mapa", "cuadrilla:actualizada", payload);
 }
 
 /**
@@ -821,14 +823,17 @@ export interface MisionActualizadaPayload {
 }
 
 /**
- * Emite una notificación en tiempo real hacia la sala 'encargado' del Centro de Mando
- * cuando una patrulla verificadora o unidad de terreno actualiza o acepta una misión (HU-36).
- *
- * No se realiza broadcast global: el evento se emite únicamente a las salas
- * `encargado`, `sala:encargados` y `supervisor`.
+ * Emite una notificación en tiempo real hacia las salas del Centro de Mando (`encargado`, `sala:encargados`,
+ * `supervisor` y `mapa`) y a la unidad asignada cuando una unidad de terreno actualiza, acepta o cierra una misión.
  */
 export function notificarMisionActualizada(payload: MisionActualizadaPayload): void {
-  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  const rooms = ["encargado", "sala:encargados", "supervisor", "mapa"];
+  if (payload.cuadrillaId) {
+    rooms.push(`cuadrilla:${payload.cuadrillaId}`);
+  }
+  if (payload.patrullaId) {
+    rooms.push(`patrulla:${payload.patrullaId}`);
+  }
 
   if (ioInstance) {
     for (const room of rooms) {
