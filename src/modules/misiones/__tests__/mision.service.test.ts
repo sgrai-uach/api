@@ -9,6 +9,7 @@ import * as socketLib from "@/lib/socket";
 vi.mock("../mision.repository", () => ({
   obtenerMisionDetallePorIdRepo: vi.fn(),
   crearMisionVerificacionRepo: vi.fn(),
+  cerrarMisionCuadrillaRepo: vi.fn(),
 }));
 
 vi.mock("../notificacion-mision.repository", () => ({
@@ -32,6 +33,7 @@ vi.mock("@/lib/socket", () => ({
   notificarIncidenteActualizado: vi.fn(),
   notificarPatrullaActualizada: vi.fn(),
   notificarTrazabilidadActualizada: vi.fn(),
+  emitirRecursoActualizado: vi.fn(),
   tieneConexionEnSala: vi.fn().mockResolvedValue(true),
 }));
 
@@ -278,6 +280,8 @@ describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
       reporteVerificacionEnviado: false,
       reporteVerificacionEnviadoEn: null,
       dictamenVerificacion: null,
+      reporteCuadrillaEnviado: false,
+      reporteCuadrillaEnviadoEn: null,
     });
     expect(hitoReclasificacion).toBeDefined();
     expect(hitoReclasificacion?.descripcion).toContain("Corte de agua potable");
