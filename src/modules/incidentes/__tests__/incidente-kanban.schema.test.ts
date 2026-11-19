@@ -129,6 +129,17 @@ describe("Esquemas de Tablero Kanban e Incidentes", () => {
 
       const resultado = IncidenteResumenSchema.safeParse(valido);
       expect(resultado.success).toBe(true);
+
+      const conCierreCuadrilla = IncidenteResumenSchema.safeParse({
+        ...valido,
+        estado: "EN_ATENCION",
+        totalReportesTerreno: 1,
+        faenasCuadrillaCompletadas: true,
+        estadoTerrenoFinal: "CRITICO",
+        horasHombreRegistradas: 4,
+        dictamenTerreno: "REQUIERE_CUADRILLA",
+      });
+      expect(conCierreCuadrilla.success).toBe(true);
     });
   });
 

@@ -7,10 +7,13 @@ import { ConflictError, ForbiddenError, NotFoundError } from "@/modules/segurida
 vi.mock("../mision.repository", () => ({
   obtenerMisionDetallePorIdRepo: vi.fn(),
   aceptarMisionPatrullaRepo: vi.fn(),
+  cerrarMisionCuadrillaRepo: vi.fn(),
 }));
 
 vi.mock("@/lib/socket", () => ({
   notificarMisionActualizada: vi.fn(),
+  notificarIncidenteActualizado: vi.fn(),
+  emitirRecursoActualizado: vi.fn(),
 }));
 
 describe("Mision Service - aceptarMisionService (HU-36)", () => {

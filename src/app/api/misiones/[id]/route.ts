@@ -3,7 +3,12 @@ import { obtenerDetalleMisionService } from "@/modules/misiones/mision.service";
 import { MisionIdParamSchema } from "@/modules/misiones/mision.schema";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
-import { PERMISO_LEER_MISION } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_LEER_MISION,
+  PERMISO_VERIFICAR_MISION_TERRENO,
+  PERMISO_EJECUTAR_MISION_TERRENO,
+  PERMISO_CREAR_REPORTE,
+} from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 interface RouteContext {
@@ -13,13 +18,43 @@ interface RouteContext {
 /**
  * GET /api/misiones/[id]
  * Consulta el detalle estructurado de una misión específica mediante su ID.
- * Requiere que el usuario posea el permiso 'misiones:leer' (Encargado, Administrador o Supervisor).
+ * Permite el acceso a Centro de Mando/Supervisión (`misiones:leer`) y al personal de terreno
+ * de la patrulla o cuadrilla (`misiones:terreno:verificar` o `reportes:crear`).
  */
 export async function GET(req: NextRequest, props: RouteContext) {
   try {
     // 1. Extraer cabecera y validar autorización RBAC
     const usuarioId = await extraerUsuarioId(req);
-    await verificarPermiso(usuarioId, PERMISO_LEER_MISION);
+    try {
+      await verificarPermiso(usuarioId, PERMISO_LEER_MISION);
+    } catch (errorPermiso) {
+      if (!(errorPermiso instanceof ForbiddenError)) {
+        throw errorPermiso;
+      }
+
+      let autorizadoTerreno = false;
+      for (const permisoAlt of [
+        PERMISO_VERIFICAR_MISION_TERRENO,
+        PERMISO_EJECUTAR_MISION_TERRENO,
+        PERMISO_CREAR_REPORTE,
+      ]) {
+        try {
+          const usuarioAlt = await verificarPermiso(usuarioId, permisoAlt);
+          if (usuarioAlt && typeof usuarioAlt.id === "string") {
+            autorizadoTerreno = true;
+            break;
+          }
+        } catch (errAlt) {
+          if (!(errAlt instanceof ForbiddenError)) {
+            throw errAlt;
+          }
+        }
+      }
+
+      if (!autorizadoTerreno) {
+        throw errorPermiso;
+      }
+    }
 
     // 2. Extraer y validar parámetro de ruta UUID
     const { id } = await props.params;

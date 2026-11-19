@@ -13,6 +13,9 @@ services:
       - REDIS_URL=redis://redis:6379
       - NODE_ENV=production
       - PORT=4001
+      - UPLOAD_DIR=/app/uploads
+    volumes:
+      - uploads_data:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,6 +73,7 @@ services:
 volumes:
   pgdata:
   redisdata:
+  uploads_data:
 
 networks:
   red_taller_software:
