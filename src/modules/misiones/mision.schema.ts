@@ -152,13 +152,14 @@ export type CuadrillaMisionDetalle = z.infer<typeof CuadrillaMisionDetalleSchema
 export const PatrullaMisionDetalleSchema = z.object({
   id: z.string().uuid().openapi({ description: "Identificador único UUID de la patrulla" }),
   nombre: z.string().openapi({ description: "Nombre identificador de la patrulla verificadora" }),
-  estado: z.string().openapi({ description: "Estado operativo (DISPONIBLE, EN_VERIFICACION, NO_DISPONIBLE)" }),
+  estado: z.string().openapi({ description: "Estado operativo (DISPONIBLE, EN_VERIFICACION, EN_PREVENCION, NO_DISPONIBLE)" }),
   delegacionNombre: z.string().nullable().openapi({ description: "Delegación territorial base" }),
   lider: z.object({
     id: z.string().uuid(),
     nombre: z.string(),
     email: z.string().email(),
   }).nullable().openapi({ description: "Líder de patrulla a cargo de la evaluación primaria" }),
+  recursos: z.array(RecursoAsignadoMisionSchema).optional().openapi({ description: "Recursos logísticos asignados a la misión preventiva de la patrulla" }),
 });
 
 export type PatrullaMisionDetalle = z.infer<typeof PatrullaMisionDetalleSchema>;

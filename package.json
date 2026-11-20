@@ -16,7 +16,8 @@
     "seed:estados": "tsx scripts/seed-estados-incidentes.ts",
     "seed:puntos-criticos": "tsx scripts/seed-puntos-criticos.ts",
     "seed:patrullas": "tsx scripts/seed-patrullas.ts",
-    "seed:h21": "tsx scripts/seed-h21.ts"
+    "seed:h21": "tsx scripts/seed-h21.ts",
+    "seed:eventos-prevencion": "tsx scripts/seed-eventos-prevencion.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",

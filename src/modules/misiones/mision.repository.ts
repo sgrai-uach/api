@@ -87,6 +87,12 @@ export interface MisionDetalleQueryResult {
     tipo: string;
     cantidadAsignada: number;
   }>;
+  recursosPatrulla?: Array<{
+    id: string;
+    nombre: string;
+    tipo: string;
+    cantidadAsignada: number;
+  }>;
   reportesTerreno: Array<{
     id: string;
     mision_id: string;
@@ -256,6 +262,39 @@ export async function obtenerMisionDetallePorIdRepo(
     }));
   }
 
+  // Recursos asignados directamente a la misión (ej. misiones preventivas de patrulla)
+  let recursosPatrulla: Array<{
+    id: string;
+    nombre: string;
+    tipo: string;
+    cantidadAsignada: number;
+  }> = [];
+
+  if (mision.patrulla_id) {
+    try {
+      const filasRecursosMision = await db
+        .selectFrom("evento_prevencion_recurso as epr")
+        .innerJoin("recurso as r", "r.id", "epr.recurso_id")
+        .select([
+          "r.id",
+          "r.nombre",
+          "r.es_individual",
+          "epr.cantidad_asignada",
+        ])
+        .where("epr.mision_id", "=", mision.id)
+        .execute();
+
+      recursosPatrulla = filasRecursosMision.map((r) => ({
+        id: r.id,
+        nombre: r.nombre,
+        tipo: r.es_individual ? "INDIVIDUAL" : "GRUPAL",
+        cantidadAsignada: Number(r.cantidad_asignada),
+      }));
+    } catch {
+      recursosPatrulla = [];
+    }
+  }
+
   // Reportes de terreno elaborados para esta misión
   const reportesFilas = await db
     .selectFrom("reporte_terreno")
@@ -346,6 +385,7 @@ export async function obtenerMisionDetallePorIdRepo(
   return {
     mision,
     recursosCuadrilla,
+    recursosPatrulla,
     reportesTerreno,
     hitos: hitosFilas,
   };
@@ -1060,13 +1100,45 @@ export interface AceptarMisionPatrullaResult {
   };
 }
 
+const ETIQUETAS_ESTADO_MISION_REPO: Record<string, string> = {
+  DISPONIBLE: "Disponible",
+  EN_VERIFICACION: "En verificación",
+  EN_PREVENCION: "En prevención",
+  EN_RECUPERACION: "En recuperación",
+  EN_MISION: "En misión",
+  NO_DISPONIBLE: "No disponible",
+  PLANIFICADA: "Planificada",
+  DESPACHADA: "Despachada",
+  EN_CURSO: "En curso",
+  COMPLETADA: "Completada",
+  CANCELADA: "Cancelada",
+  RECHAZADA: "Rechazada",
+  REPORTADO: "Reportado",
+  VERIFICANDO: "Verificando",
+  EN_ATENCION: "En atención",
+  RESUELTO: "Resuelto",
+  NO_ABORDABLE: "No abordable",
+};
+
+function formatearEstadoAmigableRepo(estado?: string | null): string {
+  if (!estado) return "Desconocido";
+  return ETIQUETAS_ESTADO_MISION_REPO[estado] ?? estado.replace(/_/g, " ");
+}
+
+function obtenerEstadoEsperadoPatrulla(tipoMision?: string | null): string {
+  if (tipoMision === "PREVENCION") return "EN_PREVENCION";
+  if (tipoMision === "RECUPERACION") return "EN_RECUPERACION";
+  return "EN_VERIFICACION";
+}
+
 /**
  * HU-36 - Ejecuta la transición atómica cuando una patrulla verificadora confirma y acepta
  * la misión asignada desde su dispositivo móvil (PWA):
  * 1. Verifica con bloqueo pesimista que la misión exista, tenga patrulla asignada y que el usuario esté autorizado.
- * 2. Verifica las invariantes ICS: patrulla activa en 'EN_VERIFICACION' e incidente asociado en 'VERIFICANDO'.
+ * 2. Verifica las invariantes operativas según tipo de misión (EN_VERIFICACION / EN_PREVENCION / EN_RECUPERACION).
  * 3. Actualiza atómicamente `mision.estado` de `DESPACHADA` a `EN_CURSO` y fija `mision.fecha_inicio = CURRENT_TIMESTAMP`.
- * 4. Registra el hito `'MISION_ACEPTADA'` (`'Misión Aceptada por Patrulla'`) en `mision_hito` vinculando al usuario en sesión.
+ * 4. Si corresponde a un evento de prevención planificado, transiciona el evento a `EN_CURSO`.
+ * 5. Registra el hito `'MISION_ACEPTADA'` (`'Misión Aceptada por Patrulla'`) en `mision_hito` vinculando al usuario en sesión.
  */
 export async function aceptarMisionPatrullaRepo(
   misionId: string,
@@ -1084,8 +1156,10 @@ export async function aceptarMisionPatrullaRepo(
         "mision.id",
         "mision.codigo",
         "mision.estado",
+        "mision.tipo_mision",
         "mision.patrulla_id",
         "mision.incidente_id",
+        "mision.evento_prevencion_id",
         "patrulla_verificadora.nombre as patrulla_nombre",
         "patrulla_verificadora.estado as patrulla_estado",
         "patrulla_verificadora.eliminado_en as patrulla_eliminado_en",
@@ -1128,7 +1202,7 @@ export async function aceptarMisionPatrullaRepo(
       }
     }
 
-    // 4. Validar invariantes ICS sobre el estado activo de la patrulla (EN_VERIFICACION) y del incidente (VERIFICANDO) (BUG-H36-API-04)
+    // 4. Validar invariantes operativas de la patrulla según tipo de misión y del incidente (si aplica)
     if (
       misionExistente.patrulla_eliminado_en !== undefined &&
       misionExistente.patrulla_eliminado_en !== null
@@ -1138,13 +1212,14 @@ export async function aceptarMisionPatrullaRepo(
       );
     }
 
+    const estadoEsperadoPatrulla = obtenerEstadoEsperadoPatrulla(misionExistente.tipo_mision);
     if (
       misionExistente.patrulla_estado !== undefined &&
       misionExistente.patrulla_estado !== null &&
-      misionExistente.patrulla_estado !== "EN_VERIFICACION"
+      misionExistente.patrulla_estado !== estadoEsperadoPatrulla
     ) {
       throw new ConflictError(
-        `La patrulla verificadora asignada no se encuentra en estado 'EN_VERIFICACION' (estado actual: '${misionExistente.patrulla_estado}').`
+        `La patrulla verificadora asignada no se encuentra en estado ${formatearEstadoAmigableRepo(estadoEsperadoPatrulla)} (estado actual: ${formatearEstadoAmigableRepo(misionExistente.patrulla_estado)}).`
       );
     }
 
@@ -1155,7 +1230,7 @@ export async function aceptarMisionPatrullaRepo(
       misionExistente.incidente_estado !== "VERIFICANDO"
     ) {
       throw new ConflictError(
-        `El incidente asociado no se encuentra en estado 'VERIFICANDO' (estado actual: '${misionExistente.incidente_estado}').`
+        `El incidente asociado no se encuentra en estado Verificando (estado actual: ${formatearEstadoAmigableRepo(misionExistente.incidente_estado)}).`
       );
     }
 
@@ -1181,8 +1256,21 @@ export async function aceptarMisionPatrullaRepo(
 
       const estadoActual = misionReciente?.estado ?? misionExistente.estado;
       throw new ConflictError(
-        `La misión no puede ser aceptada porque su estado actual es '${estadoActual}'. Solo se pueden aceptar misiones en estado 'DESPACHADA'.`
+        `La misión no puede ser aceptada porque su estado actual es ${formatearEstadoAmigableRepo(estadoActual)}. Solo se pueden aceptar misiones en estado Despachada.`
       );
+    }
+
+    // 5.1. Si es misión preventiva asociada a un evento en PLANIFICADA, pasarlo a EN_CURSO
+    if (misionExistente.evento_prevencion_id) {
+      await trx
+        .updateTable("evento_prevencion")
+        .set({
+          estado: "EN_CURSO",
+          actualizado_en: sql`CURRENT_TIMESTAMP`,
+        })
+        .where("id", "=", misionExistente.evento_prevencion_id)
+        .where("estado", "=", "PLANIFICADA")
+        .execute();
     }
 
     // 6. Registrar el hito automático en mision_hito vinculando al usuario en sesión
@@ -1209,6 +1297,8 @@ export async function aceptarMisionPatrullaRepo(
       ? new Date(hitoRegistrado.creado_en).toISOString()
       : new Date().toISOString();
 
+    const estadoPatrullaResult = misionExistente.patrulla_estado || estadoEsperadoPatrulla;
+
     return {
       mision: {
         id: misionActualizada.id,
@@ -1226,7 +1316,7 @@ export async function aceptarMisionPatrullaRepo(
       patrulla: {
         id: misionExistente.patrulla_id,
         nombre: misionExistente.patrulla_nombre ?? "Patrulla Verificadora",
-        estado: "EN_VERIFICACION",
+        estado: estadoPatrullaResult,
       },
       incidente: misionExistente.incidente_id
         ? {

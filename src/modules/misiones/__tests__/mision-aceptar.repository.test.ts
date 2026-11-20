@@ -58,6 +58,7 @@ describe("Mision Repository - aceptarMisionPatrullaRepo (HU-36)", () => {
         chain.set = vi.fn(() => chain);
         chain.where = vi.fn(() => chain);
         chain.returningAll = vi.fn(() => chain);
+        chain.execute = vi.fn(async () => []);
         chain.executeTakeFirst = vi.fn(async () => config.misionActualizada);
         return chain;
       }),
@@ -257,6 +258,56 @@ describe("Mision Repository - aceptarMisionPatrullaRepo (HU-36)", () => {
     await expect(aceptarMisionPatrullaRepo(misionId, liderId, false)).rejects.toThrow(
       ConflictError
     );
+  });
+
+  it("debe aceptar una misión de tipo PREVENCION cuando la patrulla está en estado EN_PREVENCION y conservar dicho estado", async () => {
+    const now = new Date("2026-11-20T00:50:00.000Z");
+    const eventoPrevencionId = "80000000-0000-4000-8000-000000000001";
+    const trx = crearMockTrx({
+      misionExistente: {
+        id: misionId,
+        codigo: "MIS-2026-0099",
+        estado: "DESPACHADA",
+        tipo_mision: "PREVENCION",
+        patrulla_id: patrullaId,
+        incidente_id: null,
+        evento_prevencion_id: eventoPrevencionId,
+        patrulla_nombre: "Patrulla Sur 1",
+        patrulla_estado: "EN_PREVENCION",
+        patrulla_lider_id: liderId,
+      },
+      misionActualizada: {
+        id: misionId,
+        codigo: "MIS-2026-0099",
+        titulo: "Despacho preventivo",
+        descripcion: "Limpieza de sumideros",
+        tipo_mision: "PREVENCION",
+        estado: "EN_CURSO",
+        prioridad: "ALTA",
+        incidente_id: null,
+        patrulla_id: patrullaId,
+        fecha_inicio: now,
+        actualizado_en: now,
+      },
+      hitoRegistrado: {
+        id: "70000000-0000-4000-8000-000000000099",
+        mision_id: misionId,
+        hito: "MISION_ACEPTADA",
+        descripcion: "Misión Aceptada por Patrulla",
+        registrado_por_id: liderId,
+        latitud: null,
+        longitud: null,
+        creado_en: now,
+      },
+    });
+
+    const res = await aceptarMisionPatrullaRepo(misionId, liderId, false);
+
+    expect(res.mision.tipoMision).toBe("PREVENCION");
+    expect(res.mision.estado).toBe("EN_CURSO");
+    expect(res.patrulla?.estado).toBe("EN_PREVENCION");
+    expect(res.incidente).toBeNull();
+    expect(trx.updateTable).toHaveBeenCalledWith("evento_prevencion");
   });
 });
 

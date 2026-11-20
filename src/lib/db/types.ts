@@ -548,14 +548,20 @@ export interface EventoPrevencionTable {
   longitud: ColumnType<number, number | string, number | string>;
   ubicacion: unknown;
   creado_por_id: string;
+  fecha_estimada_fin: Date | null;
+  actualizado_por_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
+  activo: ColumnType<boolean, boolean | undefined, boolean>;
+  eliminado_en: Date | null;
+  eliminado_por_id: string | null;
 }
 
 export interface EventoPrevencionRecursoTable {
   id: Generated<string>;
   evento_prevencion_id: string;
   recurso_id: string;
+  mision_id?: string | null;
   cantidad_asignada: number;
   creado_en: Generated<Date>;
 }

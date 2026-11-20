@@ -3,14 +3,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   CrearEventoPrevencionInputSchema,
   EventoPrevencionResponseSchema,
+  ListarEventosPrevencionQuerySchema,
 } from "../evento-prevencion.schema";
 import {
   crearEventoPrevencionService,
+  listarEventosPrevencionService,
   PatrullaNoDisponibleError,
   NotFoundError,
   StockInsuficienteError,
 } from "../evento-prevencion.service";
 import * as repo from "../evento-prevencion.repository";
+import * as notificacionRepo from "@/modules/misiones/notificacion-mision.repository";
 import * as socketModule from "@/lib/socket";
 import { db } from "@/lib/db";
 
@@ -365,10 +368,12 @@ describe("Módulo Eventos ATP / Prevención (HU-30) - Pruebas Unitarias", () => 
         tipo_mision: "PREVENCION",
       });
 
-      vi.spyOn(repo, "insertarRecursosPrevencion").mockResolvedValue(undefined as any);
-      vi.spyOn(repo, "descontarStockRecurso").mockResolvedValue(undefined as any);
+      vi.spyOn(repo, "insertarRecursosPrevencionConMision").mockResolvedValue(undefined as any);
+      vi.spyOn(repo, "actualizarRecursoGranelUso").mockResolvedValue({} as any);
       vi.spyOn(repo, "actualizarEstadoPatrulla").mockResolvedValue(undefined as any);
       vi.spyOn(repo, "actualizarEstadoPersonalLider").mockResolvedValue(undefined as any);
+      vi.spyOn(repo, "insertarHitoDespachoMisionPrevencion").mockResolvedValue(undefined as any);
+      vi.spyOn(notificacionRepo, "crearNotificacionMisionRepo").mockResolvedValue({} as any);
 
       const spyEmitirSocket = vi
         .spyOn(socketModule, "emitirEventoPrevencionCreado")
@@ -378,8 +383,8 @@ describe("Módulo Eventos ATP / Prevención (HU-30) - Pruebas Unitarias", () => 
 
       expect(resultado).toBeDefined();
       expect(resultado.codigo).toBe("PREV-2026-0001");
-      expect(resultado.mision.codigo).toBe("MIS-2026-0001");
-      expect(resultado.patrulla.estado).toBe("EN_PREVENCION");
+      expect(resultado.mision?.codigo).toBe("MIS-2026-0001");
+      expect(resultado.patrulla?.estado).toBe("EN_PREVENCION");
       expect(resultado.recursos).toHaveLength(1);
       expect(resultado.puntoCritico?.codigo).toBe("PC-COL-01");
 
@@ -394,6 +399,131 @@ describe("Módulo Eventos ATP / Prevención (HU-30) - Pruebas Unitarias", () => 
         "en_mision"
       );
       expect(spyEmitirSocket).toHaveBeenCalledWith(resultado);
+    });
+  });
+
+  describe("3. Listado Paginado y Filtros H34 (H76)", () => {
+    it("debe aplicar defaults page=1 y limit=20 en ListarEventosPrevencionQuerySchema", () => {
+      const parsed = ListarEventosPrevencionQuerySchema.safeParse({});
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.page).toBe(1);
+        expect(parsed.data.limit).toBe(20);
+      }
+    });
+
+    it("debe rechazar estado inválido fuera del enum (ej. EN_EJECUCION)", () => {
+      const parsed = ListarEventosPrevencionQuerySchema.safeParse({
+        estado: "EN_EJECUCION",
+      });
+      expect(parsed.success).toBe(false);
+    });
+
+    it("debe mapear correctamente eventos paginados con punto crítico PostGIS, patrulla y cuadrilla", async () => {
+      const fecha = new Date("2026-11-19T02:00:00.000Z");
+      vi.spyOn(repo, "listarEventosPrevencionPaginados").mockResolvedValueOnce({
+        total: 25,
+        eventos: [
+          {
+            ep_id: "80000000-0000-4000-8000-000000000001",
+            ep_codigo: "PREV-2026-0005",
+            ep_nombre: "Faja cortafuego Sector Niebla",
+            ep_descripcion: "Desmalezado preventivo",
+            ep_sector: "Niebla",
+            ep_direccion_texto: "Camino Real km 2",
+            ep_prioridad: "ALTA",
+            ep_estado: "EN_CURSO",
+            ep_latitud: "-39.8712",
+            ep_longitud: "-73.3951",
+            ep_ubicacion_geojson: { type: "Point", coordinates: [-73.3951, -39.8712] },
+            ep_creado_por_id: "00000000-0000-4000-8000-000000000001",
+            ep_creado_en: fecha,
+            ep_actualizado_en: fecha,
+            del_id: "30000000-0000-4000-8000-000000000003",
+            del_codigo: "COSTA",
+            del_nombre: "Delegación Municipal Costa",
+            pc_id: "40000000-0000-4000-8000-000000000005",
+            pc_codigo: "PC-COS-002",
+            pc_nombre: "Ladera Boscosa Niebla",
+            pc_descripcion: "Riesgo de incendio forestal",
+            pc_tipo_riesgo: "Incendio Forestal",
+            pc_prioridad: "CRITICA",
+            pc_latitud: -39.8712,
+            pc_longitud: -73.3951,
+            pc_ubicacion_geojson: { type: "Point", coordinates: [-73.3951, -39.8712] },
+          },
+        ] as any,
+        misionesPorEvento: new Map([
+          [
+            "80000000-0000-4000-8000-000000000001",
+            {
+              evento_prevencion_id: "80000000-0000-4000-8000-000000000001",
+              m_id: "60000000-0000-4000-8000-000000000005",
+              m_codigo: "MIS-2026-0050",
+              m_titulo: "Faja cortafuego Sector Niebla",
+              m_estado: "EN_CURSO",
+              m_tipo_mision: "PREVENCION",
+              m_fecha_inicio: fecha,
+              m_fecha_cierre: null,
+              pv_id: "50000000-0000-4000-8000-000000000002",
+              pv_nombre: "Patrulla Costa 1",
+              pv_estado: "EN_PREVENCION",
+              c_id: "70000000-0000-4000-8000-000000000001",
+              c_nombre: "Cuadrilla Forestal Costa",
+              c_estado: "EN_MISION",
+            },
+          ],
+        ]),
+        recursosPorEvento: new Map([
+          [
+            "80000000-0000-4000-8000-000000000001",
+            [{ recursoId: "00000000-0000-4000-8000-000000000001", nombre: "Motobomba", cantidadAsignada: 1 }],
+          ],
+        ]),
+      });
+
+      const res = await listarEventosPrevencionService({ page: 2, limit: 10 });
+
+      expect(res.data).toHaveLength(1);
+      expect(res.data[0].codigo).toBe("PREV-2026-0005");
+      expect(res.data[0].latitud).toBe(-39.8712);
+      expect(res.data[0].puntoCritico?.codigo).toBe("PC-COS-002");
+      expect(res.data[0].puntoCritico?.ubicacionGeoJson).toEqual({
+        type: "Point",
+        coordinates: [-73.3951, -39.8712],
+      });
+      expect(res.data[0].patrulla?.nombre).toBe("Patrulla Costa 1");
+      expect(res.data[0].cuadrilla?.nombre).toBe("Cuadrilla Forestal Costa");
+      expect(res.data[0].recursos).toHaveLength(1);
+      expect(res.meta).toEqual({
+        total: 25,
+        page: 2,
+        limit: 10,
+        totalPages: 3,
+        hasNext: true,
+        hasPrev: true,
+      });
+    });
+
+    it("debe retornar data vacío y totalPages 0 cuando no existen coincidencias", async () => {
+      vi.spyOn(repo, "listarEventosPrevencionPaginados").mockResolvedValueOnce({
+        total: 0,
+        eventos: [],
+        misionesPorEvento: new Map(),
+        recursosPorEvento: new Map(),
+      });
+
+      const res = await listarEventosPrevencionService({ page: 1, limit: 20 });
+
+      expect(res.data).toEqual([]);
+      expect(res.meta).toEqual({
+        total: 0,
+        page: 1,
+        limit: 20,
+        totalPages: 0,
+        hasNext: false,
+        hasPrev: false,
+      });
     });
   });
 });

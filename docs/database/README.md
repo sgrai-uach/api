@@ -618,6 +618,50 @@ Gestiona el levantamiento de casos excepcionales de vulnerabilidad social y requ
 | `eliminado_en` | `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal para borrado lógico (soft delete). |
 | `eliminado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` (ON DELETE SET NULL) responsable de la baja lógica. |
 
+#### Tabla: `evento_prevencion` (Eventos Programados de Prevención Comunal - HU-30 / H76 / H77)
+Gestiona operativos y misiones preventivas sobre puntos críticos o sectores vulnerables sin requerir un incidente formal previo (Regla §3.4).
+
+| Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
+|---|---|---|---|---|
+| `id` | `UUID` | NO | `gen_random_uuid()` | Identificador único del evento preventivo. |
+| `codigo` | `VARCHAR(20)` | NO | — | Código institucional único (ej. `PREV-2026-0001`). Unique. |
+| `nombre` | `VARCHAR(150)` | NO | — | Título descriptivo de la intervención preventiva. |
+| `descripcion` | `TEXT` | NO | — | Tareas planificadas y medidas mitigadoras. |
+| `prioridad` | `VARCHAR(20)` | NO | `'MEDIA'` | Prioridad (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
+| `estado` | `VARCHAR(50)` | NO | `'PLANIFICADA'` | Estado (`PLANIFICADA`, `EN_CURSO`, `COMPLETADA`, `CANCELADA`). |
+| `sector` | `VARCHAR(150)` | SÍ | `NULL` | Sector o población objetivo en Valdivia. |
+| `direccion_texto` | `VARCHAR(255)` | SÍ | `NULL` | Dirección o punto de referencia. |
+| `punto_critico_id` | `UUID` | SÍ | `NULL` | FK a `prevencion.id` (ON DELETE SET NULL). |
+| `delegacion_id` | `UUID` | NO | — | FK a `delegacion.id` (ON DELETE RESTRICT). |
+| `latitud` | `DECIMAL(10, 7)` | NO | — | Coordenada Y (WGS 84). |
+| `longitud` | `DECIMAL(10, 7)` | NO | — | Coordenada X (WGS 84). |
+| `ubicacion` | `GEOMETRY(Point, 4326)` | SÍ | `NULL` | Geometría espacial PostGIS indexada con GiST. |
+| `fecha_estimada_fin` | `TIMESTAMPTZ` | SÍ | `NULL` | Fecha y hora estimada de finalización (Migración 072 / H77). |
+| `creado_por_id` | `UUID` | NO | — | FK a `usuario.id` (ON DELETE RESTRICT). |
+| `actualizado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` (ON DELETE SET NULL) del último editor (Migración 072 / H77). |
+| `activo` | `BOOLEAN` | NO | `true` | Estado operativo para borrado lógico (Migración 046 / H76). |
+| `eliminado_en` | `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal de desactivación lógica (Migración 046 / H76). |
+| `eliminado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` que desactivó el evento (Migración 046 / H76). |
+| `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de creación. |
+| `actualizado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de última modificación. |
+
+#### Tabla: `evento_prevencion_recurso` (Insumos y Activos Asignados a Prevención - HU-30 / HU-33 / Migraciones 021 y 060)
+Registra los materiales e instrumentos del inventario logístico despachados hacia eventos preventivos comunales, vinculándolos a la misión táctica correspondiente.
+
+| Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
+|---|---|---|---|---|
+| `id` | `UUID` | NO | `gen_random_uuid()` | Identificador único de la asignación. |
+| `evento_prevencion_id` | `UUID` | NO | — | FK a `evento_prevencion.id` (ON DELETE CASCADE). |
+| `recurso_id` | `UUID` | NO | — | FK a `recurso.id` (ON DELETE RESTRICT). |
+| `mision_id` | `UUID` | SÍ | `NULL` | FK a `mision.id` (ON DELETE SET NULL). Vincula el recurso asignado con su misión preventiva específica (Migración 060 / HU-33). |
+| `cantidad_asignada` | `INTEGER` | NO | — | Cantidad asignada (`CHECK (cantidad_asignada > 0)`). |
+| `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de asignación. |
+
+*Índices:*
+- `idx_evento_prev_rec_evento`: `(evento_prevencion_id)`
+- `idx_evento_prev_rec_recurso`: `(recurso_id)`
+- `idx_evento_prevencion_recurso_mision`: `(mision_id)` (Migración 060)
+
 ---
 
 ### 3.5 Entidades del Modelo Maestro en Hoja de Ruta (Roadmap de Persistencia)
@@ -667,7 +711,7 @@ Las siguientes entidades forman parte del diseño conceptual inicial del sistema
 | **EstadoMision** | `'PLANIFICADA'`, `'DESPACHADA'`, `'EN_CURSO'`, `'COMPLETADA'`, `'CANCELADA'`, `'RECHAZADA'` | `src/lib/db/types.ts` |
 | **TipoMision** | `'VERIFICACION'`, `'ATENCION_CUADRILLA'`, `'PREVENCION'`, `'RECUPERACION'`, `'ASISTENCIA_SOCIAL'` | `src/lib/db/types.ts` |
 | **EstadoRecurso** | `'DISPONIBLE'`, `'ASIGNADO'`, `'EN_MANTENCION'`, `'BAJO_STOCK'`, `'NO_DISPONIBLE'` | `src/lib/db/types.ts` |
-| **EstadoPatrulla** | `'DISPONIBLE'`, `'EN_VERIFICACION'`, `'NO_DISPONIBLE'` | `src/lib/db/types.ts` |
+| **EstadoPatrulla** | `'DISPONIBLE'`, `'EN_VERIFICACION'`, `'EN_PREVENCION'`, `'EN_RECUPERACION'`, `'EN_MISION'`, `'NO_DISPONIBLE'` | `src/lib/db/types.ts` |
 | **EstadoCuadrilla** | `'DISPONIBLE'`, `'EN_MISION'`, `'NO_DISPONIBLE'` | `src/lib/db/types.ts` |
 | **EstadoOperativoPersonal** | `'disponible'`, `'en_mision'`, `'en_patrulla'`, `'descanso'`, `'licencia'`, `'inactivo'` | `src/lib/db/types.ts` |
 | **EstadoEventoAsistenciaSocial** | `'PENDIENTE'`, `'ASIGNADO'`, `'EN_EVALUACION_FIBE'`, `'FINALIZADO'`, `'DESCARTADO'` | `src/lib/db/types.ts` |
