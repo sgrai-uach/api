@@ -398,16 +398,19 @@ export function emitirRecuperacionActualizada(payload: unknown): void {
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "sala:encargados",
-          event: "recuperacion:actualizada",
-          payload,
-        })
-      )
-      .catch(() => {});
+    const rooms = ["sala:encargados", "encargado", "mapa"];
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "recuperacion:actualizada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 
