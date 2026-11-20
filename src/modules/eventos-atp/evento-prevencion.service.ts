@@ -1,20 +1,26 @@
 import { db } from "@/lib/db";
 import { buildPaginationMeta } from "@/lib/shared/pagination.schema";
 import type {
+  AsignarRecursosPrevencionInput,
+  AsignarRecursosPrevencionResponseData,
   CrearEventoPrevencionInput,
   EditarEventoPrevencionInput,
   EstadoEventoPrevencion,
+  EventoPrevencionDetalleResponseData,
   EventoPrevencionEditado,
   EventoPrevencionListadoItem,
   EventoPrevencionResponse,
   ListarEventosPrevencionQuery,
   ListarEventosPrevencionResponse,
   PrioridadEventoPrevencion,
+  RecursoAsignadoPrevencionDetalle,
 } from "./evento-prevencion.schema";
 import * as repo from "./evento-prevencion.repository";
 import {
   emitirEventoPrevencionActualizado,
   emitirEventoPrevencionCreado,
+  emitirRecursoActualizado,
+  notificarPatrullaActualizada,
 } from "@/lib/socket";
 
 export class PatrullaNoDisponibleError extends Error {
@@ -28,6 +34,27 @@ export class StockInsuficienteError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "StockInsuficienteError";
+  }
+}
+
+export class RecursoNoDisponibleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RecursoNoDisponibleError";
+  }
+}
+
+export class BadRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BadRequestError";
+  }
+}
+
+export class ConflictoEstadoError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConflictoEstadoError";
   }
 }
 
@@ -552,4 +579,318 @@ export async function editarEventoPrevencionService(
   }
 
   return eventoEditado;
+}
+
+/**
+ * Servicio para asignar patrulla verificadora y recursos logísticos a un evento de prevención (HU-33).
+ * Aplica bloqueo transaccional SELECT FOR UPDATE sobre evento, patrulla y recurso (§3.6),
+ * valida disponibilidad efectiva para granel y prohibición de individuales en mantención/asignados,
+ * genera misión táctica con tipo_mision = 'PREVENCION', persiste en evento_prevencion_recurso
+ * actualizando cantidad_en_uso y emite eventos WebSocket prevencion:actualizada, recurso:actualizado y patrulla:actualizada.
+ */
+export async function asignarRecursosPrevencionService(
+  eventoPrevencionId: string,
+  input: AsignarRecursosPrevencionInput,
+  usuarioId: string
+): Promise<AsignarRecursosPrevencionResponseData> {
+  const { resultado, recursosParaSocket, patrullaPayload } = await db
+    .transaction()
+    .execute(async (trx) => {
+      // 1. Validar existencia y estado operativo del evento de prevención con bloqueo FOR UPDATE
+      const evento = await repo.buscarEventoPrevencionParaEdicion(trx, eventoPrevencionId);
+      if (!evento || evento.eliminado_en !== null) {
+        throw new NotFoundError("El evento de prevención indicado no fue encontrado.");
+      }
+
+      if (!evento.activo) {
+        throw new ConflictoEstadoError(
+          `No es posible asignar recursos al evento de prevención "${evento.nombre}" porque se encuentra desactivado del sistema.`
+        );
+      }
+
+      if (ESTADOS_NO_EDITABLES.has(evento.estado)) {
+        throw new ConflictoEstadoError(
+          `No es posible asignar recursos a un evento de prevención en estado ${evento.estado}.`
+        );
+      }
+
+      // 2. Validar existencia y disponibilidad de la patrulla verificadora con bloqueo FOR UPDATE
+      const patrulla = await repo.buscarPatrullaParaBloqueo(trx, input.patrullaId);
+      if (!patrulla) {
+        throw new NotFoundError("La patrulla verificadora indicada no fue encontrada.");
+      }
+
+      if (patrulla.estado !== "DISPONIBLE") {
+        throw new PatrullaNoDisponibleError(
+          `La patrulla "${patrulla.nombre}" no está disponible para asignación (estado actual: ${patrulla.estado}).`
+        );
+      }
+
+      // 3. Consolidar recursos requeridos agrupando cantidades por recursoId y ordenando IDs para evitar deadlocks
+      const mapaRecursosSolicitados = new Map<string, number>();
+      for (const item of input.recursos) {
+        const acumulado = mapaRecursosSolicitados.get(item.recursoId) ?? 0;
+        mapaRecursosSolicitados.set(item.recursoId, acumulado + item.cantidad);
+      }
+      const recursoIds = Array.from(mapaRecursosSolicitados.keys()).sort();
+
+      // 4. Bloquear filas de recursos con SELECT ... FOR UPDATE
+      const recursosEnBd = await repo.obtenerRecursosParaBloqueo(trx, recursoIds);
+      if (recursosEnBd.length !== recursoIds.length) {
+        const encontrados = new Set(recursosEnBd.map((r) => r.id));
+        const faltantes = recursoIds.filter((id) => !encontrados.has(id));
+        throw new NotFoundError(
+          `Uno o más recursos solicitados no existen en el inventario: ${faltantes.join(", ")}`
+        );
+      }
+
+      // 5. Validar regla de negocio §3.6 (Inventario híbrido)
+      for (const recurso of recursosEnBd) {
+        const cantidadSolicitada = mapaRecursosSolicitados.get(recurso.id)!;
+
+        if (recurso.es_individual) {
+          if (cantidadSolicitada !== 1) {
+            throw new BadRequestError(
+              `El activo individual o vehículo "${recurso.nombre}" solo admite una cantidad asignada de 1 unidad.`
+            );
+          }
+          if (recurso.estado === "EN_MANTENCION") {
+            throw new RecursoNoDisponibleError(
+              `El activo individual "${recurso.nombre}" se encuentra en mantención y no puede ser asignado.`
+            );
+          }
+          if (recurso.estado === "NO_DISPONIBLE") {
+            throw new RecursoNoDisponibleError(
+              `El activo individual "${recurso.nombre}" no se encuentra disponible.`
+            );
+          }
+          if (recurso.estado === "ASIGNADO" || Number(recurso.cantidad_en_uso ?? 0) >= 1) {
+            throw new RecursoNoDisponibleError(
+              `El activo individual "${recurso.nombre}" ya se encuentra asignado a otra misión u operación activa.`
+            );
+          }
+        } else {
+          if (recurso.estado === "EN_MANTENCION") {
+            throw new RecursoNoDisponibleError(
+              `El recurso "${recurso.nombre}" se encuentra en mantención y no puede ser asignado.`
+            );
+          }
+          const inventario = Number(recurso.cantidad_inventario);
+          const enUso = Number(recurso.cantidad_en_uso ?? 0);
+          const disponible = Math.max(0, inventario - enUso);
+
+          if (disponible < cantidadSolicitada) {
+            throw new StockInsuficienteError(
+              `Stock insuficiente para el recurso "${recurso.nombre}". Solicitado: ${cantidadSolicitada}, Disponible: ${disponible}.`
+            );
+          }
+        }
+      }
+
+      // 6. Generar correlativo oficial de misión
+      const codigoMision = await repo.generarSiguienteCodigoMision(trx);
+
+      // 7. Crear misión táctica tipo PREVENCION vinculada a evento_prevencion_id (sin incidente previo §3.4)
+      const nuevaMision = await repo.insertarMisionPrevencion(trx, {
+        codigo: codigoMision,
+        titulo: `Despacho preventivo: ${evento.nombre}`,
+        descripcion: evento.descripcion,
+        prioridad: evento.prioridad,
+        eventoPrevencionId: evento.id,
+        puntoCriticoId: evento.punto_critico_id,
+        patrullaId: patrulla.id,
+        encargadoId: usuarioId,
+        creadoPorId: usuarioId,
+      });
+
+      // 8. Registrar asignaciones en evento_prevencion_recurso vinculadas a mision_id y actualizar cantidad_en_uso
+      const asignaciones = Array.from(mapaRecursosSolicitados.entries()).map(
+        ([recursoId, cantidad]) => ({
+          eventoPrevencionId: evento.id,
+          recursoId,
+          misionId: nuevaMision.id,
+          cantidad,
+        })
+      );
+      await repo.insertarRecursosPrevencionConMision(trx, asignaciones);
+
+      const recursosDetalleRespuesta: RecursoAsignadoPrevencionDetalle[] = [];
+      const recursosParaSocket: Record<string, unknown>[] = [];
+
+      for (const recurso of recursosEnBd) {
+        const cantidadSolicitada = mapaRecursosSolicitados.get(recurso.id)!;
+        const recursoActualizado = recurso.es_individual
+          ? await repo.actualizarRecursoIndividualAsignado(trx, recurso.id)
+          : await repo.actualizarRecursoGranelUso(trx, recurso.id, cantidadSolicitada);
+
+        recursosDetalleRespuesta.push({
+          recursoId: recursoActualizado.id,
+          nombre: recursoActualizado.nombre,
+          esIndividual: Boolean(recursoActualizado.es_individual),
+          cantidadAsignada: cantidadSolicitada,
+          cantidadEnUso: Number(recursoActualizado.cantidad_en_uso),
+          estadoRecurso: recursoActualizado.estado,
+        });
+
+        recursosParaSocket.push(recursoActualizado as unknown as Record<string, unknown>);
+      }
+
+      // 9. Transicionar patrulla a EN_PREVENCION y líder a en_mision
+      await repo.actualizarEstadoPatrulla(trx, patrulla.id, "EN_PREVENCION");
+      if (patrulla.usuario_lider_id) {
+        await repo.actualizarEstadoPersonalLider(trx, patrulla.usuario_lider_id, "en_mision");
+      }
+
+      // 10. Registrar marca de auditoría en evento_prevencion
+      await repo.marcarActualizacionEventoPrevencion(trx, evento.id, usuarioId);
+
+      const asignadoEn = new Date().toISOString();
+
+      const patrullaPayload = {
+        patrullaId: patrulla.id,
+        nombre: patrulla.nombre,
+        estado: "EN_PREVENCION",
+        delegacionId: patrulla.delegacion_id,
+        usuarioLiderId: patrulla.usuario_lider_id,
+        misionActivaId: nuevaMision.id,
+        incidenteId: null,
+        actualizadoEn: asignadoEn,
+      };
+
+      const resultado: AsignarRecursosPrevencionResponseData = {
+        evento: {
+          id: evento.id,
+          codigo: evento.codigo,
+          nombre: evento.nombre,
+          estado: evento.estado as EstadoEventoPrevencion,
+        },
+        mision: {
+          id: nuevaMision.id,
+          codigo: nuevaMision.codigo,
+          titulo: nuevaMision.titulo,
+          estado: nuevaMision.estado,
+          tipoMision: nuevaMision.tipo_mision,
+        },
+        patrulla: {
+          id: patrulla.id,
+          nombre: patrulla.nombre,
+          estado: "EN_PREVENCION",
+        },
+        recursos: recursosDetalleRespuesta,
+        asignadoEn,
+      };
+
+      return { resultado, recursosParaSocket, patrullaPayload };
+    });
+
+  // 11. Emisiones en tiempo real vía WebSockets / Redis PubSub
+  try {
+    emitirEventoPrevencionActualizado({
+      id: resultado.evento.id,
+      codigo: resultado.evento.codigo,
+      nombre: resultado.evento.nombre,
+      ...resultado,
+    });
+    for (const recurso of recursosParaSocket) {
+      emitirRecursoActualizado(recurso);
+    }
+    notificarPatrullaActualizada(patrullaPayload);
+  } catch (err) {
+    console.error(
+      "Error al emitir notificaciones Socket.io tras asignación a prevención:",
+      err
+    );
+  }
+
+  return resultado;
+}
+
+/**
+ * Consulta el detalle integral de un evento de prevención comunal, incluyendo
+ * punto crítico PostGIS asociado, delegación, misiones desplegadas y recursos asignados (HU-33).
+ */
+export async function obtenerDetalleEventoPrevencionService(
+  eventoPrevencionId: string
+): Promise<EventoPrevencionDetalleResponseData> {
+  const evento = await repo.buscarEventoPrevencionDetallePorId(eventoPrevencionId);
+  if (!evento) {
+    throw new NotFoundError("El evento de prevención indicado no fue encontrado.");
+  }
+
+  const [misionesDb, recursosDb] = await Promise.all([
+    repo.buscarMisionesPorEventoPrevencionId(evento.ep_id),
+    repo.buscarRecursosAsignadosDetallePorEventoPrevencionId(evento.ep_id),
+  ]);
+
+  return {
+    id: evento.ep_id,
+    codigo: evento.ep_codigo,
+    nombre: evento.ep_nombre,
+    descripcion: evento.ep_descripcion,
+    sector: evento.ep_sector,
+    direccionTexto: evento.ep_direccion_texto,
+    prioridad: evento.ep_prioridad as PrioridadEventoPrevencion,
+    estado: evento.ep_estado as EstadoEventoPrevencion,
+    latitud: Number(evento.ep_latitud),
+    longitud: Number(evento.ep_longitud),
+    ubicacionGeoJson: evento.ep_ubicacion_geojson ?? null,
+    puntoCritico: evento.pc_id
+      ? {
+          id: evento.pc_id,
+          codigo: evento.pc_codigo!,
+          nombre: evento.pc_nombre!,
+          descripcion: evento.pc_descripcion ?? null,
+          tipoRiesgo: evento.pc_tipo_riesgo ?? null,
+          prioridad: (evento.pc_prioridad ?? "MEDIA") as PrioridadEventoPrevencion,
+          latitud: Number(evento.pc_latitud),
+          longitud: Number(evento.pc_longitud),
+          ubicacionGeoJson: evento.pc_ubicacion_geojson ?? null,
+        }
+      : null,
+    delegacion: evento.del_id
+      ? {
+          id: evento.del_id,
+          codigo: evento.del_codigo ?? "",
+          nombre: evento.del_nombre ?? "",
+        }
+      : null,
+    misiones: misionesDb.map((m) => ({
+      id: m.m_id,
+      codigo: m.m_codigo,
+      titulo: m.m_titulo,
+      estado: m.m_estado,
+      tipoMision: m.m_tipo_mision,
+      patrulla: m.pv_id
+        ? {
+            id: m.pv_id,
+            nombre: m.pv_nombre!,
+            estado: m.pv_estado!,
+          }
+        : null,
+      cuadrilla: m.c_id
+        ? {
+            id: m.c_id,
+            nombre: m.c_nombre!,
+            estado: m.c_estado!,
+          }
+        : null,
+      fechaInicio: toIsoString(m.m_fecha_inicio),
+      fechaCierre: toIsoString(m.m_fecha_cierre),
+      creadoEn: toIsoString(m.m_creado_en)!,
+    })),
+    recursosAsignados: recursosDb.map((r) => ({
+      id: r.id,
+      recursoId: r.recurso_id,
+      nombre: r.recurso_nombre ?? "Recurso",
+      esIndividual: Boolean(r.recurso_es_individual),
+      cantidadAsignada: Number(r.cantidad_asignada),
+      misionId: r.mision_id ?? null,
+      creadoEn: toIsoString(r.creado_en)!,
+    })),
+    fechaEstimadaFin: toIsoString(evento.ep_fecha_estimada_fin),
+    creadoPorId: evento.ep_creado_por_id,
+    actualizadoPorId: evento.ep_actualizado_por_id ?? null,
+    creadoEn: toIsoString(evento.ep_creado_en)!,
+    actualizadoEn: toIsoString(evento.ep_actualizado_en)!,
+  };
 }

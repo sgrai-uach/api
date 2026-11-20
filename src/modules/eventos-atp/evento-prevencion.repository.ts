@@ -1,6 +1,6 @@
 import { sql, type Transaction } from "kysely";
 import { db } from "@/lib/db";
-import type { Database, EstadoOperativo } from "@/lib/db/types";
+import type { Database, EstadoOperativo, EstadoRecurso } from "@/lib/db/types";
 import type { ListarEventosPrevencionQuery } from "./evento-prevencion.schema";
 
 export type Trx = Transaction<Database>;
@@ -12,6 +12,17 @@ export async function buscarPatrullaPorId(trx: Trx, patrullaId: string) {
     .where("id", "=", patrullaId)
     .where("eliminado_en", "is", null)
     .where("activo", "=", true)
+    .executeTakeFirst();
+}
+
+export async function buscarPatrullaParaBloqueo(trx: Trx, patrullaId: string) {
+  return await trx
+    .selectFrom("patrulla_verificadora")
+    .select(["id", "nombre", "estado", "delegacion_id", "usuario_lider_id"])
+    .where("id", "=", patrullaId)
+    .where("eliminado_en", "is", null)
+    .where("activo", "=", true)
+    .forUpdate()
     .executeTakeFirst();
 }
 
@@ -33,11 +44,22 @@ export async function actualizarEstadoPersonalLider(
   estadoOperativo: EstadoOperativo
 ) {
   // H11: la disponibilidad reside en `usuario.estado_operativo`
-  return await trx
+  await trx
     .updateTable("usuario")
     .set({ estado_operativo: estadoOperativo })
     .where("id", "=", usuarioId)
     .execute();
+
+  if (estadoOperativo === "en_mision") {
+    await trx
+      .updateTable("personal")
+      .set({
+        disponible_terreno: false,
+        updated_at: new Date(),
+      })
+      .where("usuario_id", "=", usuarioId)
+      .execute();
+  }
 }
 
 export async function buscarDelegacionPorId(trx: Trx, delegacionId: string) {
@@ -60,9 +82,20 @@ export async function obtenerRecursosParaBloqueo(trx: Trx, recursoIds: string[])
   if (recursoIds.length === 0) return [];
   return await trx
     .selectFrom("recurso")
-    .select(["id", "nombre", "cantidad_inventario", "cantidad_en_uso", "eliminado_en"])
+    .select([
+      "id",
+      "nombre",
+      "cantidad_inventario",
+      "cantidad_en_uso",
+      "cantidad_minima",
+      "estado",
+      "es_individual",
+      "eliminado_en",
+    ])
     .where("id", "in", recursoIds)
     .where("eliminado_en", "is", null)
+    .orderBy("id", "asc")
+    .forUpdate()
     .execute();
 }
 
@@ -570,4 +603,230 @@ export async function obtenerMisionYPatrullaDeEventoPrevencion(trx: Trx, eventoI
     .where("m.evento_prevencion_id", "=", eventoId)
     .orderBy("m.creado_en", "desc")
     .executeTakeFirst();
+}
+
+export async function actualizarRecursoGranelUso(
+  trx: Trx,
+  recursoId: string,
+  cantidadAsignada: number
+) {
+  const recurso = await trx
+    .selectFrom("recurso")
+    .select([
+      "id",
+      "nombre",
+      "cantidad_inventario",
+      "cantidad_en_uso",
+      "cantidad_minima",
+      "es_individual",
+    ])
+    .where("id", "=", recursoId)
+    .executeTakeFirstOrThrow();
+
+  const nuevoEnUso = Number(recurso.cantidad_en_uso ?? 0) + cantidadAsignada;
+  const inventario = Number(recurso.cantidad_inventario);
+  const cantidadMinima = Number(recurso.cantidad_minima ?? 0);
+  const nuevoDisponible = Math.max(0, inventario - nuevoEnUso);
+
+  let nuevoEstado: EstadoRecurso = "DISPONIBLE";
+  if (nuevoDisponible === 0) {
+    nuevoEstado = "NO_DISPONIBLE";
+  } else if (cantidadMinima > 0 && nuevoDisponible <= cantidadMinima) {
+    nuevoEstado = "BAJO_STOCK";
+  }
+
+  return await trx
+    .updateTable("recurso")
+    .set({
+      cantidad_en_uso: nuevoEnUso,
+      estado: nuevoEstado,
+      actualizado_en: new Date(),
+    })
+    .where("id", "=", recursoId)
+    .returning([
+      "id",
+      "nombre",
+      "es_individual",
+      "estado",
+      "cantidad_inventario",
+      "cantidad_en_uso",
+      "cantidad_minima",
+    ])
+    .executeTakeFirstOrThrow();
+}
+
+export async function actualizarRecursoIndividualAsignado(trx: Trx, recursoId: string) {
+  return await trx
+    .updateTable("recurso")
+    .set({
+      cantidad_en_uso: 1,
+      estado: "ASIGNADO",
+      actualizado_en: new Date(),
+    })
+    .where("id", "=", recursoId)
+    .returning([
+      "id",
+      "nombre",
+      "es_individual",
+      "estado",
+      "cantidad_inventario",
+      "cantidad_en_uso",
+      "cantidad_minima",
+    ])
+    .executeTakeFirstOrThrow();
+}
+
+export interface AsignacionRecursoConMisionData {
+  eventoPrevencionId: string;
+  recursoId: string;
+  misionId: string;
+  cantidad: number;
+}
+
+export async function insertarRecursosPrevencionConMision(
+  trx: Trx,
+  asignaciones: AsignacionRecursoConMisionData[]
+) {
+  if (asignaciones.length === 0) return;
+  return await trx
+    .insertInto("evento_prevencion_recurso")
+    .values(
+      asignaciones.map((a) => ({
+        evento_prevencion_id: a.eventoPrevencionId,
+        recurso_id: a.recursoId,
+        mision_id: a.misionId,
+        cantidad_asignada: a.cantidad,
+      }))
+    )
+    .execute();
+}
+
+export async function marcarActualizacionEventoPrevencion(
+  trx: Trx,
+  eventoId: string,
+  usuarioId: string
+) {
+  return await trx
+    .updateTable("evento_prevencion")
+    .set({
+      actualizado_en: new Date(),
+      actualizado_por_id: usuarioId,
+    })
+    .where("id", "=", eventoId)
+    .execute();
+}
+
+export async function buscarEventoPrevencionDetallePorId(eventoId: string) {
+  return await db
+    .selectFrom("evento_prevencion as ep")
+    .leftJoin("delegacion as d", "d.id", "ep.delegacion_id")
+    .leftJoin("prevencion as pc", "pc.id", "ep.punto_critico_id")
+    .select([
+      "ep.id as ep_id",
+      "ep.codigo as ep_codigo",
+      "ep.nombre as ep_nombre",
+      "ep.descripcion as ep_descripcion",
+      "ep.sector as ep_sector",
+      "ep.direccion_texto as ep_direccion_texto",
+      "ep.prioridad as ep_prioridad",
+      "ep.estado as ep_estado",
+      "ep.latitud as ep_latitud",
+      "ep.longitud as ep_longitud",
+      sql<unknown>`ST_AsGeoJSON(ep.ubicacion)::json`.as("ep_ubicacion_geojson"),
+      "ep.fecha_estimada_fin as ep_fecha_estimada_fin",
+      "ep.creado_por_id as ep_creado_por_id",
+      "ep.actualizado_por_id as ep_actualizado_por_id",
+      "ep.creado_en as ep_creado_en",
+      "ep.actualizado_en as ep_actualizado_en",
+      "d.id as del_id",
+      "d.codigo as del_codigo",
+      "d.nombre as del_nombre",
+      "pc.id as pc_id",
+      "pc.codigo as pc_codigo",
+      "pc.nombre as pc_nombre",
+      "pc.descripcion as pc_descripcion",
+      "pc.tipo_riesgo as pc_tipo_riesgo",
+      "pc.prioridad as pc_prioridad",
+      "pc.latitud as pc_latitud",
+      "pc.longitud as pc_longitud",
+      sql<unknown>`ST_AsGeoJSON(pc.ubicacion)::json`.as("pc_ubicacion_geojson"),
+    ])
+    .where("ep.id", "=", eventoId)
+    .where("ep.activo", "=", true)
+    .where("ep.eliminado_en", "is", null)
+    .executeTakeFirst();
+}
+
+export async function buscarMisionesPorEventoPrevencionId(eventoId: string) {
+  return await db
+    .selectFrom("mision as m")
+    .leftJoin("patrulla_verificadora as pv", "pv.id", "m.patrulla_id")
+    .leftJoin("cuadrilla as c", "c.id", "m.cuadrilla_id")
+    .select([
+      "m.id as m_id",
+      "m.codigo as m_codigo",
+      "m.titulo as m_titulo",
+      "m.estado as m_estado",
+      "m.tipo_mision as m_tipo_mision",
+      "m.fecha_inicio as m_fecha_inicio",
+      "m.fecha_cierre as m_fecha_cierre",
+      "m.creado_en as m_creado_en",
+      "pv.id as pv_id",
+      "pv.nombre as pv_nombre",
+      "pv.estado as pv_estado",
+      "c.id as c_id",
+      "c.nombre as c_nombre",
+      "c.estado as c_estado",
+    ])
+    .where("m.evento_prevencion_id", "=", eventoId)
+    .orderBy("m.creado_en", "desc")
+    .execute();
+}
+
+export async function buscarRecursosAsignadosDetallePorEventoPrevencionId(eventoId: string) {
+  try {
+    return await db
+      .selectFrom("evento_prevencion_recurso as epr")
+      .leftJoin("recurso as r", "r.id", "epr.recurso_id")
+      .select([
+        "epr.id",
+        "epr.recurso_id",
+        "epr.cantidad_asignada",
+        "epr.mision_id",
+        "epr.creado_en",
+        "r.nombre as recurso_nombre",
+        "r.es_individual as recurso_es_individual",
+      ])
+      .where("epr.evento_prevencion_id", "=", eventoId)
+      .orderBy("epr.creado_en", "desc")
+      .execute();
+  } catch (err: unknown) {
+    const pgCode = (err as { code?: string })?.code;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (pgCode === "42703" || msg.includes("mision_id")) {
+      console.warn(
+        "Advertencia: la columna evento_prevencion_recurso.mision_id no existe aún en BD (ejecute `npm run db:migrate` para aplicar la migración 060). Retornando mision_id: null."
+      );
+      const filasSinMision = await db
+        .selectFrom("evento_prevencion_recurso as epr")
+        .leftJoin("recurso as r", "r.id", "epr.recurso_id")
+        .select([
+          "epr.id",
+          "epr.recurso_id",
+          "epr.cantidad_asignada",
+          "epr.creado_en",
+          "r.nombre as recurso_nombre",
+          "r.es_individual as recurso_es_individual",
+        ])
+        .where("epr.evento_prevencion_id", "=", eventoId)
+        .orderBy("epr.creado_en", "desc")
+        .execute();
+
+      return filasSinMision.map((f) => ({
+        ...f,
+        mision_id: null as string | null,
+      }));
+    }
+    throw err;
+  }
 }
