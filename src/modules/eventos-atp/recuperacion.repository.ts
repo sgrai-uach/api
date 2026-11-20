@@ -91,6 +91,7 @@ export async function obtenerRecursosParaBloqueo(trx: KyselyTrx, recursoIds: str
     ])
     .where("id", "in", recursoIds)
     .where("eliminado_en", "is", null)
+    .orderBy("id", "asc")
     .forUpdate()
     .execute();
 }
@@ -164,7 +165,7 @@ async function ajustarStockRecurso(
 ) {
   const recurso = await trx
     .selectFrom("recurso")
-    .select(["cantidad_inventario", "cantidad_en_uso", "cantidad_minima"])
+    .select(["cantidad_inventario", "cantidad_en_uso", "cantidad_minima", "estado"])
     .where("id", "=", recursoId)
     .executeTakeFirstOrThrow();
 
@@ -173,14 +174,18 @@ async function ajustarStockRecurso(
   const cantidadMinima = Number(recurso.cantidad_minima ?? 0);
   const disponible = Math.max(0, nuevoInventario - cantidadEnUso);
 
-  let nuevoEstado: EstadoRecurso = "DISPONIBLE";
-  if (disponible === 0) {
-    nuevoEstado = "NO_DISPONIBLE";
-  } else if (disponible <= cantidadMinima) {
-    nuevoEstado = "BAJO_STOCK";
+  let nuevoEstado: EstadoRecurso = recurso.estado;
+  if (recurso.estado !== "EN_MANTENCION") {
+    if (disponible === 0) {
+      nuevoEstado = "NO_DISPONIBLE";
+    } else if (disponible <= cantidadMinima) {
+      nuevoEstado = "BAJO_STOCK";
+    } else {
+      nuevoEstado = "DISPONIBLE";
+    }
   }
 
-  await trx
+  return trx
     .updateTable("recurso")
     .set({
       cantidad_inventario: nuevoInventario,
@@ -188,18 +193,27 @@ async function ajustarStockRecurso(
       actualizado_en: new Date(),
     })
     .where("id", "=", recursoId)
-    .execute();
+    .returningAll()
+    .executeTakeFirstOrThrow();
 }
 
 export async function descontarStockRecurso(
   trx: KyselyTrx,
   recursoId: string,
   cantidadADescontar: number
-) {
-  return ajustarStockRecurso(trx, recursoId, -cantidadADescontar);
+): Promise<void> {
+  await ajustarStockRecurso(trx, recursoId, -cantidadADescontar);
 }
 
 export async function devolverStockRecurso(
+  trx: KyselyTrx,
+  recursoId: string,
+  cantidadADevolver: number
+): Promise<void> {
+  await ajustarStockRecurso(trx, recursoId, cantidadADevolver);
+}
+
+export async function devolverStockRecursoConDetalle(
   trx: KyselyTrx,
   recursoId: string,
   cantidadADevolver: number
@@ -286,6 +300,26 @@ export async function buscarMisionPorRecuperacionId(
   return trx
     .selectFrom("mision")
     .select(["id", "codigo", "titulo", "estado", "tipo_mision", "patrulla_id"])
+    .where("recuperacion_id", "=", recuperacionId)
+    .executeTakeFirst();
+}
+
+export async function buscarMisionParaCierrePorRecuperacionId(
+  trx: KyselyTrx,
+  recuperacionId: string
+) {
+  return trx
+    .selectFrom("mision")
+    .select([
+      "id",
+      "codigo",
+      "titulo",
+      "estado",
+      "tipo_mision",
+      "patrulla_id",
+      "incidente_id",
+      "fecha_inicio",
+    ])
     .where("recuperacion_id", "=", recuperacionId)
     .executeTakeFirst();
 }
@@ -378,6 +412,31 @@ export async function reasignarPatrullaMision(
     .execute();
 }
 
+export async function registrarHitoMision(
+  trx: KyselyTrx,
+  datos: {
+    misionId: string;
+    hito: string;
+    descripcion: string;
+    registradoPorId: string;
+    latitud?: number | null;
+    longitud?: number | null;
+  }
+) {
+  return trx
+    .insertInto("mision_hito")
+    .values({
+      mision_id: datos.misionId,
+      hito: datos.hito,
+      descripcion: datos.descripcion,
+      registrado_por_id: datos.registradoPorId,
+      latitud: datos.latitud ?? null,
+      longitud: datos.longitud ?? null,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+}
+
 export async function registrarHitoReasignacionMision(
   trx: KyselyTrx,
   datos: {
@@ -388,17 +447,120 @@ export async function registrarHitoReasignacionMision(
     longitud?: number | null;
   }
 ) {
-  await trx
-    .insertInto("mision_hito")
-    .values({
-      mision_id: datos.misionId,
-      hito: "REASIGNACION_PATRULLA",
-      descripcion: datos.descripcion,
-      registrado_por_id: datos.registradoPorId,
-      latitud: datos.latitud ?? null,
-      longitud: datos.longitud ?? null,
-    })
+  await registrarHitoMision(trx, {
+    ...datos,
+    hito: "REASIGNACION_PATRULLA",
+  });
+}
+
+export async function bloquearRecuperacionPorId(trx: KyselyTrx, id: string) {
+  return trx
+    .selectFrom("recuperacion")
+    .selectAll()
+    .where("id", "=", id)
+    .forUpdate()
+    .executeTakeFirst();
+}
+
+export async function listarAsignacionesPendientesDevolucion(
+  trx: KyselyTrx,
+  recuperacionId: string
+) {
+  return trx
+    .selectFrom("recuperacion_recurso as rr")
+    .innerJoin("recurso as r", "r.id", "rr.recurso_id")
+    .select([
+      "rr.id",
+      "rr.recurso_id as recursoId",
+      "rr.cantidad_asignada as cantidadAsignada",
+      "r.nombre as nombre",
+      "r.es_individual as esIndividual",
+    ])
+    .where("rr.recuperacion_id", "=", recuperacionId)
+    .where("rr.devuelto_en", "is", null)
+    .forUpdate()
     .execute();
+}
+
+export async function marcarDevolucionAsignacion(
+  trx: KyselyTrx,
+  filaId: string,
+  cantidadConsumida: number,
+  cantidadDevuelta: number,
+  devueltoEn: Date
+) {
+  await trx
+    .updateTable("recuperacion_recurso")
+    .set({
+      cantidad_consumida: cantidadConsumida,
+      cantidad_devuelta: cantidadDevuelta,
+      devuelto_en: devueltoEn,
+    })
+    .where("id", "=", filaId)
+    .execute();
+}
+
+export async function liberarRecursoIndividual(trx: KyselyTrx, recursoId: string) {
+  const recurso = await trx
+    .selectFrom("recurso")
+    .selectAll()
+    .where("id", "=", recursoId)
+    .executeTakeFirstOrThrow();
+
+  if (recurso.estado !== "ASIGNADO") {
+    return recurso;
+  }
+
+  return trx
+    .updateTable("recurso")
+    .set({
+      estado: "DISPONIBLE",
+      actualizado_en: new Date(),
+    })
+    .where("id", "=", recursoId)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+}
+
+export async function completarMisionRecuperacion(
+  trx: KyselyTrx,
+  misionId: string,
+  fechaCierre: Date
+) {
+  return trx
+    .updateTable("mision")
+    .set({
+      estado: "COMPLETADA",
+      fecha_cierre: fechaCierre,
+      actualizado_en: fechaCierre,
+    })
+    .where("id", "=", misionId)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+}
+
+export async function cerrarRecuperacion(
+  trx: KyselyTrx,
+  id: string,
+  datos: {
+    observacionesCierre: string;
+    cerradoPorId: string;
+    fechaCierre: Date;
+  }
+) {
+  return trx
+    .updateTable("recuperacion")
+    .set({
+      estado: "COMPLETADA",
+      observaciones_cierre: datos.observacionesCierre,
+      fecha_cierre: datos.fechaCierre,
+      cerrado_por_id: datos.cerradoPorId,
+      actualizado_por_id: datos.cerradoPorId,
+      actualizado_en: datos.fechaCierre,
+    })
+    .where("id", "=", id)
+    .returningAll()
+    .executeTakeFirstOrThrow();
 }
 
 function formatearFechaIso(fecha: unknown): string | null {
@@ -607,6 +769,7 @@ export async function obtenerRecuperacionDetallePorIdRepo(
       sql<string | null>`CASE WHEN (to_jsonb(recuperacion) ? 'actualizado_por_id') THEN (to_jsonb(recuperacion)->>'actualizado_por_id')::uuid ELSE NULL END`.as("actualizado_por_id"),
       sql<Date | null>`CASE WHEN (to_jsonb(recuperacion) ? 'fecha_cierre') THEN (to_jsonb(recuperacion)->>'fecha_cierre')::timestamptz ELSE NULL END`.as("fecha_cierre"),
       sql<string | null>`CASE WHEN (to_jsonb(recuperacion) ? 'observaciones_cierre') THEN (to_jsonb(recuperacion)->>'observaciones_cierre') ELSE NULL END`.as("observaciones_cierre"),
+      sql<string | null>`CASE WHEN (to_jsonb(recuperacion) ? 'cerrado_por_id') THEN (to_jsonb(recuperacion)->>'cerrado_por_id')::uuid ELSE NULL END`.as("cerrado_por_id"),
       "recuperacion.creado_en",
       "recuperacion.actualizado_en",
     ])
@@ -626,6 +789,9 @@ export async function obtenerRecuperacionDetallePorIdRepo(
       "recuperacion_recurso.recurso_id",
       "recurso.nombre as recurso_nombre",
       "recuperacion_recurso.cantidad_asignada",
+      sql<number | null>`CASE WHEN (to_jsonb(recuperacion_recurso) ? 'cantidad_consumida') THEN (to_jsonb(recuperacion_recurso)->>'cantidad_consumida')::integer ELSE NULL END`.as("cantidad_consumida"),
+      sql<number | null>`CASE WHEN (to_jsonb(recuperacion_recurso) ? 'cantidad_devuelta') THEN (to_jsonb(recuperacion_recurso)->>'cantidad_devuelta')::integer ELSE NULL END`.as("cantidad_devuelta"),
+      sql<Date | null>`CASE WHEN (to_jsonb(recuperacion_recurso) ? 'devuelto_en') THEN (to_jsonb(recuperacion_recurso)->>'devuelto_en')::timestamptz ELSE NULL END`.as("devuelto_en"),
     ])
     .where("recuperacion_recurso.recuperacion_id", "=", id)
     .execute();
@@ -638,6 +804,9 @@ export async function obtenerRecuperacionDetallePorIdRepo(
       recursoId: i.recurso_id,
       nombre: i.recurso_nombre || "Recurso",
       cantidadAsignada: cant,
+      cantidadConsumida: i.cantidad_consumida !== null && i.cantidad_consumida !== undefined ? Number(i.cantidad_consumida) : null,
+      cantidadDevuelta: i.cantidad_devuelta !== null && i.cantidad_devuelta !== undefined ? Number(i.cantidad_devuelta) : null,
+      devueltoEn: formatearFechaIso(i.devuelto_en),
     };
   });
 
@@ -809,5 +978,6 @@ export async function obtenerRecuperacionDetallePorIdRepo(
     actualizadoPorId: recuperacion.actualizado_por_id ?? null,
     fechaCierre: formatearFechaIso(recuperacion.fecha_cierre),
     observacionesCierre: recuperacion.observaciones_cierre ?? null,
+    cerradoPorId: recuperacion.cerrado_por_id ?? null,
   };
 }

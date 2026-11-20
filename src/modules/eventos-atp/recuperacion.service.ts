@@ -6,6 +6,10 @@ import type {
   ListarRecuperacionesInput,
   ListarRecuperacionesResponse,
   RecuperacionDetalleResponse,
+  CerrarRecuperacionInput,
+  CerrarRecuperacionResponseData,
+  ConsumoRecursoCierre,
+  RecursoReintegradoCierre,
 } from "./recuperacion.schema";
 import { ListarRecuperacionesQuerySchema } from "./recuperacion.schema";
 import * as repo from "./recuperacion.repository";
@@ -14,7 +18,11 @@ import {
   emitirRecuperacionCreada,
   emitirRecuperacionActualizada,
   emitirPatrullaLiberadaDeOperativo,
+  emitirRecursoActualizado,
   notificarMisionAsignada,
+  notificarMisionActualizada,
+  notificarPatrullaActualizada,
+  type MisionActualizadaPayload,
 } from "@/lib/socket";
 import { buildPaginationMeta } from "@/lib/shared/pagination.schema";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
@@ -52,6 +60,20 @@ export class FechaEstimadaInvalidaError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "FechaEstimadaInvalidaError";
+  }
+}
+
+export class ConsumoInvalidoError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConsumoInvalidoError";
+  }
+}
+
+export class RecuperacionNoCerrableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RecuperacionNoCerrableError";
   }
 }
 
@@ -306,6 +328,13 @@ async function construirRespuestaRecuperacion(
         : String(registro.fecha_estimada_fin)
       : null,
     actualizadoPorId: registro.actualizado_por_id ?? null,
+    fechaCierre: registro.fecha_cierre
+      ? registro.fecha_cierre instanceof Date
+        ? registro.fecha_cierre.toISOString()
+        : String(registro.fecha_cierre)
+      : null,
+    observacionesCierre: registro.observaciones_cierre ?? null,
+    cerradoPorId: registro.cerrado_por_id ?? null,
     creadoEn:
       registro.creado_en instanceof Date
         ? registro.creado_en.toISOString()
@@ -661,4 +690,375 @@ export async function obtenerDetalleRecuperacionService(
   }
 
   return detalle;
+}
+
+export interface AsignacionPendienteCierre {
+  id: string;
+  recursoId: string;
+  nombre: string;
+  esIndividual: boolean;
+  cantidadAsignada: number;
+}
+
+export interface ReintegroCalculado {
+  recursoId: string;
+  nombre: string;
+  esIndividual: boolean;
+  cantidadAsignada: number;
+  cantidadConsumida: number;
+  remanente: number;
+  filas: Array<{
+    id: string;
+    cantidadAsignada: number;
+    cantidadConsumida: number;
+    cantidadDevuelta: number;
+  }>;
+}
+
+/**
+ * Calcula de forma pura los montos consumidos y remanentes a reintegrar por cada recurso
+ * asignado al operativo de recuperación (HU-75).
+ *
+ * Reglas:
+ * - Todo recursoId reportado en `consumos` debe pertenecer al operativo.
+ * - Los activos individuales (`esIndividual = true`) no se consumen (consumo máximo 0, remanente = asignada).
+ * - Los recursos a granel omitidos en `consumos` se asumen consumidos por completo (remanente = 0).
+ */
+export function calcularReintegroInventario(
+  asignaciones: AsignacionPendienteCierre[],
+  consumos: ConsumoRecursoCierre[]
+): ReintegroCalculado[] {
+  const mapaAgrupado = new Map<
+    string,
+    {
+      nombre: string;
+      esIndividual: boolean;
+      totalAsignada: number;
+      filas: Array<{ id: string; cantidadAsignada: number }>;
+    }
+  >();
+
+  for (const fila of asignaciones) {
+    const actual = mapaAgrupado.get(fila.recursoId);
+    if (actual) {
+      actual.totalAsignada += Number(fila.cantidadAsignada);
+      actual.filas.push({ id: fila.id, cantidadAsignada: Number(fila.cantidadAsignada) });
+    } else {
+      mapaAgrupado.set(fila.recursoId, {
+        nombre: fila.nombre,
+        esIndividual: Boolean(fila.esIndividual),
+        totalAsignada: Number(fila.cantidadAsignada),
+        filas: [{ id: fila.id, cantidadAsignada: Number(fila.cantidadAsignada) }],
+      });
+    }
+  }
+
+  const mapaConsumos = new Map<string, number>();
+  for (const c of consumos) {
+    if (!mapaAgrupado.has(c.recursoId)) {
+      throw new ConsumoInvalidoError(
+        `El recurso '${c.recursoId}' no está asignado a este operativo de recuperación.`
+      );
+    }
+    mapaConsumos.set(c.recursoId, c.cantidadConsumida);
+  }
+
+  const resultados: ReintegroCalculado[] = [];
+
+  for (const [recursoId, info] of mapaAgrupado.entries()) {
+    let consumida: number;
+
+    if (info.esIndividual) {
+      const reportada = mapaConsumos.get(recursoId) ?? 0;
+      if (reportada > 0) {
+        throw new ConsumoInvalidoError(
+          `El activo individual "${info.nombre}" no es consumible y debe reintegrarse completo (cantidadConsumida debe ser 0).`
+        );
+      }
+      consumida = 0;
+    } else if (mapaConsumos.has(recursoId)) {
+      consumida = mapaConsumos.get(recursoId)!;
+      if (consumida > info.totalAsignada) {
+        throw new ConsumoInvalidoError(
+          `La cantidad consumida (${consumida}) para "${info.nombre}" supera la cantidad asignada (${info.totalAsignada}).`
+        );
+      }
+    } else {
+      // Recurso omitido en `consumos`: se asume consumido por completo (remanente = 0).
+      consumida = info.totalAsignada;
+    }
+
+    const remanente = info.totalAsignada - consumida;
+
+    // Distribuir consumo y devolución entre las filas originales manteniendo invariantes por fila
+    let consumoRestante = consumida;
+    const filasDistribuidas = info.filas.map((f) => {
+      const cFila = Math.min(f.cantidadAsignada, consumoRestante);
+      consumoRestante -= cFila;
+      return {
+        id: f.id,
+        cantidadAsignada: f.cantidadAsignada,
+        cantidadConsumida: cFila,
+        cantidadDevuelta: f.cantidadAsignada - cFila,
+      };
+    });
+
+    resultados.push({
+      recursoId,
+      nombre: info.nombre,
+      esIndividual: info.esIndividual,
+      cantidadAsignada: info.totalAsignada,
+      cantidadConsumida: consumida,
+      remanente,
+      filas: filasDistribuidas,
+    });
+  }
+
+  return resultados;
+}
+
+/**
+ * Concluye formalmente un operativo de recuperación en estado EN_EJECUCION (HU-75).
+ * Transacciona atómicamente: bloqueo FOR UPDATE, reintegro de remanentes a `cantidad_inventario`
+ * (modelo H74), cierre de misión táctica, liberación de patrulla verificadora sin otras misiones activas
+ * y transición de `recuperacion.estado` a `COMPLETADA`, emitiendo eventos WebSocket post-commit.
+ */
+export async function cerrarRecuperacionService(
+  recuperacionId: string,
+  input: CerrarRecuperacionInput,
+  usuarioId: string
+): Promise<CerrarRecuperacionResponseData> {
+  const {
+    resultado,
+    recursosParaSocket,
+    patrullaParaSocket,
+    misionParaSocket,
+  } = await db.transaction().execute(async (trx) => {
+    // 1. Bloquear el operativo para serializar cierres y ediciones concurrentes
+    const actual = await repo.bloquearRecuperacionPorId(trx, recuperacionId);
+    if (!actual) {
+      throw new NotFoundError("El operativo de recuperación indicado no fue encontrado.");
+    }
+
+    if (actual.estado !== "EN_EJECUCION") {
+      throw new RecuperacionNoCerrableError(
+        `Solo es posible declarar concluido un operativo en estado EN_EJECUCION (estado actual: ${actual.estado}).`
+      );
+    }
+
+    // 2. Obtener asignaciones pendientes de devolución y calcular remanentes
+    const asignacionesPendientes = await repo.listarAsignacionesPendientesDevolucion(
+      trx,
+      recuperacionId
+    );
+    const reintegros = calcularReintegroInventario(asignacionesPendientes, input.consumos ?? []);
+
+    // 3. Bloquear filas de recursos en orden determinista por ID para evitar deadlocks
+    const recursoIdsOrdenados = reintegros.map((r) => r.recursoId).sort();
+    const recursosEnBd = await repo.obtenerRecursosParaBloqueo(trx, recursoIdsOrdenados);
+    const mapaRecursosBd = new Map(recursosEnBd.map((r) => [r.id, r]));
+
+    const fechaCierre = new Date();
+    const recursosReintegrados: RecursoReintegradoCierre[] = [];
+    const recursosParaSocket: Record<string, unknown>[] = [];
+
+    // 4. Reintegrar remanentes al inventario (modelo H74: cantidad_inventario) y registrar trazabilidad
+    for (const item of reintegros) {
+      let recursoActualizado = mapaRecursosBd.get(item.recursoId);
+
+      if (item.esIndividual) {
+        recursoActualizado = await repo.liberarRecursoIndividual(trx, item.recursoId);
+      } else if (item.remanente > 0) {
+        recursoActualizado = await repo.devolverStockRecursoConDetalle(
+          trx,
+          item.recursoId,
+          item.remanente
+        );
+      }
+
+      for (const fila of item.filas) {
+        await repo.marcarDevolucionAsignacion(
+          trx,
+          fila.id,
+          fila.cantidadConsumida,
+          fila.cantidadDevuelta,
+          fechaCierre
+        );
+      }
+
+      if (recursoActualizado) {
+        recursosReintegrados.push({
+          recursoId: item.recursoId,
+          nombre: item.nombre,
+          esIndividual: item.esIndividual,
+          cantidadAsignada: item.cantidadAsignada,
+          cantidadConsumida: item.cantidadConsumida,
+          cantidadDevuelta: item.remanente,
+          cantidadInventario: Number(recursoActualizado.cantidad_inventario),
+          cantidadEnUso: Number(recursoActualizado.cantidad_en_uso ?? 0),
+          estadoRecurso: recursoActualizado.estado,
+        });
+        recursosParaSocket.push(recursoActualizado as unknown as Record<string, unknown>);
+      }
+    }
+
+    // 5. Cerrar misión táctica activa asociada y registrar hito de cierre
+    const misionActual = await repo.buscarMisionParaCierrePorRecuperacionId(trx, recuperacionId);
+    let misionResumen: { id: string; codigo: string; estado: string } | null = null;
+    let misionParaSocket: MisionActualizadaPayload | null = null;
+    let patrullaLiberada: { id: string; nombre: string; estado: string } | null = null;
+    let patrullaParaSocket: Parameters<typeof notificarPatrullaActualizada>[0] | null = null;
+
+    if (misionActual) {
+      const estadosCerrables = ["PLANIFICADA", "DESPACHADA", "EN_CURSO"];
+      let estadoFinalMision: string = misionActual.estado;
+
+      if (estadosCerrables.includes(misionActual.estado)) {
+        const misionCerrada = await repo.completarMisionRecuperacion(
+          trx,
+          misionActual.id,
+          fechaCierre
+        );
+        estadoFinalMision = misionCerrada.estado;
+
+        const hito = await repo.registrarHitoMision(trx, {
+          misionId: misionActual.id,
+          hito: "OPERATIVO_CONCLUIDO",
+          descripcion: `Operativo concluido por Encargado: ${input.resumenCierre}`,
+          registradoPorId: usuarioId,
+          latitud: Number(actual.latitud),
+          longitud: Number(actual.longitud),
+        });
+
+        const fechaInicioIso = misionActual.fecha_inicio
+          ? misionActual.fecha_inicio instanceof Date
+            ? misionActual.fecha_inicio.toISOString()
+            : String(misionActual.fecha_inicio)
+          : null;
+
+        misionParaSocket = {
+          misionId: misionCerrada.id,
+          codigo: misionCerrada.codigo,
+          estado: misionCerrada.estado,
+          tipoMision: misionCerrada.tipo_mision,
+          patrullaId: misionCerrada.patrulla_id,
+          cuadrillaId: misionCerrada.cuadrilla_id,
+          incidenteId: misionCerrada.incidente_id,
+          fechaInicio: fechaInicioIso,
+          hito: {
+            id: hito.id,
+            hito: hito.hito,
+            descripcion: hito.descripcion,
+            registradoPorId: hito.registrado_por_id,
+            creadoEn:
+              hito.creado_en instanceof Date
+                ? hito.creado_en.toISOString()
+                : String(hito.creado_en),
+          },
+          actualizadoEn: fechaCierre.toISOString(),
+        };
+      }
+
+      misionResumen = {
+        id: misionActual.id,
+        codigo: misionActual.codigo,
+        estado: estadoFinalMision,
+      };
+
+      // 6. Liberar patrulla verificadora si no posee otras misiones activas
+      if (misionActual.patrulla_id) {
+        const otrasMisiones = await repo.contarOtrasMisionesActivasPatrulla(
+          trx,
+          misionActual.patrulla_id,
+          misionActual.id
+        );
+        if (otrasMisiones === 0) {
+          const patrulla = await repo.buscarPatrullaPorId(trx, misionActual.patrulla_id);
+          await repo.actualizarEstadoPatrulla(trx, misionActual.patrulla_id, "DISPONIBLE");
+          if (patrulla?.usuario_lider_id) {
+            await repo.actualizarEstadoPersonalLider(
+              trx,
+              patrulla.usuario_lider_id,
+              "disponible",
+              true
+            );
+          }
+
+          if (patrulla) {
+            patrullaLiberada = {
+              id: patrulla.id,
+              nombre: patrulla.nombre,
+              estado: "DISPONIBLE",
+            };
+            patrullaParaSocket = {
+              patrullaId: patrulla.id,
+              nombre: patrulla.nombre,
+              estado: "DISPONIBLE",
+              delegacionId: patrulla.delegacion_id,
+              usuarioLiderId: patrulla.usuario_lider_id,
+              misionActivaId: null,
+              incidenteId: null,
+              actualizadoEn: fechaCierre.toISOString(),
+            };
+          }
+        }
+      }
+    }
+
+    // 7. Actualizar estado del operativo de recuperación a COMPLETADA
+    const recuperacionCerrada = await repo.cerrarRecuperacion(trx, recuperacionId, {
+      observacionesCierre: input.resumenCierre,
+      cerradoPorId: usuarioId,
+      fechaCierre,
+    });
+
+    const recursosEvento = reintegros.map((r) => ({
+      recursoId: r.recursoId,
+      nombre: r.nombre,
+      cantidadAsignada: r.cantidadAsignada,
+      cantidadConsumida: r.cantidadConsumida,
+      cantidadDevuelta: r.remanente,
+      devueltoEn: fechaCierre.toISOString(),
+    }));
+
+    const evento = await construirRespuestaRecuperacion(trx, recuperacionCerrada, recursosEvento);
+
+    const resultado: CerrarRecuperacionResponseData = {
+      evento,
+      recursosReintegrados,
+      mision: misionResumen,
+      patrullaLiberada,
+    };
+
+    return {
+      resultado,
+      recursosParaSocket,
+      patrullaParaSocket,
+      misionParaSocket,
+    };
+  });
+
+  // 8. Emitir notificaciones en tiempo real post-commit
+  try {
+    emitirRecuperacionActualizada({
+      ...resultado.evento,
+      accion: "CERRADA",
+    });
+
+    for (const recurso of recursosParaSocket) {
+      emitirRecursoActualizado(recurso);
+    }
+
+    if (patrullaParaSocket) {
+      notificarPatrullaActualizada(patrullaParaSocket);
+    }
+
+    if (misionParaSocket) {
+      notificarMisionActualizada(misionParaSocket);
+    }
+  } catch (err) {
+    console.error("Error al emitir notificaciones Socket.io tras cierre de recuperación:", err);
+  }
+
+  return resultado;
 }
