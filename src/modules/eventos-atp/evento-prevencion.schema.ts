@@ -394,3 +394,156 @@ export const EditarEventoPrevencionResponseSchema = z.object({
 });
 
 export type EditarEventoPrevencionResponse = z.infer<typeof EditarEventoPrevencionResponseSchema>;
+
+/**
+ * Esquema de entrada para asignar patrulla verificadora y recursos logísticos
+ * a un evento de prevención existente (HU-33).
+ */
+export const AsignarRecursosPrevencionInputSchema = z.object({
+  patrullaId: z
+    .string()
+    .uuid("El UUID de la patrulla verificadora es obligatorio y debe ser válido")
+    .openapi({
+      description: "Identificador de la patrulla verificadora disponible a asignar",
+      example: "50000000-0000-4000-8000-000000000001",
+    }),
+  recursos: z
+    .array(ItemRecursoPrevencionSchema)
+    .min(1, "Debe asignar al menos un recurso al evento de prevención")
+    .openapi({
+      description: "Listado de insumos o activos individuales solicitados para la obra preventiva",
+    }),
+});
+
+export type AsignarRecursosPrevencionInput = z.infer<typeof AsignarRecursosPrevencionInputSchema>;
+
+/**
+ * Detalle del recurso asignado devuelto tras validar inventario híbrido §3.6 (HU-33).
+ */
+export const RecursoAsignadoPrevencionDetalleSchema = z.object({
+  recursoId: z.string().uuid().openapi({ example: "00000000-0000-4000-8000-000000000001" }),
+  nombre: z.string().openapi({ example: "Sacos de Arena 25kg" }),
+  esIndividual: z.boolean().openapi({ example: false }),
+  cantidadAsignada: z.number().openapi({ example: 10 }),
+  cantidadEnUso: z.number().openapi({ example: 10 }),
+  estadoRecurso: z.string().openapi({ example: "DISPONIBLE" }),
+});
+
+export type RecursoAsignadoPrevencionDetalle = z.infer<
+  typeof RecursoAsignadoPrevencionDetalleSchema
+>;
+
+/**
+ * Datos de respuesta para POST /api/eventos-atp/prevencion/{id}/recursos (HU-33).
+ */
+export const AsignarRecursosPrevencionResponseDataSchema = z.object({
+  evento: z.object({
+    id: z.string().uuid().openapi({ example: "80000000-0000-4000-8000-000000000001" }),
+    codigo: z.string().openapi({ example: "PREV-2026-0001" }),
+    nombre: z.string().openapi({ example: "Limpieza preventiva de colectores en Angachilla" }),
+    estado: EstadoEventoPrevencionSchema.openapi({ example: "PLANIFICADA" }),
+  }),
+  mision: MisionPrevencionResumenSchema.openapi({
+    description: "Misión táctica preventiva despachada a terreno",
+  }),
+  patrulla: PatrullaAsignadaPrevencionResumenSchema.openapi({
+    description: "Patrulla verificadora transicionada a EN_PREVENCION",
+  }),
+  recursos: z.array(RecursoAsignadoPrevencionDetalleSchema).openapi({
+    description: "Recursos asignados con su nuevo cantidadEnUso y estado operativo",
+  }),
+  asignadoEn: z.string().openapi({ description: "Fecha de asignación ISO 8601" }),
+});
+
+export type AsignarRecursosPrevencionResponseData = z.infer<
+  typeof AsignarRecursosPrevencionResponseDataSchema
+>;
+
+export const AsignarRecursosPrevencionResponseSchema = z.object({
+  message: z.string().openapi({
+    example: "Patrulla y recursos logísticos asignados exitosamente al evento de prevención.",
+  }),
+  data: AsignarRecursosPrevencionResponseDataSchema,
+});
+
+export type AsignarRecursosPrevencionResponse = z.infer<
+  typeof AsignarRecursosPrevencionResponseSchema
+>;
+
+/**
+ * Detalle completo de un evento de prevención para GET /api/eventos-atp/prevencion/{id} (HU-33).
+ */
+export const EventoPrevencionDetalleResponseDataSchema = z.object({
+  id: z.string().uuid().openapi({ example: "80000000-0000-4000-8000-000000000001" }),
+  codigo: z.string().openapi({ example: "PREV-2026-0001" }),
+  nombre: z.string().openapi({ example: "Limpieza preventiva de colectores en Angachilla" }),
+  descripcion: z.string().openapi({ example: "Despeje preventivo de rejillas" }),
+  sector: z.string().nullable().openapi({ example: "Humedal Angachilla" }),
+  direccionTexto: z.string().nullable().openapi({ example: "Pasaje Los Robles s/n" }),
+  prioridad: PrioridadEventoPrevencionSchema.openapi({ example: "ALTA" }),
+  estado: EstadoEventoPrevencionSchema.openapi({ example: "PLANIFICADA" }),
+  latitud: z.number().openapi({ example: -39.8456 }),
+  longitud: z.number().openapi({ example: -73.2389 }),
+  ubicacionGeoJson: z.unknown().nullable().openapi({
+    description: "Geometría PostGIS Point del evento en formato GeoJSON (EPSG:4326)",
+  }),
+  puntoCritico: PuntoCriticoDetallePrevencionSchema.nullable().openapi({
+    description: "Detalle completo y PostGIS del punto crítico asociado (si existe)",
+  }),
+  delegacion: z
+    .object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      nombre: z.string(),
+    })
+    .nullable(),
+  misiones: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        codigo: z.string(),
+        titulo: z.string(),
+        estado: z.string(),
+        tipoMision: z.string(),
+        patrulla: PatrullaAsignadaPrevencionResumenSchema.nullable().optional(),
+        cuadrilla: CuadrillaAsignadaPrevencionResumenSchema.nullable().optional(),
+        fechaInicio: z.string().nullable(),
+        fechaCierre: z.string().nullable(),
+        creadoEn: z.string(),
+      })
+    )
+    .openapi({ description: "Misiones tácticas preventivas vinculadas al evento" }),
+  recursosAsignados: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        recursoId: z.string().uuid(),
+        nombre: z.string(),
+        esIndividual: z.boolean(),
+        cantidadAsignada: z.number(),
+        misionId: z.string().uuid().nullable().optional(),
+        creadoEn: z.string(),
+      })
+    )
+    .openapi({ description: "Historial de insumos y activos asignados al evento" }),
+  fechaEstimadaFin: z.string().nullable().optional(),
+  creadoPorId: z.string().uuid(),
+  actualizadoPorId: z.string().uuid().nullable().optional(),
+  creadoEn: z.string(),
+  actualizadoEn: z.string(),
+});
+
+export type EventoPrevencionDetalleResponseData = z.infer<
+  typeof EventoPrevencionDetalleResponseDataSchema
+>;
+
+export const EventoPrevencionDetalleResponseSchema = z.object({
+  message: z.string().openapi({
+    example: "Detalle del evento de prevención obtenido exitosamente.",
+  }),
+  data: EventoPrevencionDetalleResponseDataSchema,
+});
+
+export type EventoPrevencionDetalleResponse = z.infer<
+  typeof EventoPrevencionDetalleResponseSchema
+>;
