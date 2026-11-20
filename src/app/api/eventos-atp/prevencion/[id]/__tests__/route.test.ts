@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { PATCH } from "../route";
+import { GET, PATCH } from "../route";
 import * as eventoPrevencionService from "@/modules/eventos-atp/evento-prevencion.service";
 import * as repo from "@/modules/eventos-atp/evento-prevencion.repository";
 import * as authGuard from "@/modules/seguridad/auth.guard";
@@ -16,7 +16,12 @@ import {
   NotFoundError,
   StockInsuficienteError,
 } from "@/modules/eventos-atp/evento-prevencion.service";
-import { PERMISO_CREAR_EVENTO_PREVENCION } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_ASIGNAR_MISION,
+  PERMISO_CREAR_EVENTO_PREVENCION,
+  PERMISO_LEER_EVENTOS_PREVENCION,
+  PERMISO_LEER_MISION,
+} from "@/modules/seguridad/permisos.constants";
 import { db } from "@/lib/db";
 import * as socketModule from "@/lib/socket";
 
@@ -360,6 +365,9 @@ describe("Servicio editarEventoPrevencionService — Restricciones de estado y a
         nombre: "Sacos de Arena",
         cantidad_inventario: 20,
         cantidad_en_uso: 0,
+        cantidad_minima: 0,
+        estado: "DISPONIBLE",
+        es_individual: false,
         eliminado_en: null,
       },
       {
@@ -367,6 +375,9 @@ describe("Servicio editarEventoPrevencionService — Restricciones de estado y a
         nombre: "Motobomba",
         cantidad_inventario: 5,
         cantidad_en_uso: 0,
+        cantidad_minima: 0,
+        estado: "DISPONIBLE",
+        es_individual: false,
         eliminado_en: null,
       },
     ]);
@@ -441,5 +452,172 @@ describe("Servicio editarEventoPrevencionService — Restricciones de estado y a
     expect(resultado.actualizadoPorId).toBe(USUARIO_ID);
     expect(resultado.recursos).toHaveLength(1);
     expect(resultado.recursos[0].cantidadAsignada).toBe(8);
+  });
+});
+
+describe("Route Handler GET /api/eventos-atp/prevencion/[id] (HU-33)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("debe retornar 401 si el usuario no está autenticado", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValueOnce(
+      new UnauthorizedError("Token de sesión inválido o expirado.")
+    );
+
+    const req = new NextRequest(
+      `http://localhost:3000/api/eventos-atp/prevencion/${EVENTO_ID}`
+    );
+
+    const res = await GET(req, { params: Promise.resolve({ id: EVENTO_ID }) });
+    expect(res.status).toBe(401);
+  });
+
+  it("debe retornar 403 si el usuario carece de permisos de lectura o asignación", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(USUARIO_ID);
+    const validarSpy = vi
+      .spyOn(seguridadService, "validarAccesoRoles")
+      .mockRejectedValueOnce(new ForbiddenError("Acceso denegado."));
+
+    const req = new NextRequest(
+      `http://localhost:3000/api/eventos-atp/prevencion/${EVENTO_ID}`,
+      { headers: { authorization: "Bearer valid-token" } }
+    );
+
+    const res = await GET(req, { params: Promise.resolve({ id: EVENTO_ID }) });
+    expect(res.status).toBe(403);
+    expect(validarSpy).toHaveBeenCalledWith(
+      USUARIO_ID,
+      [
+        PERMISO_LEER_EVENTOS_PREVENCION,
+        PERMISO_CREAR_EVENTO_PREVENCION,
+        PERMISO_LEER_MISION,
+        PERMISO_ASIGNAR_MISION,
+      ],
+      expect.any(String)
+    );
+  });
+
+  it("debe retornar 400 si el parámetro id no es UUID válido", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(USUARIO_ID);
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({} as any);
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp/prevencion/id-invalido",
+      { headers: { authorization: "Bearer valid-token" } }
+    );
+
+    const res = await GET(req, { params: Promise.resolve({ id: "id-invalido" }) });
+    expect(res.status).toBe(400);
+  });
+
+  it("debe retornar 404 si el evento de prevención no existe", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(USUARIO_ID);
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({} as any);
+    vi.spyOn(
+      eventoPrevencionService,
+      "obtenerDetalleEventoPrevencionService"
+    ).mockRejectedValueOnce(new NotFoundError("El evento de prevención indicado no fue encontrado."));
+
+    const req = new NextRequest(
+      `http://localhost:3000/api/eventos-atp/prevencion/${EVENTO_ID}`,
+      { headers: { authorization: "Bearer valid-token" } }
+    );
+
+    const res = await GET(req, { params: Promise.resolve({ id: EVENTO_ID }) });
+    expect(res.status).toBe(404);
+  });
+
+  it("debe retornar 200 OK con el detalle integral del evento, misiones y recursos asignados", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(USUARIO_ID);
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({} as any);
+
+    const detalleMock = {
+      id: EVENTO_ID,
+      codigo: "PREV-2026-0001",
+      nombre: "Limpieza preventiva de colectores",
+      descripcion: "Despeje de rejillas",
+      sector: "Angachilla",
+      direccionTexto: "Pasaje Los Robles s/n",
+      prioridad: "ALTA" as const,
+      estado: "PLANIFICADA" as const,
+      latitud: -39.8456,
+      longitud: -73.2389,
+      ubicacionGeoJson: { type: "Point", coordinates: [-73.2389, -39.8456] },
+      puntoCritico: null,
+      delegacion: {
+        id: "30000000-0000-4000-8000-000000000001",
+        codigo: "DEL_SUR",
+        nombre: "Delegación Sur",
+      },
+      misiones: [
+        {
+          id: "60000000-0000-4000-8000-000000000099",
+          codigo: "MIS-2026-0099",
+          titulo: "Despacho preventivo",
+          estado: "DESPACHADA",
+          tipoMision: "PREVENCION",
+          patrulla: {
+            id: "50000000-0000-4000-8000-000000000001",
+            nombre: "Patrulla Sur 1",
+            estado: "EN_PREVENCION",
+          },
+          cuadrilla: null,
+          fechaInicio: "2026-11-19T12:00:00.000Z",
+          fechaCierre: null,
+          creadoEn: "2026-11-19T12:00:00.000Z",
+        },
+      ],
+      recursosAsignados: [
+        {
+          id: "90000000-0000-4000-8000-000000000001",
+          recursoId: RECURSO_A_ID,
+          nombre: "Sacos de Arena 25kg",
+          esIndividual: false,
+          cantidadAsignada: 10,
+          misionId: "60000000-0000-4000-8000-000000000099",
+          creadoEn: "2026-11-19T12:00:00.000Z",
+        },
+      ],
+      fechaEstimadaFin: null,
+      creadoPorId: USUARIO_ID,
+      actualizadoPorId: null,
+      creadoEn: "2026-11-19T10:00:00.000Z",
+      actualizadoEn: "2026-11-19T12:00:00.000Z",
+    };
+
+    vi.spyOn(
+      eventoPrevencionService,
+      "obtenerDetalleEventoPrevencionService"
+    ).mockResolvedValueOnce(detalleMock);
+
+    const req = new NextRequest(
+      `http://localhost:3000/api/eventos-atp/prevencion/${EVENTO_ID}`,
+      { headers: { authorization: "Bearer valid-token" } }
+    );
+
+    const res = await GET(req, { params: Promise.resolve({ id: EVENTO_ID }) });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.codigo).toBe("PREV-2026-0001");
+    expect(body.data.misiones).toHaveLength(1);
+    expect(body.data.recursosAsignados).toHaveLength(1);
+  });
+
+  it("debe retornar 500 ante un error interno inesperado", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(USUARIO_ID);
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({} as any);
+    vi.spyOn(
+      eventoPrevencionService,
+      "obtenerDetalleEventoPrevencionService"
+    ).mockRejectedValueOnce(new Error("Fallo de base de datos"));
+
+    const req = new NextRequest(
+      `http://localhost:3000/api/eventos-atp/prevencion/${EVENTO_ID}`,
+      { headers: { authorization: "Bearer valid-token" } }
+    );
+
+    const res = await GET(req, { params: Promise.resolve({ id: EVENTO_ID }) });
+    expect(res.status).toBe(500);
   });
 });

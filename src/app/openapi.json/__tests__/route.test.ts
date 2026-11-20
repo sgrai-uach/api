@@ -171,6 +171,48 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["404"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["409"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["500"]).toBeDefined();
+
+    // Rutas de Eventos ATP - Detalle, Edición y Asignación de Recursos a Prevención (H77 / HU-33)
+    expect(spec.paths["/api/eventos-atp/prevencion/{id}"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion/{id}"].get).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion/{id}"].get.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(spec.paths["/api/eventos-atp/prevencion/{id}"].patch).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion/{id}"].patch.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+
+    expect(spec.paths["/api/eventos-atp/prevencion/{id}/recursos"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion/{id}/recursos"].post).toBeDefined();
+    expect(
+      spec.paths["/api/eventos-atp/prevencion/{id}/recursos"].post.security
+    ).toEqual([{ BearerAuth: [] }]);
+    expect(
+      spec.paths["/api/eventos-atp/prevencion/{id}/recursos"].post.responses["200"]
+    ).toBeDefined();
+    expect(
+      spec.paths["/api/eventos-atp/prevencion/{id}/recursos"].post.responses["400"]
+    ).toBeDefined();
+    expect(
+      spec.paths["/api/eventos-atp/prevencion/{id}/recursos"].post.responses["401"]
+    ).toBeDefined();
+    expect(
+      spec.paths["/api/eventos-atp/prevencion/{id}/recursos"].post.responses["403"]
+    ).toBeDefined();
+    expect(
+      spec.paths["/api/eventos-atp/prevencion/{id}/recursos"].post.responses["404"]
+    ).toBeDefined();
+    expect(
+      spec.paths["/api/eventos-atp/prevencion/{id}/recursos"].post.responses["409"]
+    ).toBeDefined();
+    expect(
+      spec.paths["/api/eventos-atp/prevencion/{id}/recursos"].post.responses["500"]
+    ).toBeDefined();
+
+    expect(spec.components.schemas.EventoPrevencionDetalleResponse).toBeDefined();
+    expect(spec.components.schemas.AsignarRecursosPrevencionInput).toBeDefined();
+    expect(spec.components.schemas.AsignarRecursosPrevencionResponse).toBeDefined();
   });
 });
 
