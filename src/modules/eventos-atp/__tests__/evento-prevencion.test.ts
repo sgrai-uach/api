@@ -13,6 +13,7 @@ import {
   StockInsuficienteError,
 } from "../evento-prevencion.service";
 import * as repo from "../evento-prevencion.repository";
+import * as notificacionRepo from "@/modules/misiones/notificacion-mision.repository";
 import * as socketModule from "@/lib/socket";
 import { db } from "@/lib/db";
 
@@ -367,10 +368,12 @@ describe("Módulo Eventos ATP / Prevención (HU-30) - Pruebas Unitarias", () => 
         tipo_mision: "PREVENCION",
       });
 
-      vi.spyOn(repo, "insertarRecursosPrevencion").mockResolvedValue(undefined as any);
-      vi.spyOn(repo, "descontarStockRecurso").mockResolvedValue(undefined as any);
+      vi.spyOn(repo, "insertarRecursosPrevencionConMision").mockResolvedValue(undefined as any);
+      vi.spyOn(repo, "actualizarRecursoGranelUso").mockResolvedValue({} as any);
       vi.spyOn(repo, "actualizarEstadoPatrulla").mockResolvedValue(undefined as any);
       vi.spyOn(repo, "actualizarEstadoPersonalLider").mockResolvedValue(undefined as any);
+      vi.spyOn(repo, "insertarHitoDespachoMisionPrevencion").mockResolvedValue(undefined as any);
+      vi.spyOn(notificacionRepo, "crearNotificacionMisionRepo").mockResolvedValue({} as any);
 
       const spyEmitirSocket = vi
         .spyOn(socketModule, "emitirEventoPrevencionCreado")
@@ -380,8 +383,8 @@ describe("Módulo Eventos ATP / Prevención (HU-30) - Pruebas Unitarias", () => 
 
       expect(resultado).toBeDefined();
       expect(resultado.codigo).toBe("PREV-2026-0001");
-      expect(resultado.mision.codigo).toBe("MIS-2026-0001");
-      expect(resultado.patrulla.estado).toBe("EN_PREVENCION");
+      expect(resultado.mision?.codigo).toBe("MIS-2026-0001");
+      expect(resultado.patrulla?.estado).toBe("EN_PREVENCION");
       expect(resultado.recursos).toHaveLength(1);
       expect(resultado.puntoCritico?.codigo).toBe("PC-COL-01");
 

@@ -17,6 +17,7 @@ import {
 } from "../evento-prevencion.service";
 import * as repo from "../evento-prevencion.repository";
 import type { Trx } from "../evento-prevencion.repository";
+import * as notificacionRepo from "@/modules/misiones/notificacion-mision.repository";
 import { db } from "@/lib/db";
 import * as socketModule from "@/lib/socket";
 
@@ -212,9 +213,12 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Prevención (HU-33)", 
       const spyActualizarLider = vi
         .spyOn(repo, "actualizarEstadoPersonalLider")
         .mockResolvedValueOnce(undefined);
-      const spyMarcarEvento = vi
-        .spyOn(repo, "marcarActualizacionEventoPrevencion")
+      const spyActualizarEventoEnCurso = vi
+        .spyOn(repo, "actualizarEstadoEventoPrevencionEnCurso")
         .mockResolvedValueOnce([] as any);
+      vi.spyOn(repo, "marcarActualizacionEventoPrevencion").mockResolvedValueOnce([] as any);
+      vi.spyOn(repo, "insertarHitoDespachoMisionPrevencion").mockResolvedValueOnce([] as any);
+      vi.spyOn(notificacionRepo, "crearNotificacionMisionRepo").mockResolvedValueOnce({} as any);
 
       const spyEmitirPrevencion = vi
         .spyOn(socketModule, "emitirEventoPrevencionActualizado")
@@ -272,7 +276,7 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Prevención (HU-33)", 
         mockPatrulla.usuario_lider_id,
         "en_mision"
       );
-      expect(spyMarcarEvento).toHaveBeenCalledWith(mockTrx, eventoId, usuarioId);
+      expect(spyActualizarEventoEnCurso).toHaveBeenCalledWith(mockTrx, eventoId, usuarioId);
 
       expect(resultado.evento.id).toBe(eventoId);
       expect(resultado.mision.tipoMision).toBe("PREVENCION");

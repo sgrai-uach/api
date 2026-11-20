@@ -266,7 +266,16 @@ describe("Route Handler PATCH /api/eventos-atp/prevencion/[id] (H77)", () => {
     const body = await res.json();
     expect(body.data.actualizadoPorId).toBe(USUARIO_ID);
     expect(body.data.fechaEstimadaFin).toBe(payloadValido.fechaEstimadaFin);
-    expect(serviceSpy).toHaveBeenCalledWith(EVENTO_ID, payloadValido, USUARIO_ID);
+    expect(serviceSpy).toHaveBeenCalledWith(
+      EVENTO_ID,
+      {
+        nombre: payloadValido.nombre,
+        descripcion: payloadValido.descripcion,
+        prioridad: payloadValido.prioridad,
+        fechaEstimadaFin: payloadValido.fechaEstimadaFin,
+      },
+      USUARIO_ID
+    );
   });
 });
 
@@ -418,20 +427,18 @@ describe("Servicio editarEventoPrevencionService — Restricciones de estado y a
       .spyOn(socketModule, "emitirEventoPrevencionActualizado")
       .mockImplementation(() => {});
 
-    // RECURSO_A pasa de 5 -> 8 (delta +3, descuenta 3); RECURSO_B se quita (devuelve 2)
     const resultado = await editarEventoPrevencionService(
       EVENTO_ID,
       {
         descripcion: "Descripción actualizada por alerta",
         prioridad: "CRITICA",
         fechaEstimadaFin: "2026-11-26T20:00:00.000Z",
-        recursos: [{ recursoId: RECURSO_A_ID, cantidad: 8 }],
       },
       USUARIO_ID
     );
 
-    expect(devolverSpy).toHaveBeenCalledWith(expect.anything(), RECURSO_B_ID, 2);
-    expect(descontarSpy).toHaveBeenCalledWith(expect.anything(), RECURSO_A_ID, 3);
+    expect(devolverSpy).not.toHaveBeenCalled();
+    expect(descontarSpy).not.toHaveBeenCalled();
     expect(actualizarSpy).toHaveBeenCalledWith(
       expect.anything(),
       EVENTO_ID,
@@ -450,8 +457,7 @@ describe("Servicio editarEventoPrevencionService — Restricciones de estado y a
     );
     expect(socketSpy).toHaveBeenCalledTimes(1);
     expect(resultado.actualizadoPorId).toBe(USUARIO_ID);
-    expect(resultado.recursos).toHaveLength(1);
-    expect(resultado.recursos[0].cantidadAsignada).toBe(8);
+    expect(resultado.recursos).toHaveLength(2);
   });
 });
 
