@@ -61,6 +61,7 @@ export interface ServerToClientEvents {
         prioridad?: string;
         asignadoEn: string;
     }) => void;
+    "mision:rechazada": (payload: MisionRechazadaPayload) => void;
     "mision:actualizada": (payload: {
         misionId: string;
         codigo: string;
@@ -91,6 +92,20 @@ export interface ServerToClientEvents {
         leidaAt?: string | null;
         actualizadoEn: string;
     }) => void;
+}
+
+export interface MisionRechazadaPayload {
+    misionId: string;
+    codigo: string;
+    tipoMision: string;
+    motivo: string;
+    justificacionRechazo?: string;
+    patrullaId: string | null;
+    patrullaNombre?: string | null;
+    incidenteId: string | null;
+    incidenteCodigo?: string | null;
+    rechazadoPorId?: string | null;
+    rechazadoEn: string;
 }
 
 export interface ClientToServerEvents {
