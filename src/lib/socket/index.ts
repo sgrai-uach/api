@@ -255,14 +255,16 @@ export function emitirAvisoDescartado(payload: {
 }
 
 /**
- * Emite la notificación de recurso actualizado a las vistas de Encargado y Supervisor.
+ * Emite la notificación de recurso actualizado a las vistas de Encargado, Supervisor y Mapa.
  */
 export function emitirRecursoActualizado(recurso: Record<string, unknown>): void {
+  const rooms = ["encargado", "sala:encargados", "supervisor", "mapa"];
+
   if (ioInstance) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("recurso:actualizado", recurso);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("recurso:actualizado", recurso);
+    for (const room of rooms) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to(room) as any).emit("recurso:actualizado", recurso);
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (ioInstance as any).emit("recurso:actualizado", recurso);
     return;
@@ -270,16 +272,18 @@ export function emitirRecursoActualizado(recurso: Record<string, unknown>): void
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "encargado",
-          event: "recurso:actualizado",
-          payload: recurso,
-        })
-      )
-      .catch(() => {});
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "recurso:actualizado",
+            payload: recurso,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 
@@ -542,7 +546,7 @@ export function emitirEventoPrevencionCreado(payload: {
 
 /**
  * Emite una notificación en tiempo real cuando se actualiza la planificación
- * de un evento de prevención activo (H77).
+ * o la asignación de patrullas/recursos de un evento de prevención activo (H77 / HU-33).
  */
 export function emitirEventoPrevencionActualizado(payload: {
   id: string;
@@ -552,19 +556,15 @@ export function emitirEventoPrevencionActualizado(payload: {
   [key: string]: unknown;
 }): void {
   const patrullaRoom = payload.patrulla?.id ? `patrulla:${payload.patrulla.id}` : null;
+  const rooms = ["sala:encargados", "encargado", "mapa"];
+  if (patrullaRoom) {
+    rooms.push(patrullaRoom, `sala:${patrullaRoom}`);
+  }
 
   if (ioInstance) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("prevencion:actualizada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("prevencion:actualizada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("mapa") as any).emit("prevencion:actualizada", payload);
-    if (patrullaRoom) {
+    for (const room of rooms) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to(patrullaRoom) as any).emit("prevencion:actualizada", payload);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to(`sala:${patrullaRoom}`) as any).emit("prevencion:actualizada", payload);
+      (ioInstance.to(room) as any).emit("prevencion:actualizada", payload);
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (ioInstance as any).emit("prevencion:actualizada", payload);
@@ -573,23 +573,12 @@ export function emitirEventoPrevencionActualizado(payload: {
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "sala:encargados",
-          event: "prevencion:actualizada",
-          payload,
-        })
-      )
-      .catch(() => {});
-
-    if (patrullaRoom) {
+    for (const room of rooms) {
       publisher
         .publish(
           REDIS_SOCKET_CHANNEL,
           JSON.stringify({
-            room: patrullaRoom,
+            room,
             event: "prevencion:actualizada",
             payload,
           })
@@ -675,6 +664,8 @@ export function notificarPatrullaActualizada(payload: {
     }
   }
 }
+
+export const emitirPatrullaActualizada = notificarPatrullaActualizada;
 
 /**
  * Emite una notificación en tiempo real a las salas de 'encargado', 'supervisor', 'mapa' y 'administrador'
