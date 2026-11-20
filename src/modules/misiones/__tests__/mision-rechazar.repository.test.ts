@@ -53,7 +53,7 @@ describe("HU-69: mision.repository - rechazarMisionPatrullaRepo", () => {
 
     vi.mocked(db.transaction).mockReturnValue({
       execute: (cb: (trx: typeof mockTrx) => Promise<unknown>) => cb(mockTrx),
-    } as any);
+    } as unknown as ReturnType<typeof db.transaction>);
   });
 
   it("debe lanzar NotFoundError si la misión no existe", async () => {

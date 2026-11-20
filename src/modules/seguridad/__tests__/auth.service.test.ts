@@ -39,7 +39,7 @@ describe("auth.service - verificarPermiso", () => {
     const whereMock = vi.fn().mockReturnValue({ executeTakeFirst: executeTakeFirstMock });
     const selectMock = vi.fn().mockReturnValue({ where: whereMock });
     const innerJoinMock = vi.fn().mockReturnValue({ select: selectMock });
-    vi.mocked(db.selectFrom).mockReturnValue({ innerJoin: innerJoinMock } as any);
+    vi.mocked(db.selectFrom).mockReturnValue({ innerJoin: innerJoinMock } as unknown as ReturnType<typeof db.selectFrom>);
 
     await expect(verificarPermiso(usuarioIdValido, "misiones:terreno:verificar")).rejects.toThrow(
       `Usuario con ID '${usuarioIdValido}' no existe o no está autorizado.`
@@ -59,7 +59,7 @@ describe("auth.service - verificarPermiso", () => {
     const whereMock = vi.fn().mockReturnValue({ executeTakeFirst: executeTakeFirstMock });
     const selectMock = vi.fn().mockReturnValue({ where: whereMock });
     const innerJoinMock = vi.fn().mockReturnValue({ select: selectMock });
-    vi.mocked(db.selectFrom).mockReturnValue({ innerJoin: innerJoinMock } as any);
+    vi.mocked(db.selectFrom).mockReturnValue({ innerJoin: innerJoinMock } as unknown as ReturnType<typeof db.selectFrom>);
 
     await expect(verificarPermiso(usuarioIdValido, "misiones:terreno:verificar")).rejects.toThrow(
       "El usuario especificado se encuentra inactivo en la institución."
@@ -79,7 +79,7 @@ describe("auth.service - verificarPermiso", () => {
     const whereMock = vi.fn().mockReturnValue({ executeTakeFirst: executeTakeFirstMock });
     const selectMock = vi.fn().mockReturnValue({ where: whereMock });
     const innerJoinMock = vi.fn().mockReturnValue({ select: selectMock });
-    vi.mocked(db.selectFrom).mockReturnValue({ innerJoin: innerJoinMock } as any);
+    vi.mocked(db.selectFrom).mockReturnValue({ innerJoin: innerJoinMock } as unknown as ReturnType<typeof db.selectFrom>);
 
     const res = await verificarPermiso(usuarioIdValido, "cualquier:permiso");
     expect(res).toEqual({
@@ -111,8 +111,8 @@ describe("auth.service - verificarPermiso", () => {
     const innerJoinPermisos = vi.fn().mockReturnValue({ select: selectPermisos });
 
     vi.mocked(db.selectFrom)
-      .mockReturnValueOnce({ innerJoin: innerJoinUsuario } as any)
-      .mockReturnValueOnce({ innerJoin: innerJoinPermisos } as any);
+      .mockReturnValueOnce({ innerJoin: innerJoinUsuario } as unknown as ReturnType<typeof db.selectFrom>)
+      .mockReturnValueOnce({ innerJoin: innerJoinPermisos } as unknown as ReturnType<typeof db.selectFrom>);
 
     await expect(verificarPermiso(usuarioIdValido, "misiones:terreno:verificar")).rejects.toThrow(
       ForbiddenError
@@ -141,8 +141,8 @@ describe("auth.service - verificarPermiso", () => {
     const innerJoinPermisos = vi.fn().mockReturnValue({ select: selectPermisos });
 
     vi.mocked(db.selectFrom)
-      .mockReturnValueOnce({ innerJoin: innerJoinUsuario } as any)
-      .mockReturnValueOnce({ innerJoin: innerJoinPermisos } as any);
+      .mockReturnValueOnce({ innerJoin: innerJoinUsuario } as unknown as ReturnType<typeof db.selectFrom>)
+      .mockReturnValueOnce({ innerJoin: innerJoinPermisos } as unknown as ReturnType<typeof db.selectFrom>);
 
     const res = await verificarPermiso(usuarioIdValido, "misiones:terreno:verificar");
     expect(res).toEqual({

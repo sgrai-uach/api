@@ -230,36 +230,170 @@ export const CuadrillaItemResponseSchema = CuadrillaResponseSchema.extend({
 export type CuadrillaItemResponse = z.infer<typeof CuadrillaItemResponseSchema>;
 
 /**
- * Esquema de consulta para listado paginado de cuadrillas con filtros.
+ * Esquema de consulta para listado paginado de cuadrillas con filtros bajo estándar H34 (H80).
  */
-export const ListarCuadrillasQuerySchema = z.object({
-  pagina: z.coerce.number().int().positive().default(1).optional(),
-  page: z.coerce.number().int().positive().optional(),
-  limite: z.coerce.number().int().positive().max(100).default(10).optional(),
-  limit: z.coerce.number().int().positive().max(100).optional(),
-  busqueda: z.string().trim().optional(),
-  q: z.string().trim().optional(),
-  delegacionId: z.string().uuid("El identificador de delegación debe ser un UUID válido").optional(),
-  estado: z
-    .enum(["DISPONIBLE", "EN_MISION", "NO_DISPONIBLE", "INACTIVAS", "TODAS"])
-    .optional(),
-  activo: z
-    .union([
-      z.boolean(),
-      z.enum(["true", "false", "all"]),
-    ])
-    .optional(),
-  incluir_inactivas: z.coerce.boolean().optional(),
-  incluirInactivas: z.coerce.boolean().optional(),
-});
+export const ListarCuadrillasQuerySchema = z
+  .object({
+    pagina: z.coerce
+      .number()
+      .int("El número de página debe ser un número entero")
+      .positive("El número de página debe ser mayor a 0")
+      .optional()
+      .openapi({
+        param: {
+          name: "pagina",
+          in: "query",
+          required: false,
+          description: "Número de página a consultar (base 1)",
+        },
+        example: 1,
+      }),
+    page: z.coerce
+      .number()
+      .int("El número de página debe ser un número entero")
+      .positive("El número de página debe ser mayor a 0")
+      .optional()
+      .openapi({
+        param: {
+          name: "page",
+          in: "query",
+          required: false,
+          description: "Alias de 'pagina' (base 1)",
+        },
+        example: 1,
+      }),
+    limite: z.coerce
+      .number()
+      .int("El límite debe ser un número entero")
+      .positive("El límite debe ser mayor a 0")
+      .max(100, "El límite por página no puede superar 100")
+      .optional()
+      .openapi({
+        param: {
+          name: "limite",
+          in: "query",
+          required: false,
+          description: "Registros por página (máx. 100)",
+        },
+        example: 10,
+      }),
+    limit: z.coerce
+      .number()
+      .int("El límite debe ser un número entero")
+      .positive("El límite debe ser mayor a 0")
+      .max(100, "El límite por página no puede superar 100")
+      .optional()
+      .openapi({
+        param: {
+          name: "limit",
+          in: "query",
+          required: false,
+          description: "Alias de 'limite' (máx. 100)",
+        },
+        example: 10,
+      }),
+    busqueda: z
+      .string()
+      .trim()
+      .optional()
+      .openapi({
+        param: {
+          name: "busqueda",
+          in: "query",
+          required: false,
+          description: "Búsqueda textual libre por nombre de cuadrilla, delegado o RUT",
+        },
+        example: "Vías",
+      }),
+    q: z
+      .string()
+      .trim()
+      .optional()
+      .openapi({
+        param: {
+          name: "q",
+          in: "query",
+          required: false,
+          description: "Alias de 'busqueda' textual libre",
+        },
+        example: "Vías",
+      }),
+    delegacionId: z
+      .string()
+      .uuid("El identificador de delegación debe ser un UUID válido")
+      .optional()
+      .openapi({
+        param: {
+          name: "delegacionId",
+          in: "query",
+          required: false,
+          description: "UUID de delegación municipal para filtrado territorial",
+        },
+        example: "30000000-0000-4000-8000-000000000001",
+      }),
+    estado: z
+      .enum(["DISPONIBLE", "EN_MISION", "NO_DISPONIBLE", "INACTIVAS", "TODAS"])
+      .optional()
+      .openapi({
+        param: {
+          name: "estado",
+          in: "query",
+          required: false,
+          description:
+            "Filtro por estado operativo (DISPONIBLE, EN_MISION, NO_DISPONIBLE) o vistas especiales (INACTIVAS, TODAS)",
+        },
+        example: "DISPONIBLE",
+      }),
+    activo: z
+      .union([z.boolean(), z.enum(["true", "false", "all"])])
+      .optional()
+      .openapi({
+        param: {
+          name: "activo",
+          in: "query",
+          required: false,
+          description: "Filtro de vigencia: true (activas), false (inactivas) o all (todas)",
+        },
+        example: "true",
+      }),
+    incluir_inactivas: z.coerce.boolean().optional().openapi({
+      param: {
+        name: "incluir_inactivas",
+        in: "query",
+        required: false,
+        description: "Incluye cuadrillas con baja lógica en el listado",
+      },
+      example: false,
+    }),
+    incluirInactivas: z.coerce.boolean().optional().openapi({
+      param: {
+        name: "incluirInactivas",
+        in: "query",
+        required: false,
+        description: "Alias de 'incluir_inactivas'",
+      },
+      example: false,
+    }),
+  })
+  .openapi({
+    title: "ListarCuadrillasQuery",
+    description: "Parámetros de consulta para listado paginado de cuadrillas bajo estándar H34 (H80)",
+  });
 
 export type ListarCuadrillasQuery = z.infer<typeof ListarCuadrillasQuerySchema>;
 
 export const PaginacionMetaSchema = z.object({
+  // Claves en español para compatibilidad con sgrai-web
   total: z.number(),
   pagina: z.number(),
   limite: z.number(),
   paginasTotales: z.number(),
+  // Claves del estándar H34
+  page: z.number(),
+  limit: z.number(),
+  totalPages: z.number(),
+  hasNext: z.boolean(),
+  hasPrev: z.boolean(),
 });
 
 export const ListarCuadrillasResponseSchema = z

@@ -280,6 +280,7 @@ export class SeguridadRepository {
     const usuario = await db
       .selectFrom("usuario")
       .innerJoin("rol", "rol.id", "usuario.rol_id")
+      .leftJoin("delegacion", "delegacion.id", "usuario.delegacion_id")
       .select([
         "usuario.id",
         "usuario.rut",
@@ -287,6 +288,7 @@ export class SeguridadRepository {
         "usuario.email",
         "usuario.activo",
         "usuario.delegacion_id",
+        "delegacion.nombre as delegacion_nombre",
         "rol.id as rol_id",
         "rol.nombre as rol_nombre",
         "rol.codigo as rol_codigo",
@@ -318,6 +320,7 @@ export class SeguridadRepository {
       email: usuario.email,
       activo: Boolean(usuario.activo),
       delegacionId: usuario.delegacion_id,
+      delegacionNombre: usuario.delegacion_nombre ?? null,
       rol: {
         id: usuario.rol_id,
         nombre: usuario.rol_nombre,
@@ -566,6 +569,7 @@ export class SeguridadRepository {
     const row = await db
       .selectFrom("usuario")
       .innerJoin("rol", "rol.id", "usuario.rol_id")
+      .leftJoin("delegacion", "delegacion.id", "usuario.delegacion_id")
       .select([
         "usuario.id",
         "usuario.rut",
@@ -576,6 +580,7 @@ export class SeguridadRepository {
         "usuario.intentos_fallidos",
         "usuario.bloqueado_hasta",
         "usuario.delegacion_id",
+        "delegacion.nombre as delegacion_nombre",
         "rol.id as rol_id",
         "rol.nombre as rol_nombre",
         "rol.codigo as rol_codigo",

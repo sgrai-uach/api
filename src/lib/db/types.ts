@@ -396,6 +396,28 @@ export type EstadoMision =
   | "CANCELADA"
   | "RECHAZADA";
 
+export type EstadoNotificacionMision =
+  | "PENDIENTE_ENVIO"
+  | "ENVIADA"
+  | "RECIBIDA"
+  | "LEIDA";
+
+export interface NotificacionesMisionTable {
+  id: Generated<string>;
+  mision_id: string;
+  patrulla_id: string;
+  estado: ColumnType<
+    EstadoNotificacionMision,
+    EstadoNotificacionMision | undefined,
+    EstadoNotificacionMision
+  >;
+  intentos_envio: ColumnType<number, number | undefined, number>;
+  creada_at: Generated<Date>;
+  enviada_at: Date | null;
+  recibida_at: Date | null;
+  leida_at: Date | null;
+}
+
 export interface MisionTable {
   id: Generated<string>;
   codigo: string;
@@ -569,6 +591,8 @@ export interface Database {
   cuadrilla_personal: CuadrillaPersonalTable;
   mision: MisionTable;
   mision_hito: MisionHitoTable;
+  notificaciones_mision: NotificacionesMisionTable;
+  notificacion_mision: NotificacionesMisionTable;
   aviso_incidente: AvisoIncidenteTable;
   adjunto: AdjuntoTable;
   reporte_terreno: ReporteTerrenoTable;

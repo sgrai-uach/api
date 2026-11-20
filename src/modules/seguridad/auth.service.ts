@@ -23,13 +23,7 @@ export async function verificarPermiso(
   const usuario = await db
     .selectFrom("usuario")
     .innerJoin("rol", "rol.id", "usuario.rol_id")
-    .select([
-      "usuario.id",
-      "usuario.nombre",
-      "usuario.activo",
-      "rol.nombre as rol_nombre",
-      "rol.id as rol_id",
-    ])
+    .select(["usuario.id", "usuario.nombre", "usuario.activo", "rol.nombre as rol_nombre", "rol.id as rol_id"])
     .where("usuario.id", "=", usuarioId)
     .executeTakeFirst();
 
