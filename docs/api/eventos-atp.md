@@ -61,7 +61,9 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
 | `GET` | `/api/eventos-atp/prevencion` | Listar eventos y misiones preventivas desplegadas en puntos críticos con paginación y filtros estándar H34 (H76). |
+| `GET` | `/api/eventos-atp/prevencion/{id}` | Obtener el detalle integral de un evento de prevención, sus misiones y recursos asignados (HU-33). |
 | `PATCH` | `/api/eventos-atp/prevencion/{id}` | Modificar tareas planificadas, nombre, prioridad, fecha estimada de finalización y recursos materiales de un evento de prevención activo (H77). |
+| `POST` | `/api/eventos-atp/prevencion/{id}/recursos` | Asignar una patrulla verificadora disponible y recursos logísticos del inventario a un evento de prevención comunal con bloqueo `FOR UPDATE` (HU-33). |
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
@@ -1011,3 +1013,132 @@ Permite al Encargado modificar las tareas planificadas (`descripcion`), nombre (
 - `403 Forbidden`: El usuario autenticado no posee el permiso `prevencion:eventos:crear`.
 - `404 Not Found`: El evento de prevención o alguno de los recursos solicitados no existe (o fue eliminado).
 - `409 Conflict`: El evento se encuentra en estado `COMPLETADA`, `CANCELADA` o `activo = false`, o bien no existe stock suficiente en bodega para incrementar un recurso.
+
+---
+
+## Detalle de Endpoint: `GET /api/eventos-atp/prevencion/{id}` (HU-33)
+
+Consulta la ficha integral de un evento programado de prevención comunal activo (`activo = true` y `eliminado_en IS NULL`), incluyendo los datos georreferenciados PostGIS del punto crítico asociado, delegación municipal, historial de misiones preventivas (`mision`) y detalle de insumos/activos asignados (`evento_prevencion_recurso`).
+
+### Reglas de Negocio Aplicadas
+- **Control de Acceso (RBAC):** Requiere alguno de los permisos `prevencion:eventos:leer`, `prevencion:eventos:crear`, `misiones:leer` o `misiones:asignar`.
+- **Trazabilidad por Misión:** Cada elemento en `recursosAsignados` incluye `esIndividual` y `misionId` (Migración `060`) para correlacionar el material con la orden táctica correspondiente.
+
+### Errores Esperables
+- `400 Bad Request`: `id` no es un UUID válido.
+- `401 Unauthorized`: Falta token Bearer o expiró.
+- `403 Forbidden`: Usuario sin permisos de lectura o asignación sobre prevención/misiones.
+- `404 Not Found`: Evento de prevención inexistente o dado de baja lógicamente.
+
+---
+
+## Detalle de Endpoint: `POST /api/eventos-atp/prevencion/{id}/recursos` (HU-33)
+
+Permite al **Encargado de Operaciones** asignar una patrulla verificadora disponible e insumos o activos del inventario logístico a un evento de prevención programado, despachando una misión preventiva en terreno sin requerir un incidente previo.
+
+### Diagrama de Secuencia
+
+```mermaid
+sequenceDiagram
+    actor Encargado
+    participant API as "POST /api/eventos-atp/prevencion/[id]/recursos"
+    participant DB as "PostgreSQL (Kysely TRX)"
+    participant WS as "Socket.io / Redis"
+
+    Encargado->>API: POST { patrullaId, recursos[] } (Bearer JWT)
+    API->>API: Validar RBAC ('misiones:asignar'), UUID y Zod
+    API->>DB: BEGIN + SELECT evento_prevencion FOR UPDATE
+    API->>DB: SELECT patrulla_verificadora FOR UPDATE (DISPONIBLE)
+    API->>DB: SELECT recurso ORDER BY id ASC FOR UPDATE (§3.6)
+    API->>DB: INSERT mision (tipo_mision='PREVENCION', estado='DESPACHADA')
+    API->>DB: INSERT evento_prevencion_recurso (con mision_id)
+    API->>DB: UPDATE recurso (cantidad_en_uso / estado='ASIGNADO')
+    API->>DB: UPDATE patrulla_verificadora SET estado='EN_PREVENCION'
+    API->>DB: COMMIT
+    API->>WS: Emitir prevencion:actualizada, recurso:actualizado, patrulla:actualizada
+    API-->>Encargado: 200 OK { message, data }
+```
+
+### Reglas de Negocio Aplicadas (§3.4 y §3.6)
+1. **Control de Acceso (RBAC):** Exige estrictamente el permiso **`misiones:asignar`**.
+2. **Despacho Preventivo sin Incidente Previo (§3.4):** Crea una nueva fila en `mision` con `tipo_mision = 'PREVENCION'`, `estado = 'DESPACHADA'`, `evento_prevencion_id` poblado, `prevencion_id` heredado de `evento_prevencion.punto_critico_id` (si existe) e `incidente_id = NULL`.
+3. **Transición de Patrulla y Líder:** La patrulla debe estar en estado `'DISPONIBLE'` (`409 Conflict` en otro caso) y transiciona atómicamente a `'EN_PREVENCION'`. Si la patrulla posee `usuario_lider_id`, actualiza `usuario.estado_operativo = 'en_mision'` y `personal.disponible_terreno = false`.
+4. **Control de Concurrencia e Inventario Híbrido (§3.6):**
+   - Bloquea filas involucradas en `recurso` mediante `SELECT ... FOR UPDATE` en orden determinista por `id ASC` dentro de la transacción Kysely.
+   - **Insumos a granel (`es_individual = false`):** prohíbe asignación si `estado = 'EN_MANTENCION'` (`409`) y valida disponibilidad efectiva `cantidad_inventario - cantidad_en_uso >= cantidad_solicitada` (`409 Conflict` ante sobregiro). Incrementa atómicamente `cantidad_en_uso` y recalcula `estado` (`NO_DISPONIBLE` si disponible = 0; `BAJO_STOCK` si `cantidad_minima > 0` y disponible ≤ `cantidad_minima`; sino `DISPONIBLE`).
+   - **Activos individuales (`es_individual = true`):** exige `cantidad === 1` (`400 Bad Request` si es distinta de 1); prohíbe asignación si está en `EN_MANTENCION`, `NO_DISPONIBLE`, `ASIGNADO` o `cantidad_en_uso >= 1` (`409 Conflict`). Al confirmar pasa a `estado = 'ASIGNADO'` y `cantidad_en_uso = 1`.
+5. **Trazabilidad (`evento_prevencion_recurso`):** Persiste la asignación vinculada a `evento_prevencion_id` y `mision_id` (Migración `060`), además de estampar `actualizado_en` y `actualizado_por_id` en `evento_prevencion`.
+6. **Eventos WebSocket en Tiempo Real:** Tras confirmar la transacción, emite hacia las salas `"encargado"`, `"sala:encargados"`, `"mapa"` (además de `"supervisor"` y `"patrulla:<patrullaId>"`):
+   - `prevencion:actualizada`: payload completo con `{ id, codigo, nombre, evento, mision, patrulla, recursos, asignadoEn }`.
+   - `recurso:actualizado`: por cada recurso modificado con sus nuevos valores de `cantidad_en_uso` y `estado`.
+   - `patrulla:actualizada`: con `estado: "EN_PREVENCION"` y `misionActivaId`.
+
+### Cuerpo de la Petición (Request Body JSON)
+```json
+{
+  "patrullaId": "50000000-0000-4000-8000-000000000001",
+  "recursos": [
+    {
+      "recursoId": "80000000-0000-4000-8000-000000000001",
+      "cantidad": 10
+    },
+    {
+      "recursoId": "80000000-0000-4000-8000-000000000002",
+      "cantidad": 1
+    }
+  ]
+}
+```
+
+### Respuesta Exitosa (`200 OK`)
+```json
+{
+  "message": "Patrulla y recursos logísticos asignados exitosamente al evento de prevención.",
+  "data": {
+    "evento": {
+      "id": "80000000-0000-4000-8000-000000000010",
+      "codigo": "PREV-2026-0001",
+      "nombre": "Limpieza preventiva de colectores en Angachilla",
+      "estado": "PLANIFICADA"
+    },
+    "mision": {
+      "id": "60000000-0000-4000-8000-000000000099",
+      "codigo": "MIS-2026-0099",
+      "titulo": "Despacho preventivo: Limpieza preventiva de colectores en Angachilla",
+      "estado": "DESPACHADA",
+      "tipoMision": "PREVENCION"
+    },
+    "patrulla": {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "nombre": "Patrulla Sur 1",
+      "estado": "EN_PREVENCION"
+    },
+    "recursos": [
+      {
+        "recursoId": "80000000-0000-4000-8000-000000000001",
+        "nombre": "Sacos de Arena 25kg",
+        "esIndividual": false,
+        "cantidadAsignada": 10,
+        "cantidadEnUso": 15,
+        "estadoRecurso": "DISPONIBLE"
+      },
+      {
+        "recursoId": "80000000-0000-4000-8000-000000000002",
+        "nombre": "Motobomba 4 pulgadas",
+        "esIndividual": true,
+        "cantidadAsignada": 1,
+        "cantidadEnUso": 1,
+        "estadoRecurso": "ASIGNADO"
+      }
+    ],
+    "asignadoEn": "2026-11-19T21:00:00.000Z"
+  }
+}
+```
+
+### Errores Esperables
+- `400 Bad Request`: UUID inválido, payload vacío/inválido (ej. `recursos: []`), o activo individual (`es_individual = true`) solicitado con `cantidad !== 1`.
+- `401 Unauthorized`: Cabecera de autenticación ausente o token JWT inválido.
+- `403 Forbidden`: El usuario autenticado no posee el permiso `misiones:asignar`.
+- `404 Not Found`: El evento de prevención, la patrulla o alguno de los recursos solicitados no existe o fue eliminado.
+- `409 Conflict`: El evento se encuentra en estado `COMPLETADA`, `CANCELADA` o `activo = false`; la patrulla no está `DISPONIBLE`; un activo individual está en `EN_MANTENCION`, `ASIGNADO` o `NO_DISPONIBLE`; o el stock disponible (`cantidad_inventario - cantidad_en_uso`) no cubre la cantidad solicitada.
