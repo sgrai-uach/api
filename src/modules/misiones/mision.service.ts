@@ -65,7 +65,7 @@ export async function obtenerDetalleMisionService(
     return null;
   }
 
-  const { mision, recursosCuadrilla, reportesTerreno: reportesRaw } = resultado;
+  const { mision, recursosCuadrilla, recursosPatrulla = [], reportesTerreno: reportesRaw } = resultado;
 
   // 1. Bitácora de tiempos (incorporando hitos reales de mision_hito o fallback a timestamps)
   const bitacoraTiempos: MisionBitacoraHito[] = [];
@@ -223,6 +223,7 @@ export async function obtenerDetalleMisionService(
               email: mision.lider_email ?? "",
             }
           : null,
+        recursos: recursosPatrulla,
       }
     : null;
 

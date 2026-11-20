@@ -497,10 +497,10 @@ export function emitirEventoPrevencionCreado(payload: {
   id: string;
   codigo: string;
   nombre: string;
-  patrulla: { id: string; nombre: string; estado: string };
+  patrulla?: { id: string; nombre: string; estado: string } | null;
   [key: string]: unknown;
 }): void {
-  const patrullaRoom = `patrulla:${payload.patrulla.id}`;
+  const patrullaRoom = payload.patrulla?.id ? `patrulla:${payload.patrulla.id}` : null;
 
   if (ioInstance) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -509,10 +509,12 @@ export function emitirEventoPrevencionCreado(payload: {
     (ioInstance.to("encargado") as any).emit("prevencion:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (ioInstance.to("mapa") as any).emit("prevencion:creada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to(patrullaRoom) as any).emit("prevencion:creada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to(`sala:${patrullaRoom}`) as any).emit("prevencion:creada", payload);
+    if (patrullaRoom) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to(patrullaRoom) as any).emit("prevencion:creada", payload);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to(`sala:${patrullaRoom}`) as any).emit("prevencion:creada", payload);
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (ioInstance as any).emit("prevencion:creada", payload);
     return;
@@ -531,16 +533,18 @@ export function emitirEventoPrevencionCreado(payload: {
       )
       .catch(() => {});
 
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: patrullaRoom,
-          event: "prevencion:creada",
-          payload,
-        })
-      )
-      .catch(() => {});
+    if (patrullaRoom) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room: patrullaRoom,
+            event: "prevencion:creada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 

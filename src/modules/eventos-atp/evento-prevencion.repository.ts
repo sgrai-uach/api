@@ -277,10 +277,44 @@ export async function insertarMisionPrevencion(trx: Trx, data: InsertarMisionPre
       patrulla_id: data.patrullaId,
       encargado_id: data.encargadoId,
       creado_por_id: data.creadoPorId,
-      fecha_inicio: new Date(),
+      fecha_inicio: null,
     })
     .returning(["id", "codigo", "titulo", "estado", "tipo_mision"])
     .executeTakeFirstOrThrow();
+}
+
+export async function actualizarEstadoEventoPrevencionEnCurso(
+  trx: Trx,
+  eventoId: string,
+  usuarioId: string
+) {
+  return await trx
+    .updateTable("evento_prevencion")
+    .set({
+      estado: "EN_CURSO",
+      actualizado_en: new Date(),
+      actualizado_por_id: usuarioId,
+    })
+    .where("id", "=", eventoId)
+    .where("estado", "=", "PLANIFICADA")
+    .execute();
+}
+
+export async function insertarHitoDespachoMisionPrevencion(
+  trx: Trx,
+  misionId: string,
+  patrullaNombre: string,
+  usuarioId: string
+) {
+  return await trx
+    .insertInto("mision_hito")
+    .values({
+      mision_id: misionId,
+      hito: "DESPACHADA",
+      descripcion: `Misión preventiva asignada y despachada a la patrulla ${patrullaNombre}.`,
+      registrado_por_id: usuarioId,
+    })
+    .execute();
 }
 
 export interface AsignacionRecursoData {

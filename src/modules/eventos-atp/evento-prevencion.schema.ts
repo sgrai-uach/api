@@ -91,12 +91,17 @@ export const CrearEventoPrevencionInputSchema = z.object({
     description: "Longitud geográfica en formato WGS84",
     example: -73.2389,
   }),
-  patrullaId: z.string().uuid("El UUID de la patrulla verificadora es obligatorio y debe ser válido").openapi({
-    description: "Identificador de la patrulla verificadora disponible asignada al evento",
-    example: "50000000-0000-4000-8000-000000000001",
-  }),
+  patrullaId: z
+    .string()
+    .uuid("El UUID de la patrulla verificadora debe ser válido")
+    .optional()
+    .nullable()
+    .openapi({
+      description: "Identificador opcional de patrulla verificadora disponible si se despacha inmediatamente",
+      example: "50000000-0000-4000-8000-000000000001",
+    }),
   recursos: z.array(ItemRecursoPrevencionSchema).default([]).openapi({
-    description: "Listado de insumos o herramientas asignadas para la misión preventiva",
+    description: "Listado opcional de insumos o herramientas para la misión inicial si se asigna patrulla",
   }),
   fechaEstimadaFin: z
     .string()
@@ -170,8 +175,8 @@ export const EventoPrevencionResponseSchema = z.object({
     })
     .nullable()
     .openapi({ description: "Delegación territorial asignada" }),
-  mision: MisionPrevencionResumenSchema.openapi({ description: "Misión táctica despachada a la patrulla" }),
-  patrulla: PatrullaAsignadaPrevencionResumenSchema.openapi({ description: "Patrulla asignada en estado EN_PREVENCION" }),
+  mision: MisionPrevencionResumenSchema.nullable().openapi({ description: "Misión táctica despachada a la patrulla (null si solo se planifica el evento)" }),
+  patrulla: PatrullaAsignadaPrevencionResumenSchema.nullable().openapi({ description: "Patrulla asignada en estado EN_PREVENCION (null si aún no hay despacho)" }),
   recursos: z.array(RecursoAsignadoPrevencionResponseSchema).openapi({ description: "Recursos asignados al evento" }),
   fechaEstimadaFin: z.string().nullable().optional().openapi({ description: "Fecha estimada de finalización ISO 8601" }),
   creadoPorId: z.string().uuid().openapi({ description: "Identificador del Encargado que creó el evento" }),
@@ -347,23 +352,16 @@ export const EditarEventoPrevencionInputSchema = z
         description: "Nueva fecha y hora estimada de finalización (ISO 8601) o null para limpiar",
         example: "2026-11-26T20:00:00.000Z",
       }),
-    recursos: z
-      .array(ItemRecursoPrevencionSchema)
-      .optional()
-      .openapi({
-        description: "Dotación completa de recursos materiales vinculados al evento (reemplaza la lista anterior)",
-      }),
   })
   .refine(
     (data) =>
       data.nombre !== undefined ||
       data.descripcion !== undefined ||
       data.prioridad !== undefined ||
-      data.fechaEstimadaFin !== undefined ||
-      data.recursos !== undefined,
+      data.fechaEstimadaFin !== undefined,
     {
       message:
-        "Debe proporcionar al menos un campo para actualizar (nombre, descripcion, prioridad, fechaEstimadaFin o recursos).",
+        "Debe proporcionar al menos un campo para actualizar (nombre, descripcion, prioridad o fechaEstimadaFin).",
     }
   );
 
