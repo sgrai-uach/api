@@ -62,8 +62,9 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
 | `GET` | `/api/eventos-atp/recuperacion` | Listar operativos de recuperación post-desastre con paginación H34, filtros territoriales/estado y desglose de insumos asignados (H73). |
-| `GET` | `/api/eventos-atp/recuperacion/{id}` | Obtener detalle consolidado de un operativo de recuperación con recursos, patrulla e historial (H73 / H74). |
+| `GET` | `/api/eventos-atp/recuperacion/{id}` | Obtener detalle consolidado de un operativo de recuperación con recursos, patrulla e historial (H73 / H74 / H75). |
 | `PATCH` | `/api/eventos-atp/recuperacion/{id}` | Modificar descripción de tareas, fecha estimada de término, dotación de insumos y/o patrulla asignada de un operativo de recuperación activo (HU-74). |
+| `POST` | `/api/eventos-atp/recuperacion/{id}/cerrar` | Decretar la conclusión formal de un operativo de recuperación en estado `EN_EJECUCION`, reintegrando remanentes al inventario y liberando la patrulla (HU-75). |
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
 
@@ -788,6 +789,27 @@ Permite al **Encargado de Operaciones** (o Administrador con permiso `recuperaci
 
 ---
 
+## 8.4 Detalle de Endpoint: `POST /api/eventos-atp/recuperacion/{id}/cerrar` (HU-75)
+
+Permite al **Encargado de Operaciones** (o Administrador con permiso `recuperacion:cerrar`) decretar la conclusión formal de un operativo de recuperación en estado `EN_EJECUCION`, registrando el resumen de cierre, reintegrando al inventario los remanentes no consumidos y liberando la patrulla verificadora asignada.
+
+### Reglas de Negocio Aplicadas
+- **Estado estricto:** Solo permite cerrar operativos en estado `EN_EJECUCION`. Si el operativo está en `PLANIFICADA`, `CANCELADA` o ya `COMPLETADA`, responde `409 Conflict`.
+- **Reintegro de inventario (modelo H74):** Dado que la creación (HU-29) y edición (HU-74) descuentan directamente de `recurso.cantidad_inventario` sin incrementar `cantidad_en_uso`, el cierre calcula `remanente = cantidad_asignada - cantidad_consumida` y suma ese remanente a `recurso.cantidad_inventario` mediante `devolverStockRecurso`, recalculando el `estado` del recurso (`DISPONIBLE`, `BAJO_STOCK`, `NO_DISPONIBLE`) y respetando recursos en `EN_MANTENCION`. No se modifica `cantidad_en_uso`.
+- **Consumo omitido:** Si `consumos` no incluye un recurso a granel asignado, se asume consumido por completo (`cantidadConsumida = cantidadAsignada`, `remanente = 0`). Los activos individuales (`es_individual = true`) no son consumibles (`cantidadConsumida` debe ser `0`) y se liberan a `DISPONIBLE`.
+- **Cierre de misión y liberación de patrulla:** Las misiones activas (`PLANIFICADA`, `DESPACHADA`, `EN_CURSO`) vinculadas al operativo pasan a `COMPLETADA` con `fecha_cierre` y un hito `OPERATIVO_CONCLUIDO` en `mision_hito`. La patrulla pasa a `DISPONIBLE` (y su líder a `disponible`) solo si no tiene otras misiones activas.
+- **Trazabilidad:** Persiste `fecha_cierre`, `observaciones_cierre` y `cerrado_por_id` en `recuperacion`, además de `cantidad_consumida`, `cantidad_devuelta` y `devuelto_en` en `recuperacion_recurso`.
+- **Tiempo real:** Tras el commit, emite `recuperacion:actualizada` (con `accion: "CERRADA"`) a las salas `sala:encargados`, `encargado` y `mapa`, además de `recurso:actualizado`, `patrulla:actualizada` y `mision:actualizada`.
+
+### Errores Esperables No Obvios
+- `400 Bad Request`: `resumenCierre` ausente o menor a 10 caracteres, `recursoId` duplicado o ajeno al operativo, `cantidadConsumida > cantidadAsignada`, o intento de reportar consumo `> 0` en un activo individual.
+- `403 Forbidden`: El usuario no posee el permiso `recuperacion:cerrar`.
+- `409 Conflict`: El operativo no se encuentra en estado `EN_EJECUCION` (incluye reintento sobre operativo ya `COMPLETADA`).
+
+> Trazabilidad UI (`sgrai-web`): El botón **"Declarar Concluido"** y su modal de confirmación en el drawer de detalle consumen este endpoint.
+
+---
+
 ## 9. Detalle de Endpoint: `POST /api/eventos-atp/prevencion` (HU-30)
 
 Permite al **Encargado de Operaciones** (o Administrador) registrar un nuevo Evento de Prevención georreferenciado sobre un punto crítico o mediante coordenadas libres en una delegación de Valdivia, asignando recursos logísticos opcionales y despachando de manera atómica una misión a una patrulla verificadora disponible.
@@ -1039,13 +1061,13 @@ Al completar exitosamente la transacción de creación del evento, el backend em
 
 ### Evento: `recuperacion:actualizada`
 
-Al editar exitosamente la planificación de un operativo de recuperación (`PATCH /api/eventos-atp/recuperacion/{id}`), el backend emite:
+Al editar la planificación (`PATCH /api/eventos-atp/recuperacion/{id}`) o concluir formalmente un operativo de recuperación (`POST /api/eventos-atp/recuperacion/{id}/cerrar`), el backend emite:
 
 * **Evento:** `recuperacion:actualizada`
-* **Salas:** `"sala:encargados"`, `"encargado"`, `"mapa"`
-* **Payload:** Objeto idéntico a la propiedad `data` de la respuesta `200 OK`.
+* **Salas:** `"sala:encargados"`, `"encargado"`, `"mapa"` (tanto en instancia directa como vía respaldo Redis).
+* **Payload:** Objeto `evento` actualizado (al cerrar incluye `accion: "CERRADA"`, `estado: "COMPLETADA"`, `fechaCierre`, `observacionesCierre` y `cerradoPorId`).
 * **Propósito en Frontend (`sgrai-web` / `sgrai-pwa`):**
-  - Reflejar en vivo los cambios de descripción, fecha estimada de término y dotación de recursos asignados.
+  - Reflejar en vivo los cambios de descripción, fecha estimada de término, dotación de recursos asignados o transición a `COMPLETADA`.
 
 ### Evento: `prevencion:creada`
 
