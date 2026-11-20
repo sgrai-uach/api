@@ -18,7 +18,8 @@
     "seed:patrullas": "tsx scripts/seed-patrullas.ts",
     "seed:h21": "tsx scripts/seed-h21.ts",
     "seed:h73": "tsx scripts/seed-h73.ts",
-    "seed:h74": "tsx scripts/seed-h74.ts"
+    "seed:h74": "tsx scripts/seed-h74.ts",
+    "seed:h75": "tsx scripts/seed-h75.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
