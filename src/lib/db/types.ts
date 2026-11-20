@@ -561,6 +561,7 @@ export interface EventoPrevencionRecursoTable {
   id: Generated<string>;
   evento_prevencion_id: string;
   recurso_id: string;
+  mision_id?: string | null;
   cantidad_asignada: number;
   creado_en: Generated<Date>;
 }
