@@ -152,6 +152,8 @@ import {
   RecuperacionDetalleResponseSchema,
   ObtenerRecuperacionDetalleResponseSchema,
   RecuperacionIdParamSchema,
+  CerrarRecuperacionInputSchema,
+  CerrarRecuperacionResponseSchema,
 } from "@/modules/eventos-atp/recuperacion.schema";
 
 import {
@@ -2020,6 +2022,71 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor al procesar la edición del operativo",
+    },
+  },
+});
+
+// POST /api/eventos-atp/recuperacion/{id}/cerrar (HU-75)
+registry.register("CerrarRecuperacionInput", CerrarRecuperacionInputSchema);
+registry.register("CerrarRecuperacionResponse", CerrarRecuperacionResponseSchema);
+
+registry.registerPath({
+  method: "post",
+  path: "/api/eventos-atp/recuperacion/{id}/cerrar",
+  summary: "Concluir formalmente un operativo de recuperación en ejecución (HU-75)",
+  description:
+    "Decreta la conclusión formal de un operativo de recuperación en estado EN_EJECUCION. Transiciona atómicamente el operativo a COMPLETADA registrando el resumen de cierre, reintegra los remanentes no consumidos al inventario (cantidad_inventario), cierra la misión táctica asociada, libera la patrulla verificadora si no tiene otras misiones activas y emite 'recuperacion:actualizada', 'recurso:actualizado', 'patrulla:actualizada' y 'mision:actualizada'.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    params: z.object({
+      id: RecuperacionIdParamSchema,
+    }),
+    headers: z.object({
+      "authorization": z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer JWT de sesión institucional" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
+    }),
+    body: {
+      description: "Resumen formal de cierre y detalle opcional de unidades consumidas por recurso",
+      content: {
+        "application/json": {
+          schema: CerrarRecuperacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Operativo de recuperación concluido exitosamente",
+      content: {
+        "application/json": {
+          schema: CerrarRecuperacionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos, UUID inválido o consumo reportado inválido",
+    },
+    401: {
+      description: "No autenticado / sesión ausente o expirada",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recuperacion:cerrar'",
+    },
+    404: {
+      description: "Operativo de recuperación no encontrado",
+    },
+    409: {
+      description: "Conflicto: el operativo no se encuentra en estado EN_EJECUCION",
+    },
+    500: {
+      description: "Error interno del servidor al cerrar el operativo",
     },
   },
 });

@@ -165,6 +165,9 @@ export const RecursoAsignadoItemResponseSchema = z.object({
   recursoId: z.string().uuid().openapi({ example: "00000000-0000-4000-8000-000000000001" }),
   nombre: z.string().openapi({ example: "Sacos de Arena 25kg" }),
   cantidadAsignada: z.number().openapi({ example: 10 }),
+  cantidadConsumida: z.number().int().nullable().optional().openapi({ example: 7 }),
+  cantidadDevuelta: z.number().int().nullable().optional().openapi({ example: 3 }),
+  devueltoEn: z.string().nullable().optional().openapi({ description: "Fecha ISO 8601 de reintegro al inventario" }),
 });
 
 export type RecursoAsignadoItemResponse = z.infer<typeof RecursoAsignadoItemResponseSchema>;
@@ -228,6 +231,9 @@ export const EventoRecuperacionResponseSchema = z.object({
   creadoPorId: z.string().uuid().openapi({ description: "Identificador del Encargado que creó el evento" }),
   fechaEstimadaFin: z.string().nullable().optional().openapi({ description: "Fecha estimada de término ISO 8601" }),
   actualizadoPorId: z.string().uuid().nullable().optional().openapi({ description: "Identificador del usuario que realizó la última edición" }),
+  fechaCierre: z.string().nullable().optional().openapi({ description: "Fecha de conclusión formal ISO 8601" }),
+  observacionesCierre: z.string().nullable().optional().openapi({ description: "Resumen de cierre del operativo" }),
+  cerradoPorId: z.string().uuid().nullable().optional().openapi({ description: "Identificador del usuario que cerró el operativo" }),
   creadoEn: z.string().openapi({ description: "Fecha de registro ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Fecha de actualización ISO 8601" }),
 });
@@ -428,6 +434,7 @@ export const RecuperacionDetalleResponseSchema = z.object({
   actualizadoPorId: z.string().nullable().optional(),
   fechaCierre: z.string().nullable().optional().openapi({ description: "Fecha de finalización de entrega" }),
   observacionesCierre: z.string().nullable().optional().openapi({ description: "Observaciones finales de cierre" }),
+  cerradoPorId: z.string().uuid().nullable().optional().openapi({ description: "Identificador del usuario que concluyó el operativo" }),
 });
 
 export type RecuperacionDetalleResponse = z.infer<typeof RecuperacionDetalleResponseSchema>;
@@ -441,3 +448,108 @@ export const ObtenerRecuperacionDetalleResponseSchema = z.object({
 });
 
 export type ObtenerRecuperacionDetalleResponse = z.infer<typeof ObtenerRecuperacionDetalleResponseSchema>;
+
+// ==========================================
+// ESQUEMAS PARA CIERRE DE OPERATIVO (HU-75)
+// ==========================================
+
+/**
+ * Consumo reportado para un recurso asignado al momento de cerrar el operativo (HU-75).
+ */
+export const ConsumoRecursoCierreSchema = z.object({
+  recursoId: z.string().uuid("El identificador del recurso debe ser un UUID válido").openapi({
+    description: "UUID del recurso asignado al operativo",
+    example: "00000000-0000-4000-8000-000000000001",
+  }),
+  cantidadConsumida: z
+    .number()
+    .int("La cantidad consumida debe ser un número entero")
+    .min(0, "La cantidad consumida no puede ser negativa")
+    .openapi({
+      description: "Unidades consumidas en terreno (el remanente se reintegra al inventario)",
+      example: 7,
+    }),
+});
+
+export type ConsumoRecursoCierre = z.infer<typeof ConsumoRecursoCierreSchema>;
+
+/**
+ * Cuerpo de solicitud para concluir formalmente un operativo de recuperación (HU-75).
+ */
+export const CerrarRecuperacionInputSchema = z
+  .object({
+    resumenCierre: z
+      .string()
+      .trim()
+      .min(10, "El resumen de cierre debe tener al menos 10 caracteres")
+      .max(2000, "El resumen de cierre no puede superar los 2000 caracteres")
+      .openapi({
+        description: "Resumen formal de las ayudas entregadas o rehabilitación del sector",
+        example: "Se entregaron 7 kits de emergencia y 3 quedaron sin uso; sector habilitado y despejado.",
+      }),
+    consumos: z
+      .array(ConsumoRecursoCierreSchema)
+      .optional()
+      .default([])
+      .openapi({
+        description:
+          "Detalle opcional de unidades consumidas por recurso. Los recursos no incluidos se asumen consumidos por completo (remanente 0).",
+      }),
+  })
+  .superRefine((val, ctx) => {
+    const vistos = new Set<string>();
+    val.consumos.forEach((item, index) => {
+      if (vistos.has(item.recursoId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["consumos", index, "recursoId"],
+          message: `El recurso '${item.recursoId}' está duplicado en la lista de consumos.`,
+        });
+      }
+      vistos.add(item.recursoId);
+    });
+  });
+
+export type CerrarRecuperacionInput = z.infer<typeof CerrarRecuperacionInputSchema>;
+
+export const RecursoReintegradoCierreSchema = z.object({
+  recursoId: z.string().uuid(),
+  nombre: z.string(),
+  esIndividual: z.boolean(),
+  cantidadAsignada: z.number().int(),
+  cantidadConsumida: z.number().int(),
+  cantidadDevuelta: z.number().int(),
+  cantidadInventario: z.number().int(),
+  cantidadEnUso: z.number().int(),
+  estadoRecurso: z.string(),
+});
+
+export type RecursoReintegradoCierre = z.infer<typeof RecursoReintegradoCierreSchema>;
+
+export const CerrarRecuperacionResponseDataSchema = z.object({
+  evento: EventoRecuperacionResponseSchema,
+  recursosReintegrados: z.array(RecursoReintegradoCierreSchema),
+  mision: z
+    .object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      estado: z.string(),
+    })
+    .nullable(),
+  patrullaLiberada: z
+    .object({
+      id: z.string().uuid(),
+      nombre: z.string(),
+      estado: z.string(),
+    })
+    .nullable(),
+});
+
+export type CerrarRecuperacionResponseData = z.infer<typeof CerrarRecuperacionResponseDataSchema>;
+
+export const CerrarRecuperacionResponseSchema = z.object({
+  message: z.string().openapi({ example: "Operativo de recuperación concluido exitosamente." }),
+  data: CerrarRecuperacionResponseDataSchema,
+});
+
+export type CerrarRecuperacionResponse = z.infer<typeof CerrarRecuperacionResponseSchema>;
