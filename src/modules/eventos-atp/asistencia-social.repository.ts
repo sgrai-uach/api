@@ -1,6 +1,21 @@
-import { sql } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 import { db } from "@/lib/db";
-import type { PrioridadEventoAsistenciaSocial, EstadoEventoAsistenciaSocial } from "./asistencia-social.schema";
+import type { Database } from "@/lib/db/types";
+import type {
+  PrioridadEventoAsistenciaSocial,
+  EstadoEventoAsistenciaSocial,
+  DetallesEvaluacionSocial,
+} from "./asistencia-social.schema";
+
+export class AsistenteSocialRepoError extends Error {
+  constructor(
+    public readonly motivo: "ASISTENTE_NO_ENCONTRADO" | "ASISTENTE_NO_ELEGIBLE",
+    message: string
+  ) {
+    super(message);
+    this.name = "AsistenteSocialRepoError";
+  }
+}
 
 export interface DatosInsertarEventoAsistenciaSocialRepo {
   codigo: string;
@@ -17,6 +32,8 @@ export interface DatosInsertarEventoAsistenciaSocialRepo {
   contactoRut?: string | null;
   delegacionId?: string | null;
   incidenteId?: string | null;
+  asistenteSocialId?: string | null;
+  detallesEvaluacion?: DetallesEvaluacionSocial | null;
   creadoPorId: string;
 }
 
@@ -40,6 +57,7 @@ export interface FilaEventoAsistenciaSocialConRelaciones {
   incidente_id: string | null;
   asistente_social_id: string | null;
   asistente_social_nombre: string | null;
+  detalles_evaluacion?: Record<string, unknown> | string | null;
   creado_por_id: string;
   creado_por_nombre: string | null;
   creado_en: Date;
@@ -56,6 +74,88 @@ export interface FiltrosListarEventosAsistenciaSocial {
 export interface OpcionesPaginacion {
   pagina: number;
   limite: number;
+}
+
+type DbExecutor = Kysely<Database> | Transaction<Database>;
+
+function consultarEventoConRelacionesBase(executor: DbExecutor) {
+  return executor
+    .selectFrom("evento_asistencia_social")
+    .leftJoin("delegacion", "delegacion.id", "evento_asistencia_social.delegacion_id")
+    .innerJoin("usuario as creador", "creador.id", "evento_asistencia_social.creado_por_id")
+    .leftJoin("usuario as asistente", "asistente.id", "evento_asistencia_social.asistente_social_id")
+    .select([
+      "evento_asistencia_social.id",
+      "evento_asistencia_social.codigo",
+      "evento_asistencia_social.descripcion",
+      "evento_asistencia_social.tipo_afectacion",
+      "evento_asistencia_social.personas_afectadas",
+      "evento_asistencia_social.familias_afectadas",
+      "evento_asistencia_social.direccion_texto",
+      "evento_asistencia_social.latitud",
+      "evento_asistencia_social.longitud",
+      "evento_asistencia_social.prioridad",
+      "evento_asistencia_social.estado",
+      "evento_asistencia_social.contacto_nombre",
+      "evento_asistencia_social.contacto_telefono",
+      "evento_asistencia_social.contacto_rut",
+      "evento_asistencia_social.delegacion_id",
+      sql<string | null>`COALESCE(delegacion.nombre, delegacion.nombre_delegacion)`.as("delegacion_nombre"),
+      "evento_asistencia_social.incidente_id",
+      "evento_asistencia_social.asistente_social_id",
+      "asistente.nombre as asistente_social_nombre",
+      "evento_asistencia_social.detalles_evaluacion",
+      "evento_asistencia_social.creado_por_id",
+      "creador.nombre as creado_por_nombre",
+      "evento_asistencia_social.creado_en",
+      "evento_asistencia_social.actualizado_en",
+    ]);
+}
+
+async function validarAsistenteSocialElegibleEnTrx(
+  trx: Transaction<Database>,
+  asistenteSocialId: string
+): Promise<
+  | { ok: true }
+  | { ok: false; motivo: "ASISTENTE_NO_ENCONTRADO" | "ASISTENTE_NO_ELEGIBLE"; detalle: string }
+> {
+  const asistente = await trx
+    .selectFrom("usuario")
+    .innerJoin("rol", "rol.id", "usuario.rol_id")
+    .select([
+      "usuario.id",
+      "usuario.activo",
+      "usuario.estado_operativo",
+      "rol.codigo as rol_codigo",
+    ])
+    .where("usuario.id", "=", asistenteSocialId)
+    .executeTakeFirst();
+
+  if (!asistente) {
+    return {
+      ok: false,
+      motivo: "ASISTENTE_NO_ENCONTRADO",
+      detalle: "El asistente social especificado no existe.",
+    };
+  }
+
+  if (!asistente.activo || asistente.rol_codigo !== "ASISTENTE_SOCIAL") {
+    return {
+      ok: false,
+      motivo: "ASISTENTE_NO_ELEGIBLE",
+      detalle: "El usuario seleccionado no está activo o no posee el rol ASISTENTE_SOCIAL.",
+    };
+  }
+
+  if (asistente.estado_operativo !== "disponible") {
+    return {
+      ok: false,
+      motivo: "ASISTENTE_NO_ELEGIBLE",
+      detalle: `El asistente social seleccionado se encuentra en estado '${asistente.estado_operativo}' y debe estar 'disponible'.`,
+    };
+  }
+
+  return { ok: true };
 }
 
 /**
@@ -76,11 +176,66 @@ export async function generarSiguienteCodigoAsistenciaSocial(): Promise<string> 
 }
 
 /**
- * Inserta un nuevo evento de asistencia social en PostgreSQL con geometría PostGIS.
+ * Inserta un nuevo evento de asistencia social en PostgreSQL con geometría PostGIS
+ * y asignación opcional inmediata de asistente social (H28 / H31 Opción A).
  */
 export async function insertarEventoAsistenciaSocial(
   datos: DatosInsertarEventoAsistenciaSocialRepo
 ): Promise<FilaEventoAsistenciaSocialConRelaciones> {
+  const detallesEvaluacionJson = datos.detallesEvaluacion
+    ? JSON.stringify(datos.detallesEvaluacion)
+    : null;
+  const asistenteIdLimpio = datos.asistenteSocialId?.trim() || null;
+
+  if (asistenteIdLimpio) {
+    return db.transaction().execute(async (trx) => {
+      const validacionAsistente = await validarAsistenteSocialElegibleEnTrx(
+        trx,
+        asistenteIdLimpio
+      );
+      if (!validacionAsistente.ok) {
+        throw new AsistenteSocialRepoError(validacionAsistente.motivo, validacionAsistente.detalle);
+      }
+
+      const [insertado] = await trx
+        .insertInto("evento_asistencia_social")
+        .values({
+          codigo: datos.codigo,
+          descripcion: datos.descripcion,
+          tipo_afectacion: datos.tipoAfectacion,
+          personas_afectadas: datos.personasAfectadas,
+          familias_afectadas: datos.familiasAfectadas,
+          direccion_texto: datos.direccionTexto,
+          latitud: datos.latitud,
+          longitud: datos.longitud,
+          ubicacion: sql`ST_SetSRID(ST_MakePoint(${datos.longitud}, ${datos.latitud}), 4326)`,
+          prioridad: datos.prioridad,
+          estado: "ASIGNADO",
+          contacto_nombre: datos.contactoNombre ?? null,
+          contacto_telefono: datos.contactoTelefono ?? null,
+          contacto_rut: datos.contactoRut ?? null,
+          delegacion_id: datos.delegacionId ?? null,
+          incidente_id: datos.incidenteId ?? null,
+          asistente_social_id: asistenteIdLimpio,
+          detalles_evaluacion: detallesEvaluacionJson,
+          creado_por_id: datos.creadoPorId,
+        })
+        .returning("id")
+        .execute();
+
+      const eventoDetalle = await consultarEventoConRelacionesBase(trx)
+        .where("evento_asistencia_social.id", "=", insertado.id)
+        .where("evento_asistencia_social.eliminado_en", "is", null)
+        .executeTakeFirst();
+
+      if (!eventoDetalle) {
+        throw new Error("No se pudo recuperar el evento de asistencia social recién creado.");
+      }
+
+      return eventoDetalle as unknown as FilaEventoAsistenciaSocialConRelaciones;
+    });
+  }
+
   const [insertado] = await db
     .insertInto("evento_asistencia_social")
     .values({
@@ -100,6 +255,8 @@ export async function insertarEventoAsistenciaSocial(
       contacto_rut: datos.contactoRut ?? null,
       delegacion_id: datos.delegacionId ?? null,
       incidente_id: datos.incidenteId ?? null,
+      asistente_social_id: null,
+      detalles_evaluacion: detallesEvaluacionJson,
       creado_por_id: datos.creadoPorId,
     })
     .returning("id")
@@ -119,36 +276,7 @@ export async function insertarEventoAsistenciaSocial(
 export async function buscarEventoAsistenciaSocialPorId(
   id: string
 ): Promise<FilaEventoAsistenciaSocialConRelaciones | null> {
-  const fila = await db
-    .selectFrom("evento_asistencia_social")
-    .leftJoin("delegacion", "delegacion.id", "evento_asistencia_social.delegacion_id")
-    .innerJoin("usuario as creador", "creador.id", "evento_asistencia_social.creado_por_id")
-    .leftJoin("usuario as asistente", "asistente.id", "evento_asistencia_social.asistente_social_id")
-    .select([
-      "evento_asistencia_social.id",
-      "evento_asistencia_social.codigo",
-      "evento_asistencia_social.descripcion",
-      "evento_asistencia_social.tipo_afectacion",
-      "evento_asistencia_social.personas_afectadas",
-      "evento_asistencia_social.familias_afectadas",
-      "evento_asistencia_social.direccion_texto",
-      "evento_asistencia_social.latitud",
-      "evento_asistencia_social.longitud",
-      "evento_asistencia_social.prioridad",
-      "evento_asistencia_social.estado",
-      "evento_asistencia_social.contacto_nombre",
-      "evento_asistencia_social.contacto_telefono",
-      "evento_asistencia_social.contacto_rut",
-      "evento_asistencia_social.delegacion_id",
-      sql<string | null>`COALESCE(delegacion.nombre, delegacion.nombre_delegacion)`.as("delegacion_nombre"),
-      "evento_asistencia_social.incidente_id",
-      "evento_asistencia_social.asistente_social_id",
-      "asistente.nombre as asistente_social_nombre",
-      "evento_asistencia_social.creado_por_id",
-      "creador.nombre as creado_por_nombre",
-      "evento_asistencia_social.creado_en",
-      "evento_asistencia_social.actualizado_en",
-    ])
+  const fila = await consultarEventoConRelacionesBase(db)
     .where("evento_asistencia_social.id", "=", id)
     .where("evento_asistencia_social.eliminado_en", "is", null)
     .executeTakeFirst();
@@ -166,37 +294,11 @@ export async function listarEventosAsistenciaSocialPaginados(
   const { pagina, limite } = paginacion;
   const offset = (pagina - 1) * limite;
 
-  let query = db
-    .selectFrom("evento_asistencia_social")
-    .leftJoin("delegacion", "delegacion.id", "evento_asistencia_social.delegacion_id")
-    .innerJoin("usuario as creador", "creador.id", "evento_asistencia_social.creado_por_id")
-    .leftJoin("usuario as asistente", "asistente.id", "evento_asistencia_social.asistente_social_id")
-    .select([
-      "evento_asistencia_social.id",
-      "evento_asistencia_social.codigo",
-      "evento_asistencia_social.descripcion",
-      "evento_asistencia_social.tipo_afectacion",
-      "evento_asistencia_social.personas_afectadas",
-      "evento_asistencia_social.familias_afectadas",
-      "evento_asistencia_social.direccion_texto",
-      "evento_asistencia_social.latitud",
-      "evento_asistencia_social.longitud",
-      "evento_asistencia_social.prioridad",
-      "evento_asistencia_social.estado",
-      "evento_asistencia_social.contacto_nombre",
-      "evento_asistencia_social.contacto_telefono",
-      "evento_asistencia_social.contacto_rut",
-      "evento_asistencia_social.delegacion_id",
-      sql<string | null>`COALESCE(delegacion.nombre, delegacion.nombre_delegacion)`.as("delegacion_nombre"),
-      "evento_asistencia_social.incidente_id",
-      "evento_asistencia_social.asistente_social_id",
-      "asistente.nombre as asistente_social_nombre",
-      "evento_asistencia_social.creado_por_id",
-      "creador.nombre as creado_por_nombre",
-      "evento_asistencia_social.creado_en",
-      "evento_asistencia_social.actualizado_en",
-    ])
-    .where("evento_asistencia_social.eliminado_en", "is", null);
+  let query = consultarEventoConRelacionesBase(db).where(
+    "evento_asistencia_social.eliminado_en",
+    "is",
+    null
+  );
 
   if (filtros.estado) {
     query = query.where("evento_asistencia_social.estado", "=", filtros.estado);
@@ -307,35 +409,15 @@ export async function asignarAsistenteSocialEventoRepo(
       };
     }
 
-    const asistente = await trx
-      .selectFrom("usuario")
-      .innerJoin("rol", "rol.id", "usuario.rol_id")
-      .select([
-        "usuario.id",
-        "usuario.activo",
-        "usuario.estado_operativo",
-        "rol.codigo as rol_codigo",
-      ])
-      .where("usuario.id", "=", asistenteSocialId)
-      .executeTakeFirst();
-
-    if (!asistente) {
-      return { ok: false, motivo: "ASISTENTE_NO_ENCONTRADO" };
-    }
-
-    if (!asistente.activo || asistente.rol_codigo !== "ASISTENTE_SOCIAL") {
+    const validacionAsistente = await validarAsistenteSocialElegibleEnTrx(
+      trx,
+      asistenteSocialId
+    );
+    if (!validacionAsistente.ok) {
       return {
         ok: false,
-        motivo: "ASISTENTE_NO_ELEGIBLE",
-        detalle: "El usuario seleccionado no está activo o no posee el rol ASISTENTE_SOCIAL.",
-      };
-    }
-
-    if (asistente.estado_operativo !== "disponible") {
-      return {
-        ok: false,
-        motivo: "ASISTENTE_NO_ELEGIBLE",
-        detalle: `El asistente social seleccionado se encuentra en estado '${asistente.estado_operativo}' y debe estar 'disponible'.`,
+        motivo: validacionAsistente.motivo,
+        detalle: validacionAsistente.detalle,
       };
     }
 
@@ -360,36 +442,7 @@ export async function asignarAsistenteSocialEventoRepo(
       };
     }
 
-    const fila = await trx
-      .selectFrom("evento_asistencia_social")
-      .leftJoin("delegacion", "delegacion.id", "evento_asistencia_social.delegacion_id")
-      .innerJoin("usuario as creador", "creador.id", "evento_asistencia_social.creado_por_id")
-      .leftJoin("usuario as asistente", "asistente.id", "evento_asistencia_social.asistente_social_id")
-      .select([
-        "evento_asistencia_social.id",
-        "evento_asistencia_social.codigo",
-        "evento_asistencia_social.descripcion",
-        "evento_asistencia_social.tipo_afectacion",
-        "evento_asistencia_social.personas_afectadas",
-        "evento_asistencia_social.familias_afectadas",
-        "evento_asistencia_social.direccion_texto",
-        "evento_asistencia_social.latitud",
-        "evento_asistencia_social.longitud",
-        "evento_asistencia_social.prioridad",
-        "evento_asistencia_social.estado",
-        "evento_asistencia_social.contacto_nombre",
-        "evento_asistencia_social.contacto_telefono",
-        "evento_asistencia_social.contacto_rut",
-        "evento_asistencia_social.delegacion_id",
-        sql<string | null>`COALESCE(delegacion.nombre, delegacion.nombre_delegacion)`.as("delegacion_nombre"),
-        "evento_asistencia_social.incidente_id",
-        "evento_asistencia_social.asistente_social_id",
-        "asistente.nombre as asistente_social_nombre",
-        "evento_asistencia_social.creado_por_id",
-        "creador.nombre as creado_por_nombre",
-        "evento_asistencia_social.creado_en",
-        "evento_asistencia_social.actualizado_en",
-      ])
+    const fila = await consultarEventoConRelacionesBase(trx)
       .where("evento_asistencia_social.id", "=", eventoId)
       .where("evento_asistencia_social.eliminado_en", "is", null)
       .executeTakeFirst();

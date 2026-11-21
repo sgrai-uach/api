@@ -166,6 +166,8 @@ import {
   EventoAsistenciaSocialIdParamSchema,
   AsignarAsistenteSocialInputSchema,
   AsignarAsistenteSocialResponseSchema,
+  FamiliaAfectadaSocialSchema,
+  DetallesEvaluacionSocialSchema,
 } from "@/modules/eventos-atp/asistencia-social.schema";
 
 import {
@@ -261,6 +263,8 @@ registry.register("CrearPuntoCriticoBody", CrearPuntoCriticoBodySchema);
 registry.register("ActualizarPuntoCriticoBody", ActualizarPuntoCriticoBodySchema);
 registry.register("PuntoCriticoDetalleResponse", PuntoCriticoDetalleResponseSchema);
 registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSchema);
+registry.register("FamiliaAfectadaSocial", FamiliaAfectadaSocialSchema);
+registry.register("DetallesEvaluacionSocial", DetallesEvaluacionSocialSchema);
 registry.register("CrearEventoAsistenciaSocialInput", CrearEventoAsistenciaSocialInputSchema);
 registry.register("EventoAsistenciaSocialResponse", EventoAsistenciaSocialResponseSchema);
 registry.register("ListarEventosAsistenciaSocialResponse", ListarEventosAsistenciaSocialResponseSchema);
@@ -1950,6 +1954,11 @@ registry.registerPath({
     400: { description: "Datos de entrada inválidos o campos obligatorios faltantes" },
     401: { description: "No autenticado" },
     403: { description: "Acceso denegado. Se requiere permiso 'asistencia_social:crear'" },
+    404: { description: "Asistente social especificado no encontrado" },
+    409: {
+      description:
+        "El usuario seleccionado no posee rol ASISTENTE_SOCIAL activo o no está disponible",
+    },
     500: { description: "Error interno del servidor" },
   },
 });

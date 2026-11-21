@@ -313,6 +313,11 @@ export interface EventoAsistenciaSocialTable {
   delegacion_id: string | null;
   asistente_social_id: string | null;
   evento_atp_id: string | null;
+  detalles_evaluacion?: ColumnType<
+    Record<string, unknown> | null,
+    Record<string, unknown> | string | null | undefined,
+    Record<string, unknown> | string | null
+  >;
   creado_por_id: string;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;

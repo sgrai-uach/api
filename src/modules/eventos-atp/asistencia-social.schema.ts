@@ -22,6 +22,82 @@ export const PrioridadEventoAsistenciaSocialSchema = z.enum([
 
 export type PrioridadEventoAsistenciaSocial = z.infer<typeof PrioridadEventoAsistenciaSocialSchema>;
 
+export const NivelCompromisoViviendaSocialSchema = z.enum([
+  "SIN_DANO",
+  "LEVE",
+  "MODERADO",
+  "GRAVE_INHABITABLE",
+]);
+
+export type NivelCompromisoViviendaSocial = z.infer<typeof NivelCompromisoViviendaSocialSchema>;
+
+/**
+ * Desglose individual por grupo familiar / hogar afectado (homologado con H38/H39).
+ */
+export const FamiliaAfectadaSocialSchema = z
+  .object({
+    id: z.string().trim().max(100).optional(),
+    referencia: z.string().trim().max(120, "La referencia del hogar no puede superar 120 caracteres").optional(),
+    nucleoFamiliarTotal: z.coerce
+      .number()
+      .int("El total de integrantes debe ser un número entero")
+      .min(1, "Cada familia debe registrar al menos 1 integrante"),
+    cantidadNinos: z.coerce.number().int().min(0, "La cantidad de niños no puede ser negativa").default(0),
+    cantidadAdultosMayores: z.coerce
+      .number()
+      .int()
+      .min(0, "La cantidad de adultos mayores no puede ser negativa")
+      .default(0),
+    personasDiscapacitadas: z.coerce
+      .number()
+      .int()
+      .min(0, "La cantidad de personas con discapacidad no puede ser negativa")
+      .default(0),
+    personasElectrodependientes: z.coerce
+      .number()
+      .int()
+      .min(0, "La cantidad de personas electrodependientes no puede ser negativa")
+      .default(0),
+    mascotasAfectadas: z.coerce
+      .number()
+      .int()
+      .min(0, "La cantidad de mascotas afectadas no puede ser negativa")
+      .default(0),
+    nivelCompromisoVivienda: NivelCompromisoViviendaSocialSchema.nullable().optional(),
+  })
+  .refine(
+    (f) => f.cantidadNinos + f.cantidadAdultosMayores <= f.nucleoFamiliarTotal,
+    {
+      message: "La suma de niños y adultos mayores no puede superar el total de integrantes del hogar.",
+      path: ["cantidadNinos"],
+    }
+  );
+
+export type FamiliaAfectadaSocial = z.infer<typeof FamiliaAfectadaSocialSchema>;
+
+/**
+ * Desglose demográfico y condición habitacional consolidada del evento social (homologado con H38/H39).
+ */
+export const DetallesEvaluacionSocialSchema = z.object({
+  familias: z.array(FamiliaAfectadaSocialSchema).optional(),
+  nucleoFamiliarTotal: z.coerce.number().int().min(0).optional(),
+  familiasAfectadas: z.coerce.number().int().min(0).optional(),
+  cantidadNinos: z.coerce.number().int().min(0).optional(),
+  cantidadAdultosMayores: z.coerce.number().int().min(0).optional(),
+  personasDiscapacitadas: z.coerce.number().int().min(0).optional(),
+  personasElectrodependientes: z.coerce.number().int().min(0).optional(),
+  mascotasAfectadas: z.coerce.number().int().min(0).optional(),
+  nivelCompromisoVivienda: NivelCompromisoViviendaSocialSchema.nullable().optional(),
+  danosEstimados: z
+    .string()
+    .trim()
+    .max(500, "Los daños estimados no pueden superar los 500 caracteres")
+    .nullable()
+    .optional(),
+});
+
+export type DetallesEvaluacionSocial = z.infer<typeof DetallesEvaluacionSocialSchema>;
+
 /**
  * Esquema de entrada para crear un evento excepcional de asistencia social (H28).
  * Diseñado para cubrir casos excepcionales de requerimiento de levantamiento de FIBE
@@ -145,6 +221,22 @@ export const CrearEventoAsistenciaSocialInputSchema = z.object({
       description: "Identificador opcional de incidente previo (nulo para casos excepcionales independientes)",
       example: null,
     }),
+  asistenteSocialId: z
+    .string()
+    .uuid("El identificador del asistente social debe ser un UUID válido")
+    .optional()
+    .nullable()
+    .openapi({
+      description:
+        "Identificador opcional de un usuario con rol ASISTENTE_SOCIAL disponible para asignación inmediata al crear el evento (H31 Opción A)",
+      example: null,
+    }),
+  detallesEvaluacion: DetallesEvaluacionSocialSchema.nullable()
+    .optional()
+    .openapi({
+      description:
+        "Desglose demográfico por familia y condición habitacional opcional (homologado con H38/H39). Si incluye familias, sus totales sobrescriben personasAfectadas y familiasAfectadas.",
+    }),
 });
 
 export type CrearEventoAsistenciaSocialInput = z.infer<
@@ -216,6 +308,9 @@ export const EventoAsistenciaSocialResponseSchema = z.object({
   incidenteId: z.string().uuid().nullable().openapi({ example: null }),
   asistenteSocialId: z.string().uuid().nullable().openapi({ example: null }),
   asistenteSocialNombre: z.string().nullable().openapi({ example: null }),
+  detallesEvaluacion: DetallesEvaluacionSocialSchema.nullable().openapi({
+    description: "Desglose demográfico por familia y condición habitacional (null en modo aproximado)",
+  }),
   creadoPor: z
     .object({
       id: z.string().uuid().openapi({ example: "00000000-0000-4000-8000-000000000003" }),
