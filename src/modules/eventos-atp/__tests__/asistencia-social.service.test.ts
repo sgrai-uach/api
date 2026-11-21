@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   crearEventoAsistenciaSocialService,
   listarEventosAsistenciaSocialService,
+  asignarAsistenteSocialService,
+  EventoAsistenciaSocialNotFoundError,
+  AsistenteSocialNotFoundError,
+  EstadoEventoAsistenciaSocialInvalidoError,
+  AsistenteSocialNoDisponibleError,
 } from "../asistencia-social.service";
 import * as authService from "@/modules/seguridad/auth.service";
 import * as repository from "../asistencia-social.repository";
@@ -12,6 +17,7 @@ vi.mock("@/modules/seguridad/auth.service");
 vi.mock("../asistencia-social.repository");
 vi.mock("@/lib/socket", () => ({
   emitirAsistenciaSocialCreada: vi.fn(),
+  emitirAsistenciaSocialActualizada: vi.fn(),
 }));
 
 describe("asistencia-social.service - Lógica de Negocio y RBAC (H28)", () => {
@@ -108,6 +114,104 @@ describe("asistencia-social.service - Lógica de Negocio y RBAC (H28)", () => {
       expect(resultado.pagina).toBe(1);
       expect(resultado.totalPaginas).toBe(1);
       expect(resultado.data[0].codigo).toBe("AS-2026-0001");
+    });
+  });
+
+  describe("asignarAsistenteSocialService (H31)", () => {
+    const eventoId = "70000000-0000-4000-8000-000000000001";
+    const asistenteSocialId = "00000000-0000-4000-8000-000000000006";
+
+    it("debe rechazar con ForbiddenError si el usuario no posee el permiso asistencia_social:crear", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockRejectedValueOnce(
+        new ForbiddenError("No tiene permiso asistencia_social:crear")
+      );
+
+      await expect(
+        asignarAsistenteSocialService(eventoId, { asistenteSocialId }, "usuario-sin-permiso")
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it("debe asignar al asistente social, transicionar a ASIGNADO y emitir asistencia_social:actualizada", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(usuarioEncargado);
+      const filaAsignada: repository.FilaEventoAsistenciaSocialConRelaciones = {
+        ...filaGuardadaMock,
+        estado: "ASIGNADO",
+        asistente_social_id: asistenteSocialId,
+        asistente_social_nombre: "Claudia Rojas",
+      };
+      vi.spyOn(repository, "asignarAsistenteSocialEventoRepo").mockResolvedValueOnce({
+        ok: true,
+        evento: filaAsignada,
+      });
+
+      const resultado = await asignarAsistenteSocialService(
+        eventoId,
+        { asistenteSocialId },
+        usuarioEncargado.id
+      );
+
+      expect(authService.verificarPermiso).toHaveBeenCalledWith(
+        usuarioEncargado.id,
+        "asistencia_social:crear"
+      );
+      expect(repository.asignarAsistenteSocialEventoRepo).toHaveBeenCalledWith(
+        eventoId,
+        asistenteSocialId
+      );
+      expect(resultado.estado).toBe("ASIGNADO");
+      expect(resultado.asistenteSocialId).toBe(asistenteSocialId);
+      expect(resultado.asistenteSocialNombre).toBe("Claudia Rojas");
+      expect(socket.emitirAsistenciaSocialActualizada).toHaveBeenCalledWith(resultado);
+    });
+
+    it("debe lanzar EventoAsistenciaSocialNotFoundError si el evento no existe", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(usuarioEncargado);
+      vi.spyOn(repository, "asignarAsistenteSocialEventoRepo").mockResolvedValueOnce({
+        ok: false,
+        motivo: "EVENTO_NO_ENCONTRADO",
+      });
+
+      await expect(
+        asignarAsistenteSocialService(eventoId, { asistenteSocialId }, usuarioEncargado.id)
+      ).rejects.toThrow(EventoAsistenciaSocialNotFoundError);
+    });
+
+    it("debe lanzar AsistenteSocialNotFoundError si el usuario asistente no existe", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(usuarioEncargado);
+      vi.spyOn(repository, "asignarAsistenteSocialEventoRepo").mockResolvedValueOnce({
+        ok: false,
+        motivo: "ASISTENTE_NO_ENCONTRADO",
+      });
+
+      await expect(
+        asignarAsistenteSocialService(eventoId, { asistenteSocialId }, usuarioEncargado.id)
+      ).rejects.toThrow(AsistenteSocialNotFoundError);
+    });
+
+    it("debe lanzar EstadoEventoAsistenciaSocialInvalidoError si el evento no está en PENDIENTE", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(usuarioEncargado);
+      vi.spyOn(repository, "asignarAsistenteSocialEventoRepo").mockResolvedValueOnce({
+        ok: false,
+        motivo: "ESTADO_INVALIDO",
+        detalle: "El evento ya está en estado ASIGNADO.",
+      });
+
+      await expect(
+        asignarAsistenteSocialService(eventoId, { asistenteSocialId }, usuarioEncargado.id)
+      ).rejects.toThrow(EstadoEventoAsistenciaSocialInvalidoError);
+    });
+
+    it("debe lanzar AsistenteSocialNoDisponibleError si el usuario no tiene rol ASISTENTE_SOCIAL o no está disponible", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(usuarioEncargado);
+      vi.spyOn(repository, "asignarAsistenteSocialEventoRepo").mockResolvedValueOnce({
+        ok: false,
+        motivo: "ASISTENTE_NO_ELEGIBLE",
+        detalle: "El asistente social está en estado ocupado.",
+      });
+
+      await expect(
+        asignarAsistenteSocialService(eventoId, { asistenteSocialId }, usuarioEncargado.id)
+      ).rejects.toThrow(AsistenteSocialNoDisponibleError);
     });
   });
 });
