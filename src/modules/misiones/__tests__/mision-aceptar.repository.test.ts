@@ -258,5 +258,70 @@ describe("Mision Repository - aceptarMisionPatrullaRepo (HU-36)", () => {
       ConflictError
     );
   });
+
+  it("debe aceptar una misión de RECUPERACION cuando la patrulla está en estado EN_RECUPERACION y sin incidente asociado", async () => {
+    crearMockTrx({
+      misionExistente: {
+        id: misionId,
+        codigo: "MIS-2026-0099",
+        tipo_mision: "RECUPERACION",
+        estado: "DESPACHADA",
+        patrulla_id: patrullaId,
+        incidente_id: null,
+        patrulla_lider_id: liderId,
+        patrulla_nombre: "Patrulla Recuperación Sur",
+        patrulla_estado: "EN_RECUPERACION",
+        patrulla_eliminado_en: null,
+        incidente_estado: null,
+      },
+      misionActualizada: {
+        id: misionId,
+        codigo: "MIS-2026-0099",
+        titulo: "Entrega de kits en Collico",
+        descripcion: "Operativo de recuperación",
+        tipo_mision: "RECUPERACION",
+        estado: "EN_CURSO",
+        prioridad: "ALTA",
+        incidente_id: null,
+        patrulla_id: patrullaId,
+        fecha_inicio: new Date("2026-11-21T00:10:00.000Z"),
+        actualizado_en: new Date("2026-11-21T00:10:00.000Z"),
+      },
+      hitoRegistrado: {
+        id: "hito-rec-1",
+        hito: "MISION_ACEPTADA",
+        descripcion: "Misión Aceptada por Patrulla",
+        registrado_por_id: liderId,
+        creado_en: new Date("2026-11-21T00:10:00.000Z"),
+      },
+    });
+
+    const resultado = await aceptarMisionPatrullaRepo(misionId, liderId, false);
+
+    expect(resultado.mision.estado).toBe("EN_CURSO");
+    expect(resultado.mision.tipoMision).toBe("RECUPERACION");
+    expect(resultado.patrulla.estado).toBe("EN_RECUPERACION");
+  });
+
+  it("debe lanzar ConflictError si una misión de RECUPERACION tiene la patrulla en estado DISPONIBLE", async () => {
+    crearMockTrx({
+      misionExistente: {
+        id: misionId,
+        codigo: "MIS-2026-0100",
+        tipo_mision: "RECUPERACION",
+        estado: "DESPACHADA",
+        patrulla_id: patrullaId,
+        incidente_id: null,
+        patrulla_lider_id: liderId,
+        patrulla_estado: "DISPONIBLE",
+        patrulla_eliminado_en: null,
+        incidente_estado: null,
+      },
+    });
+
+    await expect(aceptarMisionPatrullaRepo(misionId, liderId, false)).rejects.toThrow(
+      /EN_RECUPERACION/
+    );
+  });
 });
 
