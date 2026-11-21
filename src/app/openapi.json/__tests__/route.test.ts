@@ -195,6 +195,21 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["404"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["409"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["500"]).toBeDefined();
+
+    // Rutas y esquemas de Asistencia Social (H28 / H31 / detallesEvaluacion)
+    expect(spec.components.schemas.FamiliaAfectadaSocial).toBeDefined();
+    expect(spec.components.schemas.DetallesEvaluacionSocial).toBeDefined();
+    expect(
+      spec.components.schemas.CrearEventoAsistenciaSocialInput.properties.detallesEvaluacion
+    ).toBeDefined();
+    expect(
+      spec.components.schemas.CrearEventoAsistenciaSocialInput.properties.asistenteSocialId
+    ).toBeDefined();
+    expect(
+      spec.components.schemas.EventoAsistenciaSocialResponse.properties.detallesEvaluacion
+    ).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/asistencia-social"].post.responses["404"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/asistencia-social"].post.responses["409"]).toBeDefined();
   });
 });
 

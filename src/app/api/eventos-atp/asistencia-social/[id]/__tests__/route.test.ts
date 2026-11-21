@@ -31,6 +31,7 @@ describe("Route Handler PATCH /api/eventos-atp/asistencia-social/[id] (H31)", ()
     incidenteId: null,
     asistenteSocialId,
     asistenteSocialNombre: "Claudia Rojas",
+    detallesEvaluacion: null,
     creadoPor: {
       id: usuarioEncargadoId,
       nombre: "Encargado de Operaciones",

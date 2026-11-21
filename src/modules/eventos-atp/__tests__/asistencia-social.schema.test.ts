@@ -110,4 +110,69 @@ describe("asistencia-social.schema - Validaciones Zod (H28)", () => {
       expect(parsed.data.prioridad).toBe("CRITICA");
     }
   });
+
+  it("debe validar detallesEvaluacion con desglose por familia y campos demográficos homologados H38/H39", () => {
+    const payloadConFamilias = {
+      ...payloadValido,
+      personasAfectadas: 5,
+      familiasAfectadas: 1,
+      detallesEvaluacion: {
+        nivelCompromisoVivienda: "MODERADO",
+        danosEstimados: "Ingreso de agua en dormitorio y comedor",
+        familias: [
+          {
+            referencia: "Familia González",
+            nucleoFamiliarTotal: 5,
+            cantidadNinos: 2,
+            cantidadAdultosMayores: 0,
+            personasDiscapacitadas: 1,
+            personasElectrodependientes: 0,
+            mascotasAfectadas: 0,
+            nivelCompromisoVivienda: "MODERADO",
+          },
+        ],
+      },
+    };
+
+    const parsed = CrearEventoAsistenciaSocialInputSchema.safeParse(payloadConFamilias);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.detallesEvaluacion?.familias).toHaveLength(1);
+      expect(parsed.data.detallesEvaluacion?.familias?.[0].nucleoFamiliarTotal).toBe(5);
+      expect(parsed.data.detallesEvaluacion?.familias?.[0].cantidadNinos).toBe(2);
+      expect(parsed.data.detallesEvaluacion?.familias?.[0].personasDiscapacitadas).toBe(1);
+    }
+  });
+
+  it("debe rechazar detallesEvaluacion si niños + adultos mayores supera nucleoFamiliarTotal", () => {
+    const payloadInconsistente = {
+      ...payloadValido,
+      detallesEvaluacion: {
+        familias: [
+          {
+            nucleoFamiliarTotal: 3,
+            cantidadNinos: 2,
+            cantidadAdultosMayores: 2,
+          },
+        ],
+      },
+    };
+
+    const parsed = CrearEventoAsistenciaSocialInputSchema.safeParse(payloadInconsistente);
+    expect(parsed.success).toBe(false);
+  });
+
+  it("debe aceptar asistenteSocialId UUID opcional válido al crear evento (Opción A H31) y rechazar UUID inválido", () => {
+    const valido = CrearEventoAsistenciaSocialInputSchema.safeParse({
+      ...payloadValido,
+      asistenteSocialId: "00000000-0000-4000-8000-000000000006",
+    });
+    expect(valido.success).toBe(true);
+
+    const invalido = CrearEventoAsistenciaSocialInputSchema.safeParse({
+      ...payloadValido,
+      asistenteSocialId: "id-invalido",
+    });
+    expect(invalido.success).toBe(false);
+  });
 });
