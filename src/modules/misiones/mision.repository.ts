@@ -1124,13 +1124,20 @@ export async function aceptarMisionPatrullaRepo(
       );
     }
 
+    const estadoPatrullaEsperado =
+      misionExistente.tipo_mision === "RECUPERACION"
+        ? "EN_RECUPERACION"
+        : misionExistente.tipo_mision === "PREVENCION"
+          ? "EN_PREVENCION"
+          : "EN_VERIFICACION";
+
     if (
       misionExistente.patrulla_estado !== undefined &&
       misionExistente.patrulla_estado !== null &&
-      misionExistente.patrulla_estado !== "EN_VERIFICACION"
+      misionExistente.patrulla_estado !== estadoPatrullaEsperado
     ) {
       throw new ConflictError(
-        `La patrulla verificadora asignada no se encuentra en estado 'EN_VERIFICACION' (estado actual: '${misionExistente.patrulla_estado}').`
+        `La patrulla verificadora asignada no se encuentra en estado '${estadoPatrullaEsperado}' (estado actual: '${misionExistente.patrulla_estado}').`
       );
     }
 
@@ -1212,7 +1219,7 @@ export async function aceptarMisionPatrullaRepo(
       patrulla: {
         id: misionExistente.patrulla_id,
         nombre: misionExistente.patrulla_nombre ?? "Patrulla Verificadora",
-        estado: "EN_VERIFICACION",
+        estado: misionExistente.patrulla_estado ?? estadoPatrullaEsperado,
       },
       incidente: misionExistente.incidente_id
         ? {
