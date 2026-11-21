@@ -4,6 +4,11 @@ import {
   EstadoNotificacionMisionEnum,
   NotificacionMisionDetalleSchema,
 } from "./notificacion-mision.schema";
+import {
+  FamiliaAfectadaInputSchema,
+  validarCoherenciaFamilia,
+  validarContactosFamiliasFibe,
+} from "@/modules/shared/familia-afectada.schema";
 
 extendZodWithOpenApi(z);
 
@@ -809,6 +814,13 @@ export const CrearReporteVerificacionInputSchema = z
         example: true,
       }),
     requiere_asistencia_social: z.boolean().optional(),
+    familias: z
+      .array(FamiliaAfectadaInputSchema)
+      .optional()
+      .openapi({
+        description:
+          "Desglose preliminar por familia u hogar afectado. Cuando requiere_asistencia_social es true, se exige al menos 1 familia coherente con nombre y teléfono de contacto preliminares (no constituye una FIBE).",
+      }),
     adjuntoIds: z
       .array(z.string().uuid("Cada identificador de adjunto debe ser un UUID válido."))
       .max(20, "No se pueden vincular más de 20 adjuntos por reporte.")
@@ -880,6 +892,26 @@ export const CrearReporteVerificacionInputSchema = z
         path: ["motivo_no_abordable"],
         message:
           "Cuando el dictamen es 'NO_ABORDABLE', el campo 'motivo_no_abordable' es obligatorio y debe contener al menos 15 caracteres.",
+      });
+    }
+
+    const requiereAsistenciaSocial = Boolean(
+      data.requiereAsistenciaSocial ?? data.requiere_asistencia_social ?? false
+    );
+    if (requiereAsistenciaSocial) {
+      validarContactosFamiliasFibe(
+        data.familias as Array<Record<string, unknown>> | undefined,
+        ctx,
+        ["familias"]
+      );
+    } else if (Array.isArray(data.familias) && data.familias.length > 0) {
+      data.familias.forEach((fam, idx) => {
+        validarCoherenciaFamilia(
+          fam as Record<string, unknown>,
+          ctx,
+          ["familias", idx],
+          { minimoIntegrantes: 0, validarRutSiExiste: true }
+        );
       });
     }
   })

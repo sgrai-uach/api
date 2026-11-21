@@ -321,6 +321,11 @@ export async function listarEventosAsistenciaSocialPaginados(
         eb("evento_asistencia_social.direccion_texto", "ilike", patron),
         eb("evento_asistencia_social.contacto_nombre", "ilike", patron),
         eb("evento_asistencia_social.tipo_afectacion", "ilike", patron),
+        eb(
+          sql<string>`CAST(evento_asistencia_social.detalles_evaluacion AS TEXT)`,
+          "ilike",
+          patron
+        ),
       ])
     );
   }
@@ -365,6 +370,11 @@ export async function contarEventosAsistenciaSocial(
         eb("evento_asistencia_social.direccion_texto", "ilike", patron),
         eb("evento_asistencia_social.contacto_nombre", "ilike", patron),
         eb("evento_asistencia_social.tipo_afectacion", "ilike", patron),
+        eb(
+          sql<string>`CAST(evento_asistencia_social.detalles_evaluacion AS TEXT)`,
+          "ilike",
+          patron
+        ),
       ])
     );
   }

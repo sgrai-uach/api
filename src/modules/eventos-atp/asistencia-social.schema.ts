@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import {
+  NivelCompromisoViviendaSchema,
+  validarCoherenciaFamilia,
+} from "@/modules/shared/familia-afectada.schema";
 
 extendZodWithOpenApi(z);
 
@@ -22,17 +26,13 @@ export const PrioridadEventoAsistenciaSocialSchema = z.enum([
 
 export type PrioridadEventoAsistenciaSocial = z.infer<typeof PrioridadEventoAsistenciaSocialSchema>;
 
-export const NivelCompromisoViviendaSocialSchema = z.enum([
-  "SIN_DANO",
-  "LEVE",
-  "MODERADO",
-  "GRAVE_INHABITABLE",
-]);
+export const NivelCompromisoViviendaSocialSchema = NivelCompromisoViviendaSchema;
 
 export type NivelCompromisoViviendaSocial = z.infer<typeof NivelCompromisoViviendaSocialSchema>;
 
 /**
- * Desglose individual por grupo familiar / hogar afectado (homologado con H38/H39).
+ * Desglose preliminar individual por grupo familiar / hogar afectado (homologado con H38/H39).
+ * Estos datos son preliminares y NO constituyen una FIBE formal.
  */
 export const FamiliaAfectadaSocialSchema = z
   .object({
@@ -64,14 +64,31 @@ export const FamiliaAfectadaSocialSchema = z
       .min(0, "La cantidad de mascotas afectadas no puede ser negativa")
       .default(0),
     nivelCompromisoVivienda: NivelCompromisoViviendaSocialSchema.nullable().optional(),
+    contactoNombre: z
+      .string()
+      .trim()
+      .max(150, "El nombre de contacto preliminar de la familia no puede superar 150 caracteres")
+      .nullable()
+      .optional(),
+    contactoTelefono: z
+      .string()
+      .trim()
+      .max(50, "El teléfono de contacto preliminar de la familia no puede superar 50 caracteres")
+      .nullable()
+      .optional(),
+    contactoRut: z
+      .string()
+      .trim()
+      .max(20, "El RUT de contacto preliminar de la familia no puede superar 20 caracteres")
+      .nullable()
+      .optional(),
   })
-  .refine(
-    (f) => f.cantidadNinos + f.cantidadAdultosMayores <= f.nucleoFamiliarTotal,
-    {
-      message: "La suma de niños y adultos mayores no puede superar el total de integrantes del hogar.",
-      path: ["cantidadNinos"],
-    }
-  );
+  .superRefine((f, ctx) => {
+    validarCoherenciaFamilia(f as Record<string, unknown>, ctx, [], {
+      minimoIntegrantes: 1,
+      validarRutSiExiste: true,
+    });
+  });
 
 export type FamiliaAfectadaSocial = z.infer<typeof FamiliaAfectadaSocialSchema>;
 

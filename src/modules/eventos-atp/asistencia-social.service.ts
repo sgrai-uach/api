@@ -32,6 +32,7 @@ import {
   type DetallesEvaluacionSocial,
   type FamiliaAfectadaSocial,
 } from "./asistencia-social.schema";
+import { extraerContactoPrincipalDesdeFamilias } from "@/modules/shared/familia-afectada.schema";
 
 export class EventoAsistenciaSocialNotFoundError extends Error {
   constructor(message = "El evento de asistencia social solicitado no existe.") {
@@ -152,6 +153,9 @@ export function consolidarEvaluacionSocialParaPersistencia(
       personasElectrodependientes: Math.trunc(f.personasElectrodependientes ?? 0),
       mascotasAfectadas: Math.trunc(f.mascotasAfectadas ?? 0),
       ...(f.nivelCompromisoVivienda ? { nivelCompromisoVivienda: f.nivelCompromisoVivienda } : {}),
+      ...(f.contactoNombre?.trim() ? { contactoNombre: f.contactoNombre.trim() } : {}),
+      ...(f.contactoTelefono?.trim() ? { contactoTelefono: f.contactoTelefono.trim() } : {}),
+      ...(f.contactoRut?.trim() ? { contactoRut: f.contactoRut.trim() } : {}),
     }));
 
     const totales = familiasLimpias.reduce(
@@ -292,7 +296,15 @@ export async function crearEventoAsistenciaSocialService(
   // 4. Generar código correlativo oficial (AS-YYYY-XXXX)
   const codigo = await generarSiguienteCodigoAsistenciaSocial();
 
-  // 5. Preparar payload de inserción
+  // 5. Preparar payload de inserción (si hay familias, descartar contacto general aproximado y sincronizar raíz desde primera familia con contacto)
+  const tieneFamiliasDesglosadas =
+    (evaluacionConsolidada.detallesEvaluacion?.familias?.length ?? 0) > 0;
+  const contactoDesdeFamilias = tieneFamiliasDesglosadas
+    ? extraerContactoPrincipalDesdeFamilias(
+        evaluacionConsolidada.detallesEvaluacion?.familias
+      )
+    : null;
+
   const datosParaInsertar: DatosInsertarEventoAsistenciaSocialRepo = {
     codigo,
     descripcion: datosValidados.descripcion,
@@ -303,9 +315,15 @@ export async function crearEventoAsistenciaSocialService(
     latitud: datosValidados.latitud,
     longitud: datosValidados.longitud,
     prioridad: datosValidados.prioridad,
-    contactoNombre: datosValidados.contactoNombre,
-    contactoTelefono: datosValidados.contactoTelefono,
-    contactoRut: datosValidados.contactoRut,
+    contactoNombre: tieneFamiliasDesglosadas
+      ? contactoDesdeFamilias!.contactoNombre
+      : datosValidados.contactoNombre,
+    contactoTelefono: tieneFamiliasDesglosadas
+      ? contactoDesdeFamilias!.contactoTelefono
+      : datosValidados.contactoTelefono,
+    contactoRut: tieneFamiliasDesglosadas
+      ? contactoDesdeFamilias!.contactoRut
+      : datosValidados.contactoRut,
     delegacionId: datosValidados.delegacionId,
     incidenteId: datosValidados.incidenteId ?? null,
     asistenteSocialId: datosValidados.asistenteSocialId ?? null,

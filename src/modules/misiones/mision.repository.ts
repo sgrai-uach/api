@@ -20,6 +20,7 @@ import type {
 } from "./mision.schema";
 import { crearNotificacionMisionRepo } from "./notificacion-mision.repository";
 import type { NotificacionMisionDetalle } from "./notificacion-mision.schema";
+import { consolidarFamiliasCanonicas } from "@/modules/shared/familia-afectada.schema";
 
 function esErrorColumnaInexistente(err: unknown): boolean {
   return (
@@ -1453,15 +1454,25 @@ export async function crearReporteVerificacionYCerrarMisionRepo(
         ? Number(reportePrioridadPrevio.personas_afectadas ?? 0)
         : 0;
 
+      const consolidadoFamilias =
+        Array.isArray(input.familias) && input.familias.length > 0
+          ? consolidarFamiliasCanonicas(
+              input.familias as Array<Record<string, unknown>>
+            )
+          : null;
+
       const personasAfectadasInput =
         input.personasAfectadas ?? input.personas_afectadas;
-      const personasAfectadasFinal =
-        personasAfectadasInput !== undefined
+      const personasAfectadasFinal = consolidadoFamilias
+        ? consolidadoFamilias.nucleoFamiliarTotal
+        : personasAfectadasInput !== undefined
           ? Number(personasAfectadasInput)
           : personasAfectadasPrevias;
       const personasAfectadasModificadas =
-        personasAfectadasInput !== undefined &&
-        Number(personasAfectadasInput) !== personasAfectadasPrevias;
+        consolidadoFamilias !== null
+          ? consolidadoFamilias.nucleoFamiliarTotal !== personasAfectadasPrevias
+          : personasAfectadasInput !== undefined &&
+            Number(personasAfectadasInput) !== personasAfectadasPrevias;
 
       const evaluacionPrioridadPreviaObj = reportePrioridadPrevio
         ? parsearObjetoJson(reportePrioridadPrevio.detalles_evaluacion)
@@ -1476,6 +1487,20 @@ export async function crearReporteVerificacionYCerrarMisionRepo(
         personasAfectadas: personasAfectadasFinal,
         personasAfectadasModificadas,
         requiereAsistenciaSocial: requiereAsistenciaSocialReportada,
+        ...(consolidadoFamilias
+          ? {
+              familias: consolidadoFamilias.familias,
+              familiasAfectadas: consolidadoFamilias.familiasAfectadas,
+              nucleoFamiliarTotal: consolidadoFamilias.nucleoFamiliarTotal,
+              cantidadNinos: consolidadoFamilias.cantidadNinos,
+              cantidadAdultosMayores: consolidadoFamilias.cantidadAdultosMayores,
+              personasDiscapacitadas: consolidadoFamilias.personasDiscapacitadas,
+              personasElectrodependientes:
+                consolidadoFamilias.personasElectrodependientes,
+              mascotasAfectadas: consolidadoFamilias.mascotasAfectadas,
+              nivelCompromisoVivienda: consolidadoFamilias.nivelCompromisoVivienda,
+            }
+          : {}),
         ...(evaluacionPrioridadPreviaObj
           ? { evaluacionPrioridadPrevia: evaluacionPrioridadPreviaObj }
           : {}),

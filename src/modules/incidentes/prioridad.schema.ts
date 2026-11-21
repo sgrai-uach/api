@@ -1,17 +1,18 @@
 import { z } from "zod";
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { calcularPrioridadSugerida } from "./prioridad.utils";
+import {
+  FamiliaAfectadaInputSchema,
+  NivelCompromisoViviendaSchema,
+  validarCoherenciaFamilia,
+} from "@/modules/shared/familia-afectada.schema";
 
 extendZodWithOpenApi(z);
 
 export const PrioridadCanonicaEnum = z.enum(["BAJA", "MEDIA", "ALTA", "CRITICA"]);
 
-export const NivelCompromisoViviendaEnum = z.enum([
-  "SIN_DANO",
-  "LEVE",
-  "MODERADO",
-  "GRAVE_INHABITABLE",
-]);
+export const NivelCompromisoViviendaEnum = NivelCompromisoViviendaSchema;
+export { FamiliaAfectadaInputSchema };
 
 export const RiesgosActivosEvaluacionSchema = z
   .object({
@@ -26,34 +27,13 @@ export const RiesgosActivosEvaluacionSchema = z
   })
   .openapi("RiesgosActivosEvaluacion");
 
-export const FamiliaAfectadaInputSchema = z
-  .object({
-    id: z.string().optional(),
-    referencia: z.string().max(100).optional(),
-    nucleoFamiliarTotal: z.number().int().min(0).max(5000).optional(),
-    nucleo_familiar_total: z.number().int().min(0).max(5000).optional(),
-    cantidadNinos: z.number().int().min(0).max(1000).optional(),
-    cantidad_ninos: z.number().int().min(0).max(1000).optional(),
-    cantidadAdultosMayores: z.number().int().min(0).max(1000).optional(),
-    cantidad_adultos_mayores: z.number().int().min(0).max(1000).optional(),
-    personasDiscapacitadas: z.number().int().min(0).max(1000).optional(),
-    personas_discapacitadas: z.number().int().min(0).max(1000).optional(),
-    personasElectrodependientes: z.number().int().min(0).max(500).optional(),
-    personas_electrodependientes: z.number().int().min(0).max(500).optional(),
-    mascotasAfectadas: z.number().int().min(0).max(1000).optional(),
-    mascotas_afectadas: z.number().int().min(0).max(1000).optional(),
-    nivelCompromisoVivienda: NivelCompromisoViviendaEnum.optional(),
-    nivel_compromiso_vivienda: NivelCompromisoViviendaEnum.optional(),
-  })
-  .openapi("FamiliaAfectadaInput");
-
 /**
  * Esquema del formulario de evaluación técnica y vulnerabilidad en terreno (HU-38).
  */
-export const EvaluacionTerrenoInputSchema = z
+const EvaluacionTerrenoBaseSchema = z
   .object({
     familias: z.array(FamiliaAfectadaInputSchema).optional().openapi({
-      description: "Listado de familias u hogares individualizados con su vivienda asociada",
+      description: "Listado de familias u hogares preliminares individualizados con su vivienda y contacto opcional",
     }),
     nucleoFamiliarTotal: z
       .number({ message: "El tamaño del núcleo familiar debe ser un número entero." })
@@ -204,17 +184,65 @@ export const EvaluacionTerrenoInputSchema = z
         example: "Anegamiento de piso flotante y pérdida de enseres menores.",
       }),
     danos_estimados: z.string().max(1000).nullable().optional(),
-  })
-  .openapi("EvaluacionTerrenoInput");
+  });
+
+function validarCoherenciaEvaluacionTerreno(
+  data: Record<string, unknown>,
+  ctx: z.RefinementCtx,
+  pathPrefix: Array<string | number> = []
+): void {
+  const familias = data.familias;
+  if (Array.isArray(familias) && familias.length > 0) {
+    familias.forEach((fam, idx) => {
+      if (fam && typeof fam === "object") {
+        validarCoherenciaFamilia(
+          fam as Record<string, unknown>,
+          ctx,
+          [...pathPrefix, "familias", idx],
+          { minimoIntegrantes: 0, validarRutSiExiste: true }
+        );
+      }
+    });
+    return;
+  }
+
+  const totalExplicito =
+    data.nucleoFamiliarTotal ??
+    data.nucleo_familiar_total ??
+    data.personasAfectadas ??
+    data.personas_afectadas;
+
+  if (typeof totalExplicito === "number" && Number.isFinite(totalExplicito)) {
+    validarCoherenciaFamilia(
+      {
+        ...data,
+        nucleoFamiliarTotal: totalExplicito,
+      },
+      ctx,
+      pathPrefix,
+      { minimoIntegrantes: 0, validarRutSiExiste: false }
+    );
+  }
+}
+
+export const EvaluacionTerrenoInputSchema = EvaluacionTerrenoBaseSchema.superRefine(
+  (data, ctx) => {
+    validarCoherenciaEvaluacionTerreno(data as Record<string, unknown>, ctx);
+  }
+).openapi("EvaluacionTerrenoInput");
 
 export type EvaluacionTerrenoInput = z.infer<typeof EvaluacionTerrenoInputSchema>;
 
 /**
  * Input para POST /api/incidentes/{id}/prioridad/calcular
  */
-export const CalcularPrioridadInputSchema = EvaluacionTerrenoInputSchema.extend({
+export const CalcularPrioridadInputSchema = EvaluacionTerrenoBaseSchema.extend({
   evaluacion: EvaluacionTerrenoInputSchema.optional(),
-}).openapi("CalcularPrioridadInput");
+})
+  .superRefine((data, ctx) => {
+    validarCoherenciaEvaluacionTerreno(data as Record<string, unknown>, ctx);
+  })
+  .openapi("CalcularPrioridadInput");
 
 export type CalcularPrioridadInput = z.infer<typeof CalcularPrioridadInputSchema>;
 
@@ -299,7 +327,7 @@ const tieneCamposEvaluacionEnRaiz = (data: Record<string, unknown>): boolean => 
 /**
  * Input para PATCH /api/incidentes/{id}/prioridad (HU-38)
  */
-export const ActualizarPrioridadIncidenteInputSchema = EvaluacionTerrenoInputSchema.extend({
+export const ActualizarPrioridadIncidenteInputSchema = EvaluacionTerrenoBaseSchema.extend({
   prioridad: PrioridadCanonicaEnum.optional().openapi({
     description: "Nivel de prioridad asignado por la patrulla verificadora",
     example: "CRITICA",
@@ -357,6 +385,7 @@ export const ActualizarPrioridadIncidenteInputSchema = EvaluacionTerrenoInputSch
   }),
 })
   .superRefine((data, ctx) => {
+    validarCoherenciaEvaluacionTerreno(data as Record<string, unknown>, ctx);
     const prioridadElegida =
       data.prioridad ?? data.prioridadAsignada ?? data.prioridad_asignada;
 

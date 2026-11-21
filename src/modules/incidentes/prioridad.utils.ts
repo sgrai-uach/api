@@ -23,6 +23,9 @@ export interface FamiliaAfectadaItem {
   personasElectrodependientes: number;
   mascotasAfectadas: number;
   nivelCompromisoVivienda: NivelCompromisoVivienda;
+  contactoNombre?: string | null;
+  contactoTelefono?: string | null;
+  contactoRut?: string | null;
 }
 
 export interface EvaluacionTerrenoNormalizada {
@@ -122,14 +125,16 @@ export function normalizarEvaluacionTerreno(
       const fAdultos = num(f.cantidadAdultosMayores ?? f.cantidad_adultos_mayores, 0);
       const fDiscap = num(f.personasDiscapacitadas ?? f.personas_discapacitadas, 0);
       const fElectro = num(f.personasElectrodependientes ?? f.personas_electrodependientes, 0);
-      const fSumaVuln = fNinos + fAdultos + fDiscap + fElectro;
       const fPersDecl = num(f.nucleoFamiliarTotal ?? f.nucleo_familiar_total, 0);
-      const fTotal = Math.max(fPersDecl, fSumaVuln);
+      const fTotal = fPersDecl;
       const fMascotas = num(f.mascotasAfectadas ?? f.mascotas_afectadas, 0);
       const fCompRaw = String(f.nivelCompromisoVivienda ?? f.nivel_compromiso_vivienda ?? "SIN_DANO").toUpperCase();
       const fComp: NivelCompromisoVivienda = compromisosValidos.includes(fCompRaw as NivelCompromisoVivienda)
         ? (fCompRaw as NivelCompromisoVivienda)
         : "SIN_DANO";
+      const contactoNombre = str(f.contactoNombre ?? f.contacto_nombre);
+      const contactoTelefono = str(f.contactoTelefono ?? f.contacto_telefono);
+      const contactoRut = str(f.contactoRut ?? f.contacto_rut);
 
       sumaFamiliasPersonas += fTotal;
       sumaFamiliasNinos += fNinos;
@@ -151,6 +156,9 @@ export function normalizarEvaluacionTerreno(
         personasElectrodependientes: fElectro,
         mascotasAfectadas: fMascotas,
         nivelCompromisoVivienda: fComp,
+        contactoNombre,
+        contactoTelefono,
+        contactoRut,
       };
     });
   }
@@ -166,9 +174,6 @@ export function normalizarEvaluacionTerreno(
     ? sumaFamiliasElectro
     : num(fuente.personasElectrodependientes ?? fuente.personas_electrodependientes, 0);
 
-  const sumaVulnerables =
-    cantidadNinos + cantidadAdultosMayores + personasDiscapacitadas + personasElectrodependientes;
-
   const nucleoDeclarado = familiasNormalizadas
     ? sumaFamiliasPersonas
     : num(
@@ -179,7 +184,7 @@ export function normalizarEvaluacionTerreno(
         0
       );
 
-  const nucleoFamiliarTotal = Math.max(nucleoDeclarado, sumaVulnerables);
+  const nucleoFamiliarTotal = nucleoDeclarado;
   const familiasAfectadas = familiasNormalizadas
     ? familiasNormalizadas.length
     : num(fuente.familiasAfectadas ?? fuente.familias_afectadas, nucleoFamiliarTotal > 0 ? 1 : 0);
