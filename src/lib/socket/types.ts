@@ -73,6 +73,7 @@ export interface ServerToClientEvents {
         cuadrillaId?: string | null;
         incidenteId?: string | null;
         fechaInicio: string | null;
+        fechaCierre?: string | null;
         hito: {
             id: string;
             hito: string;
@@ -80,6 +81,7 @@ export interface ServerToClientEvents {
             registradoPorId: string | null;
             creadoEn: string;
         };
+        reporteTerreno?: Record<string, unknown> | null;
         actualizadoEn: string;
     }) => void;
     "notificacion:trazabilidad_actualizada": (payload: {
