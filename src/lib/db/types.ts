@@ -418,6 +418,9 @@ export interface CuadrillaPersonalTable {
   desvinculado_en?: Date | null;
 }
 
+export type CuadrillaIntegranteTable = CuadrillaPersonalTable;
+export type PatrullaIntegranteTable = PatrullaPersonalTable;
+
 export type TipoMision =
   | "VERIFICACION"
   | "ATENCION_CUADRILLA"
@@ -432,6 +435,28 @@ export type EstadoMision =
   | "COMPLETADA"
   | "CANCELADA"
   | "RECHAZADA";
+
+export type EstadoNotificacionMision =
+  | "PENDIENTE_ENVIO"
+  | "ENVIADA"
+  | "RECIBIDA"
+  | "LEIDA";
+
+export interface NotificacionesMisionTable {
+  id: Generated<string>;
+  mision_id: string;
+  patrulla_id: string;
+  estado: ColumnType<
+    EstadoNotificacionMision,
+    EstadoNotificacionMision | undefined,
+    EstadoNotificacionMision
+  >;
+  intentos_envio: ColumnType<number, number | undefined, number>;
+  creada_at: Generated<Date>;
+  enviada_at: Date | null;
+  recibida_at: Date | null;
+  leida_at: Date | null;
+}
 
 export interface MisionTable {
   id: Generated<string>;
@@ -608,6 +633,8 @@ export interface Database {
   cuadrilla_personal: CuadrillaPersonalTable;
   mision: MisionTable;
   mision_hito: MisionHitoTable;
+  notificaciones_mision: NotificacionesMisionTable;
+  notificacion_mision: NotificacionesMisionTable;
   aviso_incidente: AvisoIncidenteTable;
   adjunto: AdjuntoTable;
   reporte_terreno: ReporteTerrenoTable;
@@ -618,6 +645,8 @@ export interface Database {
   evento_atp: EventoAtpTable;
   evento_atp_delegacion: EventoAtpDelegacionTable;
   token_recuperacion_contrasena: TokenRecuperacionContrasenaTable;
+  cuadrilla_integrante: CuadrillaIntegranteTable;
+  patrulla_integrante: PatrullaIntegranteTable;
 
   // Aliases plurales para compatibilidad transversal con servicios de H12 y consultas directas
   recursos: RecursoTable;

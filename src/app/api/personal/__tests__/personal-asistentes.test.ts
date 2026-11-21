@@ -4,7 +4,7 @@ import { GET } from "../route";
 import * as personalListadoService from "@/modules/recursos-y-personal/personal-listado.service";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import * as authService from "@/modules/seguridad/auth.service";
-import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
+import { ForbiddenError } from "@/modules/seguridad/errors";
 import { PERMISO_LEER_ASISTENCIA_SOCIAL } from "@/modules/seguridad/permisos.constants";
 import type { ListarPersonalResponse } from "@/modules/recursos-y-personal/personal-listado.schema";
 

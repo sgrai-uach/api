@@ -14,6 +14,9 @@ export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
   const rolId = filtros.rolId ?? filtros.rol_id;
   const estadoOperativo = filtros.estadoOperativo ?? filtros.estado_operativo;
   const soloPersonal = filtros.soloPersonal ?? filtros.solo_personal;
+  const sinAsignacionCuadrilla =
+    filtros.sinAsignacionCuadrilla ?? filtros.sin_asignacion_cuadrilla;
+  const excluirCuadrillaId = filtros.excluirCuadrillaId ?? filtros.excluir_cuadrilla_id;
   const busqueda = (filtros.busqueda ?? filtros.q)?.trim();
   const ordenarPor = filtros.ordenar_por ?? filtros.ordenarPor ?? "apellidos";
   const orden = filtros.orden ?? "asc";
@@ -42,6 +45,40 @@ export async function listarPersonalPaginadoRepo(filtros: ListarPersonalQuery) {
   // `soloPersonal` conserva su semántica original: usuarios que poseen ficha de terreno
   if (soloPersonal) {
     query = query.where("personal.id", "is not", null);
+  }
+
+  // Exclusión de funcionarios ya asignados a una cuadrilla operativa activa.
+  // Un funcionario no puede liderar ni integrar dos cuadrillas a la vez (regla ICS).
+  if (sinAsignacionCuadrilla) {
+    const excluirDelegado = excluirCuadrillaId
+      ? sql`AND c_delegado.id <> ${excluirCuadrillaId}`
+      : sql``;
+    const excluirIntegrante = excluirCuadrillaId
+      ? sql`AND c_integrante.id <> ${excluirCuadrillaId}`
+      : sql``;
+
+    query = query.where(sql<boolean>`
+      NOT EXISTS (
+        SELECT 1
+        FROM cuadrilla c_delegado
+        WHERE c_delegado.usuario_delegado_id = usuario.id
+          AND c_delegado.activo = TRUE
+          AND c_delegado.eliminado_en IS NULL
+          ${excluirDelegado}
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM cuadrilla_personal cp
+        JOIN cuadrilla c_integrante ON c_integrante.id = cp.cuadrilla_id
+        JOIN personal p_integrante ON p_integrante.id = cp.personal_id
+        WHERE p_integrante.usuario_id = usuario.id
+          AND cp.activo = TRUE
+          AND cp.desvinculado_en IS NULL
+          AND c_integrante.activo = TRUE
+          AND c_integrante.eliminado_en IS NULL
+          ${excluirIntegrante}
+      )
+    `);
   }
 
   if (delegacionId) {
