@@ -164,6 +164,8 @@ import {
   AceptarMisionResponseSchema,
   AsignarCuadrillaMisionInputSchema,
   AsignarCuadrillaMisionResponseSchema,
+  ReportarCierreRecuperacionInputSchema,
+  ReportarCierreRecuperacionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -1464,6 +1466,48 @@ registry.registerPath({
       description:
         "Conflicto de estado: la misión no se encuentra en estado 'DESPACHADA' (ej. ya fue aceptada o cancelada)",
     },
+    500: { description: "Error interno del servidor" },
+  },
+});
+registry.register("ReportarCierreRecuperacionInput", ReportarCierreRecuperacionInputSchema);
+registry.register("ReportarCierreRecuperacionResponse", ReportarCierreRecuperacionResponseSchema);
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/reportar-cierre-recuperacion",
+  summary: "Reportar cierre de operativo de recuperación desde terreno (Patrulla)",
+  description:
+    "Permite a la patrulla asignada a un operativo de recuperación en ejecución enviar el resumen de cierre y el detalle de insumos consumidos, dejando el operativo listo para confirmación formal en el Centro de Mando.",
+  tags: ["Misiones"],
+  request: {
+    headers: z.object({
+      authorization: z.string().optional(),
+      "x-user-id": z.string().uuid().optional(),
+    }),
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: ReportarCierreRecuperacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Reporte de cierre registrado y notificado al Centro de Mando",
+      content: {
+        "application/json": {
+          schema: ReportarCierreRecuperacionResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos inválidos" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado" },
+    404: { description: "Misión no encontrada" },
+    409: { description: "Conflicto de estado operativo" },
     500: { description: "Error interno del servidor" },
   },
 });

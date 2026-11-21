@@ -203,6 +203,25 @@ export const PatrullaAsignadaResumenSchema = z.object({
   estado: z.string().openapi({ example: "EN_RECUPERACION" }),
 });
 
+export const ReportePatrullaRecuperacionSchema = z.object({
+  resumen: z.string(),
+  consumos: z.array(
+    z.object({
+      recursoId: z.string().uuid(),
+      cantidadConsumida: z.number().int().min(0),
+    })
+  ),
+  reportadoEn: z.string(),
+  reportadoPor: z
+    .object({
+      id: z.string().uuid(),
+      nombre: z.string(),
+    })
+    .nullable(),
+});
+
+export type ReportePatrullaRecuperacion = z.infer<typeof ReportePatrullaRecuperacionSchema>;
+
 /**
  * Esquema representativo del evento de recuperación registrado.
  */
@@ -234,6 +253,9 @@ export const EventoRecuperacionResponseSchema = z.object({
   fechaCierre: z.string().nullable().optional().openapi({ description: "Fecha de conclusión formal ISO 8601" }),
   observacionesCierre: z.string().nullable().optional().openapi({ description: "Resumen de cierre del operativo" }),
   cerradoPorId: z.string().uuid().nullable().optional().openapi({ description: "Identificador del usuario que cerró el operativo" }),
+  reportePatrulla: ReportePatrullaRecuperacionSchema.nullable().optional().openapi({
+    description: "Reporte de cierre enviado desde terreno por la patrulla (pendiente de confirmación en Centro de Mando)",
+  }),
   creadoEn: z.string().openapi({ description: "Fecha de registro ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Fecha de actualización ISO 8601" }),
 });
@@ -435,6 +457,9 @@ export const RecuperacionDetalleResponseSchema = z.object({
   fechaCierre: z.string().nullable().optional().openapi({ description: "Fecha de finalización de entrega" }),
   observacionesCierre: z.string().nullable().optional().openapi({ description: "Observaciones finales de cierre" }),
   cerradoPorId: z.string().uuid().nullable().optional().openapi({ description: "Identificador del usuario que concluyó el operativo" }),
+  reportePatrulla: ReportePatrullaRecuperacionSchema.nullable().optional().openapi({
+    description: "Reporte de cierre enviado desde terreno por la patrulla",
+  }),
 });
 
 export type RecuperacionDetalleResponse = z.infer<typeof RecuperacionDetalleResponseSchema>;

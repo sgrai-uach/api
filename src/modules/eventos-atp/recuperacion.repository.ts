@@ -770,6 +770,10 @@ export async function obtenerRecuperacionDetallePorIdRepo(
       sql<Date | null>`CASE WHEN (to_jsonb(recuperacion) ? 'fecha_cierre') THEN (to_jsonb(recuperacion)->>'fecha_cierre')::timestamptz ELSE NULL END`.as("fecha_cierre"),
       sql<string | null>`CASE WHEN (to_jsonb(recuperacion) ? 'observaciones_cierre') THEN (to_jsonb(recuperacion)->>'observaciones_cierre') ELSE NULL END`.as("observaciones_cierre"),
       sql<string | null>`CASE WHEN (to_jsonb(recuperacion) ? 'cerrado_por_id') THEN (to_jsonb(recuperacion)->>'cerrado_por_id')::uuid ELSE NULL END`.as("cerrado_por_id"),
+      sql<string | null>`CASE WHEN (to_jsonb(recuperacion) ? 'reporte_patrulla_resumen') THEN (to_jsonb(recuperacion)->>'reporte_patrulla_resumen') ELSE NULL END`.as("reporte_patrulla_resumen"),
+      sql<unknown | null>`CASE WHEN (to_jsonb(recuperacion) ? 'reporte_patrulla_consumos') THEN (to_jsonb(recuperacion)->'reporte_patrulla_consumos') ELSE NULL END`.as("reporte_patrulla_consumos"),
+      sql<Date | null>`CASE WHEN (to_jsonb(recuperacion) ? 'reporte_patrulla_en') THEN (to_jsonb(recuperacion)->>'reporte_patrulla_en')::timestamptz ELSE NULL END`.as("reporte_patrulla_en"),
+      sql<string | null>`CASE WHEN (to_jsonb(recuperacion) ? 'reporte_patrulla_por_id') THEN (to_jsonb(recuperacion)->>'reporte_patrulla_por_id')::uuid ELSE NULL END`.as("reporte_patrulla_por_id"),
       "recuperacion.creado_en",
       "recuperacion.actualizado_en",
     ])
@@ -927,6 +931,45 @@ export async function obtenerRecuperacionDetallePorIdRepo(
   // Ordenar cronológicamente
   historial.sort((a, b) => new Date(a.creadoEn).getTime() - new Date(b.creadoEn).getTime());
 
+  let reportePatrulla: {
+    resumen: string;
+    consumos: Array<{ recursoId: string; cantidadConsumida: number }>;
+    reportadoEn: string;
+    reportadoPor: { id: string; nombre: string } | null;
+  } | null = null;
+
+  if (recuperacion.reporte_patrulla_resumen && recuperacion.reporte_patrulla_en) {
+    let reportadoPorNombre = "Patrulla en Terreno";
+    if (recuperacion.reporte_patrulla_por_id) {
+      const autorRep = await db
+        .selectFrom("usuario")
+        .select(["id", "nombre"])
+        .where("id", "=", recuperacion.reporte_patrulla_por_id)
+        .executeTakeFirst();
+      if (autorRep?.nombre) {
+        reportadoPorNombre = autorRep.nombre;
+      }
+    }
+
+    const consumosArr = Array.isArray(recuperacion.reporte_patrulla_consumos)
+      ? (recuperacion.reporte_patrulla_consumos as Array<{
+          recursoId: string;
+          cantidadConsumida: number;
+        }>)
+      : [];
+
+    reportePatrulla = {
+      resumen: recuperacion.reporte_patrulla_resumen,
+      consumos: consumosArr,
+      reportadoEn:
+        formatearFechaIso(recuperacion.reporte_patrulla_en) ??
+        new Date().toISOString(),
+      reportadoPor: recuperacion.reporte_patrulla_por_id
+        ? { id: recuperacion.reporte_patrulla_por_id, nombre: reportadoPorNombre }
+        : null,
+    };
+  }
+
   return {
     id: recuperacion.id,
     codigo: recuperacion.codigo,
@@ -979,5 +1022,6 @@ export async function obtenerRecuperacionDetallePorIdRepo(
     fechaCierre: formatearFechaIso(recuperacion.fecha_cierre),
     observacionesCierre: recuperacion.observaciones_cierre ?? null,
     cerradoPorId: recuperacion.cerrado_por_id ?? null,
+    reportePatrulla,
   };
 }

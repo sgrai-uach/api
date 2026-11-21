@@ -236,11 +236,11 @@ export async function crearEventoRecuperacionService(
       },
       recursos: recursosRespuesta,
       creadoPorId: usuarioId,
-      creadoEn: nuevaRecuperacion.creado_en instanceof Date 
-        ? nuevaRecuperacion.creado_en.toISOString() 
+      creadoEn: nuevaRecuperacion.creado_en instanceof Date
+        ? nuevaRecuperacion.creado_en.toISOString()
         : String(nuevaRecuperacion.creado_en),
-      actualizadoEn: nuevaRecuperacion.actualizado_en instanceof Date 
-        ? nuevaRecuperacion.actualizado_en.toISOString() 
+      actualizadoEn: nuevaRecuperacion.actualizado_en instanceof Date
+        ? nuevaRecuperacion.actualizado_en.toISOString()
         : String(nuevaRecuperacion.actualizado_en),
     };
 
@@ -296,30 +296,30 @@ async function construirRespuestaRecuperacion(
     delegacion: delegacionData,
     mision: mision
       ? {
-          id: mision.id,
-          codigo: mision.codigo,
-          titulo: mision.titulo,
-          estado: mision.estado,
-          tipoMision: mision.tipo_mision,
-        }
+        id: mision.id,
+        codigo: mision.codigo,
+        titulo: mision.titulo,
+        estado: mision.estado,
+        tipoMision: mision.tipo_mision,
+      }
       : {
-          id: "00000000-0000-0000-0000-000000000000",
-          codigo: "",
-          titulo: registro.nombre,
-          estado: registro.estado,
-          tipoMision: "RECUPERACION",
-        },
+        id: "00000000-0000-0000-0000-000000000000",
+        codigo: "",
+        titulo: registro.nombre,
+        estado: registro.estado,
+        tipoMision: "RECUPERACION",
+      },
     patrulla: patrulla
       ? {
-          id: patrulla.id,
-          nombre: patrulla.nombre,
-          estado: patrulla.estado,
-        }
+        id: patrulla.id,
+        nombre: patrulla.nombre,
+        estado: patrulla.estado,
+      }
       : {
-          id: "00000000-0000-0000-0000-000000000000",
-          nombre: "Sin patrulla asignada",
-          estado: "DISPONIBLE",
-        },
+        id: "00000000-0000-0000-0000-000000000000",
+        nombre: "Sin patrulla asignada",
+        estado: "DISPONIBLE",
+      },
     recursos: recursosRespuesta,
     creadoPorId: registro.creado_por_id,
     fechaEstimadaFin: registro.fecha_estimada_fin

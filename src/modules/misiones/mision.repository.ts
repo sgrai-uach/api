@@ -1,6 +1,11 @@
 import { db } from "@/lib/db";
 import { sql, type Transaction } from "kysely";
-import { NotFoundError, ConflictError, ForbiddenError } from "@/modules/seguridad/errors";
+import {
+  NotFoundError,
+  ConflictError,
+  ForbiddenError,
+  BadRequestError,
+} from "@/modules/seguridad/errors";
 import type { Database } from "@/lib/db/types";
 import type {
   CrearMisionVerificacionInput,
@@ -87,6 +92,19 @@ export interface MisionDetalleQueryResult {
     tipo: string;
     cantidadAsignada: number;
   }>;
+  recuperacionDetalle?: {
+    id: string;
+    codigo: string;
+    estado: string;
+    sector: string;
+    recursos: Array<{ recursoId: string; nombre: string; cantidadAsignada: number }>;
+    reportePatrulla: {
+      resumen: string;
+      consumos: Array<{ recursoId: string; cantidadConsumida: number }>;
+      reportadoEn: string;
+      reportadoPor: { id: string; nombre: string } | null;
+    } | null;
+  } | null;
   reportesTerreno: Array<{
     id: string;
     mision_id: string;
@@ -164,6 +182,7 @@ export async function obtenerMisionDetallePorIdRepo(
       )`.as("trazabilidad_notificacion"),
       "mision.incidente_id",
       "mision.prevencion_id",
+      "mision.recuperacion_id",
       "mision.cuadrilla_id",
       "mision.patrulla_id",
       "mision.encargado_id",
@@ -343,9 +362,98 @@ export async function obtenerMisionDetallePorIdRepo(
     .orderBy("creado_en", "asc")
     .execute();
 
+  let recuperacionDetalle: {
+    id: string;
+    codigo: string;
+    estado: string;
+    sector: string;
+    recursos: Array<{ recursoId: string; nombre: string; cantidadAsignada: number }>;
+    reportePatrulla: {
+      resumen: string;
+      consumos: Array<{ recursoId: string; cantidadConsumida: number }>;
+      reportadoEn: string;
+      reportadoPor: { id: string; nombre: string } | null;
+    } | null;
+  } | null = null;
+
+  if (mision.recuperacion_id) {
+    const recRow = await db
+      .selectFrom("recuperacion")
+      .select([
+        "recuperacion.id",
+        "recuperacion.codigo",
+        "recuperacion.estado",
+        "recuperacion.sector",
+        sql<string | null>`CASE WHEN (to_jsonb(recuperacion) ? 'reporte_patrulla_resumen') THEN (to_jsonb(recuperacion)->>'reporte_patrulla_resumen') ELSE NULL END`.as("reporte_patrulla_resumen"),
+        sql<unknown | null>`CASE WHEN (to_jsonb(recuperacion) ? 'reporte_patrulla_consumos') THEN (to_jsonb(recuperacion)->'reporte_patrulla_consumos') ELSE NULL END`.as("reporte_patrulla_consumos"),
+        sql<Date | null>`CASE WHEN (to_jsonb(recuperacion) ? 'reporte_patrulla_en') THEN (to_jsonb(recuperacion)->>'reporte_patrulla_en')::timestamptz ELSE NULL END`.as("reporte_patrulla_en"),
+        sql<string | null>`CASE WHEN (to_jsonb(recuperacion) ? 'reporte_patrulla_por_id') THEN (to_jsonb(recuperacion)->>'reporte_patrulla_por_id')::uuid ELSE NULL END`.as("reporte_patrulla_por_id"),
+      ])
+      .where("recuperacion.id", "=", mision.recuperacion_id)
+      .executeTakeFirst();
+
+    if (recRow) {
+      const recInsumos = await db
+        .selectFrom("recuperacion_recurso")
+        .innerJoin("recurso", "recurso.id", "recuperacion_recurso.recurso_id")
+        .select([
+          "recuperacion_recurso.recurso_id",
+          "recurso.nombre as recurso_nombre",
+          "recuperacion_recurso.cantidad_asignada",
+        ])
+        .where("recuperacion_recurso.recuperacion_id", "=", recRow.id)
+        .execute();
+
+      let reportePatrulla: {
+        resumen: string;
+        consumos: Array<{ recursoId: string; cantidadConsumida: number }>;
+        reportadoEn: string;
+        reportadoPor: { id: string; nombre: string } | null;
+      } | null = null;
+      if (recRow.reporte_patrulla_resumen && recRow.reporte_patrulla_en) {
+        let autorNombre = "Patrulla en Terreno";
+        if (recRow.reporte_patrulla_por_id) {
+          const autor = await db
+            .selectFrom("usuario")
+            .select(["id", "nombre"])
+            .where("id", "=", recRow.reporte_patrulla_por_id)
+            .executeTakeFirst();
+          if (autor?.nombre) autorNombre = autor.nombre;
+        }
+        reportePatrulla = {
+          resumen: recRow.reporte_patrulla_resumen,
+          consumos: Array.isArray(recRow.reporte_patrulla_consumos)
+            ? (recRow.reporte_patrulla_consumos as Array<{
+                recursoId: string;
+                cantidadConsumida: number;
+              }>)
+            : [],
+          reportadoEn: new Date(recRow.reporte_patrulla_en).toISOString(),
+          reportadoPor: recRow.reporte_patrulla_por_id
+            ? { id: recRow.reporte_patrulla_por_id, nombre: autorNombre }
+            : null,
+        };
+      }
+
+      recuperacionDetalle = {
+        id: recRow.id,
+        codigo: recRow.codigo,
+        estado: recRow.estado,
+        sector: recRow.sector,
+        recursos: recInsumos.map((r) => ({
+          recursoId: r.recurso_id,
+          nombre: r.recurso_nombre || "Recurso",
+          cantidadAsignada: Number(r.cantidad_asignada ?? 0),
+        })),
+        reportePatrulla,
+      };
+    }
+  }
+
   return {
     mision,
     recursosCuadrilla,
+    recuperacionDetalle,
     reportesTerreno,
     hitos: hitosFilas,
   };
@@ -1034,6 +1142,7 @@ export interface AceptarMisionPatrullaResult {
     codigo: string;
     estado: string;
   } | null;
+  recuperacionActualizadaId?: string | null;
   hito: {
     id: string;
     misionId: string;
@@ -1073,6 +1182,7 @@ export async function aceptarMisionPatrullaRepo(
         "mision.estado",
         "mision.patrulla_id",
         "mision.incidente_id",
+        "mision.recuperacion_id",
         "patrulla_verificadora.nombre as patrulla_nombre",
         "patrulla_verificadora.estado as patrulla_estado",
         "patrulla_verificadora.eliminado_en as patrulla_eliminado_en",
@@ -1179,7 +1289,29 @@ export async function aceptarMisionPatrullaRepo(
       );
     }
 
-    // 6. Registrar el hito automático en mision_hito vinculando al usuario en sesión
+    // 6. Si es misión de RECUPERACION, transicionar operativo de PLANIFICADA -> EN_EJECUCION
+    let recuperacionActualizadaId: string | null = null;
+    if (
+      misionExistente.tipo_mision === "RECUPERACION" &&
+      misionExistente.recuperacion_id
+    ) {
+      const recActualizada = await trx
+        .updateTable("recuperacion")
+        .set({
+          estado: "EN_EJECUCION",
+          actualizado_en: sql`CURRENT_TIMESTAMP`,
+        })
+        .where("id", "=", misionExistente.recuperacion_id)
+        .where("estado", "=", "PLANIFICADA")
+        .returning("id")
+        .executeTakeFirst();
+
+      if (recActualizada?.id) {
+        recuperacionActualizadaId = recActualizada.id;
+      }
+    }
+
+    // 7. Registrar el hito automático en mision_hito vinculando al usuario en sesión
     const hitoRegistrado = await trx
       .insertInto("mision_hito")
       .values({
@@ -1229,6 +1361,7 @@ export async function aceptarMisionPatrullaRepo(
             estado: "VERIFICANDO",
           }
         : null,
+      recuperacionActualizadaId,
       hito: {
         id: hitoRegistrado.id,
         misionId: hitoRegistrado.mision_id,
@@ -1238,6 +1371,204 @@ export async function aceptarMisionPatrullaRepo(
         latitud: hitoRegistrado.latitud !== null ? Number(hitoRegistrado.latitud) : null,
         longitud: hitoRegistrado.longitud !== null ? Number(hitoRegistrado.longitud) : null,
         creadoEn: hitoCreadoEnIso,
+      },
+    };
+  });
+}
+
+export interface ReportarCierreRecuperacionRepoResult {
+  misionId: string;
+  misionCodigo: string;
+  patrullaId: string | null;
+  recuperacionId: string;
+  reportePatrulla: {
+    resumen: string;
+    consumos: Array<{ recursoId: string; cantidadConsumida: number }>;
+    reportadoEn: string;
+    reportadoPor: { id: string; nombre: string } | null;
+  };
+  hito: {
+    id: string;
+    misionId: string;
+    hito: string;
+    descripcion: string;
+    registradoPorId: string | null;
+    latitud: number | null;
+    longitud: number | null;
+    creadoEn: string;
+  };
+}
+
+export async function reportarCierreRecuperacionRepo(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: {
+    resumenCierre: string;
+    consumos?: Array<{ recursoId: string; cantidadConsumida: number }>;
+    latitud?: number;
+    longitud?: number;
+  }
+): Promise<ReportarCierreRecuperacionRepoResult> {
+  return await db.transaction().execute(async (trx) => {
+    const misionExistente = await trx
+      .selectFrom("mision")
+      .leftJoin("patrulla_verificadora", "patrulla_verificadora.id", "mision.patrulla_id")
+      .select([
+        "mision.id",
+        "mision.codigo",
+        "mision.tipo_mision",
+        "mision.estado",
+        "mision.patrulla_id",
+        "mision.recuperacion_id",
+        "patrulla_verificadora.usuario_lider_id as patrulla_lider_id",
+      ])
+      .where("mision.id", "=", misionId)
+      .forUpdate("mision")
+      .executeTakeFirst();
+
+    if (!misionExistente) {
+      throw new NotFoundError("No se encontró ninguna misión con el identificador proporcionado.");
+    }
+
+    if (misionExistente.tipo_mision !== "RECUPERACION" || !misionExistente.recuperacion_id) {
+      throw new ConflictError("La misión indicada no corresponde a un operativo de recuperación.");
+    }
+
+    if (!misionExistente.patrulla_id) {
+      throw new ConflictError("La misión indicada no tiene una patrulla verificadora asignada.");
+    }
+
+    if (!esAdmin) {
+      const esLider = misionExistente.patrulla_lider_id === usuarioId;
+      if (!esLider) {
+        const integrante = await trx
+          .selectFrom("patrulla_personal")
+          .innerJoin("personal", "personal.id", "patrulla_personal.personal_id")
+          .select("patrulla_personal.id")
+          .where("patrulla_personal.patrulla_id", "=", misionExistente.patrulla_id)
+          .where("personal.usuario_id", "=", usuarioId)
+          .executeTakeFirst();
+
+        if (!integrante) {
+          throw new ForbiddenError(
+            "No está autorizado para reportar el cierre de una misión asignada a otra patrulla."
+          );
+        }
+      }
+    }
+
+    if (misionExistente.estado !== "EN_CURSO") {
+      throw new ConflictError(
+        `Solo se puede reportar el cierre de una misión en estado 'EN_CURSO' (estado actual: '${misionExistente.estado}').`
+      );
+    }
+
+    const recuperacion = await trx
+      .selectFrom("recuperacion")
+      .select(["id", "estado"])
+      .where("id", "=", misionExistente.recuperacion_id)
+      .forUpdate()
+      .executeTakeFirst();
+
+    if (!recuperacion) {
+      throw new NotFoundError("El operativo de recuperación vinculado no fue encontrado.");
+    }
+
+    if (recuperacion.estado !== "EN_EJECUCION") {
+      throw new ConflictError(
+        `El operativo de recuperación debe estar en estado 'EN_EJECUCION' (estado actual: '${recuperacion.estado}').`
+      );
+    }
+
+    const recursosAsignados = await trx
+      .selectFrom("recuperacion_recurso")
+      .select(["recurso_id", "cantidad_asignada"])
+      .where("recuperacion_id", "=", recuperacion.id)
+      .execute();
+
+    const asignadosMap = new Map<string, number>(
+      recursosAsignados.map((r) => [r.recurso_id, Number(r.cantidad_asignada)])
+    );
+
+    const consumosNormalizados: Array<{ recursoId: string; cantidadConsumida: number }> = [];
+    for (const item of input.consumos ?? []) {
+      const asignado = asignadosMap.get(item.recursoId);
+      if (asignado === undefined) {
+        throw new BadRequestError(
+          `El recurso '${item.recursoId}' no forma parte de la dotación asignada a este operativo.`
+        );
+      }
+      if (item.cantidadConsumida > asignado) {
+        throw new BadRequestError(
+          `La cantidad consumida (${item.cantidadConsumida}) no puede superar la cantidad asignada (${asignado}).`
+        );
+      }
+      consumosNormalizados.push({
+        recursoId: item.recursoId,
+        cantidadConsumida: item.cantidadConsumida,
+      });
+    }
+
+    const ahora = new Date();
+
+    await trx
+      .updateTable("recuperacion")
+      .set({
+        reporte_patrulla_resumen: input.resumenCierre.trim(),
+        reporte_patrulla_consumos: JSON.stringify(consumosNormalizados),
+        reporte_patrulla_en: ahora,
+        reporte_patrulla_por_id: usuarioId,
+        actualizado_en: ahora,
+      } as never)
+      .where("id", "=", recuperacion.id)
+      .execute();
+
+    const autor = await trx
+      .selectFrom("usuario")
+      .select(["id", "nombre"])
+      .where("id", "=", usuarioId)
+      .executeTakeFirst();
+
+    const hitoRegistrado = await trx
+      .insertInto("mision_hito")
+      .values({
+        mision_id: misionId,
+        hito: "REPORTE_CIERRE_RECUPERACION",
+        descripcion: `Reporte de cierre desde terreno: ${input.resumenCierre.trim()}`,
+        registrado_por_id: usuarioId,
+        latitud: input.latitud ?? null,
+        longitud: input.longitud ?? null,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    return {
+      misionId,
+      misionCodigo: misionExistente.codigo,
+      patrullaId: misionExistente.patrulla_id,
+      recuperacionId: recuperacion.id,
+      reportePatrulla: {
+        resumen: input.resumenCierre.trim(),
+        consumos: consumosNormalizados,
+        reportadoEn: ahora.toISOString(),
+        reportadoPor: {
+          id: usuarioId,
+          nombre: autor?.nombre || "Patrulla en Terreno",
+        },
+      },
+      hito: {
+        id: hitoRegistrado.id,
+        misionId: hitoRegistrado.mision_id,
+        hito: hitoRegistrado.hito,
+        descripcion: hitoRegistrado.descripcion,
+        registradoPorId: hitoRegistrado.registrado_por_id,
+        latitud: hitoRegistrado.latitud !== null ? Number(hitoRegistrado.latitud) : null,
+        longitud: hitoRegistrado.longitud !== null ? Number(hitoRegistrado.longitud) : null,
+        creadoEn:
+          hitoRegistrado.creado_en instanceof Date
+            ? hitoRegistrado.creado_en.toISOString()
+            : new Date(hitoRegistrado.creado_en).toISOString(),
       },
     };
   });

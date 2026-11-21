@@ -3,7 +3,9 @@ import {
   crearMisionVerificacionRepo,
   aceptarMisionPatrullaRepo,
   asignarCuadrillaIncidenteRepo,
+  reportarCierreRecuperacionRepo,
 } from "./mision.repository";
+import { obtenerRecuperacionDetallePorIdRepo } from "@/modules/eventos-atp/recuperacion.repository";
 import type {
   MisionDetalleCompleto,
   MisionBitacoraHito,
@@ -15,6 +17,8 @@ import type {
   AceptarMisionResponse,
   AsignarCuadrillaMisionInput,
   AsignarCuadrillaMisionResponse,
+  ReportarCierreRecuperacionInput,
+  ReportarCierreRecuperacionResponse,
 } from "./mision.schema";
 import {
   notificarMisionAsignada,
@@ -25,6 +29,7 @@ import {
   tieneConexionEnSala,
   notificarPatrullaLiberada,
   emitirCuadrillaActualizada,
+  emitirRecuperacionActualizada,
 } from "@/lib/socket";
 import { marcarNotificacionEnviadaRepo } from "./notificacion-mision.repository";
 
@@ -268,6 +273,7 @@ export async function obtenerDetalleMisionService(
     prevencion,
     cuadrilla,
     patrulla,
+    recuperacion: resultado.recuperacionDetalle ?? null,
     bitacoraTiempos,
     reportesTerreno: reportesMapeados,
   };
@@ -491,17 +497,89 @@ export async function aceptarMisionService(
       },
       actualizadoEn: resultado.mision.actualizadoEn,
     });
+
+    if (resultado.recuperacionActualizadaId) {
+      const detalleRec = await obtenerRecuperacionDetallePorIdRepo(
+        resultado.recuperacionActualizadaId
+      );
+      if (detalleRec) {
+        emitirRecuperacionActualizada({
+          ...detalleRec,
+          accion: "EN_EJECUCION",
+        });
+      }
+    }
   } catch (error) {
     console.error("Error al emitir evento WebSocket mision:actualizada:", error);
   }
 
   return {
     message:
-      "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
+      resultado.mision.tipoMision === "RECUPERACION"
+        ? "Misión de recuperación aceptada exitosamente. Operativo en ejecución."
+        : "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
     data: {
       mision: resultado.mision,
       patrulla: resultado.patrulla,
       incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
+
+export async function reportarCierreRecuperacionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin = false,
+  input: ReportarCierreRecuperacionInput
+): Promise<ReportarCierreRecuperacionResponse> {
+  const resultado = await reportarCierreRecuperacionRepo(
+    misionId,
+    usuarioId,
+    esAdmin,
+    input
+  );
+
+  try {
+    const detalleRec = await obtenerRecuperacionDetallePorIdRepo(resultado.recuperacionId);
+    if (detalleRec) {
+      emitirRecuperacionActualizada({
+        ...detalleRec,
+        accion: "REPORTE_TERRENO",
+      });
+    }
+
+    notificarMisionActualizada({
+      misionId: resultado.misionId,
+      codigo: resultado.misionCodigo,
+      estado: "EN_CURSO",
+      tipoMision: "RECUPERACION",
+      patrullaId: resultado.patrullaId,
+      incidenteId: null,
+      fechaInicio: null,
+      hito: {
+        id: resultado.hito.id,
+        hito: resultado.hito.hito,
+        descripcion: resultado.hito.descripcion,
+        registradoPorId: resultado.hito.registradoPorId,
+        creadoEn: resultado.hito.creadoEn,
+      },
+      actualizadoEn: resultado.reportePatrulla.reportadoEn,
+    });
+  } catch (error) {
+    console.error(
+      "Error al emitir notificaciones Socket.io tras reporte de cierre de recuperación:",
+      error
+    );
+  }
+
+  return {
+    message:
+      "Reporte de cierre enviado al Centro de Mando. Pendiente de confirmación formal.",
+    data: {
+      misionId: resultado.misionId,
+      recuperacionId: resultado.recuperacionId,
+      reportePatrulla: resultado.reportePatrulla,
       hito: resultado.hito,
     },
   };

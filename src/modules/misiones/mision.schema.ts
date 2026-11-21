@@ -202,6 +202,41 @@ export const MisionDetalleCompletoSchema = z.object({
   patrulla: PatrullaMisionDetalleSchema.nullable().openapi({
     description: "Patrulla verificadora asignada (null si fue asignada una cuadrilla operativa)",
   }),
+  recuperacion: z
+    .object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      estado: z.string(),
+      sector: z.string(),
+      recursos: z.array(
+        z.object({
+          recursoId: z.string().uuid(),
+          nombre: z.string(),
+          cantidadAsignada: z.number(),
+        })
+      ),
+      reportePatrulla: z
+        .object({
+          resumen: z.string(),
+          consumos: z.array(
+            z.object({
+              recursoId: z.string().uuid(),
+              cantidadConsumida: z.number().int().min(0),
+            })
+          ),
+          reportadoEn: z.string(),
+          reportadoPor: z
+            .object({
+              id: z.string().uuid(),
+              nombre: z.string(),
+            })
+            .nullable(),
+        })
+        .nullable()
+        .optional(),
+    })
+    .nullable()
+    .optional(),
   bitacoraTiempos: z.array(MisionBitacoraHitoSchema).openapi({
     description: "Hitos cronológicos de tiempo de la misión para análisis táctico (HU-17)",
   }),
@@ -515,3 +550,69 @@ export const AsignarCuadrillaMisionResponseSchema = z
   .openapi("AsignarCuadrillaMisionResponse");
 
 export type AsignarCuadrillaMisionResponse = z.infer<typeof AsignarCuadrillaMisionResponseSchema>;
+
+// ==========================================
+// Reporte de Cierre en Terreno para Misión de Recuperación (Patrulla -> Centro de Mando)
+// ==========================================
+
+export const ReportarCierreRecuperacionInputSchema = z
+  .object({
+    resumenCierre: z
+      .string()
+      .trim()
+      .min(10, "El resumen de cierre debe tener al menos 10 caracteres.")
+      .max(2000, "El resumen de cierre no puede superar los 2000 caracteres.")
+      .openapi({
+        description: "Resumen de labores realizadas y ayudas entregadas en terreno por la patrulla",
+      }),
+    consumos: z
+      .array(
+        z.object({
+          recursoId: z.string().uuid("El identificador del recurso debe ser un UUID válido."),
+          cantidadConsumida: z
+            .number()
+            .int("La cantidad consumida debe ser un número entero.")
+            .min(0, "La cantidad consumida no puede ser negativa."),
+        })
+      )
+      .optional()
+      .default([]),
+    latitud: z.number().min(-90).max(90).optional(),
+    longitud: z.number().min(-180).max(180).optional(),
+  })
+  .openapi("ReportarCierreRecuperacionInput");
+
+export type ReportarCierreRecuperacionInput = z.infer<
+  typeof ReportarCierreRecuperacionInputSchema
+>;
+
+export const ReportarCierreRecuperacionResponseSchema = z
+  .object({
+    message: z.string(),
+    data: z.object({
+      misionId: z.string().uuid(),
+      recuperacionId: z.string().uuid(),
+      reportePatrulla: z.object({
+        resumen: z.string(),
+        consumos: z.array(
+          z.object({
+            recursoId: z.string().uuid(),
+            cantidadConsumida: z.number().int().min(0),
+          })
+        ),
+        reportadoEn: z.string(),
+        reportadoPor: z
+          .object({
+            id: z.string().uuid(),
+            nombre: z.string(),
+          })
+          .nullable(),
+      }),
+      hito: MisionHitoRegistradoSchema,
+    }),
+  })
+  .openapi("ReportarCierreRecuperacionResponse");
+
+export type ReportarCierreRecuperacionResponse = z.infer<
+  typeof ReportarCierreRecuperacionResponseSchema
+>;
