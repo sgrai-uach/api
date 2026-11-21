@@ -273,3 +273,134 @@ export async function contarEventosAsistenciaSocial(
 
   return Number(resultado?.total ?? 0);
 }
+
+export type ResultadoAsignacionAsistenciaSocial =
+  | { ok: true; evento: FilaEventoAsistenciaSocialConRelaciones }
+  | { ok: false; motivo: "EVENTO_NO_ENCONTRADO" | "ESTADO_INVALIDO" | "ASISTENTE_NO_ENCONTRADO" | "ASISTENTE_NO_ELEGIBLE"; detalle?: string };
+
+/**
+ * Asigna atómicamente un asistente social disponible a un evento en estado PENDIENTE (H31).
+ * Transiciona el estado de PENDIENTE a ASIGNADO y registra actualizado_en = CURRENT_TIMESTAMP.
+ */
+export async function asignarAsistenteSocialEventoRepo(
+  eventoId: string,
+  asistenteSocialId: string
+): Promise<ResultadoAsignacionAsistenciaSocial> {
+  return db.transaction().execute(async (trx) => {
+    const eventoActual = await trx
+      .selectFrom("evento_asistencia_social")
+      .select(["id", "estado"])
+      .where("id", "=", eventoId)
+      .where("eliminado_en", "is", null)
+      .forUpdate()
+      .executeTakeFirst();
+
+    if (!eventoActual) {
+      return { ok: false, motivo: "EVENTO_NO_ENCONTRADO" };
+    }
+
+    if (eventoActual.estado !== "PENDIENTE") {
+      return {
+        ok: false,
+        motivo: "ESTADO_INVALIDO",
+        detalle: `El evento se encuentra en estado '${eventoActual.estado}' y solo puede asignarse desde estado 'PENDIENTE'.`,
+      };
+    }
+
+    const asistente = await trx
+      .selectFrom("usuario")
+      .innerJoin("rol", "rol.id", "usuario.rol_id")
+      .select([
+        "usuario.id",
+        "usuario.activo",
+        "usuario.estado_operativo",
+        "rol.codigo as rol_codigo",
+      ])
+      .where("usuario.id", "=", asistenteSocialId)
+      .executeTakeFirst();
+
+    if (!asistente) {
+      return { ok: false, motivo: "ASISTENTE_NO_ENCONTRADO" };
+    }
+
+    if (!asistente.activo || asistente.rol_codigo !== "ASISTENTE_SOCIAL") {
+      return {
+        ok: false,
+        motivo: "ASISTENTE_NO_ELEGIBLE",
+        detalle: "El usuario seleccionado no está activo o no posee el rol ASISTENTE_SOCIAL.",
+      };
+    }
+
+    if (asistente.estado_operativo !== "disponible") {
+      return {
+        ok: false,
+        motivo: "ASISTENTE_NO_ELEGIBLE",
+        detalle: `El asistente social seleccionado se encuentra en estado '${asistente.estado_operativo}' y debe estar 'disponible'.`,
+      };
+    }
+
+    const actualizado = await trx
+      .updateTable("evento_asistencia_social")
+      .set({
+        asistente_social_id: asistenteSocialId,
+        estado: "ASIGNADO",
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", eventoId)
+      .where("estado", "=", "PENDIENTE")
+      .where("eliminado_en", "is", null)
+      .returning("id")
+      .executeTakeFirst();
+
+    if (!actualizado) {
+      return {
+        ok: false,
+        motivo: "ESTADO_INVALIDO",
+        detalle: "No se pudo completar la transición de estado de PENDIENTE a ASIGNADO.",
+      };
+    }
+
+    const fila = await trx
+      .selectFrom("evento_asistencia_social")
+      .leftJoin("delegacion", "delegacion.id", "evento_asistencia_social.delegacion_id")
+      .innerJoin("usuario as creador", "creador.id", "evento_asistencia_social.creado_por_id")
+      .leftJoin("usuario as asistente", "asistente.id", "evento_asistencia_social.asistente_social_id")
+      .select([
+        "evento_asistencia_social.id",
+        "evento_asistencia_social.codigo",
+        "evento_asistencia_social.descripcion",
+        "evento_asistencia_social.tipo_afectacion",
+        "evento_asistencia_social.personas_afectadas",
+        "evento_asistencia_social.familias_afectadas",
+        "evento_asistencia_social.direccion_texto",
+        "evento_asistencia_social.latitud",
+        "evento_asistencia_social.longitud",
+        "evento_asistencia_social.prioridad",
+        "evento_asistencia_social.estado",
+        "evento_asistencia_social.contacto_nombre",
+        "evento_asistencia_social.contacto_telefono",
+        "evento_asistencia_social.contacto_rut",
+        "evento_asistencia_social.delegacion_id",
+        sql<string | null>`COALESCE(delegacion.nombre, delegacion.nombre_delegacion)`.as("delegacion_nombre"),
+        "evento_asistencia_social.incidente_id",
+        "evento_asistencia_social.asistente_social_id",
+        "asistente.nombre as asistente_social_nombre",
+        "evento_asistencia_social.creado_por_id",
+        "creador.nombre as creado_por_nombre",
+        "evento_asistencia_social.creado_en",
+        "evento_asistencia_social.actualizado_en",
+      ])
+      .where("evento_asistencia_social.id", "=", eventoId)
+      .where("evento_asistencia_social.eliminado_en", "is", null)
+      .executeTakeFirst();
+
+    if (!fila) {
+      return { ok: false, motivo: "EVENTO_NO_ENCONTRADO" };
+    }
+
+    return {
+      ok: true,
+      evento: fila as unknown as FilaEventoAsistenciaSocialConRelaciones,
+    };
+  });
+}

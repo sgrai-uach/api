@@ -244,3 +244,42 @@ export const ListarEventosAsistenciaSocialResponseSchema = z.object({
 export type ListarEventosAsistenciaSocialResponse = z.infer<
   typeof ListarEventosAsistenciaSocialResponseSchema
 >;
+
+/**
+ * Parámetros de ruta para operaciones sobre un evento de asistencia social específico (H31).
+ */
+export const EventoAsistenciaSocialIdParamSchema = z.object({
+  id: z.string().uuid("El identificador del evento de asistencia social debe ser un UUID válido").openapi({
+    description: "UUID del evento de asistencia social",
+    example: "70000000-0000-4000-8000-000000000001",
+  }),
+});
+
+export type EventoAsistenciaSocialIdParam = z.infer<typeof EventoAsistenciaSocialIdParamSchema>;
+
+/**
+ * Esquema de entrada para asignar un asistente social a un evento pendiente (H31).
+ */
+export const AsignarAsistenteSocialInputSchema = z.object({
+  asistenteSocialId: z
+    .string()
+    .uuid("El identificador del asistente social debe ser un UUID válido")
+    .openapi({
+      description: "UUID del usuario con rol ASISTENTE_SOCIAL en estado disponible",
+      example: "00000000-0000-4000-8000-000000000006",
+    }),
+});
+
+export type AsignarAsistenteSocialInput = z.infer<typeof AsignarAsistenteSocialInputSchema>;
+
+/**
+ * Esquema de respuesta al asignar un asistente social a un evento (H31).
+ */
+export const AsignarAsistenteSocialResponseSchema = z.object({
+  message: z.string().openapi({
+    example: "Asistente social asignado exitosamente al evento de asistencia social.",
+  }),
+  data: EventoAsistenciaSocialResponseSchema,
+});
+
+export type AsignarAsistenteSocialResponse = z.infer<typeof AsignarAsistenteSocialResponseSchema>;

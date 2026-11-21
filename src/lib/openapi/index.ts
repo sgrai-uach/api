@@ -163,6 +163,9 @@ import {
   ListarEventosAsistenciaSocialQuerySchema,
   EventoAsistenciaSocialResponseSchema,
   ListarEventosAsistenciaSocialResponseSchema,
+  EventoAsistenciaSocialIdParamSchema,
+  AsignarAsistenteSocialInputSchema,
+  AsignarAsistenteSocialResponseSchema,
 } from "@/modules/eventos-atp/asistencia-social.schema";
 
 import {
@@ -1947,6 +1950,57 @@ registry.registerPath({
     400: { description: "Datos de entrada inválidos o campos obligatorios faltantes" },
     401: { description: "No autenticado" },
     403: { description: "Acceso denegado. Se requiere permiso 'asistencia_social:crear'" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// PATCH /api/eventos-atp/asistencia-social/{id} (H31)
+registry.registerPath({
+  method: "patch",
+  path: "/api/eventos-atp/asistencia-social/{id}",
+  description:
+    "Asigna un asistente social disponible (rol ASISTENTE_SOCIAL) a un evento de asistencia social en estado PENDIENTE, realizando la transición atómica a ASIGNADO y emitiendo el evento WebSocket asistencia_social:actualizada.",
+  summary: "Asignar asistente social a evento de asistencia social",
+  tags: ["Eventos ATP - Asistencia Social"],
+  request: {
+    headers: z.object({
+      authorization: z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer del usuario con permiso 'asistencia_social:crear'" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
+    }),
+    params: EventoAsistenciaSocialIdParamSchema,
+    body: {
+      description: "UUID del asistente social disponible a asignar",
+      content: {
+        "application/json": {
+          schema: AsignarAsistenteSocialInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Asistente social asignado exitosamente; evento actualizado a estado ASIGNADO",
+      content: {
+        "application/json": {
+          schema: AsignarAsistenteSocialResponseSchema,
+        },
+      },
+    },
+    400: { description: "Identificador o cuerpo de solicitud inválido" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Se requiere permiso 'asistencia_social:crear'" },
+    404: { description: "Evento de asistencia social o usuario asistente social no encontrado" },
+    409: {
+      description:
+        "Conflicto de estado (evento no está en PENDIENTE) o el usuario seleccionado no tiene rol ASISTENTE_SOCIAL / no está disponible",
+    },
     500: { description: "Error interno del servidor" },
   },
 });

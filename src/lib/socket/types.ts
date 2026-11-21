@@ -10,6 +10,7 @@ export interface ServerToClientEvents {
     "prevencion:creada": (payload: unknown) => void;
     "recuperacion:creada": (payload: unknown) => void;
     "asistencia_social:creada": (payload: unknown) => void;
+    "asistencia_social:actualizada": (payload: unknown) => void;
     "punto_critico:creado": (payload: unknown) => void;
     "evento_atp:creado": (payload: unknown) => void;
     "punto_critico:eliminado": (payload: {

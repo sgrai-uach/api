@@ -3,25 +3,59 @@ import {
   PERMISO_CREAR_ASISTENCIA_SOCIAL,
   PERMISO_LEER_ASISTENCIA_SOCIAL,
 } from "@/modules/seguridad/permisos.constants";
-import { emitirAsistenciaSocialCreada } from "@/lib/socket";
+import {
+  emitirAsistenciaSocialCreada,
+  emitirAsistenciaSocialActualizada,
+} from "@/lib/socket";
 import {
   generarSiguienteCodigoAsistenciaSocial,
   insertarEventoAsistenciaSocial,
   listarEventosAsistenciaSocialPaginados,
   contarEventosAsistenciaSocial,
+  asignarAsistenteSocialEventoRepo,
   type FilaEventoAsistenciaSocialConRelaciones,
   type DatosInsertarEventoAsistenciaSocialRepo,
 } from "./asistencia-social.repository";
 import {
   CrearEventoAsistenciaSocialInputSchema,
   ListarEventosAsistenciaSocialQuerySchema,
+  AsignarAsistenteSocialInputSchema,
   type CrearEventoAsistenciaSocialInput,
   type ListarEventosAsistenciaSocialQuery,
+  type AsignarAsistenteSocialInput,
   type EventoAsistenciaSocialResponse,
   type ListarEventosAsistenciaSocialResponse,
   type PrioridadEventoAsistenciaSocial,
   type EstadoEventoAsistenciaSocial,
 } from "./asistencia-social.schema";
+
+export class EventoAsistenciaSocialNotFoundError extends Error {
+  constructor(message = "El evento de asistencia social solicitado no existe.") {
+    super(message);
+    this.name = "EventoAsistenciaSocialNotFoundError";
+  }
+}
+
+export class AsistenteSocialNotFoundError extends Error {
+  constructor(message = "El asistente social especificado no existe.") {
+    super(message);
+    this.name = "AsistenteSocialNotFoundError";
+  }
+}
+
+export class EstadoEventoAsistenciaSocialInvalidoError extends Error {
+  constructor(message = "El evento de asistencia social no se encuentra en estado PENDIENTE.") {
+    super(message);
+    this.name = "EstadoEventoAsistenciaSocialInvalidoError";
+  }
+}
+
+export class AsistenteSocialNoDisponibleError extends Error {
+  constructor(message = "El usuario seleccionado no tiene rol ASISTENTE_SOCIAL o no está disponible.") {
+    super(message);
+    this.name = "AsistenteSocialNoDisponibleError";
+  }
+}
 
 /**
  * Mapea una fila de base de datos relacional al formato canónico de respuesta de la API.
@@ -142,4 +176,48 @@ export async function listarEventosAsistenciaSocialService(
     limite,
     totalPaginas,
   };
+}
+
+/**
+ * Servicio para asignar un asistente social disponible a un evento en estado PENDIENTE (H31).
+ * - Requiere permiso RBAC `asistencia_social:crear`.
+ * - Transiciona atómicamente de PENDIENTE a ASIGNADO.
+ * - Emite el evento WebSocket `asistencia_social:actualizada` hacia la sala `asistente_social` y Centro de Mando.
+ */
+export async function asignarAsistenteSocialService(
+  eventoId: string,
+  input: AsignarAsistenteSocialInput,
+  usuarioId: string
+): Promise<EventoAsistenciaSocialResponse> {
+  // 1. Control de Acceso RBAC: Requiere permiso asistencia_social:crear
+  await verificarPermiso(usuarioId, PERMISO_CREAR_ASISTENCIA_SOCIAL);
+
+  // 2. Validar entrada
+  const datosValidados = AsignarAsistenteSocialInputSchema.parse(input);
+
+  // 3. Ejecutar asignación atómica en repositorio
+  const resultado = await asignarAsistenteSocialEventoRepo(
+    eventoId,
+    datosValidados.asistenteSocialId
+  );
+
+  if (!resultado.ok) {
+    switch (resultado.motivo) {
+      case "EVENTO_NO_ENCONTRADO":
+        throw new EventoAsistenciaSocialNotFoundError();
+      case "ASISTENTE_NO_ENCONTRADO":
+        throw new AsistenteSocialNotFoundError();
+      case "ESTADO_INVALIDO":
+        throw new EstadoEventoAsistenciaSocialInvalidoError(resultado.detalle);
+      case "ASISTENTE_NO_ELEGIBLE":
+        throw new AsistenteSocialNoDisponibleError(resultado.detalle);
+    }
+  }
+
+  const respuesta = mapearFilaEventoAsistenciaSocial(resultado.evento);
+
+  // 4. Emitir notificación WebSocket hacia sala asistente_social y Centro de Mando
+  emitirAsistenciaSocialActualizada(respuesta);
+
+  return respuesta;
 }
