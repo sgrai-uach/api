@@ -1254,3 +1254,11 @@ Asigna formalmente un profesional con rol `ASISTENTE_SOCIAL` en estado operativo
 - `403 Forbidden`: El usuario no cuenta con el permiso `asistencia_social:crear`.
 - `404 Not Found`: El evento o el usuario asistente social no existe.
 - `409 Conflict`: El evento ya no está en estado `PENDIENTE`, o el usuario seleccionado no posee rol `ASISTENTE_SOCIAL` / no está en estado `disponible`.
+
+### Catastro Preliminar por Familia, Coherencia Demográfica y Alcance frente a la FIBE
+
+> **Nota crítica de dominio:** Todos los datos familiares, demográficos y de contacto capturados en `POST /api/eventos-atp/asistencia-social` (`detallesEvaluacion.familias[]`) son **estrictamente preliminares** y **NO corresponden a la FIBE** (*Ficha Básica de Emergencias*), cuyo levantamiento formal por familia corresponde a una historia de usuario aparte.
+
+- **Coherencia demográfica estricta por familia:** `nucleoFamiliarTotal >= 1`, `cantidadNinos + cantidadAdultosMayores <= nucleoFamiliarTotal`, `personasDiscapacitadas <= nucleoFamiliarTotal`, `personasElectrodependientes <= nucleoFamiliarTotal`, `mascotasAfectadas >= 0`, y `contactoRut` validado con Módulo 11 si se informa.
+- **Separación de contacto por familia:** cuando `detallesEvaluacion.familias[]` contiene elementos, cada familia almacena su propio contacto preliminar (`contactoNombre`, `contactoTelefono`, `contactoRut`), se descarta cualquier contacto global aproximado y las columnas raíz `contacto_nombre`, `contacto_telefono` y `contacto_rut` se sincronizan desde la primera familia que registre contacto.
+- **Búsqueda en JSONB:** el filtro `busqueda` en `GET /api/eventos-atp/asistencia-social` busca también sobre el texto serializado de `detalles_evaluacion` (`CAST(detalles_evaluacion AS TEXT) ILIKE`).

@@ -877,3 +877,11 @@ Al confirmarse la asignación de misiones operativas mediante `POST /api/misione
    - **Salas destino:** `encargado`, `sala:encargados`, `supervisor`, `patrulla:{patrullaId}` y difusión global.
    - **Payload:** `{ misionId, codigo, tipoMision, motivo, justificacionRechazo, patrullaId, patrullaNombre, incidenteId, incidenteCodigo, rechazadoPorId, rechazadoEn }`.
    - **Propósito:** Alertar en tiempo real al Centro de Mando del rechazo motivado de una misión por la patrulla verificadora (HU-69), permitiendo la reasignación inmediata.
+
+---
+
+## 7. Catastro Preliminar por Familia y Contacto Condicional en `POST /api/misiones/{id}/reporte` (H38 / H39)
+
+- Los datos familiares y de contacto capturados en `PATCH /api/incidentes/{id}/prioridad` (H38) y `POST /api/misiones/{id}/reporte` (H39) son **estrictamente preliminares** y **NO constituyen una FIBE** (*Ficha Básica de Emergencias*).
+- Si en `POST /api/misiones/{id}/reporte` se marca `requiere_asistencia_social = true`, es obligatorio declarar al menos 1 familia en `familias[]` con `nucleoFamiliarTotal >= 1`, coherencia demográfica estricta y datos preliminares de contacto por cada familia (`contactoNombre` ≥ 2 caracteres y `contactoTelefono` ≥ 7 caracteres; `contactoRut` es opcional y se valida con Módulo 11 si se informa).
+- Cuando `requiere_asistencia_social = false`, tanto `familias[]` como sus datos de contacto son opcionales.
