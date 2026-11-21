@@ -386,13 +386,10 @@ export function emitirRecuperacionCreada(payload: unknown): void {
 export function emitirRecuperacionActualizada(payload: unknown): void {
   if (ioInstance) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("recuperacion:actualizada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("recuperacion:actualizada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("mapa") as any).emit("recuperacion:actualizada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("recuperacion:actualizada", payload);
+    (ioInstance.to(["sala:encargados", "encargado", "mapa"]) as any).emit(
+      "recuperacion:actualizada",
+      payload
+    );
     return;
   }
 
