@@ -589,7 +589,7 @@ Almacena el ciclo de vida auditable de las notificaciones de despacho táctico e
 
 ### 3.4 Módulo: Eventos ATP y Asistencia Social
 
-#### Tabla: `evento_asistencia_social` (Eventos Excepcionales y Requerimientos de FIBE - HU-28 / Migración 022)
+#### Tabla: `evento_asistencia_social` (Eventos Excepcionales y Requerimientos de FIBE - HU-28 / Migración 022 y 083)
 Gestiona el levantamiento de casos excepcionales de vulnerabilidad social y requerimientos para la Ficha Básica de Emergencia (FIBE), permitiendo su registro directo sin requerir la existencia previa de un incidente formal, o bien vinculado opcionalmente a uno.
 
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
@@ -612,6 +612,7 @@ Gestiona el levantamiento de casos excepcionales de vulnerabilidad social y requ
 | `incidente_id` | `UUID` | SÍ | `NULL` | FK a `incidente.id` (ON DELETE SET NULL). Nullable si es generado de manera autónoma. |
 | `delegacion_id` | `UUID` | SÍ | `NULL` | FK a `delegacion.id` territorial (ON DELETE SET NULL). |
 | `asistente_social_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` (ON DELETE SET NULL). Profesional asistente social asignado al caso. |
+| `detalles_evaluacion` | `JSONB` | SÍ | `NULL` | Desglose demográfico por familia (`familias[]`), totales de grupos vulnerables, compromiso de vivienda y daños estimados (homologado con H38/H39, Migración `083`). `NULL` indica modo de estimación aproximada sin desglose familiar. |
 | `creado_por_id` | `UUID` | NO | — | FK a `usuario.id` (ON DELETE RESTRICT). Funcionario que ingresó el registro (Encargado o Administrador). |
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de creación del registro. |
 | `actualizado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de última modificación. |

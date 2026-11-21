@@ -845,11 +845,15 @@ Al registrar exitosamente un evento de asistencia social excepcional, el backend
 
 ---
 
-## 9. Detalle de Endpoints: Asistencia Social y FIBE (H28)
+## 9. Detalle de Endpoints: Asistencia Social y FIBE (H28 / H31)
 
 ### 9.1 `POST /api/eventos-atp/asistencia-social`
 
 Permite al rol **Encargado** (o Administrador) registrar un caso excepcional que requiere levantamiento urgente de la Ficha Básica de Emergencia (FIBE), **sin necesidad de que provenga de un incidente formal previo**.
+
+#### Reglas de Negocio Aplicadas
+- **Desglose familiar opcional y descarte de aproximación (`detallesEvaluacion`):** El cliente puede enviar una estimación aproximada (`personasAfectadas`, `familiasAfectadas`) o bien incluir el objeto estructurado `detallesEvaluacion` homologado con H38/H39. Si `detallesEvaluacion.familias` contiene 1 o más hogares, el servidor recalcula autoritativamente todos los totales demográficos (`familiasAfectadas`, `nucleoFamiliarTotal`, niños, adultos mayores, discapacidad, electrodependientes y mascotas) y **sobrescribe `personasAfectadas` y `familiasAfectadas`**, descartando la estimación aproximada previa.
+- **Asignación opcional inmediata al crear (`asistenteSocialId`, Opción A H31):** Si se envía un `asistenteSocialId` válido, la creación se ejecuta atómicamente validando que el usuario exista (`404 Not Found`), esté activo con rol `ASISTENTE_SOCIAL` y en estado `disponible` (`409 Conflict`), registrando el evento directamente en estado `ASIGNADO`.
 
 #### Cabeceras Requeridas
 | Cabecera | Tipo | Obligatorio | Descripción |
@@ -859,18 +863,35 @@ Permite al rol **Encargado** (o Administrador) registrar un caso excepcional que
 #### Cuerpo de la Petición (Request Body)
 ```json
 {
-  "descripcion": "Familia de 4 integrantes con vivienda inundada por desborde secundario fuera de radio de incidente.",
+  "descripcion": "Familia de 5 integrantes con vivienda inundada por desborde secundario fuera de radio de incidente.",
   "tipoAfectacion": "VIVIENDA_ANEGADA",
   "direccionTexto": "Calle Los Alerces 1420, Sector Collico",
   "latitud": -39.8234,
   "longitud": -73.2189,
-  "personasAfectadas": 4,
+  "personasAfectadas": 5,
   "familiasAfectadas": 1,
   "prioridad": "ALTA",
   "contactoNombre": "María González",
   "contactoTelefono": "+56912345678",
   "contactoRut": "12.345.678-9",
-  "delegacionId": "30000000-0000-4000-8000-000000000001"
+  "delegacionId": "30000000-0000-4000-8000-000000000001",
+  "asistenteSocialId": null,
+  "detallesEvaluacion": {
+    "nivelCompromisoVivienda": "MODERADO",
+    "danosEstimados": "Ingreso de agua en dormitorio principal",
+    "familias": [
+      {
+        "referencia": "Hogar González",
+        "nucleoFamiliarTotal": 5,
+        "cantidadNinos": 2,
+        "cantidadAdultosMayores": 0,
+        "personasDiscapacitadas": 1,
+        "personasElectrodependientes": 0,
+        "mascotasAfectadas": 0,
+        "nivelCompromisoVivienda": "MODERADO"
+      }
+    ]
+  }
 }
 ```
 
@@ -882,9 +903,9 @@ Permite al rol **Encargado** (o Administrador) registrar un caso excepcional que
   "data": {
     "id": "70000000-0000-4000-8000-000000000001",
     "codigo": "AS-2026-0001",
-    "descripcion": "Familia de 4 integrantes con vivienda inundada por desborde secundario...",
+    "descripcion": "Familia de 5 integrantes con vivienda inundada por desborde secundario...",
     "tipoAfectacion": "VIVIENDA_ANEGADA",
-    "personasAfectadas": 4,
+    "personasAfectadas": 5,
     "familiasAfectadas": 1,
     "direccionTexto": "Calle Los Alerces 1420, Sector Collico",
     "latitud": -39.8234,
@@ -899,6 +920,29 @@ Permite al rol **Encargado** (o Administrador) registrar un caso excepcional que
     "incidenteId": null,
     "asistenteSocialId": null,
     "asistenteSocialNombre": null,
+    "detallesEvaluacion": {
+      "familias": [
+        {
+          "referencia": "Hogar González",
+          "nucleoFamiliarTotal": 5,
+          "cantidadNinos": 2,
+          "cantidadAdultosMayores": 0,
+          "personasDiscapacitadas": 1,
+          "personasElectrodependientes": 0,
+          "mascotasAfectadas": 0,
+          "nivelCompromisoVivienda": "MODERADO"
+        }
+      ],
+      "familiasAfectadas": 1,
+      "nucleoFamiliarTotal": 5,
+      "cantidadNinos": 2,
+      "cantidadAdultosMayores": 0,
+      "personasDiscapacitadas": 1,
+      "personasElectrodependientes": 0,
+      "mascotasAfectadas": 0,
+      "nivelCompromisoVivienda": "MODERADO",
+      "danosEstimados": "Ingreso de agua en dormitorio principal"
+    },
     "creadoPor": {
       "id": "00000000-0000-4000-8000-000000000003",
       "nombre": "Encargado de Operaciones"
@@ -909,9 +953,11 @@ Permite al rol **Encargado** (o Administrador) registrar un caso excepcional que
 }
 ```
 
-* **`400 Bad Request`:** Coordenadas fuera de rango o campos obligatorios vacíos (`descripcion`, `direccionTexto`, `latitud`, `longitud`).
+* **`400 Bad Request`:** Coordenadas fuera de rango, campos obligatorios vacíos (`descripcion`, `direccionTexto`, `latitud`, `longitud`) o inconsistencia en `detallesEvaluacion.familias` (`cantidadNinos + cantidadAdultosMayores > nucleoFamiliarTotal`).
 * **`401 Unauthorized`:** Cabecera de autenticación ausente o inválida.
 * **`403 Forbidden`:** Usuario no posee permiso `asistencia_social:crear`.
+* **`404 Not Found`:** El `asistenteSocialId` especificado no existe.
+* **`409 Conflict`:** El usuario indicado en `asistenteSocialId` no posee rol `ASISTENTE_SOCIAL` activo o no se encuentra en estado `disponible`.
 
 ---
 
@@ -954,6 +1000,7 @@ Consulta los eventos de asistencia social con filtros de estado, delegación, pr
       "incidenteId": null,
       "asistenteSocialId": null,
       "asistenteSocialNombre": null,
+      "detallesEvaluacion": null,
       "creadoPor": {
         "id": "00000000-0000-4000-8000-000000000003",
         "nombre": "Encargado de Operaciones"
