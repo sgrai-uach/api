@@ -244,6 +244,15 @@ describe("Route Handler POST /api/misiones/[id]/reporte (HU-39 / HU-86)", () => 
           personas_afectadas: 4,
           danos_estimados: "Anegamiento de patio y primer piso.",
           requiere_asistencia_social: true,
+          familias: [
+            {
+              referencia: "Casa 1",
+              nucleoFamiliarTotal: 4,
+              cantidadNinos: 1,
+              contactoNombre: "María González",
+              contactoTelefono: "+56912345678",
+            },
+          ],
         }),
       }
     );

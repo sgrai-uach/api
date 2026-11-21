@@ -87,16 +87,28 @@ describe("Motor de Cálculo de Prioridad Sugerida en Terreno (HU-38)", () => {
     );
   });
 
-  it("debe ajustar nucleoFamiliarTotal si la suma de subgrupos vulnerables supera el total declarado y generar resumen técnico versionado", () => {
+  it("debe preservar nucleoFamiliarTotal declarado sin inflarlo con subgrupos no disjuntos y generar resumen técnico versionado", () => {
     const ev = normalizarEvaluacionTerreno({
-      nucleoFamiliarTotal: 1,
+      nucleoFamiliarTotal: 5,
       cantidadNinos: 2,
       personasDiscapacitadas: 1,
       mascotasAfectadas: 3,
       nivelCompromisoVivienda: "MODERADO",
+      familias: [
+        {
+          referencia: "Veas",
+          nucleoFamiliarTotal: 5,
+          cantidadNinos: 2,
+          personasDiscapacitadas: 1,
+          mascotasAfectadas: 3,
+          contactoNombre: "Ana Veas",
+          contactoTelefono: "+56912345678",
+        },
+      ],
     });
 
-    expect(ev.nucleoFamiliarTotal).toBe(3);
+    expect(ev.nucleoFamiliarTotal).toBe(5);
+    expect(ev.familias?.[0].contactoNombre).toBe("Ana Veas");
 
     const resumenV1 = generarResumenTecnicoEvaluacion(1, ev, "ALTA", "CRITICA");
     expect(resumenV1).toContain("Evaluación en Terreno #1 (Inicial)");

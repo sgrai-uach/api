@@ -151,6 +151,8 @@ describe("asistencia-social.service - Lógica de Negocio y RBAC (H28)", () => {
           ...inputCrear,
           personasAfectadas: 99,
           familiasAfectadas: 7,
+          contactoNombre: "Contacto Global Aproximado",
+          contactoTelefono: "+56999999999",
           detallesEvaluacion: {
             nivelCompromisoVivienda: "MODERADO",
             danosEstimados: "Anegamiento interior",
@@ -164,6 +166,8 @@ describe("asistencia-social.service - Lógica de Negocio y RBAC (H28)", () => {
                 personasElectrodependientes: 0,
                 mascotasAfectadas: 0,
                 nivelCompromisoVivienda: "MODERADO",
+                contactoNombre: "Ana Veas",
+                contactoTelefono: "+56912345678",
               },
             ],
           },
@@ -175,6 +179,9 @@ describe("asistencia-social.service - Lógica de Negocio y RBAC (H28)", () => {
         expect.objectContaining({
           personasAfectadas: 5,
           familiasAfectadas: 1,
+          contactoNombre: "Ana Veas",
+          contactoTelefono: "+56912345678",
+          contactoRut: null,
           detallesEvaluacion: expect.objectContaining({
             nucleoFamiliarTotal: 5,
             familiasAfectadas: 1,

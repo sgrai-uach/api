@@ -12,7 +12,7 @@ describe("Esquemas Zod de Informe Técnico de Verificación en Terreno (HU-39 / 
     expect(DictamenAtencionEnum.safeParse("OTRO_DICTAMEN").success).toBe(false);
   });
 
-  it("debe validar un informe completo en camelCase con dictamen REQUIERE_CUADRILLA y Ficha FIBE", () => {
+  it("debe validar un informe completo en camelCase con dictamen REQUIERE_CUADRILLA y requerimiento de asistencia social con familias y contacto preliminar", () => {
     const res = CrearReporteVerificacionInputSchema.safeParse({
       dictamen: "REQUIERE_CUADRILLA",
       resumenTecnico:
@@ -22,12 +22,55 @@ describe("Esquemas Zod de Informe Técnico de Verificación en Terreno (HU-39 / 
       danosEstimados: "Daño en pisos y enseres de primer nivel.",
       observaciones: "Acceso libre para motobomba por pasaje interior.",
       requiereAsistenciaSocial: true,
+      familias: [
+        {
+          referencia: "Familia Veas",
+          nucleoFamiliarTotal: 6,
+          cantidadNinos: 2,
+          personasDiscapacitadas: 1,
+          contactoNombre: "Ana Veas",
+          contactoTelefono: "+56912345678",
+          contactoRut: "11.111.111-1",
+        },
+      ],
       adjuntoIds: ["f0000000-0000-4000-8000-000000000001"],
       latitud: -39.819588,
       longitud: -73.245209,
     });
 
     expect(res.success).toBe(true);
+  });
+
+  it("debe rechazar cuando requiere_asistencia_social es true sin familias o sin contacto preliminar por familia", () => {
+    const sinFamilias = CrearReporteVerificacionInputSchema.safeParse({
+      dictamen: "REQUIERE_CUADRILLA",
+      resumenTecnico: "Se requiere evaluación social posterior en vivienda anegada.",
+      requiereAsistenciaSocial: true,
+    });
+    expect(sinFamilias.success).toBe(false);
+
+    const sinContacto = CrearReporteVerificacionInputSchema.safeParse({
+      dictamen: "REQUIERE_CUADRILLA",
+      resumenTecnico: "Se requiere evaluación social posterior en vivienda anegada.",
+      requiereAsistenciaSocial: true,
+      familias: [{ nucleoFamiliarTotal: 4, cantidadNinos: 1 }],
+    });
+    expect(sinContacto.success).toBe(false);
+
+    const incoherente = CrearReporteVerificacionInputSchema.safeParse({
+      dictamen: "REQUIERE_CUADRILLA",
+      resumenTecnico: "Se requiere evaluación social posterior en vivienda anegada.",
+      requiereAsistenciaSocial: true,
+      familias: [
+        {
+          nucleoFamiliarTotal: 5,
+          cantidadNinos: 6,
+          contactoNombre: "Ana Veas",
+          contactoTelefono: "+56912345678",
+        },
+      ],
+    });
+    expect(incoherente.success).toBe(false);
   });
 
   it("debe aceptar alias en snake_case y omitir personas_afectadas para rescate desde HU-38", () => {

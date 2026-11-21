@@ -144,22 +144,78 @@ describe("asistencia-social.schema - Validaciones Zod (H28)", () => {
     }
   });
 
-  it("debe rechazar detallesEvaluacion si niños + adultos mayores supera nucleoFamiliarTotal", () => {
-    const payloadInconsistente = {
+  it("debe rechazar detallesEvaluacion si niños + adultos mayores, discapacidad o electrodependientes superan nucleoFamiliarTotal", () => {
+    const payloadNinosExceden = {
       ...payloadValido,
       detallesEvaluacion: {
         familias: [
           {
-            nucleoFamiliarTotal: 3,
-            cantidadNinos: 2,
-            cantidadAdultosMayores: 2,
+            nucleoFamiliarTotal: 5,
+            cantidadNinos: 6,
           },
         ],
       },
     };
+    expect(CrearEventoAsistenciaSocialInputSchema.safeParse(payloadNinosExceden).success).toBe(false);
 
-    const parsed = CrearEventoAsistenciaSocialInputSchema.safeParse(payloadInconsistente);
-    expect(parsed.success).toBe(false);
+    const payloadDiscapExcede = {
+      ...payloadValido,
+      detallesEvaluacion: {
+        familias: [
+          {
+            nucleoFamiliarTotal: 5,
+            personasDiscapacitadas: 10,
+          },
+        ],
+      },
+    };
+    expect(CrearEventoAsistenciaSocialInputSchema.safeParse(payloadDiscapExcede).success).toBe(false);
+
+    const payloadElectroExcede = {
+      ...payloadValido,
+      detallesEvaluacion: {
+        familias: [
+          {
+            nucleoFamiliarTotal: 5,
+            personasElectrodependientes: 6,
+          },
+        ],
+      },
+    };
+    expect(CrearEventoAsistenciaSocialInputSchema.safeParse(payloadElectroExcede).success).toBe(false);
+  });
+
+  it("debe aceptar contacto preliminar por familia (contactoNombre, contactoTelefono, contactoRut válido) y rechazar RUT inválido", () => {
+    const valido = CrearEventoAsistenciaSocialInputSchema.safeParse({
+      ...payloadValido,
+      detallesEvaluacion: {
+        familias: [
+          {
+            referencia: "Familia Veas",
+            nucleoFamiliarTotal: 5,
+            cantidadNinos: 2,
+            personasDiscapacitadas: 1,
+            contactoNombre: "Ana Veas",
+            contactoTelefono: "+56912345678",
+            contactoRut: "11.111.111-1",
+          },
+        ],
+      },
+    });
+    expect(valido.success).toBe(true);
+
+    const rutInvalido = CrearEventoAsistenciaSocialInputSchema.safeParse({
+      ...payloadValido,
+      detallesEvaluacion: {
+        familias: [
+          {
+            nucleoFamiliarTotal: 5,
+            contactoRut: "11.111.111-9",
+          },
+        ],
+      },
+    });
+    expect(rutInvalido.success).toBe(false);
   });
 
   it("debe aceptar asistenteSocialId UUID opcional válido al crear evento (Opción A H31) y rechazar UUID inválido", () => {
