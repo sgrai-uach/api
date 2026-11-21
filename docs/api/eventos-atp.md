@@ -68,6 +68,7 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
+| `PATCH` | `/api/eventos-atp/asistencia-social/{id}` | Asignar un asistente social disponible a un evento en estado `PENDIENTE`, transicionando atómicamente a `ASIGNADO` (H31). |
 | `POST` | `/api/eventos-atp` | Registrar el marco oficial de un Evento de Alerta Temprana Preventiva con alcance territorial, estado `ACTIVO` y notificación Socket.io (H61). |
 
 > Nota: Los contratos OpenAPI 3.0 se autogeneran a partir de los esquemas Zod y están expuestos públicamente en `GET /openapi.json`.
@@ -1174,3 +1175,35 @@ La ruta y sus esquemas quedan publicados en `GET /openapi.json`:
 - Seguridad: `security: [{ bearerAuth: [] }]`.
 - Esquemas: `CrearEventoAtpInput`, `EventoAtpResponse` y `CrearEventoAtpResponse`.
 - Respuestas documentadas: `201`, `400`, `401`, `403`, `409` y `500`.
+
+---
+
+## Ciclo de Estados y Asignación de Eventos de Asistencia Social (H31)
+
+### Ciclo de Vida del Evento de Asistencia Social
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDIENTE: Creación manual (H28)
+    PENDIENTE --> ASIGNADO: Asignar Asistente Social (H31)
+    PENDIENTE --> DESCARTADO: Descarte administrativo
+    ASIGNADO --> EN_EVALUACION_FIBE: Inicio evaluación FIBE
+    EN_EVALUACION_FIBE --> FINALIZADO: Cierre de caso social
+```
+
+### Detalle de Endpoint: `PATCH /api/eventos-atp/asistencia-social/{id}` (H31)
+
+Asigna formalmente un profesional con rol `ASISTENTE_SOCIAL` en estado operativo `disponible` a un evento de asistencia social que se encuentre en estado `PENDIENTE`.
+
+#### Reglas de Negocio Aplicadas
+1. **Control de Acceso RBAC:** Requiere el permiso `asistencia_social:crear` (`Encargado` o `Administrador`).
+2. **Transición Atómica:** Mediante transacción PostgreSQL con bloqueo de fila (`FOR UPDATE`), verifica que el evento exista, no esté eliminado lógicamente y se encuentre en estado `PENDIENTE`, actualizando `asistente_social_id`, `estado = 'ASIGNADO'` y `actualizado_en = CURRENT_TIMESTAMP`.
+3. **Elegibilidad del Profesional:** Valida que `asistenteSocialId` corresponda a un usuario activo, con rol `ASISTENTE_SOCIAL` y `estado_operativo = 'disponible'`.
+4. **Notificación en Tiempo Real:** Emite el evento WebSocket `asistencia_social:actualizada` hacia las salas `asistente_social`, `centro_mando`, `sala:encargados`, `encargado` y `administrador` con la entidad actualizada.
+
+#### Errores Esperables
+- `400 Bad Request`: UUID de ruta o `asistenteSocialId` inválido.
+- `401 Unauthorized`: Ausencia de cabecera de autenticación.
+- `403 Forbidden`: El usuario no cuenta con el permiso `asistencia_social:crear`.
+- `404 Not Found`: El evento o el usuario asistente social no existe.
+- `409 Conflict`: El evento ya no está en estado `PENDIENTE`, o el usuario seleccionado no posee rol `ASISTENTE_SOCIAL` / no está en estado `disponible`.
