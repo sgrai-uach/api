@@ -1069,6 +1069,7 @@ export async function aceptarMisionPatrullaRepo(
       .select([
         "mision.id",
         "mision.codigo",
+        "mision.tipo_mision",
         "mision.estado",
         "mision.patrulla_id",
         "mision.incidente_id",

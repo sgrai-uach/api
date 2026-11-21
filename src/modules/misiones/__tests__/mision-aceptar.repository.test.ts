@@ -300,7 +300,7 @@ describe("Mision Repository - aceptarMisionPatrullaRepo (HU-36)", () => {
 
     expect(resultado.mision.estado).toBe("EN_CURSO");
     expect(resultado.mision.tipoMision).toBe("RECUPERACION");
-    expect(resultado.patrulla.estado).toBe("EN_RECUPERACION");
+    expect(resultado.patrulla?.estado).toBe("EN_RECUPERACION");
   });
 
   it("debe lanzar ConflictError si una misión de RECUPERACION tiene la patrulla en estado DISPONIBLE", async () => {
