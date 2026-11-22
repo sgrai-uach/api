@@ -250,6 +250,8 @@ export async function obtenerDetalleMisionService(
             ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
             : `Reporte de Evaluación #1 (Inicial)`;
 
+    const esReporteCuadrilla = tipoReporte === "REPORTE_CUADRILLA";
+
     return {
       id: rep.id,
       misionId: rep.mision_id,
@@ -277,13 +279,13 @@ export async function obtenerDetalleMisionService(
       observaciones: rep.observaciones ?? null,
       personasAfectadas: Number(rep.personas_afectadas ?? 0),
       estadoTerreno: rep.estado_terreno || "FINALIZADO",
-      ...(rep.horas_hombre !== undefined
+      ...(esReporteCuadrilla && rep.horas_hombre !== undefined
         ? {
             horasHombre:
               rep.horas_hombre !== null ? Number(rep.horas_hombre) : null,
           }
         : {}),
-      ...(rep.materiales_consumidos !== undefined
+      ...(esReporteCuadrilla && rep.materiales_consumidos !== undefined
         ? {
             materialesConsumidos: parsearMaterialesConsumidos(
               rep.materiales_consumidos

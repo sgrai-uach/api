@@ -153,6 +153,7 @@ export async function obtenerDetalleIncidenteService(
               ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
               : `Reporte de Evaluación #1 (Inicial)`;
 
+      const esReporteCuadrilla = tipoReporte === "REPORTE_CUADRILLA";
       let materialesConsumidosMapeados:
         | Array<{
             recursoId: string;
@@ -164,7 +165,7 @@ export async function obtenerDetalleIncidenteService(
             stockPosterior?: number;
           }>
         | undefined;
-      if (rep.materiales_consumidos !== undefined) {
+      if (esReporteCuadrilla && rep.materiales_consumidos !== undefined) {
         let rawMat: unknown = rep.materiales_consumidos;
         if (typeof rawMat === "string") {
           try {
@@ -232,13 +233,13 @@ export async function obtenerDetalleIncidenteService(
         observaciones: rep.observaciones ?? null,
         personasAfectadas: Number(rep.personas_afectadas ?? 0),
         requiereApoyoAdicional: Boolean(rep.requiere_apoyo_adicional),
-        ...(rep.horas_hombre !== undefined
+        ...(esReporteCuadrilla && rep.horas_hombre !== undefined
           ? {
               horasHombre:
                 rep.horas_hombre !== null ? Number(rep.horas_hombre) : null,
             }
           : {}),
-        ...(materialesConsumidosMapeados !== undefined
+        ...(esReporteCuadrilla && materialesConsumidosMapeados !== undefined
           ? { materialesConsumidos: materialesConsumidosMapeados }
           : {}),
         evaluacion: evaluacionObj,
@@ -438,11 +439,13 @@ export async function obtenerDetalleIncidenteService(
       ...(topReporteTerreno.etiquetaReporte
         ? { etiquetaReporte: topReporteTerreno.etiquetaReporte }
         : {}),
-      ...(topReporteTerreno.horasHombre !== undefined
+      ...(topReporteTerreno.tipoReporte === "REPORTE_CUADRILLA" &&
+      topReporteTerreno.horasHombre !== undefined
         ? { horasHombre: topReporteTerreno.horasHombre }
         : {}),
       requiereApoyoAdicional: topReporteTerreno.requiereApoyoAdicional,
-      ...(topReporteTerreno.materialesConsumidos !== undefined
+      ...(topReporteTerreno.tipoReporte === "REPORTE_CUADRILLA" &&
+      topReporteTerreno.materialesConsumidos !== undefined
         ? { materialesConsumidos: topReporteTerreno.materialesConsumidos }
         : {}),
       versionReporte: topReporteTerreno.versionReporte,

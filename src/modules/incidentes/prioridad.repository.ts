@@ -523,6 +523,7 @@ export class PrioridadRepository {
         reporteTerreno: {
           id: reporteInsertado.id,
           misionId: misionSeleccionada.id,
+          tipoReporte: "EVALUACION_PRIORIDAD",
           versionReporte,
           esRectificacion,
           etiquetaReporte,
