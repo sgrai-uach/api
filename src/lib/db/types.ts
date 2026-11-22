@@ -570,6 +570,7 @@ export interface AdjuntoTable {
   aviso_id: string | null;
   incidente_id: string | null;
   reporte_terreno_id?: string | null;
+  sha256_hash?: string | null;
   creado_en: Generated<Date>;
 }
 
@@ -632,6 +633,16 @@ export interface ReporteTerrenoTable {
     Record<string, unknown>,
     Record<string, unknown> | string | undefined,
     Record<string, unknown> | string
+  >;
+  horas_hombre?: ColumnType<
+    number | string | null,
+    number | string | null | undefined,
+    number | string | null
+  >;
+  materiales_consumidos?: ColumnType<
+    unknown,
+    unknown | string | undefined,
+    unknown | string
   >;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;

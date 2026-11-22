@@ -97,7 +97,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | *(Dotación de Integrantes)* | `cuadrilla_personal` (vista `cuadrilla_integrante`) | Migración 031 / 032 / 042 | Operaciones | Asignación N:M de funcionarios a cuadrillas con índice de unicidad activa y auditoría. |
 | **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 / 012 / 015 / 016 | Eventos ATP | Puntos críticos, factores de riesgo, edición (HU-55) y borrado lógico (HU-56). |
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
-| **Reporte Terreno** | `reporte_terreno` | Migración 011 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
+| **Reporte Terreno** | `reporte_terreno` | Migración 011 / 053 / 056 / 059 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
 | **Recuperación** | `recuperacion` | Migración 017 | Eventos ATP / Recuperación | Eventos e intervenciones territoriales de recuperación y entrega de recursos (HU-29). |
 | **Asistencia Social** | `evento_asistencia_social` | Migración 022 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social y requerimientos para levantamiento de ficha FIBE (HU-28). |
 | **Disponibilidad (enum)** | `estado_operativo` | Migración 002 / 025 | Operaciones | Enum de disponibilidad del funcionario (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`), normalizado a `usuario.estado_operativo` (H11). |
@@ -578,6 +578,8 @@ Informes técnicos y diagnósticos estructurados levantados por patrullas verifi
 | `prioridad_asignada` | `VARCHAR(20)` | SÍ | `NULL` | Prioridad confirmada o ajustada por la patrulla en este reporte (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
 | `justificacion_prioridad` | `TEXT` | SÍ | `NULL` | Justificación técnica registrada en este reporte ante discrepancia con la prioridad sugerida. |
 | `detalles_evaluacion` | `JSONB` | NO | `'{}'` | Desglose estructurado del formulario de evaluación en terreno (núcleo familiar, niños, adultos mayores, discapacitados, electrodependientes, mascotas, compromiso de vivienda, riesgos activos y puntaje). |
+| `horas_hombre` | `NUMERIC(6, 2)` | SÍ | `NULL` | Horas hombre invertidas por la cuadrilla operativa en la resolución de la emergencia (`CHECK >= 0`, `chk_reporte_terreno_horas_hombre` - HU-68 / Migración 059). |
+| `materiales_consumidos` | `JSONB` | NO | `'[]'` | Desglose de insumos y cantidades consumidas en la faena (`[{ recursoId, nombre, cantidad, unidad, observacion, stockAnterior, stockPosterior }]` - HU-68 / Migración 059). |
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de emisión del informe. |
 | `actualizado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Última modificación del informe. |
 

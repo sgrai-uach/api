@@ -71,7 +71,9 @@ export interface ServerToClientEvents {
         tipoMision: string;
         patrullaId?: string | null;
         cuadrillaId?: string | null;
+        cuadrillaNombre?: string | null;
         incidenteId?: string | null;
+        incidenteCodigo?: string | null;
         fechaInicio: string | null;
         fechaCierre?: string | null;
         hito: {
@@ -96,6 +98,18 @@ export interface ServerToClientEvents {
         leidaAt?: string | null;
         actualizadoEn: string;
     }) => void;
+    "adjunto:creado": (payload: AdjuntoCreadoPayload) => void;
+}
+
+export interface AdjuntoCreadoPayload {
+    id: string;
+    nombreArchivo: string;
+    url: string;
+    tipoMime: string;
+    tamanoBytes: number;
+    incidenteId: string | null;
+    reporteTerrenoId: string | null;
+    creadoEn: string;
 }
 
 export interface MisionRechazadaPayload {
@@ -104,7 +118,9 @@ export interface MisionRechazadaPayload {
     tipoMision: string;
     motivo: string;
     justificacionRechazo?: string;
-    patrullaId: string | null;
+    cuadrillaId?: string | null;
+    cuadrillaNombre?: string | null;
+    patrullaId?: string | null;
     patrullaNombre?: string | null;
     incidenteId: string | null;
     incidenteCodigo?: string | null;

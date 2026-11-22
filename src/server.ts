@@ -53,11 +53,14 @@ async function bootstrap() {
   if (process.env.REDIS_URL) {
     try {
       const redisSubscriber = new Redis(process.env.REDIS_URL, {
-        maxRetriesPerRequest: 1,
-        retryStrategy: () => null,
+        maxRetriesPerRequest: 3,
+        retryStrategy: (times: number) => Math.min(times * 500, 5000),
         lazyConnect: true,
       });
       redisSubscriber.on("error", () => {});
+      redisSubscriber.on("ready", () => {
+        void redisSubscriber.subscribe(REDIS_SOCKET_CHANNEL).catch(() => {});
+      });
 
       await redisSubscriber.connect();
       await redisSubscriber.subscribe(REDIS_SOCKET_CHANNEL);
