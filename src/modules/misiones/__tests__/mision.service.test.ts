@@ -333,6 +333,134 @@ describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
     expect(detalle?.bitacoraTiempos[0].hito).toBe("DESPACHADA");
     expect(detalle?.bitacoraTiempos[0].descripcion).toContain("despachada a la patrulla");
   });
+
+  it("debe omitir horasHombre y materialesConsumidos en reportes EVALUACION_PRIORIDAD / VERIFICACION_CIERRE y mantenerlos en REPORTE_CUADRILLA", async () => {
+    vi.mocked(misionRepo.obtenerMisionDetallePorIdRepo).mockResolvedValueOnce({
+      mision: {
+        id: "20562043-a1e7-49c0-935b-64494156353e",
+        codigo: "MIS-2026-0004",
+        titulo: "Verificación: Anegamiento - INC-205870-613",
+        descripcion: null,
+        tipo_mision: "VERIFICACION",
+        estado: "EN_CURSO",
+        prioridad: "CRITICA",
+        justificacion_rechazo: null,
+        incidente_id: "1d25bde1-7d69-4e24-9709-9e5e7f095f99",
+        prevencion_id: null,
+        cuadrilla_id: null,
+        patrulla_id: "4c553e9b-0591-4a53-bbd0-5eadef6a026e",
+        encargado_id: "00000000-0000-4000-8000-000000000001",
+        creado_por_id: "00000000-0000-4000-8000-000000000001",
+        fecha_inicio: new Date("2026-11-22T16:17:31Z"),
+        fecha_cierre: null,
+        creado_en: new Date("2026-11-22T16:16:55Z"),
+        actualizado_en: new Date("2026-11-22T16:17:56Z"),
+      },
+      recursosCuadrilla: [],
+      reportesTerreno: [
+        {
+          id: "rep-eval-1",
+          mision_id: "20562043-a1e7-49c0-935b-64494156353e",
+          evaluador_id: "cc105be3-e899-4ae8-b7c7-5ecc953952bd",
+          tipo_reporte: "EVALUACION_PRIORIDAD",
+          version_reporte: 1,
+          es_rectificacion: false,
+          resumen_tecnico: "Evaluación en Terreno #1 (Inicial)",
+          acciones_realizadas: null,
+          requiere_apoyo_adicional: false,
+          danos_estimados: null,
+          observaciones: null,
+          personas_afectadas: 5,
+          estado_terreno: "EN_VERIFICACION",
+          horas_hombre: null,
+          materiales_consumidos: [],
+          creado_en: new Date("2026-11-22T16:17:56Z"),
+          actualizado_en: new Date("2026-11-22T16:17:56Z"),
+          evaluador_nombre: "Cristóbal Veas",
+          evaluador_email: "patrulla@valdivia.cl",
+          evaluador_rut: "21707611-0",
+          adjuntos: [],
+        },
+        {
+          id: "rep-cierre-verif-1",
+          mision_id: "20562043-a1e7-49c0-935b-64494156353e",
+          evaluador_id: "cc105be3-e899-4ae8-b7c7-5ecc953952bd",
+          tipo_reporte: "VERIFICACION_CIERRE",
+          dictamen: "REQUIERE_CUADRILLA",
+          version_reporte: 2,
+          es_rectificacion: false,
+          resumen_tecnico: "Se requiere cuadrilla en terreno",
+          acciones_realizadas: null,
+          requiere_apoyo_adicional: true,
+          danos_estimados: null,
+          observaciones: null,
+          personas_afectadas: 5,
+          estado_terreno: "FINALIZADO",
+          horas_hombre: null,
+          materiales_consumidos: [],
+          creado_en: new Date("2026-11-22T16:19:00Z"),
+          actualizado_en: new Date("2026-11-22T16:19:00Z"),
+          evaluador_nombre: "Cristóbal Veas",
+          evaluador_email: "patrulla@valdivia.cl",
+          evaluador_rut: "21707611-0",
+          adjuntos: [],
+        },
+        {
+          id: "rep-cuadrilla-1",
+          mision_id: "20562043-a1e7-49c0-935b-64494156353e",
+          evaluador_id: "d0000000-0000-4000-8000-000000000001",
+          tipo_reporte: "REPORTE_CUADRILLA",
+          version_reporte: 1,
+          es_rectificacion: false,
+          resumen_tecnico: "Despeje integral ejecutado",
+          acciones_realizadas: "Despeje integral ejecutado",
+          requiere_apoyo_adicional: false,
+          danos_estimados: null,
+          observaciones: null,
+          personas_afectadas: 0,
+          estado_terreno: "CONTROLADO",
+          horas_hombre: "3.50",
+          materiales_consumidos: [
+            {
+              recursoId: "10000000-0000-4000-8000-000000000010",
+              nombre: "Saco de arena",
+              cantidad: 12,
+              unidad: "un",
+            },
+          ],
+          creado_en: new Date("2026-11-22T17:00:00Z"),
+          actualizado_en: new Date("2026-11-22T17:00:00Z"),
+          evaluador_nombre: "Carlos Gómez",
+          evaluador_email: "delegado@valdivia.cl",
+          evaluador_rut: null,
+          adjuntos: [],
+        },
+      ],
+      hitos: [],
+    });
+
+    const detalle = await obtenerDetalleMisionService("20562043-a1e7-49c0-935b-64494156353e");
+    expect(detalle?.reportesTerreno).toHaveLength(3);
+
+    expect(detalle?.reportesTerreno[0].tipoReporte).toBe("EVALUACION_PRIORIDAD");
+    expect(detalle?.reportesTerreno[0]).not.toHaveProperty("horasHombre");
+    expect(detalle?.reportesTerreno[0]).not.toHaveProperty("materialesConsumidos");
+
+    expect(detalle?.reportesTerreno[1].tipoReporte).toBe("VERIFICACION_CIERRE");
+    expect(detalle?.reportesTerreno[1]).not.toHaveProperty("horasHombre");
+    expect(detalle?.reportesTerreno[1]).not.toHaveProperty("materialesConsumidos");
+
+    expect(detalle?.reportesTerreno[2].tipoReporte).toBe("REPORTE_CUADRILLA");
+    expect(detalle?.reportesTerreno[2].horasHombre).toBe(3.5);
+    expect(detalle?.reportesTerreno[2].materialesConsumidos).toEqual([
+      {
+        recursoId: "10000000-0000-4000-8000-000000000010",
+        nombre: "Saco de arena",
+        cantidad: 12,
+        unidad: "un",
+      },
+    ]);
+  });
 });
 
 describe("Mision Service - asignarPatrullaVerificacionService (HU-20)", () => {

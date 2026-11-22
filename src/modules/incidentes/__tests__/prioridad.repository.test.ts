@@ -382,6 +382,9 @@ describe("PrioridadRepository (HU-38)", () => {
     expect(res1.incidente.requiereAsistenciaSocial).toBe(false);
     expect(res1.reporteTerreno.versionReporte).toBe(1);
     expect(res1.reporteTerreno.esRectificacion).toBe(false);
+    expect(res1.reporteTerreno.tipoReporte).toBe("EVALUACION_PRIORIDAD");
+    expect(res1.reporteTerreno).not.toHaveProperty("materialesConsumidos");
+    expect(res1.reporteTerreno).not.toHaveProperty("horasHombre");
     expect(res1.hito.hito).toBe("PRIORIDAD_ASIGNADA");
 
     // 2do envío (modificación y reenvío al Centro de Mando): Reporte #2 (Rectificación)
@@ -401,6 +404,9 @@ describe("PrioridadRepository (HU-38)", () => {
     expect(res2.incidente.prioridadSugerida).toBe("CRITICA");
     expect(res2.reporteTerreno.versionReporte).toBe(2);
     expect(res2.reporteTerreno.esRectificacion).toBe(true);
+    expect(res2.reporteTerreno.tipoReporte).toBe("EVALUACION_PRIORIDAD");
+    expect(res2.reporteTerreno).not.toHaveProperty("materialesConsumidos");
+    expect(res2.reporteTerreno).not.toHaveProperty("horasHombre");
     expect(res2.reporteTerreno.etiquetaReporte).toContain("Reporte de Evaluación #2 (Rectificación)");
     expect(res2.hito.hito).toBe("PRIORIDAD_RECTIFICADA");
   });

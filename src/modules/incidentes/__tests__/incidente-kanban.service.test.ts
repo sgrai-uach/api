@@ -446,5 +446,186 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
         resumen: "Extracción de agua y limpieza de colector completada.",
       });
     });
+
+    it("debe omitir horasHombre y materialesConsumidos en reportes EVALUACION_PRIORIDAD y VERIFICACION_CIERRE aunque PostgreSQL devuelva DEFAULT [] (INC-205870-613)", async () => {
+      vi.mocked(repo.obtenerIncidenteDetallePorIdRepo).mockResolvedValueOnce({
+        incidente: {
+          id: "1d25bde1-7d69-4e24-9709-9e5e7f095f99",
+          codigo: "INC-205870-613",
+          codigo_seguimiento: "19744725",
+          tipo_afectacion: "Anegamiento",
+          descripcion: "Anegamiento en acceso",
+          direccion_texto: "Ismael Valdés 500, Villa Coltauco",
+          latitud: -39.814279,
+          longitud: -73.24252,
+          estado: "VERIFICANDO",
+          prioridad: "CRITICA",
+          prioridad_sugerida: "CRITICA",
+          justificacion_prioridad:
+            "Prioridad ratificada en terreno conforme a la sugerencia técnica del sistema.",
+          requiere_asistencia_social: false,
+          fuente_origen: "LLAMADA_TELEFONICA",
+          asterisk_call_id: null,
+          asterisk_caller_phone: null,
+          creado_en: new Date("2026-11-22T16:16:45Z"),
+          actualizado_en: new Date("2026-11-22T16:17:56Z"),
+          informante_id: null,
+          informante_rut: null,
+          informante_nombre: "Juan Carlos Veas",
+          informante_telefono: null,
+          delegacion_id: null,
+          delegacion_nombre: null,
+          delegacion_descripcion: null,
+          creador_id: null,
+          creador_nombre: null,
+          creador_email: null,
+          encargado_id: null,
+          encargado_nombre: null,
+          encargado_email: null,
+        },
+        misiones: [
+          {
+            id: "20562043-a1e7-49c0-935b-64494156353e",
+            codigo: "MIS-2026-0004",
+            titulo: "Verificación: Anegamiento - INC-205870-613",
+            descripcion: null,
+            tipo_mision: "VERIFICACION",
+            estado: "EN_CURSO",
+            prioridad: "CRITICA",
+            justificacion_rechazo: null,
+            fecha_inicio: new Date("2026-11-22T16:17:31Z"),
+            fecha_cierre: null,
+            creado_en: new Date("2026-11-22T16:16:55Z"),
+            patrulla_id: "4c553e9b-0591-4a53-bbd0-5eadef6a026e",
+            patrulla_nombre: "Patrulla Sur",
+            patrulla_estado: "EN_VERIFICACION",
+            cuadrilla_id: null,
+            cuadrilla_nombre: null,
+            cuadrilla_estado: null,
+            trazabilidad_notificacion: "LEIDA",
+          },
+        ],
+        recursosAsociados: [],
+        reportesEvaluacionTerreno: [
+          {
+            id: "e77dd7b1-c44c-4271-90a8-0a5bd2d224b9",
+            mision_id: "20562043-a1e7-49c0-935b-64494156353e",
+            evaluador_id: "cc105be3-e899-4ae8-b7c7-5ecc953952bd",
+            tipo_reporte: "EVALUACION_PRIORIDAD",
+            dictamen: null,
+            motivo_no_abordable: null,
+            requiere_asistencia_social: false,
+            estado_terreno: "EN_VERIFICACION",
+            version_reporte: 1,
+            es_rectificacion: false,
+            prioridad_sugerida: "CRITICA",
+            prioridad_asignada: "CRITICA",
+            justificacion_prioridad:
+              "Prioridad ratificada en terreno conforme a la sugerencia técnica del sistema.",
+            resumen_tecnico:
+              "Evaluación en Terreno #1 (Inicial) — Núcleo familiar afectado: 5 persona(s).",
+            acciones_realizadas: null,
+            danos_estimados: null,
+            observaciones: null,
+            personas_afectadas: 5,
+            requiere_apoyo_adicional: false,
+            horas_hombre: null,
+            materiales_consumidos: [],
+            evaluador_nombre: "Cristóbal Veas",
+            evaluador_email: "patrulla@valdivia.cl",
+            evaluador_rut: "21707611-0",
+            creado_en: new Date("2026-11-22T16:17:56Z"),
+          },
+        ],
+        justificacionReclasificacion: null,
+      });
+
+      const detalle = await obtenerDetalleIncidenteService(
+        "1d25bde1-7d69-4e24-9709-9e5e7f095f99"
+      );
+
+      expect(detalle?.faenasCuadrillaCompletadas).toBe(false);
+      expect(detalle?.reportesEvaluacionTerreno?.[0]).not.toHaveProperty("materialesConsumidos");
+      expect(detalle?.reportesEvaluacionTerreno?.[0]).not.toHaveProperty("horasHombre");
+      expect(detalle?.ultimoReporte).not.toHaveProperty("materialesConsumidos");
+      expect(detalle?.ultimoReporte).not.toHaveProperty("horasHombre");
+      expect(detalle?.ultimoReporte?.tipoReporte).toBe("EVALUACION_PRIORIDAD");
+
+      // También debe omitir campos de faena en informes VERIFICACION_CIERRE
+      vi.mocked(repo.obtenerIncidenteDetallePorIdRepo).mockResolvedValueOnce({
+        incidente: {
+          id: "1d25bde1-7d69-4e24-9709-9e5e7f095f99",
+          codigo: "INC-205870-613",
+          codigo_seguimiento: "19744725",
+          tipo_afectacion: "Anegamiento",
+          descripcion: "Anegamiento en acceso",
+          direccion_texto: "Ismael Valdés 500, Villa Coltauco",
+          latitud: -39.814279,
+          longitud: -73.24252,
+          estado: "VERIFICANDO",
+          prioridad: "CRITICA",
+          requiere_asistencia_social: false,
+          fuente_origen: "LLAMADA_TELEFONICA",
+          asterisk_call_id: null,
+          asterisk_caller_phone: null,
+          creado_en: new Date("2026-11-22T16:16:45Z"),
+          actualizado_en: new Date("2026-11-22T16:19:00Z"),
+          informante_id: null,
+          informante_rut: null,
+          informante_nombre: null,
+          informante_telefono: null,
+          delegacion_id: null,
+          delegacion_nombre: null,
+          delegacion_descripcion: null,
+          creador_id: null,
+          creador_nombre: null,
+          creador_email: null,
+          encargado_id: null,
+          encargado_nombre: null,
+          encargado_email: null,
+        },
+        misiones: [],
+        recursosAsociados: [],
+        reportesEvaluacionTerreno: [
+          {
+            id: "rep-cierre-verif-1",
+            mision_id: "20562043-a1e7-49c0-935b-64494156353e",
+            evaluador_id: "cc105be3-e899-4ae8-b7c7-5ecc953952bd",
+            tipo_reporte: "VERIFICACION_CIERRE",
+            dictamen: "REQUIERE_CUADRILLA",
+            motivo_no_abordable: null,
+            requiere_asistencia_social: false,
+            estado_terreno: "FINALIZADO",
+            version_reporte: 2,
+            es_rectificacion: false,
+            prioridad_sugerida: "CRITICA",
+            prioridad_asignada: "CRITICA",
+            justificacion_prioridad: null,
+            resumen_tecnico: "Se verifica anegamiento mayor y se solicita cuadrilla.",
+            acciones_realizadas: null,
+            danos_estimados: null,
+            observaciones: null,
+            personas_afectadas: 5,
+            requiere_apoyo_adicional: true,
+            horas_hombre: null,
+            materiales_consumidos: [],
+            evaluador_nombre: "Cristóbal Veas",
+            evaluador_email: "patrulla@valdivia.cl",
+            evaluador_rut: "21707611-0",
+            creado_en: new Date("2026-11-22T16:19:00Z"),
+          },
+        ],
+        justificacionReclasificacion: null,
+      });
+
+      const detalleCierre = await obtenerDetalleIncidenteService(
+        "1d25bde1-7d69-4e24-9709-9e5e7f095f99"
+      );
+      expect(detalleCierre?.reportesEvaluacionTerreno?.[0]).not.toHaveProperty("materialesConsumidos");
+      expect(detalleCierre?.reportesEvaluacionTerreno?.[0]).not.toHaveProperty("horasHombre");
+      expect(detalleCierre?.ultimoReporte).not.toHaveProperty("materialesConsumidos");
+      expect(detalleCierre?.ultimoReporte).not.toHaveProperty("horasHombre");
+      expect(detalleCierre?.ultimoReporte?.tipoReporte).toBe("VERIFICACION_CIERRE");
+    });
   });
 });
