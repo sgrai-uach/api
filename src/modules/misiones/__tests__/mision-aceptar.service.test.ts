@@ -13,6 +13,7 @@ vi.mock("../mision.repository", () => ({
 vi.mock("@/lib/socket", () => ({
   notificarMisionActualizada: vi.fn(),
   notificarIncidenteActualizado: vi.fn(),
+  emitirCuadrillaActualizada: vi.fn(),
   emitirRecursoActualizado: vi.fn(),
 }));
 
@@ -144,6 +145,123 @@ describe("Mision Service - aceptarMisionService (HU-36)", () => {
       NotFoundError
     );
     expect(socketLib.notificarMisionActualizada).not.toHaveBeenCalled();
+  });
+});
+
+describe("Mision Service - aceptarMisionService para Cuadrilla (HU-40)", () => {
+  const misionId = "70000000-0000-4000-8000-000000000001";
+  const delegadoId = "d0000000-0000-4000-8000-000000000001";
+  const cuadrillaId = "50000000-0000-4000-8000-000000000001";
+  const incidenteId = "30000000-0000-4000-8000-000000000001";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const resultadoCuadrillaMock = {
+    mision: {
+      id: misionId,
+      codigo: "MIS-2026-0005",
+      titulo: "Atención táctica - Incidente INC-2026-0001",
+      descripcion: "Despejar árbol caído en vía principal",
+      tipoMision: "ATENCION_CUADRILLA" as const,
+      estado: "EN_CURSO" as const,
+      prioridad: "ALTA" as const,
+      incidenteId,
+      patrullaId: null,
+      cuadrillaId,
+      fechaInicio: "2026-11-22T14:00:00.000Z",
+      actualizadoEn: "2026-11-22T14:00:00.000Z",
+    },
+    cuadrilla: {
+      id: cuadrillaId,
+      nombre: "Cuadrilla Vías y Canales 1",
+      estado: "EN_MISION",
+      delegacionId: "30000000-0000-4000-8000-000000000002",
+    },
+    patrulla: null,
+    incidente: {
+      id: incidenteId,
+      codigo: "INC-2026-0001",
+      estado: "EN_ATENCION",
+      prioridad: "ALTA" as const,
+    },
+    hito: {
+      id: "80000000-0000-4000-8000-000000000010",
+      misionId,
+      hito: "MISION_ACEPTADA",
+      descripcion: "Asignación Aceptada por Cuadrilla",
+      registradoPorId: delegadoId,
+      latitud: -39.819588,
+      longitud: -73.245209,
+      creadoEn: "2026-11-22T14:00:00.000Z",
+    },
+  };
+
+  it("debe emitir mision:actualizada, incidente:actualizado (EN_ATENCION) y cuadrilla:actualizada (EN_MISION) al aceptar la cuadrilla", async () => {
+    vi.mocked(misionRepo.aceptarMisionPatrullaRepo).mockResolvedValueOnce(
+      resultadoCuadrillaMock
+    );
+
+    const resultado = await aceptarMisionService(misionId, delegadoId, false, {
+      latitud: -39.819588,
+      longitud: -73.245209,
+    });
+
+    expect(resultado.data.mision.estado).toBe("EN_CURSO");
+    expect(resultado.data.cuadrilla?.estado).toBe("EN_MISION");
+    expect(resultado.data.incidente?.estado).toBe("EN_ATENCION");
+    expect(resultado.data.hito.descripcion).toBe("Asignación Aceptada por Cuadrilla");
+
+    expect(socketLib.notificarMisionActualizada).toHaveBeenCalledWith({
+      misionId,
+      codigo: "MIS-2026-0005",
+      estado: "EN_CURSO",
+      tipoMision: "ATENCION_CUADRILLA",
+      patrullaId: null,
+      cuadrillaId,
+      cuadrillaNombre: "Cuadrilla Vías y Canales 1",
+      incidenteId,
+      incidenteCodigo: "INC-2026-0001",
+      prioridad: "ALTA",
+      fechaInicio: "2026-11-22T14:00:00.000Z",
+      hito: {
+        id: "80000000-0000-4000-8000-000000000010",
+        hito: "MISION_ACEPTADA",
+        descripcion: "Asignación Aceptada por Cuadrilla",
+        registradoPorId: delegadoId,
+        creadoEn: "2026-11-22T14:00:00.000Z",
+      },
+      actualizadoEn: "2026-11-22T14:00:00.000Z",
+    });
+
+    expect(socketLib.notificarIncidenteActualizado).toHaveBeenCalledWith({
+      id: incidenteId,
+      codigo: "INC-2026-0001",
+      nuevoEstado: "EN_ATENCION",
+      prioridad: "ALTA",
+      actualizadoEn: "2026-11-22T14:00:00.000Z",
+    });
+
+    expect(socketLib.emitirCuadrillaActualizada).toHaveBeenCalledWith({
+      id: cuadrillaId,
+      nombre: "Cuadrilla Vías y Canales 1",
+      estado: "EN_MISION",
+      delegacionId: "30000000-0000-4000-8000-000000000002",
+    });
+  });
+
+  it("no debe revertir la respuesta si ocurre un error al emitir eventos WebSocket", async () => {
+    vi.mocked(misionRepo.aceptarMisionPatrullaRepo).mockResolvedValueOnce(
+      resultadoCuadrillaMock
+    );
+    vi.mocked(socketLib.notificarMisionActualizada).mockImplementationOnce(() => {
+      throw new Error("Redis offline");
+    });
+
+    const resultado = await aceptarMisionService(misionId, delegadoId, false);
+    expect(resultado.data.mision.estado).toBe("EN_CURSO");
+    expect(resultado.data.incidente?.estado).toBe("EN_ATENCION");
   });
 });
 
