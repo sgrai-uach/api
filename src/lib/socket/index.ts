@@ -831,10 +831,12 @@ export interface MisionActualizadaPayload {
   estado: string;
   tipoMision: string;
   patrullaId?: string | null;
+  patrullaNombre?: string | null;
   cuadrillaId?: string | null;
   cuadrillaNombre?: string | null;
   incidenteId?: string | null;
   incidenteCodigo?: string | null;
+  prioridad?: string | null;
   fechaInicio: string | null;
   fechaCierre?: string | null;
   hito: {
@@ -850,7 +852,7 @@ export interface MisionActualizadaPayload {
 
 /**
  * Emite una notificación en tiempo real hacia las salas del Centro de Mando (`encargado`, `sala:encargados`,
- * `supervisor` y `mapa`) y a la unidad asignada cuando una unidad de terreno actualiza, acepta o cierra una misión.
+ * `supervisor` y `mapa`) y a la unidad asignada cuando una unidad de terreno actualiza, acepta o cierra una misión (HU-36, HU-40, HU-68).
  */
 export function notificarMisionActualizada(payload: MisionActualizadaPayload): void {
   const rooms = ["encargado", "sala:encargados", "supervisor", "mapa"];

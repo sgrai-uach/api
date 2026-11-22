@@ -129,4 +129,60 @@ describe("Socket.io Salas Destino - mision:actualizada, incidente:actualizado y 
     setSocketServer(null as any);
     expect((globalThis as { __sgraiSocketIo?: unknown }).__sgraiSocketIo).toBeNull();
   });
+
+  it("debe emitir mision:actualizada al aceptar asignación de cuadrilla (HU-40) con cuadrillaNombre, incidenteCodigo y prioridad hacia encargado, sala:encargados, supervisor, mapa y cuadrilla:{id}", () => {
+    const roomsEmitidos: string[] = [];
+    const emitMock = vi.fn();
+
+    const ioMock: any = {
+      to: vi.fn((room: string) => {
+        roomsEmitidos.push(room);
+        return { emit: emitMock };
+      }),
+    };
+
+    setSocketServer(ioMock);
+
+    notificarMisionActualizada({
+      misionId: "70000000-0000-4000-8000-000000000001",
+      codigo: "MIS-2026-0005",
+      estado: "EN_CURSO",
+      tipoMision: "ATENCION_CUADRILLA",
+      cuadrillaId: "50000000-0000-4000-8000-000000000001",
+      cuadrillaNombre: "Cuadrilla Vías y Canales 1",
+      patrullaId: null,
+      patrullaNombre: null,
+      incidenteId: "30000000-0000-4000-8000-000000000001",
+      incidenteCodigo: "INC-2026-0001",
+      prioridad: "ALTA",
+      fechaInicio: "2026-11-22T14:00:00.000Z",
+      hito: {
+        id: "hito-aceptar-001",
+        hito: "MISION_ACEPTADA",
+        descripcion: "Asignación Aceptada por Cuadrilla",
+        registradoPorId: "d0000000-0000-4000-8000-000000000001",
+        creadoEn: "2026-11-22T14:00:00.000Z",
+      },
+      actualizadoEn: "2026-11-22T14:00:00.000Z",
+    });
+
+    expect(roomsEmitidos).toEqual(
+      expect.arrayContaining([
+        "encargado",
+        "sala:encargados",
+        "supervisor",
+        "mapa",
+        "cuadrilla:50000000-0000-4000-8000-000000000001",
+      ])
+    );
+    expect(emitMock).toHaveBeenCalledWith(
+      "mision:actualizada",
+      expect.objectContaining({
+        estado: "EN_CURSO",
+        cuadrillaNombre: "Cuadrilla Vías y Canales 1",
+        incidenteCodigo: "INC-2026-0001",
+        prioridad: "ALTA",
+      })
+    );
+  });
 });

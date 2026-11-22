@@ -67,10 +67,12 @@ export interface ServerToClientEvents {
         estado: string;
         tipoMision: string;
         patrullaId?: string | null;
+        patrullaNombre?: string | null;
         cuadrillaId?: string | null;
         cuadrillaNombre?: string | null;
         incidenteId?: string | null;
         incidenteCodigo?: string | null;
+        prioridad?: string | null;
         fechaInicio: string | null;
         fechaCierre?: string | null;
         hito: {
