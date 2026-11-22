@@ -121,6 +121,7 @@ export async function sembrarDatosKanban() {
   // 7. Usuarios Operativos de Terreno (Delegados de Cuadrilla, Brigadistas y Patrullas Verificadoras)
   const rolPatrullaId = "20000000-0000-4000-8000-000000000004";
   const rolDelegadoId = "20000000-0000-4000-8000-000000000005";
+  const rolAsistenteSocialId = "20000000-0000-4000-8000-000000000006";
   const rolBrigadistaId = "20000000-0000-4000-8000-000000000009";
 
   const delegadoSurId = "00000000-0000-4000-8000-000000000005";
@@ -130,6 +131,7 @@ export async function sembrarDatosKanban() {
   const brigadista2Id = "00000000-0000-4000-8000-000000000013";
   const patrullaCostaLiderId = "00000000-0000-4000-8000-000000000017";
   const patrullaSurLiderId = "00000000-0000-4000-8000-000000000018";
+  const asistenteSocialId = "00000000-0000-4000-8000-000000000019";
 
   await sql`
     INSERT INTO usuario (id, rut, nombres, apellidos, email, rol_id, delegacion_id, activo, estado_operativo)
@@ -140,7 +142,8 @@ export async function sembrarDatosKanban() {
       (${brigadista1Id}, '16.222.333-4', 'Pedro', 'Obrero', 'brigadista1@valdivia.cl', ${rolBrigadistaId}, ${delNorte ?? null}, true, 'disponible'),
       (${brigadista2Id}, '17.333.444-5', 'Jorge', 'Almonacid', 'brigadista2@valdivia.cl', ${rolBrigadistaId}, ${delSur ?? null}, true, 'disponible'),
       (${patrullaCostaLiderId}, '19.111.222-3', 'Matías', 'Alarcón', 'patrulla.costa@valdivia.cl', ${rolPatrullaId}, ${delCosta ?? null}, true, 'disponible'),
-      (${patrullaSurLiderId}, '18.999.000-2', 'Loreto', 'Sánchez', 'patrulla.sur@valdivia.cl', ${rolPatrullaId}, ${delSur ?? null}, true, 'disponible')
+      (${patrullaSurLiderId}, '18.999.000-2', 'Loreto', 'Sánchez', 'patrulla.sur@valdivia.cl', ${rolPatrullaId}, ${delSur ?? null}, true, 'disponible'),
+      (${asistenteSocialId}, '17.444.555-6', 'Claudia', 'Rojas Vidal', 'asistente.social@valdivia.cl', ${rolAsistenteSocialId}, ${delSur ?? null}, true, 'disponible')
     ON CONFLICT (email) DO UPDATE SET
       nombres = EXCLUDED.nombres,
       apellidos = EXCLUDED.apellidos,
@@ -412,7 +415,7 @@ export async function sembrarDatosKanban() {
         ST_SetSRID(ST_MakePoint(-73.2380000, -39.8310000), 4326),
         'RESUELTO',
         'MEDIA',
-        false,
+        true,
         'CHATBOT',
         ${adminId},
         ${encargadoId},
@@ -570,6 +573,7 @@ export async function sembrarDatosKanban() {
       tipo_incidente_id = EXCLUDED.tipo_incidente_id,
       delegacion_id = EXCLUDED.delegacion_id,
       fuente_incidente_id = EXCLUDED.fuente_incidente_id,
+      requiere_asistencia_social = EXCLUDED.requiere_asistencia_social,
       actualizado_en = EXCLUDED.actualizado_en;
   `.execute(db);
 
@@ -654,6 +658,35 @@ export async function sembrarDatosKanban() {
         CURRENT_TIMESTAMP - interval '4 hours 30 minutes'
       )
     ON CONFLICT (id) DO NOTHING;
+  `.execute(db);
+
+  // 11. Informe final de cuadrilla con afectación social para INC-2026-0006 (RESUELTO / HU-25)
+  await sql`
+    INSERT INTO reporte_terreno (
+      id, mision_id, evaluador_id, tipo_reporte, requiere_asistencia_social,
+      version_reporte, es_rectificacion, resumen_tecnico, acciones_realizadas,
+      danos_estimados, observaciones, personas_afectadas, estado_terreno, horas_hombre
+    )
+    VALUES (
+      'e2000000-0000-4000-8000-000000000004',
+      'd1000000-0000-4000-8000-000000000004',
+      ${realDelegadoSurId},
+      'REPORTE_CUADRILLA',
+      true,
+      1,
+      false,
+      'Desobstrucción de colector y evacuación de aguas completada. Se constata grupo familiar con pérdida de enseres que requiere ficha FIBE (DGRD).',
+      'Succión con motobomba 4 pulgadas y habilitación de drenaje.',
+      'Anegamiento de primer nivel en vivienda colindante.',
+      'Caso elegible para derivación inmediata a Asistencia Social post-cierre.',
+      4,
+      'FINALIZADO',
+      4.5
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      personas_afectadas = EXCLUDED.personas_afectadas,
+      requiere_asistencia_social = EXCLUDED.requiere_asistencia_social,
+      resumen_tecnico = EXCLUDED.resumen_tecnico;
   `.execute(db);
 
   console.log("¡Datos de prueba para el Tablero Kanban sembrados exitosamente!");
