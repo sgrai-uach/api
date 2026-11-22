@@ -11,6 +11,7 @@ export interface ServerToClientEvents {
     "recuperacion:creada": (payload: unknown) => void;
     "asistencia_social:creada": (payload: unknown) => void;
     "punto_critico:creado": (payload: unknown) => void;
+    "evento_atp:creado": (payload: unknown) => void;
     "punto_critico:eliminado": (payload: {
         id: string;
         codigo: string;
@@ -32,13 +33,33 @@ export interface ServerToClientEvents {
         incidenteId?: string | null;
         actualizadoEn: string;
     }) => void;
+    "patrulla:liberada": (payload: {
+        patrullaId: string;
+        nombre: string;
+        misionPreviaId?: string | null;
+        incidenteId: string;
+        estado: string;
+        liberadaEn: string;
+    }) => void;
+    "patrulla:desactivada": (payload: {
+        patrullaId: string;
+        nombre: string;
+        eliminadoPorId?: string | null;
+        eliminadoEn: string;
+    }) => void;
     "mision:asignada": (payload: {
+        notificacionId?: string;
         misionId: string;
         codigo: string;
         tipoMision: string;
         patrullaId?: string | null;
         cuadrillaId?: string | null;
         incidenteId?: string | null;
+        incidenteCodigo?: string | null;
+        incidenteFolio?: string | null;
+        tipoAfectacion?: string | null;
+        direccion?: string | null;
+        prioridad?: string;
         asignadoEn: string;
     }) => void;
     "mision:hito_registrado": (payload: {
@@ -55,7 +76,58 @@ export interface ServerToClientEvents {
         registradoEn: string;
         nuevoEstadoMision: string;
     }) => void;
-    "mision:actualizada": (payload: unknown) => void;
+    "mision:rechazada": (payload: MisionRechazadaPayload) => void;
+    "mision:actualizada": (payload: {
+        misionId: string;
+        codigo: string;
+        estado: string;
+        tipoMision?: string;
+        patrullaId?: string | null;
+        patrullaNombre?: string | null;
+        cuadrillaId?: string | null;
+        cuadrillaNombre?: string | null;
+        incidenteId?: string | null;
+        incidenteCodigo?: string | null;
+        prioridad?: string | null;
+        fechaInicio?: string | null;
+        fechaCierre?: string | null;
+        hito: {
+            id: string;
+            hito: string;
+            descripcion: string;
+            registradoPorId?: string | null;
+            creadoEn?: string;
+            registradoEn?: string;
+            [key: string]: unknown;
+        };
+        actualizadoEn: string;
+    }) => void;
+    "notificacion:trazabilidad_actualizada": (payload: {
+        notificacionId: string;
+        misionId: string;
+        patrullaId: string;
+        estado: "PENDIENTE_ENVIO" | "ENVIADA" | "RECIBIDA" | "LEIDA";
+        intentosEnvio: number;
+        creadaAt: string;
+        enviadaAt?: string | null;
+        recibidaAt?: string | null;
+        leidaAt?: string | null;
+        actualizadoEn: string;
+    }) => void;
+}
+
+export interface MisionRechazadaPayload {
+    misionId: string;
+    codigo: string;
+    tipoMision: string;
+    motivo: string;
+    justificacionRechazo?: string;
+    patrullaId: string | null;
+    patrullaNombre?: string | null;
+    incidenteId: string | null;
+    incidenteCodigo?: string | null;
+    rechazadoPorId?: string | null;
+    rechazadoEn: string;
 }
 
 export interface ClientToServerEvents {
@@ -63,6 +135,10 @@ export interface ClientToServerEvents {
     leave: (room: string) => void;
     unirse: (room: string) => void;
     salir: (room: string) => void;
+    "notificacion:ack": (
+        payload: { notificacionId: string; estado: "RECIBIDA" | "LEIDA" },
+        callback?: (response: { ok: boolean; message?: string; error?: string }) => void
+    ) => void;
 }
 
 export interface InterServerEvents {

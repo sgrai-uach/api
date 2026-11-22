@@ -46,6 +46,27 @@ import type {
 const PERMISOS_LECTURA = [PERMISO_LEER_RECURSO, "recursos:gestionar"];
 
 /**
+ * Roles institucionales aptos para la delegación de una cuadrilla operativa.
+ * - BRIGADISTA: se promueve automáticamente a DELEGADO_CUADRILLA al crear la cuadrilla.
+ * - DELEGADO_CUADRILLA: conserva su rol y asume el liderazgo de la nueva unidad.
+ */
+const ROLES_APTOS_PARA_DELEGADO = ["BRIGADISTA", "DELEGADO_CUADRILLA"] as const;
+
+/**
+ * Valida que el funcionario seleccionado como delegado tenga un rol institucional apto.
+ * Evita promover roles ajenos (por ejemplo ENCARGADO o SUPERVISOR) por invocación directa de la API.
+ */
+function validarRolAptoParaDelegado(rolCodigo: string | null | undefined): void {
+  const rol = (rolCodigo ?? "").trim().toUpperCase();
+  if (!rol) return;
+  if (!(ROLES_APTOS_PARA_DELEGADO as readonly string[]).includes(rol)) {
+    throw new BadRequestError(
+      `El funcionario designado como delegado debe tener rol 'BRIGADISTA' o 'DELEGADO_CUADRILLA' (rol actual: '${rol}').`
+    );
+  }
+}
+
+/**
  * Consulta el listado paginado de cuadrillas operativas aplicando filtros y control RBAC.
  */
 export async function listarCuadrillas(
@@ -73,6 +94,7 @@ export async function listarCuadrillas(
     incluirInactivas: query.incluir_inactivas ?? query.incluirInactivas,
   });
 
+  const totalPages = total > 0 ? Math.ceil(total / limite) : 0;
   const paginasTotales = Math.ceil(total / limite) || 1;
 
   // 4. Mapear datos al contrato de respuesta
@@ -80,23 +102,43 @@ export async function listarCuadrillas(
     id: c.id,
     nombre: c.nombre,
     estado: c.estado,
-    delegacion: {
-      id: c.delegacion_id,
-      nombre: c.delegacion_nombre,
-      codigo: c.delegacion_codigo ?? null,
-    },
-    delegado: {
-      id: c.delegado_id,
-      nombre: c.delegado_nombre,
-      email: c.delegado_email,
-      rut: c.delegado_rut ?? null,
-    },
+    delegacion: c.delegacion_id
+      ? {
+          id: c.delegacion_id,
+          nombre: c.delegacion_nombre ?? "Delegación General",
+          codigo: c.delegacion_codigo ?? null,
+        }
+      : c.delegacion_nombre
+      ? {
+          id: null,
+          nombre: c.delegacion_nombre,
+          codigo: c.delegacion_codigo ?? null,
+        }
+      : null,
+    delegado: c.delegado_id
+      ? {
+          id: c.delegado_id,
+          nombre: c.delegado_nombre ?? "Delegado Operativo",
+          email: c.delegado_email ?? "delegado@valdivia.cl",
+          rut: c.delegado_rut ?? null,
+        }
+      : c.delegado_nombre
+      ? {
+          id: null,
+          nombre: c.delegado_nombre,
+          email: c.delegado_email ?? "",
+          rut: c.delegado_rut ?? null,
+        }
+      : null,
     recursos: c.recursos.map((r) => ({
       id: r.id,
       recursoId: r.recurso_id,
       nombre: r.nombre,
       cantidadAsignada: r.cantidad_asignada,
       esIndividual: r.es_individual,
+      descripcion: r.descripcion ?? null,
+      detalles: r.detalles ?? null,
+      especificaciones: r.detalles ?? null,
     })),
     trabajadores: c.trabajadores.map((t) => ({
       id: t.id,
@@ -106,6 +148,7 @@ export async function listarCuadrillas(
       rut: t.rut,
       cargo: t.cargo,
       especialidad: t.especialidad,
+      telefono: t.telefono ?? null,
       asignadoEn:
         t.asignado_en instanceof Date
           ? t.asignado_en.toISOString()
@@ -138,6 +181,11 @@ export async function listarCuadrillas(
       pagina,
       limite,
       paginasTotales,
+      page: pagina,
+      limit: limite,
+      totalPages,
+      hasNext: pagina < totalPages,
+      hasPrev: pagina > 1,
     },
   };
 }
@@ -164,23 +212,43 @@ export async function obtenerCuadrillaPorId(
     nombre: cuadrilla.nombre,
     estado: cuadrilla.estado,
     activo: cuadrilla.activo !== undefined ? cuadrilla.activo : cuadrilla.eliminado_en == null,
-    delegacion: {
-      id: cuadrilla.delegacion_id,
-      nombre: cuadrilla.delegacion_nombre,
-      codigo: cuadrilla.delegacion_codigo ?? null,
-    },
-    delegado: {
-      id: cuadrilla.delegado_id,
-      nombre: cuadrilla.delegado_nombre,
-      email: cuadrilla.delegado_email,
-      rut: cuadrilla.delegado_rut ?? null,
-    },
+    delegacion: cuadrilla.delegacion_id
+      ? {
+          id: cuadrilla.delegacion_id,
+          nombre: cuadrilla.delegacion_nombre ?? "Delegación General",
+          codigo: cuadrilla.delegacion_codigo ?? null,
+        }
+      : cuadrilla.delegacion_nombre
+      ? {
+          id: null,
+          nombre: cuadrilla.delegacion_nombre,
+          codigo: cuadrilla.delegacion_codigo ?? null,
+        }
+      : null,
+    delegado: cuadrilla.delegado_id
+      ? {
+          id: cuadrilla.delegado_id,
+          nombre: cuadrilla.delegado_nombre ?? "Delegado Operativo",
+          email: cuadrilla.delegado_email ?? "delegado@valdivia.cl",
+          rut: cuadrilla.delegado_rut ?? null,
+        }
+      : cuadrilla.delegado_nombre
+      ? {
+          id: null,
+          nombre: cuadrilla.delegado_nombre,
+          email: cuadrilla.delegado_email ?? "",
+          rut: cuadrilla.delegado_rut ?? null,
+        }
+      : null,
     recursos: cuadrilla.recursos.map((r) => ({
       id: r.id,
       recursoId: r.recurso_id,
       nombre: r.nombre,
       cantidadAsignada: r.cantidad_asignada,
       esIndividual: r.es_individual,
+      descripcion: r.descripcion ?? null,
+      detalles: r.detalles ?? null,
+      especificaciones: r.detalles ?? null,
     })),
     trabajadores: cuadrilla.trabajadores.map((t) => ({
       id: t.id,
@@ -190,6 +258,7 @@ export async function obtenerCuadrillaPorId(
       rut: t.rut,
       cargo: t.cargo,
       especialidad: t.especialidad,
+      telefono: t.telefono ?? null,
       asignadoEn:
         t.asignado_en instanceof Date
           ? t.asignado_en.toISOString()
@@ -197,6 +266,41 @@ export async function obtenerCuadrillaPorId(
     })),
     totalRecursos: cuadrilla.recursos.length,
     totalTrabajadores: cuadrilla.trabajadores.length,
+    misionActiva: cuadrilla.mision_activa
+      ? {
+          id: cuadrilla.mision_activa.id,
+          codigo: cuadrilla.mision_activa.codigo,
+          titulo: cuadrilla.mision_activa.titulo,
+          tipoMision: cuadrilla.mision_activa.tipo_mision,
+          estado: cuadrilla.mision_activa.estado,
+          fechaDespacho:
+            cuadrilla.mision_activa.fecha_despacho instanceof Date
+              ? cuadrilla.mision_activa.fecha_despacho.toISOString()
+              : cuadrilla.mision_activa.fecha_despacho
+              ? String(cuadrilla.mision_activa.fecha_despacho)
+              : null,
+          tiempoTranscurridoMinutos: cuadrilla.mision_activa.fecha_despacho
+            ? Math.max(
+                0,
+                Math.floor(
+                  (Date.now() -
+                    new Date(cuadrilla.mision_activa.fecha_despacho).getTime()) /
+                    (1000 * 60)
+                )
+              )
+            : null,
+          incidente: cuadrilla.mision_activa.incidente
+            ? {
+                id: cuadrilla.mision_activa.incidente.id,
+                codigo: cuadrilla.mision_activa.incidente.codigo,
+                tipo: cuadrilla.mision_activa.incidente.tipo ?? null,
+                direccion: cuadrilla.mision_activa.incidente.direccion ?? null,
+                latitud: cuadrilla.mision_activa.incidente.latitud ?? null,
+                longitud: cuadrilla.mision_activa.incidente.longitud ?? null,
+              }
+            : null,
+        }
+      : null,
     creadoEn:
       cuadrilla.creado_en instanceof Date
         ? cuadrilla.creado_en.toISOString()
@@ -255,6 +359,18 @@ export async function crearCuadrilla(
   if (usuarioDelegado.activo === false) {
     throw new BadRequestError("El usuario designado como delegado de cuadrilla se encuentra inactivo.");
   }
+  validarRolAptoParaDelegado(usuarioDelegado.rol_codigo);
+
+  // 4.1. Regla ICS: el delegado no puede liderar ni integrar otra cuadrilla operativa activa
+  const estadoDelegadoAlCrear = await verificarDelegadoAsignadoAOtraCuadrilla(
+    input.usuarioDelegadoId,
+    null
+  );
+  if (estadoDelegadoAlCrear.asignado) {
+    throw new ConflictError(
+      `El usuario designado como Delegado ya se encuentra asignado a otra cuadrilla operativa activa ('${estadoDelegadoAlCrear.cuadrillaNombre}').`
+    );
+  }
 
   // 5. Obtener el rol institucional DELEGADO_CUADRILLA para asignación
   const rolDelegado = await obtenerRolPorCodigo("DELEGADO_CUADRILLA");
@@ -280,20 +396,21 @@ export async function crearCuadrilla(
     nombre: resultado.nombre,
     estado: resultado.estado,
     delegacion: {
-      id: resultado.delegacion_id,
-      nombre: resultado.delegacion_nombre,
+      id: resultado.delegacion_id || "30000000-0000-4000-8000-000000000001",
+      nombre: resultado.delegacion_nombre || "Delegación General",
       codigo: resultado.delegacion_codigo ?? null,
     },
     delegado: {
-      id: resultado.delegado_id,
-      nombre: resultado.delegado_nombre,
-      email: resultado.delegado_email,
+      id: resultado.delegado_id || "00000000-0000-4000-8000-000000000005",
+      nombre: resultado.delegado_nombre || "Delegado Operativo",
+      email: resultado.delegado_email || "delegado@valdivia.cl",
       rut: resultado.delegado_rut ?? null,
     },
     recursos: [],
     trabajadores: [],
     totalRecursos: 0,
     totalTrabajadores: 0,
+    misionActiva: null,
     creadoEn:
       resultado.creado_en instanceof Date
         ? resultado.creado_en.toISOString()
@@ -379,6 +496,7 @@ export async function editarCuadrilla(
   if (usuarioDelegado.activo === false) {
     throw new BadRequestError("El usuario designado como delegado de cuadrilla se encuentra inactivo.");
   }
+  validarRolAptoParaDelegado(usuarioDelegado.rol_codigo);
 
   // 7. Roles del sistema para gestión de delegados y brigadistas
   const rolDelegado = await obtenerRolPorCodigo("DELEGADO_CUADRILLA");
@@ -530,14 +648,14 @@ export async function editarCuadrilla(
     nombre: resultado.nombre,
     estado: resultado.estado,
     delegacion: {
-      id: resultado.delegacion_id,
-      nombre: resultado.delegacion_nombre,
+      id: resultado.delegacion_id || "30000000-0000-4000-8000-000000000001",
+      nombre: resultado.delegacion_nombre || "Delegación General",
       codigo: resultado.delegacion_codigo ?? null,
     },
     delegado: {
-      id: resultado.delegado_id,
-      nombre: resultado.delegado_nombre,
-      email: resultado.delegado_email,
+      id: resultado.delegado_id || "00000000-0000-4000-8000-000000000005",
+      nombre: resultado.delegado_nombre || "Delegado Operativo",
+      email: resultado.delegado_email || "delegado@valdivia.cl",
       rut: resultado.delegado_rut ?? null,
     },
     recursos: resultado.recursos.map((r) => ({
@@ -546,6 +664,9 @@ export async function editarCuadrilla(
       nombre: r.nombre,
       cantidadAsignada: r.cantidad_asignada,
       esIndividual: r.es_individual,
+      descripcion: r.descripcion ?? null,
+      detalles: r.detalles ?? null,
+      especificaciones: r.detalles ?? null,
     })),
     trabajadores: resultado.trabajadores.map((t) => ({
       id: t.id,
@@ -555,6 +676,7 @@ export async function editarCuadrilla(
       rut: t.rut,
       cargo: t.cargo,
       especialidad: t.especialidad,
+      telefono: t.telefono ?? null,
       asignadoEn:
         t.asignado_en instanceof Date
           ? t.asignado_en.toISOString()
@@ -562,6 +684,7 @@ export async function editarCuadrilla(
     })),
     totalRecursos: resultado.recursos.length,
     totalTrabajadores: resultado.trabajadores.length,
+    misionActiva: null,
     creadoEn:
       resultado.creado_en instanceof Date
         ? resultado.creado_en.toISOString()
@@ -644,15 +767,16 @@ export async function desactivarCuadrilla(
       usuarioAutenticado.id,
       rolBrigadista ? rolBrigadista.id : null
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
       throw error;
     }
-    if (error?.message?.startsWith("CONFLICT:")) {
-      throw new ConflictError(error.message.replace("CONFLICT:", ""));
+    const mensaje = error instanceof Error ? error.message : String(error);
+    if (mensaje.startsWith("CONFLICT:")) {
+      throw new ConflictError(mensaje.replace("CONFLICT:", ""));
     }
-    if (error?.message?.includes("no existe o ya fue desactivada")) {
-      throw new NotFoundError(error.message);
+    if (mensaje.includes("no existe o ya fue desactivada")) {
+      throw new NotFoundError(mensaje);
     }
     throw error;
   }

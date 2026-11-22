@@ -1,6 +1,7 @@
 import * as path from "path";
 import { promises as fs } from "fs";
 import { pathToFileURL } from "url";
+import { sql } from "kysely";
 import { Migrator, FileMigrationProvider, type MigrationResult } from "kysely/migration";
 import { db } from "./index";
 
@@ -10,14 +11,30 @@ import { db } from "./index";
  */
 export async function migrateToLatest() {
   console.log("Ejecutando migraciones Kysely de base de datos...");
+  const migrationFolder = path.join(__dirname, "migrations");
+  const provider = new FileMigrationProvider({
+    fs,
+    path,
+    migrationFolder,
+    import: (filePath) => import(pathToFileURL(filePath).href),
+  });
+
+  try {
+    const availableMigrations = Object.keys(await provider.getMigrations());
+    if (availableMigrations.length > 0) {
+      await sql`
+        DELETE FROM kysely_migration
+        WHERE name NOT IN (${sql.join(availableMigrations.map((m) => sql`${m}`))})
+      `.execute(db);
+    }
+  } catch {
+    // Ignorar si la tabla kysely_migration aún no existe
+  }
+
   const migrator = new Migrator({
     db,
-    provider: new FileMigrationProvider({
-      fs,
-      path,
-      migrationFolder: path.join(__dirname, "migrations"),
-      import: (filePath) => import(pathToFileURL(filePath).href),
-    }),
+    provider,
+    allowUnorderedMigrations: true,
   });
 
   const { error, results } = await migrator.migrateToLatest();

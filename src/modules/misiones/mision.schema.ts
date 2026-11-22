@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import {
+  EstadoNotificacionMisionEnum,
+  NotificacionMisionDetalleSchema,
+} from "./notificacion-mision.schema";
 
 extendZodWithOpenApi(z);
 
@@ -169,7 +173,10 @@ export const MisionDetalleCompletoSchema = z.object({
   estado: EstadoMisionEnum.openapi({ description: "Estado de ejecución actual de la misión" }),
   prioridad: PrioridadMisionEnum.openapi({ description: "Nivel de prioridad o urgencia" }),
   justificacionRechazo: z.string().nullable().openapi({ description: "Motivo documentado en caso de rechazo por la cuadrilla" }),
-  fechaInicio: z.string().nullable().openapi({ description: "Fecha y hora de despliegue o inicio en terreno (ISO 8601)" }),
+  trazabilidadNotificacion: EstadoNotificacionMisionEnum.optional().openapi({
+    description: "Estado actual de entrega y lectura de la notificación de esta misión (HU-35)",
+  }),
+  fechaInicio: z.string().nullable().openapi({ description: "Fecha de inicio de trabajos en terreno (ISO 8601)" }),
   fechaCierre: z.string().nullable().openapi({ description: "Fecha y hora de cierre formal de la misión (ISO 8601)" }),
   creadoEn: z.string().openapi({ description: "Fecha y hora de creación de la misión en formato ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Última fecha y hora de actualización en formato ISO 8601" }),
@@ -212,3 +219,415 @@ export const MisionDetalleResponseSchema = z.object({
 });
 
 export type MisionDetalleResponse = z.infer<typeof MisionDetalleResponseSchema>;
+
+// ==========================================
+// HU-20: Asignación de Patrulla Verificadora a Incidente
+// ==========================================
+
+export const CrearMisionVerificacionSchema = z.object({
+  incidenteId: z.string().uuid({
+    message: "El identificador del incidente debe ser un UUID válido.",
+  }).openapi({
+    description: "Identificador único UUID del incidente a verificar",
+    example: "50000000-0000-4000-8000-000000000001",
+  }),
+  patrullaId: z.string().uuid({
+    message: "El identificador de la patrulla verificadora debe ser un UUID válido.",
+  }).openapi({
+    description: "Identificador único UUID de la patrulla verificadora disponible",
+    example: "f1000000-0000-4000-8000-000000000001",
+  }),
+  tipoMision: z.literal("VERIFICACION").default("VERIFICACION").optional().openapi({
+    description: "Tipo de misión operativa a despachar (fijo en VERIFICACION para evaluación preliminar)",
+    example: "VERIFICACION",
+  }),
+  titulo: z.string().min(3, "El título debe contener al menos 3 caracteres.").max(150, "El título no puede exceder 150 caracteres.").optional().openapi({
+    description: "Título descriptivo opcional para la misión de verificación",
+    example: "Verificación en terreno: Aniego en Las Ánimas",
+  }),
+  descripcion: z.string().max(1000, "La descripción no puede exceder 1000 caracteres.").nullable().optional().openapi({
+    description: "Instrucciones tácticas preliminares para la patrulla",
+    example: "Evaluar anegamiento en calzada y riesgo de ingreso a viviendas.",
+  }),
+  prioridad: PrioridadMisionEnum.optional().openapi({
+    description: "Nivel de prioridad o urgencia táctica (si se omite, hereda la del incidente)",
+    example: "ALTA",
+  }),
+}).openapi("CrearMisionVerificacionInput");
+
+export type CrearMisionVerificacionInput = z.infer<typeof CrearMisionVerificacionSchema>;
+
+export const MisionCreadaResumenSchema = z.object({
+  id: z.string().uuid(),
+  codigo: z.string().openapi({ example: "MIS-2026-0005" }),
+  titulo: z.string(),
+  descripcion: z.string().nullable(),
+  tipoMision: TipoMisionEnum,
+  estado: EstadoMisionEnum.openapi({ example: "DESPACHADA" }),
+  prioridad: PrioridadMisionEnum,
+  incidenteId: z.string().uuid(),
+  patrullaId: z.string().uuid().nullable().optional(),
+  cuadrillaId: z.string().uuid().nullable().optional(),
+  encargadoId: z.string().uuid().nullable(),
+  creadoPorId: z.string().uuid().nullable().optional(),
+  fechaInicio: z.string().nullable().optional(),
+  creadoEn: z.string(),
+}).openapi("MisionCreadaResumen");
+
+export type MisionCreadaResumen = z.infer<typeof MisionCreadaResumenSchema>;
+
+export const CrearMisionResponseSchema = z.object({
+  message: z.string().openapi({ example: "Misión de verificación creada y patrulla despachada exitosamente." }),
+  data: z.object({
+    mision: MisionCreadaResumenSchema,
+    incidente: z.object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      estado: z.string(),
+    }),
+    patrulla: z.object({
+      id: z.string().uuid(),
+      nombre: z.string(),
+      estado: z.string(),
+    }),
+    hitoInicial: z.object({
+      id: z.string().uuid(),
+      hito: z.string(),
+      descripcion: z.string(),
+      creadoEn: z.string(),
+    }),
+    notificacion: NotificacionMisionDetalleSchema.optional(),
+  }),
+}).openapi("CrearMisionResponse");
+
+export type CrearMisionResponse = z.infer<typeof CrearMisionResponseSchema>;
+
+// ==========================================
+// HU-36 / HU-40: Aceptación de Misión en Terreno (Patrulla Verificadora y Delegado de Cuadrilla)
+// ==========================================
+
+export const AceptarMisionInputSchema = z
+  .object({
+    latitud: z
+      .number({ message: "La latitud debe ser un número válido." })
+      .min(-90, "La latitud no puede ser menor a -90.")
+      .max(90, "La latitud no puede ser mayor a 90.")
+      .optional()
+      .openapi({
+        description: "Coordenada GPS opcional de latitud (WGS84) al momento de aceptar la misión desde la PWA",
+        example: -39.819588,
+      }),
+    longitud: z
+      .number({ message: "La longitud debe ser un número válido." })
+      .min(-180, "La longitud no puede ser menor a -180.")
+      .max(180, "La longitud no puede ser mayor a 180.")
+      .optional()
+      .openapi({
+        description: "Coordenada GPS opcional de longitud (WGS84) al momento de aceptar la misión desde la PWA",
+        example: -73.245209,
+      }),
+  })
+  .optional()
+  .refine(
+    (data) => !data || (data.latitud !== undefined) === (data.longitud !== undefined),
+    {
+      message: "Debe proporcionar tanto latitud como longitud si incluye coordenadas GPS.",
+      path: ["longitud"],
+    }
+  )
+  .openapi("AceptarMisionInput");
+
+export type AceptarMisionInput = z.infer<typeof AceptarMisionInputSchema>;
+
+export const MisionHitoRegistradoSchema = z
+  .object({
+    id: z.string().uuid().openapi({ description: "Identificador único UUID del hito registrado en mision_hito" }),
+    misionId: z.string().uuid().openapi({ description: "Identificador único UUID de la misión" }),
+    hito: z.string().openapi({ description: "Código canónico del hito", example: "MISION_ACEPTADA" }),
+    descripcion: z.string().openapi({
+      description:
+        "Glosa descriptiva del hito operativo ('Asignación Aceptada por Cuadrilla' en HU-40 o 'Misión Aceptada por Patrulla' en HU-36)",
+      example: "Asignación Aceptada por Cuadrilla",
+    }),
+    registradoPorId: z.string().uuid().nullable().openapi({
+      description: "UUID del funcionario en sesión (Delegado de Cuadrilla o líder de patrulla) que confirmó la aceptación",
+    }),
+    latitud: z.number().nullable().openapi({ description: "Latitud reportada al momento del hito" }),
+    longitud: z.number().nullable().openapi({ description: "Longitud reportada al momento del hito" }),
+    creadoEn: z.string().openapi({ description: "Fecha y hora del hito en formato ISO 8601" }),
+  })
+  .openapi("MisionHitoRegistrado");
+
+export type MisionHitoRegistrado = z.infer<typeof MisionHitoRegistradoSchema>;
+
+export const AceptarMisionResponseSchema = z
+  .object({
+    message: z.string().openapi({
+      example:
+        "Asignación de misión aceptada exitosamente. La cuadrilla inicia el desplazamiento y asume la atención del incidente.",
+    }),
+    data: z.object({
+      mision: z.object({
+        id: z.string().uuid(),
+        codigo: z.string(),
+        titulo: z.string(),
+        descripcion: z.string().nullable(),
+        tipoMision: TipoMisionEnum,
+        estado: EstadoMisionEnum.openapi({ example: "EN_CURSO" }),
+        prioridad: PrioridadMisionEnum,
+        incidenteId: z.string().uuid().nullable(),
+        patrullaId: z.string().uuid().nullable(),
+        cuadrillaId: z.string().uuid().nullable().optional(),
+        fechaInicio: z.string().openapi({
+          description: "Timestamp ISO 8601 fijado al momento de aceptar la misión",
+        }),
+        actualizadoEn: z.string(),
+      }),
+      cuadrilla: z
+        .object({
+          id: z.string().uuid(),
+          nombre: z.string(),
+          estado: z.string().openapi({
+            description: "Actualizado a EN_MISION al aceptar la asignación (HU-40)",
+            example: "EN_MISION",
+          }),
+          delegacionId: z.string().uuid().nullable().optional(),
+        })
+        .nullable()
+        .optional(),
+      patrulla: z
+        .object({
+          id: z.string().uuid(),
+          nombre: z.string(),
+          estado: z.string().openapi({
+            description: "Se mantiene en EN_VERIFICACION durante el trayecto y evaluación (HU-36)",
+            example: "EN_VERIFICACION",
+          }),
+        })
+        .nullable(),
+      incidente: z
+        .object({
+          id: z.string().uuid(),
+          codigo: z.string(),
+          estado: z.string().openapi({
+            description:
+              "EN_ATENCION cuando acepta una cuadrilla (HU-40) o VERIFICANDO cuando acepta una patrulla (HU-36)",
+            example: "EN_ATENCION",
+          }),
+          prioridad: z.string().optional(),
+        })
+        .nullable(),
+      hito: MisionHitoRegistradoSchema,
+    }),
+  })
+  .openapi("AceptarMisionResponse");
+
+export type AceptarMisionResponse = z.infer<typeof AceptarMisionResponseSchema>;
+
+// ==========================================
+// HU-21: Asignar Cuadrilla a Incidente y Liberar Patrulla
+// ==========================================
+
+export const AsignarCuadrillaMisionInputSchema = z
+  .object({
+    tipoMision: z
+      .literal("ATENCION_CUADRILLA")
+      .openapi({
+        description: "Tipo de misión táctica a despachar",
+        example: "ATENCION_CUADRILLA",
+      }),
+    incidenteId: z
+      .string()
+      .uuid("El identificador del incidente debe ser un UUID válido.")
+      .openapi({
+        description: "UUID del incidente en estado REPORTADO o VERIFICANDO a atender",
+        example: "30000000-0000-4000-8000-000000000001",
+      }),
+    cuadrillaId: z
+      .string()
+      .uuid("El identificador de la cuadrilla debe ser un UUID válido.")
+      .openapi({
+        description: "UUID de la cuadrilla operativa disponible a despachar",
+        example: "50000000-0000-4000-8000-000000000001",
+      }),
+    titulo: z
+      .string()
+      .min(3, "El título debe contener al menos 3 caracteres.")
+      .max(150, "El título no puede exceder 150 caracteres.")
+      .optional()
+      .openapi({
+        description: "Título descriptivo de la misión operativa (se autogenera si se omite)",
+        example: "Atención y despeje táctico - Incidente INC-2026-001",
+      }),
+    descripcion: z
+      .string()
+      .max(1000, "La descripción no puede exceder 1000 caracteres.")
+      .optional()
+      .openapi({
+        description: "Instrucciones tácticas u observaciones impartidas a la cuadrilla",
+        example: "Despejar ramas caídas sobre tendido eléctrico en sector Las Ánimas.",
+      }),
+    prioridad: PrioridadMisionEnum.optional().openapi({
+      description:
+        "Nivel de prioridad. Si se omite, se hereda de la misión de verificación activa de la patrulla o del incidente.",
+      example: "ALTA",
+    }),
+  })
+  .openapi("AsignarCuadrillaMisionInput");
+
+export type AsignarCuadrillaMisionInput = z.infer<typeof AsignarCuadrillaMisionInputSchema>;
+
+export const PatrullaLiberadaSchema = z
+  .object({
+    id: z.string().uuid(),
+    nombre: z.string(),
+    estado: z.string().openapi({ example: "DISPONIBLE" }),
+    misionPreviaId: z.string().uuid().nullable().optional(),
+  })
+  .openapi("PatrullaLiberada");
+
+export type PatrullaLiberada = z.infer<typeof PatrullaLiberadaSchema>;
+
+export const AsignarCuadrillaMisionResponseSchema = z
+  .object({
+    message: z.string().openapi({
+      example: "Cuadrilla asignada y despachada exitosamente al incidente. Patrulla verificadora liberada.",
+    }),
+    data: z.object({
+      mision: MisionCreadaResumenSchema,
+      cuadrilla: z.object({
+        id: z.string().uuid(),
+        nombre: z.string(),
+        estado: z.string().openapi({ example: "EN_MISION" }),
+        delegacionId: z.string().uuid().nullable().optional(),
+      }),
+      incidente: z.object({
+        id: z.string().uuid(),
+        codigo: z.string(),
+        estado: z.string().openapi({ example: "EN_ATENCION" }),
+        prioridad: z.string(),
+      }),
+      patrullaLiberada: PatrullaLiberadaSchema.nullable().openapi({
+        description: "Datos de la patrulla verificadora previa que fue liberada automáticamente (null si no había patrulla)",
+      }),
+      hitoCuadrilla: z.object({
+        id: z.string().uuid(),
+        misionId: z.string().uuid(),
+        hito: z.string().openapi({ example: "CUADRILLA_DESPACHADA" }),
+        descripcion: z.string(),
+        creadoEn: z.string(),
+      }),
+      hitoPatrulla: z
+        .object({
+          id: z.string().uuid(),
+          misionId: z.string().uuid(),
+          hito: z.string().openapi({ example: "VERIFICACION_FINALIZADA" }),
+          descripcion: z.string(),
+          creadoEn: z.string(),
+        })
+        .nullable()
+        .optional(),
+    }),
+  })
+  .openapi("AsignarCuadrillaMisionResponse");
+
+export type AsignarCuadrillaMisionResponse = z.infer<typeof AsignarCuadrillaMisionResponseSchema>;
+
+// HU-69: Esquema de entrada para rechazo de misión por patrulla verificadora
+export const RechazarMisionBodySchema = z.object({
+  justificacion_rechazo: z
+    .string()
+    .min(5, "El motivo de rechazo debe contener al menos 5 caracteres.")
+    .openapi({
+      description: "Motivo obligatorio del rechazo de la misión (mínimo 5 caracteres según Regla Crítica §3.3)",
+      example: "Desperfecto mecánico en el neumático delantero del vehículo institucional.",
+    }),
+  latitud: z
+    .number()
+    .finite("La latitud debe ser un número finito.")
+    .min(-90, "La latitud debe estar entre -90 y 90.")
+    .max(90, "La latitud debe estar entre -90 y 90.")
+    .optional()
+    .openapi({ description: "Latitud WGS84 de la patrulla (-90 a 90)", example: -39.81422 }),
+  longitud: z
+    .number()
+    .finite("La longitud debe ser un número finito.")
+    .min(-180, "La longitud debe estar entre -180 y 180.")
+    .max(180, "La longitud debe estar entre -180 y 180.")
+    .optional()
+    .openapi({ description: "Longitud WGS84 de la patrulla (-180 a 180)", example: -73.24589 }),
+});
+
+export const RechazarMisionInputSchema = z
+  .object({
+    justificacion_rechazo: z.string().optional(),
+    justificacionRechazo: z.string().optional(),
+    latitud: z
+      .number()
+      .finite("La latitud debe ser un número finito.")
+      .min(-90, "La latitud debe estar entre -90 y 90.")
+      .max(90, "La latitud debe estar entre -90 y 90.")
+      .optional(),
+    longitud: z
+      .number()
+      .finite("La longitud debe ser un número finito.")
+      .min(-180, "La longitud debe estar entre -180 y 180.")
+      .max(180, "La longitud debe estar entre -180 y 180.")
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    const motivo = (data.justificacion_rechazo ?? data.justificacionRechazo ?? "").trim();
+    if (motivo.length < 5) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "El motivo de rechazo (justificacion_rechazo) debe contener al menos 5 caracteres.",
+        path: ["justificacion_rechazo"],
+      });
+    }
+  })
+  .transform((data) => ({
+    justificacionRechazo: (data.justificacion_rechazo ?? data.justificacionRechazo ?? "").trim(),
+    latitud: data.latitud,
+    longitud: data.longitud,
+  }));
+
+export type RechazarMisionInput = {
+  justificacionRechazo: string;
+  latitud?: number;
+  longitud?: number;
+};
+
+// HU-69: Respuesta de rechazo de misión
+export const RechazarMisionResponseSchema = z.object({
+  message: z.string().openapi({
+    example: "Misión rechazada exitosamente. El incidente ha vuelto a estado REPORTADO para su reasignación.",
+  }),
+  data: z.object({
+    mision: z.object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      estado: z.string(),
+      justificacionRechazo: z.string(),
+      actualizadoEn: z.string(),
+    }),
+    patrulla: z.object({
+      id: z.string().uuid(),
+      nombre: z.string(),
+      estado: z.string(),
+    }),
+    incidente: z.object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      estado: z.string(),
+      prioridad: z.string().optional(),
+    }),
+    hito: z.object({
+      id: z.string().uuid(),
+      hito: z.string(),
+      descripcion: z.string(),
+      creadoEn: z.string(),
+    }),
+  }),
+});
+
+export type RechazarMisionResponse = z.infer<typeof RechazarMisionResponseSchema>;

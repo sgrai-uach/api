@@ -60,6 +60,7 @@ export interface UsuarioActivoDTO {
   email: string;
   activo: boolean;
   delegacionId?: string | null;
+  delegacionNombre?: string | null;
   rol: {
     id: string;
     nombre: string;
@@ -67,6 +68,9 @@ export interface UsuarioActivoDTO {
     esAdmin: boolean;
   };
   permisos: string[];
+  unidadId?: string | null;
+  unidadNombre?: string | null;
+  unidadActiva?: boolean;
 }
 
 export interface UsuarioLoginRaw {
@@ -79,6 +83,7 @@ export interface UsuarioLoginRaw {
   intentos_fallidos: number;
   bloqueado_hasta: Date | null;
   delegacion_id: string | null;
+  delegacion_nombre?: string | null;
   rol_id: string;
   rol_nombre: string;
   rol_codigo: string;

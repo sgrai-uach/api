@@ -27,6 +27,7 @@
 # local dev & test seeds (no commitear datos ficticios locales)
 src/lib/db/seeds/local/
 *.local-seed.*
+scripts/reparar-migraciones.*
 
 # debug
 npm-debug.log*

@@ -1,12 +1,24 @@
 import {
   obtenerMisionDetallePorIdRepo,
   reportarLlegadaCuadrillaRepo,
+  crearMisionVerificacionRepo,
+  aceptarMisionPatrullaRepo,
+  rechazarMisionPatrullaRepo,
+  asignarCuadrillaIncidenteRepo,
 } from "./mision.repository";
 import type {
   MisionDetalleCompleto,
   MisionBitacoraHito,
   ReporteTerrenoDetalle,
   AdjuntoEvidencia,
+  CrearMisionVerificacionInput,
+  CrearMisionResponse,
+  AceptarMisionInput,
+  AceptarMisionResponse,
+  AsignarCuadrillaMisionInput,
+  AsignarCuadrillaMisionResponse,
+  RechazarMisionInput,
+  RechazarMisionResponse,
 } from "./mision.schema";
 import type {
   ReportarLlegadaBody,
@@ -14,8 +26,17 @@ import type {
 } from "./mision-llegada.schema";
 import {
   notificarHitoMisionRegistrado,
+  notificarMisionAsignada,
+  notificarIncidenteActualizado,
+  notificarPatrullaActualizada,
   notificarMisionActualizada,
+  notificarTrazabilidadActualizada,
+  tieneConexionEnSala,
+  notificarPatrullaLiberada,
+  emitirCuadrillaActualizada,
+  notificarMisionRechazada,
 } from "@/lib/socket";
+import { marcarNotificacionEnviadaRepo } from "./notificacion-mision.repository";
 
 function formatearFechaIso(fecha: Date | string | null | undefined): string | null {
   if (!fecha) return null;
@@ -56,48 +77,56 @@ export async function obtenerDetalleMisionService(
 
   const { mision, recursosCuadrilla, reportesTerreno: reportesRaw } = resultado;
 
-  // 1. Bitácora de tiempos simplificada (Opción 1 - hitos basados en timestamps de misión)
+  // 1. Bitácora de tiempos (incorporando hitos reales de mision_hito o fallback a timestamps)
   const bitacoraTiempos: MisionBitacoraHito[] = [];
 
-  if (mision.creado_en) {
-    bitacoraTiempos.push(
-      desglosarHitoTiempo(
-        mision.creado_en,
-        "CREACION",
-        "Misión planificada y registrada en el sistema"
-      )
-    );
-  }
+  if (resultado.hitos && resultado.hitos.length > 0) {
+    for (const h of resultado.hitos) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(h.creado_en, h.hito, h.descripcion)
+      );
+    }
+  } else {
+    if (mision.creado_en) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          mision.creado_en,
+          "CREACION",
+          "Misión planificada y registrada en el sistema"
+        )
+      );
+    }
 
-  if (mision.fecha_inicio) {
-    bitacoraTiempos.push(
-      desglosarHitoTiempo(
-        mision.fecha_inicio,
-        "DESPLIEGUE_INICIO",
-        "Inicio formal de operaciones y traslado a terreno"
-      )
-    );
-  }
+    if (mision.fecha_inicio) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          mision.fecha_inicio,
+          "DESPLIEGUE_INICIO",
+          "Inicio formal de operaciones y traslado a terreno"
+        )
+      );
+    }
 
-  if (mision.fecha_cierre) {
-    bitacoraTiempos.push(
-      desglosarHitoTiempo(
-        mision.fecha_cierre,
-        "CIERRE_MISION",
-        "Cierre operacional de la misión tras repliegue"
-      )
-    );
-  } else if (
-    mision.actualizado_en &&
-    new Date(mision.actualizado_en).getTime() !== new Date(mision.creado_en).getTime()
-  ) {
-    bitacoraTiempos.push(
-      desglosarHitoTiempo(
-        mision.actualizado_en,
-        "ACTUALIZACION_ESTADO",
-        `Última actualización de estado registrada (${mision.estado})`
-      )
-    );
+    if (mision.fecha_cierre) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          mision.fecha_cierre,
+          "CIERRE_MISION",
+          "Cierre operacional de la misión tras repliegue"
+        )
+      );
+    } else if (
+      mision.actualizado_en &&
+      new Date(mision.actualizado_en).getTime() !== new Date(mision.creado_en).getTime()
+    ) {
+      bitacoraTiempos.push(
+        desglosarHitoTiempo(
+          mision.actualizado_en,
+          "ACTUALIZACION_ESTADO",
+          `Última actualización de estado registrada (${mision.estado})`
+        )
+      );
+    }
   }
 
   // 2. Mapeo de Reportes de Terreno y Evidencias Multimedia
@@ -233,6 +262,12 @@ export async function obtenerDetalleMisionService(
     estado: mision.estado as MisionDetalleCompleto["estado"],
     prioridad: mision.prioridad as MisionDetalleCompleto["prioridad"],
     justificacionRechazo: mision.justificacion_rechazo,
+    ...(mision.trazabilidad_notificacion
+      ? {
+          trazabilidadNotificacion:
+            mision.trazabilidad_notificacion as MisionDetalleCompleto["trazabilidadNotificacion"],
+        }
+      : {}),
     fechaInicio: formatearFechaIso(mision.fecha_inicio),
     fechaCierre: formatearFechaIso(mision.fecha_cierre),
     creadoEn: formatearFechaIso(mision.creado_en) || new Date().toISOString(),
@@ -309,3 +344,381 @@ export async function reportarLlegadaCuadrillaService(
   };
 }
 
+// ========================================================
+// HU-21: Asignar Cuadrilla a Incidente y Liberar Patrulla
+// ========================================================
+
+export async function asignarCuadrillaMisionService(
+  input: AsignarCuadrillaMisionInput,
+  usuarioId: string
+): Promise<AsignarCuadrillaMisionResponse> {
+  // 1. Ejecutar transacción atómica en repositorio
+  const resultado = await asignarCuadrillaIncidenteRepo(input, usuarioId);
+
+  // 2. Notificaciones WebSocket reactivas
+  try {
+    // a) Misión asignada a la cuadrilla y al Centro de Mando
+    notificarMisionAsignada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      tipoMision: resultado.mision.tipoMision,
+      cuadrillaId: resultado.cuadrilla.id,
+      incidenteId: resultado.incidente.id,
+      asignadoEn: resultado.mision.creadoEn,
+    });
+
+    // BUG-H21-API-05: Emisión de cuadrilla actualizada a estado EN_MISION
+    emitirCuadrillaActualizada({
+      id: resultado.cuadrilla.id,
+      nombre: resultado.cuadrilla.nombre,
+      estado: "EN_MISION",
+      delegacionId: resultado.cuadrilla.delegacionId,
+    });
+
+    // b) Si existía patrulla verificadora previa, notificar su liberación
+    if (resultado.patrullaLiberada) {
+      notificarPatrullaLiberada({
+        patrullaId: resultado.patrullaLiberada.id,
+        nombre: resultado.patrullaLiberada.nombre,
+        misionPreviaId: resultado.patrullaLiberada.misionPreviaId,
+        incidenteId: resultado.incidente.id,
+        estado: "DISPONIBLE",
+        liberadaEn: new Date().toISOString(),
+      });
+
+      notificarPatrullaActualizada({
+        patrullaId: resultado.patrullaLiberada.id,
+        nombre: resultado.patrullaLiberada.nombre,
+        estado: "DISPONIBLE",
+        delegacionId: null,
+        usuarioLiderId: null,
+        misionActivaId: null,
+        incidenteId: null,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
+
+    // c) Notificar actualización de estado del incidente al Centro de Mando
+    notificarIncidenteActualizado({
+      id: resultado.incidente.id,
+      codigo: resultado.incidente.codigo,
+      nuevoEstado: "EN_ATENCION",
+      prioridad: resultado.incidente.prioridad,
+      actualizadoEn: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras asignar cuadrilla:", error);
+  }
+
+  // 3. Estructurar respuesta DTO
+  const mensaje = resultado.patrullaLiberada
+    ? `Cuadrilla '${resultado.cuadrilla.nombre}' asignada exitosamente al incidente ${resultado.incidente.codigo}. La patrulla verificadora previa ha sido liberada a estado DISPONIBLE.`
+    : `Cuadrilla '${resultado.cuadrilla.nombre}' asignada exitosamente al incidente ${resultado.incidente.codigo}.`;
+
+  return {
+    message: mensaje,
+    data: {
+      mision: resultado.mision,
+      cuadrilla: resultado.cuadrilla,
+      incidente: resultado.incidente,
+      patrullaLiberada: resultado.patrullaLiberada,
+      hitoCuadrilla: resultado.hitoCuadrilla,
+      hitoPatrulla: resultado.hitoPatrulla,
+    },
+  };
+}
+
+/**
+ * HU-20 - Servicio de negocio para asignar y despachar una patrulla verificadora disponible
+ * a un incidente en estado REPORTADO.
+ *
+ * 1. Ejecuta la transacción atómica en persistencia.
+ * 2. Emite eventos reactivos Socket.io a través del broker Redis:
+ *    - 'mision:asignada' a la sala de la patrulla ('patrulla:{id}') y 'encargado'.
+ *    - 'incidente:actualizado' a las salas 'encargado' y 'mapa' (mueve Kanban a 'VERIFICANDO').
+ *    - 'patrulla:actualizada' para actualizar la disponibilidad en el mapa y listados.
+ */
+export async function asignarPatrullaVerificacionService(
+  input: CrearMisionVerificacionInput,
+  operadorId: string
+): Promise<CrearMisionResponse> {
+  const resultado = await crearMisionVerificacionRepo(input, operadorId);
+
+  const patrullaRoom = `patrulla:${resultado.patrulla.id}`;
+  const patrullaConectada = await tieneConexionEnSala(patrullaRoom);
+
+  let notificacionActualizada = resultado.notificacion;
+  if (patrullaConectada) {
+    const enviada = await marcarNotificacionEnviadaRepo(resultado.notificacion.id);
+    if (enviada) {
+      notificacionActualizada = enviada;
+    }
+  }
+
+  // Emitir eventos WebSocket en segundo plano
+  try {
+    notificarMisionAsignada({
+      notificacionId: notificacionActualizada.id,
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      tipoMision: resultado.mision.tipoMision,
+      patrullaId: resultado.patrulla.id,
+      incidenteId: resultado.incidente.id,
+      incidenteCodigo: resultado.incidente.codigo,
+      incidenteFolio: resultado.incidente.folio ?? null,
+      tipoAfectacion: resultado.incidente.tipoAfectacion ?? null,
+      direccion: resultado.incidente.direccion ?? null,
+      prioridad: resultado.mision.prioridad,
+      asignadoEn: resultado.mision.creadoEn,
+    });
+
+    if (patrullaConectada) {
+      notificarTrazabilidadActualizada({
+        notificacionId: notificacionActualizada.id,
+        misionId: resultado.mision.id,
+        patrullaId: resultado.patrulla.id,
+        estado: notificacionActualizada.estado,
+        intentosEnvio: notificacionActualizada.intentosEnvio,
+        creadaAt: notificacionActualizada.creadaAt,
+        enviadaAt: notificacionActualizada.enviadaAt,
+        recibidaAt: notificacionActualizada.recibidaAt,
+        leidaAt: notificacionActualizada.leidaAt,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
+
+    notificarIncidenteActualizado({
+      id: resultado.incidente.id,
+      codigo: resultado.incidente.codigo,
+      nuevoEstado: resultado.incidente.estado,
+      prioridad: resultado.incidente.prioridad,
+      actualizadoEn: new Date().toISOString(),
+    });
+
+    notificarPatrullaActualizada({
+      patrullaId: resultado.patrulla.id,
+      nombre: resultado.patrulla.nombre,
+      estado: resultado.patrulla.estado,
+      delegacionId: resultado.patrulla.delegacionId,
+      usuarioLiderId: resultado.patrulla.usuarioLiderId,
+      misionActivaId: resultado.mision.id,
+      incidenteId: resultado.incidente.id,
+      actualizadoEn: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras asignar patrulla:", error);
+  }
+
+  return {
+    message: "Misión de verificación creada y patrulla despachada exitosamente.",
+    data: {
+      mision: resultado.mision,
+      incidente: {
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        estado: resultado.incidente.estado,
+      },
+      patrulla: {
+        id: resultado.patrulla.id,
+        nombre: resultado.patrulla.nombre,
+        estado: resultado.patrulla.estado,
+      },
+      hitoInicial: resultado.hitoInicial,
+      notificacion: notificacionActualizada,
+    },
+  };
+}
+/**
+ * HU-36 / HU-40 - Servicio de negocio para confirmar y aceptar una misión asignada
+ * a una patrulla verificadora (HU-36) o a una cuadrilla operativa (HU-40).
+ *
+ * 1. Ejecuta la transición atómica en base de datos (`DESPACHADA` -> `EN_CURSO`, `fecha_inicio = CURRENT_TIMESTAMP`,
+ *    registro de hito `'MISION_ACEPTADA'` en `mision_hito`).
+ * 2. Para cuadrilla (HU-40): actualiza `cuadrilla.estado = 'EN_MISION'`, `incidente.estado = 'EN_ATENCION'`,
+ *    y emite `mision:actualizada`, `incidente:actualizado` y `cuadrilla:actualizada` al Centro de Mando.
+ * 3. Para patrulla (HU-36): mantiene patrulla en `EN_VERIFICACION` e incidente en `VERIFICANDO`,
+ *    y emite `mision:actualizada`.
+ */
+export async function aceptarMisionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin = false,
+  input?: AceptarMisionInput,
+  opcionesPermiso?: {
+    puedeEjecutarCuadrilla?: boolean;
+    puedeVerificarPatrulla?: boolean;
+  }
+): Promise<AceptarMisionResponse> {
+  const resultado = opcionesPermiso
+    ? await aceptarMisionPatrullaRepo(misionId, usuarioId, esAdmin, input, opcionesPermiso)
+    : await aceptarMisionPatrullaRepo(misionId, usuarioId, esAdmin, input);
+
+  if (resultado.cuadrilla) {
+    try {
+      notificarMisionActualizada({
+        misionId: resultado.mision.id,
+        codigo: resultado.mision.codigo,
+        estado: resultado.mision.estado,
+        tipoMision: resultado.mision.tipoMision,
+        patrullaId: resultado.mision.patrullaId,
+        cuadrillaId: resultado.mision.cuadrillaId ?? resultado.cuadrilla.id,
+        cuadrillaNombre: resultado.cuadrilla.nombre,
+        incidenteId: resultado.mision.incidenteId,
+        incidenteCodigo: resultado.incidente?.codigo ?? null,
+        prioridad: resultado.incidente?.prioridad ?? resultado.mision.prioridad,
+        fechaInicio: resultado.mision.fechaInicio,
+        hito: {
+          id: resultado.hito.id,
+          hito: resultado.hito.hito,
+          descripcion: resultado.hito.descripcion,
+          registradoPorId: resultado.hito.registradoPorId,
+          creadoEn: resultado.hito.creadoEn,
+        },
+        actualizadoEn: resultado.mision.actualizadoEn,
+      });
+
+      if (resultado.incidente?.id) {
+        notificarIncidenteActualizado({
+          id: resultado.incidente.id,
+          codigo: resultado.incidente.codigo,
+          nuevoEstado: resultado.incidente.estado || "EN_ATENCION",
+          prioridad: resultado.incidente.prioridad ?? resultado.mision.prioridad,
+          actualizadoEn: resultado.mision.actualizadoEn,
+        });
+      }
+
+      emitirCuadrillaActualizada({
+        id: resultado.cuadrilla.id,
+        nombre: resultado.cuadrilla.nombre,
+        estado: resultado.cuadrilla.estado,
+        delegacionId: resultado.cuadrilla.delegacionId ?? null,
+      });
+    } catch (error) {
+      console.error("Error al emitir eventos WebSocket tras aceptar asignación de cuadrilla:", error);
+    }
+
+    return {
+      message:
+        "Asignación de misión aceptada exitosamente. La cuadrilla inicia el desplazamiento y asume la atención del incidente.",
+      data: {
+        mision: resultado.mision,
+        cuadrilla: {
+          id: resultado.cuadrilla.id,
+          nombre: resultado.cuadrilla.nombre,
+          estado: resultado.cuadrilla.estado,
+          delegacionId: resultado.cuadrilla.delegacionId ?? null,
+        },
+        patrulla: resultado.patrulla,
+        incidente: resultado.incidente,
+        hito: resultado.hito,
+      },
+    };
+  }
+
+  try {
+    notificarMisionActualizada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      estado: resultado.mision.estado,
+      tipoMision: resultado.mision.tipoMision,
+      patrullaId: resultado.mision.patrullaId,
+      patrullaNombre: resultado.patrulla?.nombre ?? null,
+      incidenteId: resultado.mision.incidenteId,
+      incidenteCodigo: resultado.incidente?.codigo ?? null,
+      prioridad: resultado.mision.prioridad,
+      fechaInicio: resultado.mision.fechaInicio,
+      hito: {
+        id: resultado.hito.id,
+        hito: resultado.hito.hito,
+        descripcion: resultado.hito.descripcion,
+        registradoPorId: resultado.hito.registradoPorId,
+        creadoEn: resultado.hito.creadoEn,
+      },
+      actualizadoEn: resultado.mision.actualizadoEn,
+    });
+  } catch (error) {
+    console.error("Error al emitir evento WebSocket mision:actualizada:", error);
+  }
+
+  return {
+    message:
+      "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
+    data: {
+      mision: resultado.mision,
+      patrulla: resultado.patrulla,
+      incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
+
+export async function rechazarMisionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: RechazarMisionInput
+): Promise<RechazarMisionResponse> {
+  const resultado = await rechazarMisionPatrullaRepo(
+    misionId,
+    usuarioId,
+    input.justificacionRechazo,
+    esAdmin,
+    {
+      latitud: input.latitud,
+      longitud: input.longitud,
+    }
+  );
+
+  // Emitir eventos en tiempo real
+  try {
+    notificarMisionRechazada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      tipoMision: "VERIFICACION",
+      motivo: resultado.mision.justificacionRechazo,
+      justificacionRechazo: resultado.mision.justificacionRechazo,
+      patrullaId: resultado.patrulla.id || null,
+      patrullaNombre: resultado.patrulla.nombre,
+      incidenteId: resultado.incidente.id || null,
+      incidenteCodigo: resultado.incidente.codigo,
+      rechazadoPorId: usuarioId,
+      rechazadoEn: resultado.mision.actualizadoEn,
+    });
+
+    if (resultado.incidente.id) {
+      notificarIncidenteActualizado({
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        nuevoEstado: resultado.incidente.estado,
+        prioridad: resultado.incidente.prioridad,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
+
+    if (resultado.patrulla.id) {
+      notificarPatrullaActualizada({
+        patrullaId: resultado.patrulla.id,
+        nombre: resultado.patrulla.nombre,
+        estado: resultado.patrulla.estado,
+        delegacionId: resultado.patrulla.delegacionId ?? null,
+        usuarioLiderId: resultado.patrulla.usuarioLiderId ?? null,
+        misionActivaId: null,
+        incidenteId: null,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras rechazar misión:", error);
+  }
+
+  return {
+    message:
+      "Misión rechazada exitosamente. El incidente ha vuelto a estado REPORTADO para su reasignación.",
+    data: {
+      mision: resultado.mision,
+      patrulla: resultado.patrulla,
+      incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
