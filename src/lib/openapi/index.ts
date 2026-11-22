@@ -198,6 +198,11 @@ import {
   AsignarAsistenteSocialResponseSchema,
   FamiliaAfectadaSocialSchema,
   DetallesEvaluacionSocialSchema,
+  EventoAsistenciaSocialResumenSchema,
+  IncidenteAsistenciaSocialParamSchema,
+  DerivarAsistenciaSocialIncidenteInputSchema,
+  HitoDerivacionSocialSchema,
+  DerivarAsistenciaSocialIncidenteResponseSchema,
 } from "@/modules/eventos-atp/asistencia-social.schema";
 
 import {
@@ -314,6 +319,10 @@ registry.register("DetallesEvaluacionSocial", DetallesEvaluacionSocialSchema);
 registry.register("CrearEventoAsistenciaSocialInput", CrearEventoAsistenciaSocialInputSchema);
 registry.register("EventoAsistenciaSocialResponse", EventoAsistenciaSocialResponseSchema);
 registry.register("ListarEventosAsistenciaSocialResponse", ListarEventosAsistenciaSocialResponseSchema);
+registry.register("EventoAsistenciaSocialResumen", EventoAsistenciaSocialResumenSchema);
+registry.register("DerivarAsistenciaSocialIncidenteInput", DerivarAsistenciaSocialIncidenteInputSchema);
+registry.register("HitoDerivacionSocial", HitoDerivacionSocialSchema);
+registry.register("DerivarAsistenciaSocialIncidenteResponse", DerivarAsistenciaSocialIncidenteResponseSchema);
 registry.register("CrearEventoAtpInput", CrearEventoAtpInputSchema);
 registry.register("EventoAtpResponse", EventoAtpResponseSchema);
 registry.register("CrearEventoAtpResponse", CrearEventoAtpResponseSchema);
@@ -2106,6 +2115,69 @@ registry.registerPath({
     409: {
       description:
         "Conflicto de estado (evento no está en PENDIENTE) o el usuario seleccionado no tiene rol ASISTENTE_SOCIAL / no está disponible",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// POST /api/incidentes/{id}/asistencia-social (HU-25)
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/{id}/asistencia-social",
+  description:
+    "Deriva un incidente en estado RESUELTO con afectación a personas (personas_afectadas > 0) o marca social (requiere_asistencia_social = true) hacia Asistencia Social (DGRD / FIBE), creando o actualizando un registro en evento_asistencia_social en estado ASIGNADO, copiando contacto y dirección del incidente, registrando el hito DERIVACION_ASISTENCIA_SOCIAL en mision_hito y emitiendo asistencia_social:creada vía WebSocket.",
+  summary: "Derivar incidente resuelto a Asistencia Social (FIBE / DGRD) (HU-25)",
+  tags: ["Incidentes", "Eventos ATP - Asistencia Social"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer del usuario con permiso 'asistencia_social:crear'" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
+    }),
+    params: IncidenteAsistenciaSocialParamSchema,
+    body: {
+      description:
+        "UUID del asistente social disponible a asignar y observaciones/prioridad opcionales",
+      content: {
+        "application/json": {
+          schema: DerivarAsistenciaSocialIncidenteInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description:
+        "Evento de asistencia social previo en estado PENDIENTE o ASIGNADO actualizado y profesional asignado en estado ASIGNADO",
+      content: {
+        "application/json": {
+          schema: DerivarAsistenciaSocialIncidenteResponseSchema,
+        },
+      },
+    },
+    201: {
+      description:
+        "Nuevo evento de asistencia social creado en estado ASIGNADO a partir del incidente resuelto",
+      content: {
+        "application/json": {
+          schema: DerivarAsistenciaSocialIncidenteResponseSchema,
+        },
+      },
+    },
+    400: { description: "Identificador de incidente o cuerpo de solicitud inválido" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Se requiere permiso 'asistencia_social:crear'" },
+    404: { description: "Incidente o usuario asistente social no encontrado" },
+    409: {
+      description:
+        "Incidente no está en estado RESUELTO, no registra afectación/marca social, el profesional no posee rol ASISTENTE_SOCIAL disponible o el evento social vinculado ya está en evaluación FIBE / finalizado",
     },
     500: { description: "Error interno del servidor" },
   },

@@ -6,6 +6,7 @@ import {
 import {
   emitirAsistenciaSocialCreada,
   emitirAsistenciaSocialActualizada,
+  notificarIncidenteActualizado,
 } from "@/lib/socket";
 import {
   generarSiguienteCodigoAsistenciaSocial,
@@ -13,6 +14,7 @@ import {
   listarEventosAsistenciaSocialPaginados,
   contarEventosAsistenciaSocial,
   asignarAsistenteSocialEventoRepo,
+  derivarIncidenteAAsistenciaSocialRepo,
   AsistenteSocialRepoError,
   type FilaEventoAsistenciaSocialConRelaciones,
   type DatosInsertarEventoAsistenciaSocialRepo,
@@ -21,10 +23,13 @@ import {
   CrearEventoAsistenciaSocialInputSchema,
   ListarEventosAsistenciaSocialQuerySchema,
   AsignarAsistenteSocialInputSchema,
+  DerivarAsistenciaSocialIncidenteInputSchema,
   DetallesEvaluacionSocialSchema,
   type CrearEventoAsistenciaSocialInput,
   type ListarEventosAsistenciaSocialQuery,
   type AsignarAsistenteSocialInput,
+  type DerivarAsistenciaSocialIncidenteInput,
+  type DerivarAsistenciaSocialIncidenteResponse,
   type EventoAsistenciaSocialResponse,
   type ListarEventosAsistenciaSocialResponse,
   type PrioridadEventoAsistenciaSocial,
@@ -59,6 +64,31 @@ export class AsistenteSocialNoDisponibleError extends Error {
   constructor(message = "El usuario seleccionado no tiene rol ASISTENTE_SOCIAL o no está disponible.") {
     super(message);
     this.name = "AsistenteSocialNoDisponibleError";
+  }
+}
+
+export class IncidenteNoEncontradoError extends Error {
+  constructor(message = "El incidente especificado no existe.") {
+    super(message);
+    this.name = "IncidenteNoEncontradoError";
+  }
+}
+
+export class IncidenteNoElegibleAsistenciaSocialError extends Error {
+  constructor(
+    message = "El incidente debe estar en estado RESUELTO y registrar afectación o marca de asistencia social."
+  ) {
+    super(message);
+    this.name = "IncidenteNoElegibleAsistenciaSocialError";
+  }
+}
+
+export class EventoAsistenciaSocialEnProcesoError extends Error {
+  constructor(
+    message = "El incidente ya posee un evento de asistencia social en evaluación FIBE o finalizado."
+  ) {
+    super(message);
+    this.name = "EventoAsistenciaSocialEnProcesoError";
   }
 }
 
@@ -249,6 +279,9 @@ export function mapearFilaEventoAsistenciaSocial(
     delegacionId: fila.delegacion_id ?? null,
     delegacionNombre: fila.delegacion_nombre ?? null,
     incidenteId: fila.incidente_id ?? null,
+    ...(fila.incidente_codigo !== undefined
+      ? { incidenteCodigo: fila.incidente_codigo ?? null }
+      : {}),
     asistenteSocialId: fila.asistente_social_id ?? null,
     asistenteSocialNombre: fila.asistente_social_nombre ?? null,
     detallesEvaluacion: parsearDetallesEvaluacionFila(fila.detalles_evaluacion),
@@ -426,4 +459,128 @@ export async function asignarAsistenteSocialService(
   emitirAsistenciaSocialActualizada(respuesta);
 
   return respuesta;
+}
+
+function parsearMetadatosHitoDefensivo(
+  raw: Record<string, unknown> | string | null | undefined
+): Record<string, unknown> | null {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    return raw;
+  }
+  return null;
+}
+
+/**
+ * Servicio para derivar un incidente RESUELTO con afectación a personas o marca social
+ * hacia Asistencia Social, creando o actualizando su registro en `evento_asistencia_social`
+ * en estado `ASIGNADO` (HU-25), registrando trazabilidad en `mision_hito` y emitiendo
+ * eventos en tiempo real vía Socket.io.
+ */
+export async function derivarIncidenteAAsistenciaSocialService(
+  incidenteId: string,
+  input: DerivarAsistenciaSocialIncidenteInput,
+  usuarioId: string
+): Promise<DerivarAsistenciaSocialIncidenteResponse> {
+  // 1. Control de Acceso RBAC: Requiere permiso asistencia_social:crear
+  const usuario = await verificarPermiso(usuarioId, PERMISO_CREAR_ASISTENCIA_SOCIAL);
+
+  // 2. Validar payload de entrada
+  const datosValidados = DerivarAsistenciaSocialIncidenteInputSchema.parse(input);
+
+  // 3. Ejecutar derivación atómica en repositorio Kysely
+  const resultado = await derivarIncidenteAAsistenciaSocialRepo({
+    incidenteId,
+    asistenteSocialId: datosValidados.asistenteSocialId,
+    usuarioId: usuario.id,
+    observaciones: datosValidados.observaciones ?? null,
+    prioridad: datosValidados.prioridad,
+  });
+
+  if (!resultado.ok) {
+    switch (resultado.motivo) {
+      case "INCIDENTE_NO_ENCONTRADO":
+        throw new IncidenteNoEncontradoError(resultado.detalle);
+      case "ASISTENTE_NO_ENCONTRADO":
+        throw new AsistenteSocialNotFoundError(resultado.detalle);
+      case "ASISTENTE_NO_ELEGIBLE":
+        throw new AsistenteSocialNoDisponibleError(resultado.detalle);
+      case "EVENTO_EN_PROCESO_O_FINALIZADO":
+        throw new EventoAsistenciaSocialEnProcesoError(resultado.detalle);
+      case "INCIDENTE_NO_RESUELTO":
+      case "INCIDENTE_SIN_AFECTACION_SOCIAL":
+        throw new IncidenteNoElegibleAsistenciaSocialError(resultado.detalle);
+    }
+  }
+
+  const eventoDto = mapearFilaEventoAsistenciaSocial(resultado.evento);
+
+  const hitoDto = resultado.hito
+    ? {
+        id: resultado.hito.id,
+        misionId: resultado.hito.mision_id,
+        hito: resultado.hito.hito,
+        descripcion: resultado.hito.descripcion,
+        registradoPorId: resultado.hito.registrado_por_id ?? null,
+        metadatos: parsearMetadatosHitoDefensivo(resultado.hito.metadatos),
+        creadoEn:
+          resultado.hito.creado_en instanceof Date
+            ? resultado.hito.creado_en.toISOString()
+            : new Date(resultado.hito.creado_en).toISOString(),
+      }
+    : null;
+
+  // 4. Notificaciones en tiempo real (CA-5): sala asistente_social y encargado
+  emitirAsistenciaSocialCreada(eventoDto);
+  if (resultado.accion === "ACTUALIZADO") {
+    emitirAsistenciaSocialActualizada(eventoDto);
+  }
+
+  const incidenteActualizadoIso =
+    resultado.incidente.actualizado_en instanceof Date
+      ? resultado.incidente.actualizado_en.toISOString()
+      : new Date(resultado.incidente.actualizado_en).toISOString();
+
+  notificarIncidenteActualizado({
+    id: resultado.incidente.id,
+    codigo: resultado.incidente.codigo,
+    nuevoEstado: resultado.incidente.estado,
+    prioridad: resultado.incidente.prioridad,
+    requiereAsistenciaSocial: true,
+    actualizadoEn: incidenteActualizadoIso,
+    eventoAsistenciaSocial: {
+      id: eventoDto.id,
+      codigo: eventoDto.codigo,
+      estado: eventoDto.estado,
+      asistenteSocialId: eventoDto.asistenteSocialId,
+      asistenteSocialNombre: eventoDto.asistenteSocialNombre,
+      personasAfectadas: eventoDto.personasAfectadas,
+      familiasAfectadas: eventoDto.familiasAfectadas,
+      prioridad: eventoDto.prioridad,
+      actualizadoEn: eventoDto.actualizadoEn,
+    },
+    hitoDerivacionSocial: hitoDto,
+  });
+
+  const message =
+    resultado.accion === "CREADO"
+      ? "Incidente derivado a Asistencia Social y profesional asignado para levantamiento de ficha FIBE."
+      : "Asignación de Asistencia Social actualizada para el incidente resuelto (FIBE / DGRD).";
+
+  return {
+    message,
+    accion: resultado.accion,
+    data: eventoDto,
+    hito: hitoDto,
+  };
 }

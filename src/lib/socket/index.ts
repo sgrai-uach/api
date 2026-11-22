@@ -48,6 +48,8 @@ export interface IncidenteActualizadoPayload {
   fechaCierre?: string | null;
   dictamen?: string | null;
   reporteTerreno?: Record<string, unknown> | null;
+  eventoAsistenciaSocial?: Record<string, unknown> | null;
+  hitoDerivacionSocial?: Record<string, unknown> | null;
 }
 
 export type TypedSocketServer = SocketIOServer<
@@ -450,70 +452,82 @@ export function emitirRecuperacionCreada(payload: unknown): void {
 
 /**
  * Emite la notificación de nuevo evento de asistencia social creado al panel de eventos pendientes
- * y a las vistas de Encargado, Asistente Social y Administrador (H28).
+ * y a las vistas de Asistente Social, Encargado, Centro de Mando y Administrador (H28 / HU-25).
  */
 export function emitirAsistenciaSocialCreada(payload: unknown): void {
+  const salas = [
+    "asistente_social",
+    "encargado",
+    "sala:encargados",
+    "centro_mando",
+    "administrador",
+  ];
+
   const io = getSocketServer();
   if (io) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io.to("sala:encargados") as any).emit("asistencia_social:creada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io.to("encargado") as any).emit("asistencia_social:creada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io.to("asistente_social") as any).emit("asistencia_social:creada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io.to("administrador") as any).emit("asistencia_social:creada", payload);
-    // Difusión general para actualización reactiva del panel de pendientes
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io as any).emit("asistencia_social:creada", payload);
+    for (const sala of salas) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (io.to(sala) as any).emit("asistencia_social:creada", payload);
+    }
+    if (typeof (io as { emit?: unknown }).emit === "function") {
+      // Difusión general para actualización reactiva en clientes suscritos al evento
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (io as any).emit("asistencia_social:creada", payload);
+    }
     return;
   }
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "sala:encargados",
-          event: "asistencia_social:creada",
-          payload,
-        })
-      )
-      .catch(() => {});
-  }
-}
-
-/**
- * Emite la notificación de evento de asistencia social actualizado (ej. asignación de asistente social en H31)
- * hacia la sala `asistente_social`, `centro_mando` y salas operativas de Encargado/Administrador.
- */
-export function emitirAsistenciaSocialActualizada(payload: unknown): void {
-  const io = getSocketServer();
-  if (io) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io.to("asistente_social") as any).emit("asistencia_social:actualizada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io.to("centro_mando") as any).emit("asistencia_social:actualizada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io.to("sala:encargados") as any).emit("asistencia_social:actualizada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io.to("encargado") as any).emit("asistencia_social:actualizada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io.to("administrador") as any).emit("asistencia_social:actualizada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io as any).emit("asistencia_social:actualizada", payload);
-    return;
-  }
-
-  const publisher = getRedisPublisher();
-  if (publisher) {
-    for (const room of ["asistente_social", "centro_mando", "sala:encargados"]) {
+    for (const sala of salas) {
       publisher
         .publish(
           REDIS_SOCKET_CHANNEL,
           JSON.stringify({
-            room,
+            room: sala,
+            event: "asistencia_social:creada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
+  }
+}
+
+/**
+ * Emite la notificación de evento de asistencia social actualizado (ej. asignación en H31 / reasignación en H25)
+ * hacia la sala `asistente_social`, `centro_mando` y salas operativas de Encargado/Administrador.
+ */
+export function emitirAsistenciaSocialActualizada(payload: unknown): void {
+  const salas = [
+    "asistente_social",
+    "centro_mando",
+    "sala:encargados",
+    "encargado",
+    "administrador",
+  ];
+
+  const io = getSocketServer();
+  if (io) {
+    for (const sala of salas) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (io.to(sala) as any).emit("asistencia_social:actualizada", payload);
+    }
+    if (typeof (io as { emit?: unknown }).emit === "function") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (io as any).emit("asistencia_social:actualizada", payload);
+    }
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    for (const sala of salas) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room: sala,
             event: "asistencia_social:actualizada",
             payload,
           })
