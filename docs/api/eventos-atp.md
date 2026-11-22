@@ -69,6 +69,7 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
 | `PATCH` | `/api/eventos-atp/asistencia-social/{id}` | Asignar un asistente social disponible a un evento en estado `PENDIENTE`, transicionando atómicamente a `ASIGNADO` (H31). |
+| `POST` | `/api/incidentes/{id}/asistencia-social` | Derivar un incidente en estado `RESUELTO` con afectación de personas o marca social hacia Asistencia Social (DGRD / FIBE), asignando profesional en estado inicial `ASIGNADO` y registrando hito en `mision_hito` (HU-25). |
 | `POST` | `/api/eventos-atp` | Registrar el marco oficial de un Evento de Alerta Temprana Preventiva con alcance territorial, estado `ACTIVO` y notificación Socket.io (H61). |
 
 > Nota: Los contratos OpenAPI 3.0 se autogeneran a partir de los esquemas Zod y están expuestos públicamente en `GET /openapi.json`.
@@ -834,14 +835,14 @@ Al completar exitosamente la transacción de creación del evento preventivo, el
 
 ### Evento: `asistencia_social:creada`
 
-Al registrar exitosamente un evento de asistencia social excepcional, el backend emite:
+Al registrar exitosamente un evento excepcional de asistencia social (H28) o al derivar un incidente resuelto hacia Asistencia Social (HU-25), el backend emite:
 
 * **Evento:** `asistencia_social:creada`
-* **Salas:** `"sala:encargados"`, `"encargado"`, `"asistente_social"`, `"administrador"` y difusión general.
-* **Payload:** Objeto del evento recién registrado (idéntico a la propiedad `data` de `POST /api/eventos-atp/asistencia-social`).
+* **Salas:** `"asistente_social"`, `"encargado"`, `"sala:encargados"`, `"centro_mando"`, `"administrador"` y difusión general (tanto en Socket.io como en Redis Pub/Sub).
+* **Payload:** Objeto completo del evento social (`EventoAsistenciaSocialResponse`, incluyendo `incidenteId` e `incidenteCodigo` si proviene de HU-25).
 * **Propósito en Frontend (`sgrai-web`):**
-  - Incorporar de forma inmediata el nuevo registro en el panel de eventos pendientes para la asignación de asistentes sociales.
-  - Notificar en tiempo real al Encargado y a los Asistentes Sociales sin necesidad de recargar la página.
+  - Incorporar de forma inmediata el nuevo caso asignado o pendiente en las bandejas de `encargado` y `asistente_social`.
+  - Notificar en tiempo real para iniciar el levantamiento de la Ficha Básica de Emergencia (FIBE) en la DGRD sin recargar la página.
 
 ---
 
@@ -1225,18 +1226,63 @@ La ruta y sus esquemas quedan publicados en `GET /openapi.json`:
 
 ---
 
-## Ciclo de Estados y Asignación de Eventos de Asistencia Social (H31)
+## Ciclo de Estados y Asignación de Eventos de Asistencia Social (H31 / HU-25)
 
 ### Ciclo de Vida del Evento de Asistencia Social
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PENDIENTE: Creación manual (H28)
-    PENDIENTE --> ASIGNADO: Asignar Asistente Social (H31)
+    [*] --> PENDIENTE: Creación manual sin profesional (H28)
+    [*] --> ASIGNADO: Derivación post-incidente resuelto (HU-25) o creación con asignación inmediata (H31)
+    PENDIENTE --> ASIGNADO: Asignar Asistente Social (H31 PATCH o HU-25 Upsert)
     PENDIENTE --> DESCARTADO: Descarte administrativo
+    ASIGNADO --> ASIGNADO: Reasignación o actualización post-incidente antes de FIBE (HU-25)
     ASIGNADO --> EN_EVALUACION_FIBE: Inicio evaluación FIBE
-    EN_EVALUACION_FIBE --> FINALIZADO: Cierre de caso social
+    EN_EVALUACION_FIBE --> FINALIZADO: Cierre de caso social (DGRD)
+    FINALIZADO --> [*]
+    DESCARTADO --> [*]
 ```
+
+### Diagrama de Secuencia — Derivación Post-Incidente Resuelto (HU-25)
+
+```mermaid
+sequenceDiagram
+    actor Encargado
+    participant Web as sgrai-web
+    participant API as sgrai-api
+    participant DB as PostgreSQL / Kysely
+    participant WS as Socket.io / Redis PubSub
+
+    Encargado->>Web: Presiona "Derivar a Asistencia Social" en incidente RESUELTO
+    Web->>API: GET /api/personal?rolCodigo=ASISTENTE_SOCIAL&estadoOperativo=disponible
+    API-->>Web: 200 OK (profesionales elegibles)
+    Encargado->>Web: Selecciona Asistente Social y confirma
+    Web->>API: POST /api/incidentes/{id}/asistencia-social { asistenteSocialId, observaciones?, prioridad? }
+    API->>API: Auth + verificarPermiso("asistencia_social:crear")
+    API->>DB: Transacción FOR UPDATE incidente + reportes + validar ASISTENTE_SOCIAL disponible
+    API->>DB: Upsert evento_asistencia_social (estado = ASIGNADO, contacto, dirección, PostGIS, detalles)
+    API->>DB: UPDATE incidente.requiere_asistencia_social = true + INSERT mision_hito (DERIVACION_ASISTENCIA_SOCIAL)
+    API->>WS: asistencia_social:creada (asistente_social, encargado, sala:encargados, centro_mando, administrador)
+    API->>WS: incidente:actualizado (sala:encargados, encargado, mapa)
+    API-->>Web: 201 Created / 200 OK { message, accion, data, hito }
+```
+
+### Detalle de Endpoint: `POST /api/incidentes/{id}/asistencia-social` (HU-25 / Issue #59)
+
+Deriva formalmente un incidente cerrado en estado **`RESUELTO`** con afectación a personas (`personas_afectadas > 0`) o marca social (`requiere_asistencia_social = true`) hacia `evento_asistencia_social` en estado inicial **`ASIGNADO`**, asignando un profesional con rol `ASISTENTE_SOCIAL` en estado `disponible`.
+
+#### Reglas de Negocio Aplicadas
+1. **Control de Acceso RBAC:** Requiere el permiso `asistencia_social:crear` (`Encargado` o `Administrador`).
+2. **Elegibilidad del Incidente:** Exige que el incidente se encuentre en estado `RESUELTO` y registre al menos 1 persona damnificada (`personas_afectadas > 0`) o `requiere_asistencia_social = true` (a nivel de incidente o reporte en terreno). En caso contrario retorna `409 Conflict`.
+3. **Upsert Transaccional e Índice Único Parcial (Migración `084`):** Dentro de transacción con bloqueo pesimista (`FOR UPDATE` sobre `incidente`), inserta un nuevo registro en `ASIGNADO` (`201 Created`, `accion: "CREADO"`) o actualiza un registro previo en `PENDIENTE`/`ASIGNADO` (`200 OK`, `accion: "ACTUALIZADO"`). Si el evento vinculado ya se encuentra en `EN_EVALUACION_FIBE` o `FINALIZADO`, rechaza con `409 Conflict`.
+4. **Copiado de Contacto, Dirección y Catastro Preliminar:** Copia dirección, coordenadas PostGIS (`EPSG:4326`), prioridad y contacto del incidente/reportes (`familias[]`, `informante`, `aviso_incidente`, `asterisk_caller_phone`), fijando `incidente.requiere_asistencia_social = true`.
+5. **Trazabilidad en Bitácora (`mision_hito`):** Inserta el hito `DERIVACION_ASISTENCIA_SOCIAL` con el código del evento y profesional asignado (expuesto además en `GET /api/incidentes/{id}` mediante `bitacoraHitos`).
+6. **Regla de Negocio §3.5 (Exclusividad FIBE / DGRD):** No existe módulo ni entidad de albergues; toda vulnerabilidad derivada mediante este flujo corresponde exclusivamente al levantamiento de la **Ficha Básica de Emergencia (FIBE)** y beneficios administrados por la **DGRD**.
+7. **Notificación en Tiempo Real:** Emite `asistencia_social:creada` (y `asistencia_social:actualizada` cuando `accion === "ACTUALIZADO"`) hacia `asistente_social`, `encargado`, `sala:encargados`, `centro_mando` y `administrador` (Socket.io y Redis Pub/Sub), además de `incidente:actualizado`.
+
+#### Filtros Adicionales en `GET /api/eventos-atp/asistencia-social`
+- `incidenteId` (UUID): filtra eventos vinculados a un incidente específico.
+- `asistenteSocialId` (UUID): filtra eventos asignados a un profesional de Asistencia Social específico.
 
 ### Detalle de Endpoint: `PATCH /api/eventos-atp/asistencia-social/{id}` (H31)
 

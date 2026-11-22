@@ -75,7 +75,8 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 | `POST` | `/api/incidentes/verificar-duplicado` | `crear_incidente_manual` | Consultar coincidencias de incidentes cercanos en Valdivia. |
 | `GET` | `/api/incidentes/kpis` | `incidentes:kanban` | Contadores numéricos de incidentes del día agrupados por estado para el panel del Encargado (HU-18). |
 | `GET` | `/api/incidentes` | `incidentes:kanban` | Listado paginado de incidentes con filtros para el tablero Kanban del Encargado. Admite: `estado`, `prioridad`, `tipoAfectacion`, `delegacionId` (UUID), `fuenteOrigen` (`CHATBOT`, `LLAMADA_TELEFONICA`, `FUNCIONARIO_TERRENO`, `WEB`), `fecha` (YYYY-MM-DD), `soloHoy`, `busqueda`, `page`, `limit`. Retorna `data` y `meta` (estándar H34 / HU-18), proyecta `trazabilidadNotificacion` desde `notificaciones_mision` (HU-35) e incluye los indicadores persistentes de cierre de cuadrilla (`faenasCuadrillaCompletadas`, `estadoTerrenoFinal`, `horasHombreRegistradas`, `dictamenTerreno`, `totalReportesTerreno`) prioritarios en `EN_ATENCION` (HU-68). |
-| `GET` | `/api/incidentes/{id}` | `incidentes:kanban` | Detalle exhaustivo de incidente para puesto de mando (informante, misiones, cuadrillas y resumen de cierre `faenasCuadrillaCompletadas`, `estadoTerrenoFinal`, `horasHombreRegistradas`, `dictamenTerreno`). Cada elemento de `data.misiones` proyecta `trazabilidadNotificacion` (`PENDIENTE_ENVIO` \| `ENVIADA` \| `RECIBIDA` \| `LEIDA` \| `null`) desde `notificaciones_mision` (HU-35). |
+| `GET` | `/api/incidentes/{id}` | `incidentes:kanban` | Detalle exhaustivo de incidente para puesto de mando (informante, misiones, cuadrillas y resumen de cierre `faenasCuadrillaCompletadas`, `estadoTerrenoFinal`, `horasHombreRegistradas`, `dictamenTerreno`, `personasAfectadas`, `eventoAsistenciaSocial` y `bitacoraHitos`). Cada elemento de `data.misiones` proyecta `trazabilidadNotificacion` (`PENDIENTE_ENVIO` \| `ENVIADA` \| `RECIBIDA` \| `LEIDA` \| `null`) desde `notificaciones_mision` (HU-35). |
+| `POST` | `/api/incidentes/{id}/asistencia-social` | `asistencia_social:crear` | Deriva un incidente `RESUELTO` con afectación a personas (`personasAfectadas > 0`) o `requiereAsistenciaSocial = true` hacia `evento_asistencia_social` en estado `ASIGNADO`, asignando un profesional `ASISTENTE_SOCIAL` disponible para levantamiento de ficha FIBE (DGRD, Regla §3.5), registrando hito `DERIVACION_ASISTENCIA_SOCIAL` en `mision_hito` y emitiendo `asistencia_social:creada` (HU-25). |
 
 ---
 
@@ -85,6 +86,7 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
   - En `POST /api/incidentes/manual`: Se detectaron reportes similares en la zona (requiere confirmación `forzarCreacion: true`).
   - En `POST /api/incidentes/avisos/{id}/verificar` o `descartar`: El aviso ya fue gestionado concurrentemente por otro operador.
   - En `PATCH /api/incidentes/{id}/tipologia`: La patrulla debe haber aceptado la misión previamente (`estado = EN_CURSO`). Si la misión está en `DESPACHADA` o no existe misión de verificación para el incidente, se rechaza la operación.
+  - En `POST /api/incidentes/{id}/asistencia-social` (HU-25): El incidente no se encuentra en estado `RESUELTO`, no registra personas afectadas ni `requiere_asistencia_social = true`, el profesional seleccionado no tiene rol `ASISTENTE_SOCIAL` activo en estado `disponible`, o ya existe un evento de asistencia social vinculado en estado `EN_EVALUACION_FIBE` / `FINALIZADO`.
 - **`400 Bad Request`:**
   - Cuerpo JSON inválido, datos requeridos ausentes, o motivo de descarte menor a 5 caracteres.
   - En `PATCH /api/incidentes/{id}/tipologia`: Justificación ausente o menor a 5 caracteres, o tipo de incidente inactivo en base de datos.
@@ -110,7 +112,10 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
 - **`sala:encargados`:**
   - `incidente:creado`: Nueva tarjeta para la columna "Reportado" en el tablero Kanban. Invalida la caché del dashboard y gatilla el refresco automático de `GET /api/incidentes/kpis`.
   - `incidente:actualizado`: Notifica cambio de estado o reclasificación tipológica en tiempo real (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, etc.). Incluye `{ id, codigo, nuevoEstado, prioridad, tipoIncidenteId, tipoAfectacion, justificacion, actualizadoEn }` para actualizar reactivamente la tarjeta en el tablero Kanban.
-- **Campos enriquecidos en `GET /api/incidentes/{id}`:**
+- **Campos enriquecidos en `GET /api/incidentes/{id}` y `GET /api/incidentes`:**
+  - `personasAfectadas`: Cantidad consolidada de personas damnificadas constatadas en terreno (`reporte_terreno`) o en asistencia social vinculada (HU-25).
+  - `eventoAsistenciaSocial`: Resumen del evento activo de asistencia social DGRD / FIBE vinculado al incidente (`id`, `codigo`, `estado`, `asistenteSocialId`, `asistenteSocialNombre`, `personasAfectadas`, `familiasAfectadas`, `prioridad`, `actualizadoEn`) o `null` (HU-25).
+  - `bitacoraHitos` (solo en `GET /api/incidentes/{id}`): Lista cronológica de hitos de `mision_hito` asociados al incidente, incluyendo `DERIVACION_ASISTENCIA_SOCIAL` con el profesional asignado y metadatos FIBE / DGRD.
   - `reclasificacionTipologia`: `{ hitoId, misionId, misionCodigo, tipoAnterior, tipoNuevo, justificacion, registradoPor, creadoEn } | null` con la trazabilidad del último cambio de afectación en terreno.
   - `ultimoReporte`: `{ origen, reporteId, misionId, misionCodigo, evaluadorNombre, creadoEn, resumen, prioridadAsignada, versionReporte, esRectificacion } | null` con el reporte o constatación más reciente enviado por alguna misión del incidente.
   - Los títulos de misiones `VERIFICACION` se sincronizan automáticamente con `incidente.tipo_afectacion` al reclasificar.

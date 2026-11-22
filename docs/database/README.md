@@ -62,7 +62,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 
 4. **Recuperación y Asistencia Social:**
    - **`Recuperación` (ex: Asistencia Social):** Fase posterior al control del evento crítico para tareas de normalización, despeje de escombros y apoyo a damnificados.
-   - **`Beneficio`:** Asignación y entrega de subsidios, materiales de construcción, techumbres, canastas o ayudas de emergencia articuladas con DIDECO mediante la Ficha Básica de Emergencia (FIBE).
+   - **`Beneficio`:** Asignación y entrega de subsidios, materiales de construcción, techumbres, canastas o ayudas de emergencia articuladas con la DGRD (Dirección de Gestión del Riesgo de Desastres) mediante la Ficha Básica de Emergencia (FIBE).
 
 5. **Organización, Seguridad y Notificaciones:**
    - **`Delegación`:** Sede territorial operativa (Norte, Sur, Costa, Calle Calle).
@@ -99,13 +99,13 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
 | **Reporte Terreno** | `reporte_terreno` | Migración 011 / 053 / 056 / 059 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
 | **Recuperación** | `recuperacion` | Migración 017 | Eventos ATP / Recuperación | Eventos e intervenciones territoriales de recuperación y entrega de recursos (HU-29). |
-| **Asistencia Social** | `evento_asistencia_social` | Migración 022 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social y requerimientos para levantamiento de ficha FIBE (HU-28). |
+| **Asistencia Social** | `evento_asistencia_social` | Migración 022 / 083 / 084 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social, derivaciones post-incidente resuelto (HU-25) y requerimientos para levantamiento de ficha FIBE (HU-28 / DGRD). |
 | **Disponibilidad (enum)** | `estado_operativo` | Migración 002 / 025 | Operaciones | Enum de disponibilidad del funcionario (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`), normalizado a `usuario.estado_operativo` (H11). |
 | **Permisos de Personal** | `permiso` / `rol_permiso` | Migración 030 | Seguridad | `personal:leer`, `personal:crear`, `personal:editar` y `personal:gestionar` (H11). |
 | **Notificaciones de Misión** | `notificaciones_mision` | Migración 061 | Misiones / Terreno | Trazabilidad y máquina de estados auditable (`PENDIENTE_ENVIO`, `ENVIADA`, `RECIBIDA`, `LEIDA`) para órdenes de terreno (HU-35). |
 | **EventoATP** | *`evento_atp`* | Hoja de Ruta (Roadmap) | Eventos ATP | Agrupación macro de incidentes / eventos climáticos mayores. |
 | **Log de Misión** | *`log_mision`* | Hoja de Ruta (Roadmap) | Misiones | Bitácora cronológica detallada de hitos de misión. |
-| **Beneficio** | *`beneficio`* | Hoja de Ruta (Roadmap) | Asistencia Social | Ayudas sociales entregadas a damnificados (FIBE / DIDECO). |
+| **Beneficio** | *`beneficio`* | Hoja de Ruta (Roadmap) | Asistencia Social | Ayudas sociales entregadas a damnificados (FIBE / DGRD). |
 | **Factores de Riesgo (Niveles)**| *`factor_riesgo`* | Hoja de Ruta (Roadmap) | Incidentes | Parámetros de evaluación de riesgo y severidad. |
 | **Notificaciones** | *`notificacion`* | Hoja de Ruta (Roadmap) | Notificaciones | Registro de notificaciones push / WebSocket generadas. |
 
@@ -606,8 +606,8 @@ Almacena el ciclo de vida auditable de las notificaciones de despacho táctico e
 
 ### 3.4 Módulo: Eventos ATP y Asistencia Social
 
-#### Tabla: `evento_asistencia_social` (Eventos Excepcionales y Requerimientos de FIBE - HU-28 / Migración 022 y 083)
-Gestiona el levantamiento de casos excepcionales de vulnerabilidad social y requerimientos para la Ficha Básica de Emergencia (FIBE), permitiendo su registro directo sin requerir la existencia previa de un incidente formal, o bien vinculado opcionalmente a uno.
+#### Tabla: `evento_asistencia_social` (Eventos Excepcionales y Requerimientos de FIBE - HU-28 / HU-25 / Migraciones 022, 083 y 084)
+Gestiona el levantamiento de casos excepcionales de vulnerabilidad social y la derivación de incidentes resueltos para la Ficha Básica de Emergencia (FIBE) en la DGRD, permitiendo su registro directo sin incidente previo o vinculado de manera única (índice único parcial `uq_evento_asistencia_social_incidente_activo` sobre `incidente_id` cuando `incidente_id IS NOT NULL AND eliminado_en IS NULL AND estado <> 'DESCARTADO'`, Migración `084`).
 
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
 |---|---|---|---|---|
@@ -653,7 +653,7 @@ Las siguientes entidades forman parte del diseño conceptual inicial del sistema
 - **Campos proyectados:** `id` (UUID), `mision_id` (FK a `mision`), `usuario_id` (FK a `usuario`), `estado_anterior`, `nuevo_estado`, `mensaje_bitacora`, `latitud`, `longitud`, `creado_en`.
 
 #### Entidad: `recuperacion` (Puntos y Eventos de Recuperación)
-- **Propósito:** Gestión de la fase posterior a la emergencia para labores de despeje de vías, remoción de escombros, sanitización y coordinación con DIDECO para asistencia social.
+- **Propósito:** Gestión de la fase posterior a la emergencia para labores de despeje de vías, remoción de escombros, sanitización y coordinación con la DGRD para asistencia social.
 - **Relaciones:** Derivada desde `mision` (misiones de tipo `RECUPERACION`), relación 1:N con `beneficio`, vinculada a `delegacion`.
 - **Campos proyectados:** `id` (UUID), `mision_id` (FK a `mision`), `delegacion_id` (FK a `delegacion`), `sector`, `estado` (`EN_EVALUACION`, `EN_EJECUCION`, `FINALIZADO`), `familias_afectadas`, `creado_en`.
 
@@ -754,8 +754,8 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
    - La patrulla verificadora realiza el triage primario. Al escalar y despachar una cuadrilla operativa para la atención en terreno, la patrulla verificadora debe quedar liberada en el sistema (`patrulla_verificadora.estado = 'DISPONIBLE'`).
 5. **Rechazo Justificado de Misiones:**
    - Si una cuadrilla rechaza una misión (`mision.estado = 'RECHAZADA'`), la columna `mision.justificacion_rechazo` es **estrictamente obligatoria** (no puede ser `NULL` ni string vacío).
-6. **Manejo de Vulnerabilidad Social (FIBE / DIDECO):**
-   - No existe tabla de "Albergues". La vulnerabilidad social se señaliza mediante el booleano `incidente.requiere_asistencia_social = true` a nivel de incidente o a través del registro autónomo y directo en `evento_asistencia_social` (HU-28), derivando a DIDECO para el levantamiento de la Ficha Básica de Emergencia (FIBE).
+6. **Manejo de Vulnerabilidad Social (FIBE / DGRD):**
+   - No existe tabla ni módulo de "Albergues". La vulnerabilidad social se señaliza mediante el booleano `incidente.requiere_asistencia_social = true` a nivel de incidente, mediante la derivación post-cierre en `POST /api/incidentes/{id}/asistencia-social` (HU-25), o a través del registro autónomo directo en `evento_asistencia_social` (HU-28), derivando exclusivamente al levantamiento de la Ficha Básica de Emergencia (FIBE) y entrega de ayudas con la DGRD (Dirección de Gestión del Riesgo de Desastres).
 
 ---
 
