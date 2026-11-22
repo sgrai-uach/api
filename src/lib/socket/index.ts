@@ -7,6 +7,7 @@ import type {
   SocketData,
   RedisSocketMessage,
   MisionRechazadaPayload,
+  AdjuntoCreadoPayload,
 } from "./types";
 
 export interface IncidenteNotificacionPayload {
@@ -35,7 +36,18 @@ export interface IncidenteActualizadoPayload {
   codigo: string;
   nuevoEstado: string;
   prioridad: string;
+  prioridadSugerida?: string | null;
+  justificacionPrioridad?: string | null;
+  requiereAsistenciaSocial?: boolean;
+  verificado?: boolean;
   actualizadoEn: string;
+  tipoIncidenteId?: string | null;
+  tipoAfectacion?: string;
+  justificacion?: string | null;
+  motivoNoAbordable?: string | null;
+  fechaCierre?: string | null;
+  dictamen?: string | null;
+  reporteTerreno?: Record<string, unknown> | null;
 }
 
 export type TypedSocketServer = SocketIOServer<
@@ -848,6 +860,7 @@ export interface MisionActualizadaPayload {
     creadoEn?: string;
     [key: string]: unknown;
   };
+  reporteTerreno?: Record<string, unknown> | null;
   actualizadoEn: string;
 }
 
@@ -974,33 +987,28 @@ export function notificarPatrullaLiberada(payload: {
 }
 
 /**
- * Emite una notificación en tiempo real hacia la sala 'encargado' del Centro de Mando
- * cuando una patrulla verificadora rechaza una misión asignada (HU-69).
+ * Emite una alerta prioritaria en tiempo real hacia la sala 'encargado' del Centro de Mando
+ * cuando una cuadrilla operativa (HU-41) o patrulla verificadora (HU-69) rechaza una misión asignada.
  */
 export function notificarMisionRechazada(payload: MisionRechazadaPayload): void {
+  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  if (payload.cuadrillaId) {
+    rooms.push(`cuadrilla:${payload.cuadrillaId}`);
+  }
+  if (payload.patrullaId) {
+    rooms.push(`patrulla:${payload.patrullaId}`);
+  }
+
   if (ioInstance) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("mision:rechazada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("mision:rechazada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("mision:rechazada", payload);
-    if (payload.patrullaId) {
+    for (const room of rooms) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to(`patrulla:${payload.patrullaId}`) as any).emit("mision:rechazada", payload);
+      (ioInstance.to(room) as any).emit("mision:rechazada", payload);
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("mision:rechazada", payload);
     return;
   }
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    const rooms = ["encargado", "sala:encargados", "supervisor"];
-    if (payload.patrullaId) {
-      rooms.push(`patrulla:${payload.patrullaId}`);
-    }
-
     for (const room of rooms) {
       publisher
         .publish(
@@ -1062,6 +1070,17 @@ export function notificarHitoMisionRegistrado(payload: {
         })
       )
       .catch(() => {});
+  }
+}
+
+/**
+ * Emite una notificación en tiempo real hacia el Centro de Mando
+ * cuando se adjunta nueva evidencia multimedia (HU-43).
+ */
+export function notificarAdjuntoCreado(payload: AdjuntoCreadoPayload): void {
+  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  for (const room of rooms) {
+    emitirEvento(room, "adjunto:creado", payload);
   }
 }
 

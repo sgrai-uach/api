@@ -5,6 +5,8 @@ import {
   aceptarMisionPatrullaRepo,
   rechazarMisionPatrullaRepo,
   asignarCuadrillaIncidenteRepo,
+  rechazarMisionCuadrillaRepo,
+  crearReporteVerificacionYCerrarMisionRepo,
 } from "./mision.repository";
 import type {
   MisionDetalleCompleto,
@@ -19,6 +21,8 @@ import type {
   AsignarCuadrillaMisionResponse,
   RechazarMisionInput,
   RechazarMisionResponse,
+  CrearReporteVerificacionInput,
+  EnviarReporteVerificacionResponse,
 } from "./mision.schema";
 import type {
   ReportarLlegadaBody,
@@ -46,19 +50,42 @@ function formatearFechaIso(fecha: Date | string | null | undefined): string | nu
 function desglosarHitoTiempo(
   fecha: Date | string,
   hito: string,
-  descripcion: string
+  descripcion: string,
+  id?: string,
+  metadatosRaw?: Record<string, unknown> | string | null,
+  registradoPor?: { id: string; nombre: string; email?: string } | null
 ): MisionBitacoraHito {
   const d = typeof fecha === "string" ? new Date(fecha) : fecha;
   const iso = d.toISOString();
   const [fechaStr, resto] = iso.split("T");
   const horaStr = resto.split(".")[0];
 
+  let metadatos: Record<string, unknown> | null | undefined = undefined;
+  if (typeof metadatosRaw === "string") {
+    try {
+      metadatos = JSON.parse(metadatosRaw);
+    } catch {
+      metadatos = null;
+    }
+  } else if (metadatosRaw && typeof metadatosRaw === "object") {
+    metadatos = metadatosRaw;
+  } else if (metadatosRaw === null) {
+    metadatos = null;
+  }
+
+  if (registradoPor && metadatos && !metadatos.evaluador) {
+    metadatos = { ...metadatos, evaluador: registradoPor };
+  }
+
   return {
+    ...(id ? { id } : {}),
     hito,
     fecha: fechaStr,
     hora: horaStr,
     timestamp: iso,
     descripcion,
+    ...(registradoPor ? { registradoPor } : {}),
+    ...(metadatos !== undefined ? { metadatos } : {}),
   };
 }
 
@@ -75,15 +102,30 @@ export async function obtenerDetalleMisionService(
     return null;
   }
 
-  const { mision, recursosCuadrilla, reportesTerreno: reportesRaw } = resultado;
+  const { mision, recursosCuadrilla, reportesTerreno: reportesRaw, hitos = [] } = resultado;
 
   // 1. Bitácora de tiempos (incorporando hitos reales de mision_hito o fallback a timestamps)
   const bitacoraTiempos: MisionBitacoraHito[] = [];
 
   if (resultado.hitos && resultado.hitos.length > 0) {
     for (const h of resultado.hitos) {
+      const registradoPor =
+        h.registrado_por_id && h.registrador_nombre
+          ? {
+              id: h.registrado_por_id,
+              nombre: h.registrador_nombre,
+              ...(h.registrador_email ? { email: h.registrador_email } : {}),
+            }
+          : undefined;
       bitacoraTiempos.push(
-        desglosarHitoTiempo(h.creado_en, h.hito, h.descripcion)
+        desglosarHitoTiempo(
+          h.creado_en,
+          h.hito,
+          h.descripcion,
+          h.id,
+          h.metadatos,
+          registradoPor
+        )
       );
     }
   } else {
@@ -119,15 +161,31 @@ export async function obtenerDetalleMisionService(
       mision.actualizado_en &&
       new Date(mision.actualizado_en).getTime() !== new Date(mision.creado_en).getTime()
     ) {
+      const estadoLegible =
+        mision.estado === "EN_CURSO"
+          ? "En curso"
+          : mision.estado === "DESPACHADA"
+          ? "Despachada"
+          : mision.estado === "COMPLETADA"
+          ? "Completada"
+          : mision.estado === "RECHAZADA"
+          ? "Rechazada"
+          : mision.estado === "PLANIFICADA"
+          ? "Planificada"
+          : mision.estado;
+
       bitacoraTiempos.push(
         desglosarHitoTiempo(
           mision.actualizado_en,
           "ACTUALIZACION_ESTADO",
-          `Última actualización de estado registrada (${mision.estado})`
+          `Última actualización de estado registrada: ${estadoLegible}`
         )
       );
     }
   }
+
+  // Ordenar cronológicamente por timestamp
+  bitacoraTiempos.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   // 2. Mapeo de Reportes de Terreno y Evidencias Multimedia
   const reportesMapeados: ReporteTerrenoDetalle[] = reportesRaw.map((rep) => {
@@ -148,9 +206,51 @@ export async function obtenerDetalleMisionService(
       };
     });
 
+    const tipoReporte = rep.tipo_reporte ?? undefined;
+    const dictamen =
+      (rep.dictamen as ReporteTerrenoDetalle["dictamen"]) ?? null;
+    const versionReporte = Number(rep.version_reporte ?? 1);
+    const esRectificacion = Boolean(rep.es_rectificacion ?? versionReporte > 1);
+    let detallesEvaluacionObj: Record<string, unknown> = {};
+    if (typeof rep.detalles_evaluacion === "string") {
+      try {
+        detallesEvaluacionObj = JSON.parse(rep.detalles_evaluacion);
+      } catch {
+        detallesEvaluacionObj = {};
+      }
+    } else if (rep.detalles_evaluacion && typeof rep.detalles_evaluacion === "object") {
+      detallesEvaluacionObj = rep.detalles_evaluacion;
+    }
+
+    const etiquetaReporte =
+      tipoReporte === "VERIFICACION_CIERRE"
+        ? dictamen === "NO_ABORDABLE"
+          ? "Informe Técnico de Verificación (Cierre — No Abordable)"
+          : "Informe Técnico de Verificación (Cierre — Requiere Cuadrilla)"
+        : esRectificacion
+          ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
+          : `Reporte de Evaluación #1 (Inicial)`;
+
     return {
       id: rep.id,
       misionId: rep.mision_id,
+      ...(tipoReporte ? { tipoReporte } : {}),
+      ...(rep.dictamen !== undefined ? { dictamen } : {}),
+      ...(rep.motivo_no_abordable !== undefined
+        ? { motivoNoAbordable: rep.motivo_no_abordable ?? null }
+        : {}),
+      ...(rep.requiere_asistencia_social !== undefined
+        ? { requiereAsistenciaSocial: Boolean(rep.requiere_asistencia_social) }
+        : {}),
+      versionReporte,
+      esRectificacion,
+      etiquetaReporte,
+      prioridadSugerida:
+        (rep.prioridad_sugerida as ReporteTerrenoDetalle["prioridadSugerida"]) ?? null,
+      prioridadAsignada:
+        (rep.prioridad_asignada as ReporteTerrenoDetalle["prioridadAsignada"]) ?? null,
+      justificacionPrioridad: rep.justificacion_prioridad ?? null,
+      detallesEvaluacion: detallesEvaluacionObj,
       resumenTecnico: rep.resumen_tecnico,
       accionesRealizadas: rep.acciones_realizadas ?? null,
       requiereApoyoAdicional: Boolean(rep.requiere_apoyo_adicional),
@@ -183,7 +283,11 @@ export async function obtenerDetalleMisionService(
         longitud: Number(mision.incidente_longitud ?? -73.245209),
         estado: mision.incidente_estado ?? "EN_ATENCION",
         prioridad: mision.incidente_prioridad ?? "MEDIA",
+        prioridadSugerida: mision.incidente_prioridad_sugerida ?? null,
+        justificacionPrioridad: mision.incidente_justificacion_prioridad ?? null,
         requiereAsistenciaSocial: Boolean(mision.incidente_requiere_asistencia_social),
+        fechaCierre: formatearFechaIso(mision.incidente_fecha_cierre),
+        motivoNoAbordable: mision.incidente_motivo_no_abordable ?? null,
         delegacionNombre: mision.incidente_delegacion_nombre ?? null,
       }
     : null;
@@ -253,10 +357,35 @@ export async function obtenerDetalleMisionService(
       }
     : null;
 
+  const hitosTipologia = (hitos || []).filter(
+    (h) => h.hito === "TIPOLOGIA_RECLASIFICADA" || h.hito === "TIPOLOGIA_CONFIRMADA"
+  );
+  const ultimoHitoTipologia =
+    hitosTipologia.length > 0 ? hitosTipologia[hitosTipologia.length - 1] : null;
+
+  const reportesPrioridad = reportesMapeados.filter(
+    (r) => !r.tipoReporte || r.tipoReporte === "EVALUACION_PRIORIDAD"
+  );
+  const reportesPorVersion = [...reportesPrioridad].sort((a, b) => {
+    const vA = Number(a.versionReporte ?? 0);
+    const vB = Number(b.versionReporte ?? 0);
+    if (vA !== vB) return vB - vA;
+    return new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime();
+  });
+  const ultimoReportePrioridad = reportesPorVersion[0] ?? null;
+
+  const reportesCierre = reportesMapeados
+    .filter((r) => r.tipoReporte === "VERIFICACION_CIERRE")
+    .sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime());
+  const reporteVerificacion = reportesCierre[0] ?? null;
+
   return {
     id: mision.id,
     codigo: mision.codigo,
-    titulo: mision.titulo,
+    titulo:
+      mision.tipo_mision === "VERIFICACION" && mision.incidente_tipo_afectacion && mision.incidente_codigo
+        ? `Verificación: ${mision.incidente_tipo_afectacion} - ${mision.incidente_codigo}`
+        : mision.titulo,
     descripcion: mision.descripcion,
     tipoMision: mision.tipo_mision as MisionDetalleCompleto["tipoMision"],
     estado: mision.estado as MisionDetalleCompleto["estado"],
@@ -280,6 +409,21 @@ export async function obtenerDetalleMisionService(
     patrulla,
     bitacoraTiempos,
     reportesTerreno: reportesMapeados,
+    evaluaciones: {
+      tipologiaEvaluada: hitosTipologia.length > 0,
+      tipologiaEvaluadaEn: ultimoHitoTipologia
+        ? formatearFechaIso(ultimoHitoTipologia.creado_en)
+        : null,
+      prioridadEvaluada: reportesPrioridad.length > 0,
+      prioridadEvaluadaEn: ultimoReportePrioridad?.creadoEn ?? null,
+      versionReportePrioridad: ultimoReportePrioridad?.versionReporte ?? null,
+      personasAfectadasPrevias: ultimoReportePrioridad
+        ? Number(ultimoReportePrioridad.personasAfectadas ?? 0)
+        : 0,
+      reporteVerificacionEnviado: Boolean(reporteVerificacion),
+      reporteVerificacionEnviadoEn: reporteVerificacion?.creadoEn ?? null,
+      dictamenVerificacion: reporteVerificacion?.dictamen ?? null,
+    },
   };
 }
 
@@ -652,7 +796,35 @@ export async function aceptarMisionService(
   };
 }
 
+/**
+ * HU-41 / HU-69 - Servicio de negocio para rechazar una misión asignada a una cuadrilla o patrulla verificadora.
+ */
 export async function rechazarMisionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: RechazarMisionInput,
+  tipoActor: "CUADRILLA" | "PATRULLA" = "CUADRILLA"
+): Promise<RechazarMisionResponse> {
+  if (tipoActor === "PATRULLA") {
+    return rechazarMisionPatrullaFlow(misionId, usuarioId, esAdmin, input);
+  }
+
+  try {
+    return await rechazarMisionCuadrillaFlow(misionId, usuarioId, esAdmin, input);
+  } catch (error) {
+    if (
+      esAdmin &&
+      error instanceof Error &&
+      error.message.includes("no tiene una cuadrilla operativa asignada")
+    ) {
+      return rechazarMisionPatrullaFlow(misionId, usuarioId, esAdmin, input);
+    }
+    throw error;
+  }
+}
+
+async function rechazarMisionPatrullaFlow(
   misionId: string,
   usuarioId: string,
   esAdmin: boolean,
@@ -669,7 +841,6 @@ export async function rechazarMisionService(
     }
   );
 
-  // Emitir eventos en tiempo real
   try {
     notificarMisionRechazada({
       misionId: resultado.mision.id,
@@ -691,7 +862,7 @@ export async function rechazarMisionService(
         codigo: resultado.incidente.codigo,
         nuevoEstado: resultado.incidente.estado,
         prioridad: resultado.incidente.prioridad,
-        actualizadoEn: new Date().toISOString(),
+        actualizadoEn: resultado.mision.actualizadoEn,
       });
     }
 
@@ -704,7 +875,7 @@ export async function rechazarMisionService(
         usuarioLiderId: resultado.patrulla.usuarioLiderId ?? null,
         misionActivaId: null,
         incidenteId: null,
-        actualizadoEn: new Date().toISOString(),
+        actualizadoEn: resultado.mision.actualizadoEn,
       });
     }
   } catch (error) {
@@ -717,6 +888,206 @@ export async function rechazarMisionService(
     data: {
       mision: resultado.mision,
       patrulla: resultado.patrulla,
+      incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
+
+async function rechazarMisionCuadrillaFlow(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: RechazarMisionInput
+): Promise<RechazarMisionResponse> {
+  const resultado = await rechazarMisionCuadrillaRepo(
+    misionId,
+    usuarioId,
+    input.justificacionRechazo,
+    esAdmin,
+    {
+      latitud: input.latitud,
+      longitud: input.longitud,
+    }
+  );
+
+  try {
+    notificarMisionRechazada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      tipoMision: resultado.mision.tipoMision,
+      motivo: resultado.mision.justificacionRechazo,
+      justificacionRechazo: resultado.mision.justificacionRechazo,
+      cuadrillaId: resultado.cuadrilla.id,
+      cuadrillaNombre: resultado.cuadrilla.nombre,
+      patrullaId: null,
+      patrullaNombre: null,
+      incidenteId: resultado.incidente?.id ?? null,
+      incidenteCodigo: resultado.incidente?.codigo ?? null,
+      rechazadoPorId: usuarioId,
+      rechazadoEn: resultado.mision.actualizadoEn,
+    });
+
+    if (resultado.incidente) {
+      notificarIncidenteActualizado({
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        nuevoEstado: resultado.incidente.estado,
+        prioridad: resultado.incidente.prioridad,
+        actualizadoEn: resultado.mision.actualizadoEn,
+      });
+    }
+
+    emitirCuadrillaActualizada({
+      id: resultado.cuadrilla.id,
+      nombre: resultado.cuadrilla.nombre,
+      estado: resultado.cuadrilla.estado,
+      delegacionId: resultado.cuadrilla.delegacionId ?? null,
+    });
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras rechazar misión:", error);
+  }
+
+  const estadoIncidente = resultado.incidente?.estado ?? "REPORTADO";
+
+  return {
+    message: `Misión rechazada exitosamente. La cuadrilla ha vuelto a estado DISPONIBLE y el incidente ha retornado a ${estadoIncidente} para su reasignación.`,
+    data: {
+      mision: resultado.mision,
+      cuadrilla: resultado.cuadrilla,
+      incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
+
+/**
+ * HU-39 - Servicio de negocio para enviar el informe técnico de verificación en terreno
+ * y cerrar la misión inicial de patrullaje.
+ *
+ * 1. Ejecuta la transacción atómica (`reporte_terreno`, `mision = COMPLETADA`,
+ *    `patrulla_verificadora = DISPONIBLE`, actualización de `incidente` a `VERIFICANDO` o `NO_ABORDABLE`,
+ *    derivación FIBE si corresponde y registro de hito `VERIFICACION_COMPLETADA`).
+ * 2. Emite los eventos WebSocket `mision:actualizada`, `incidente:actualizado` y
+ *    `patrulla:actualizada` / `patrulla:liberada` hacia la sala `encargado` vía Redis.
+ */
+export async function enviarReporteVerificacionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin = false,
+  input: CrearReporteVerificacionInput
+): Promise<EnviarReporteVerificacionResponse> {
+  const resultado = await crearReporteVerificacionYCerrarMisionRepo(
+    misionId,
+    usuarioId,
+    esAdmin,
+    input
+  );
+
+  // Normalizar URLs de adjuntos (compatibilidad Caddy /uploads/...)
+  const adjuntosNormalizados: AdjuntoEvidencia[] =
+    resultado.reporteTerreno.adjuntos.map((adj) => {
+      let urlNorm = adj.url;
+      if (
+        !urlNorm.startsWith("http://") &&
+        !urlNorm.startsWith("https://") &&
+        !urlNorm.startsWith("/")
+      ) {
+        urlNorm = `/${urlNorm}`;
+      }
+      return { ...adj, url: urlNorm };
+    });
+
+  const reporteTerrenoDto: ReporteTerrenoDetalle = {
+    ...resultado.reporteTerreno,
+    adjuntos: adjuntosNormalizados,
+  };
+
+  try {
+    notificarMisionActualizada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      estado: resultado.mision.estado,
+      tipoMision: resultado.mision.tipoMision,
+      patrullaId: resultado.mision.patrullaId,
+      incidenteId: resultado.mision.incidenteId,
+      fechaInicio: resultado.mision.fechaInicio,
+      fechaCierre: resultado.mision.fechaCierre,
+      hito: {
+        id: resultado.hito.id,
+        hito: resultado.hito.hito,
+        descripcion: resultado.hito.descripcion,
+        registradoPorId: resultado.hito.registradoPorId,
+        creadoEn: resultado.hito.creadoEn,
+      },
+      reporteTerreno: reporteTerrenoDto as unknown as Record<string, unknown>,
+      actualizadoEn: resultado.mision.actualizadoEn,
+    });
+
+    if (resultado.incidente) {
+      notificarIncidenteActualizado({
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        nuevoEstado: resultado.incidente.estado,
+        prioridad: resultado.incidente.prioridad,
+        requiereAsistenciaSocial: resultado.incidente.requiereAsistenciaSocial,
+        verificado: true,
+        motivoNoAbordable: resultado.incidente.motivoNoAbordable,
+        fechaCierre: resultado.incidente.fechaCierre,
+        dictamen: reporteTerrenoDto.dictamen ?? null,
+        justificacion: resultado.incidente.motivoNoAbordable,
+        reporteTerreno: reporteTerrenoDto as unknown as Record<string, unknown>,
+        actualizadoEn: resultado.mision.actualizadoEn,
+      });
+    }
+
+    if (resultado.patrulla && resultado.patrulla.estado === "DISPONIBLE") {
+      notificarPatrullaActualizada({
+        patrullaId: resultado.patrulla.id,
+        nombre: resultado.patrulla.nombre,
+        estado: resultado.patrulla.estado,
+        delegacionId: resultado.patrulla.delegacionId,
+        usuarioLiderId: resultado.patrulla.usuarioLiderId,
+        misionActivaId: null,
+        incidenteId: null,
+        actualizadoEn: resultado.mision.actualizadoEn,
+      });
+
+      if (resultado.incidente) {
+        notificarPatrullaLiberada({
+          patrullaId: resultado.patrulla.id,
+          nombre: resultado.patrulla.nombre,
+          misionPreviaId: resultado.mision.id,
+          incidenteId: resultado.incidente.id,
+          estado: "DISPONIBLE",
+          liberadaEn: resultado.mision.actualizadoEn,
+        });
+      }
+    }
+  } catch (error) {
+    console.error(
+      "Error no bloqueante al emitir eventos WebSocket tras enviar reporte de verificación:",
+      error
+    );
+  }
+
+  const mensaje =
+    reporteTerrenoDto.dictamen === "NO_ABORDABLE"
+      ? "Informe técnico registrado, misión cerrada e incidente marcado como NO_ABORDABLE exitosamente."
+      : "Informe técnico de verificación registrado y misión cerrada exitosamente.";
+
+  return {
+    message: mensaje,
+    data: {
+      reporteTerreno: reporteTerrenoDto,
+      mision: resultado.mision,
+      patrulla: resultado.patrulla
+        ? {
+            id: resultado.patrulla.id,
+            nombre: resultado.patrulla.nombre,
+            estado: resultado.patrulla.estado,
+          }
+        : null,
       incidente: resultado.incidente,
       hito: resultado.hito,
     },
