@@ -11,6 +11,73 @@ import type {
   MisionDetalle,
 } from "./incidente-kanban.schema";
 import type { EstadoNotificacionMision } from "@/modules/misiones/notificacion-mision.schema";
+import type {
+  EventoAsistenciaSocialResumen,
+  EstadoEventoAsistenciaSocial,
+  PrioridadEventoAsistenciaSocial,
+} from "@/modules/eventos-atp/asistencia-social.schema";
+
+function parsearEventoAsistenciaSocialResumen(
+  raw: Record<string, unknown> | string | null | undefined
+): EventoAsistenciaSocialResumen | null {
+  if (!raw) return null;
+  let obj: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+    return null;
+  }
+  const data = obj as Record<string, unknown>;
+  if (typeof data.id !== "string" || typeof data.codigo !== "string") {
+    return null;
+  }
+  const actualizadoRaw = data.actualizadoEn;
+  const actualizadoEn =
+    actualizadoRaw instanceof Date
+      ? actualizadoRaw.toISOString()
+      : typeof actualizadoRaw === "string" && actualizadoRaw.trim() !== ""
+        ? new Date(actualizadoRaw).toISOString()
+        : new Date().toISOString();
+
+  return {
+    id: data.id,
+    codigo: data.codigo,
+    estado: String(data.estado ?? "PENDIENTE") as EstadoEventoAsistenciaSocial,
+    asistenteSocialId:
+      typeof data.asistenteSocialId === "string" ? data.asistenteSocialId : null,
+    asistenteSocialNombre:
+      typeof data.asistenteSocialNombre === "string" ? data.asistenteSocialNombre : null,
+    personasAfectadas: Number(data.personasAfectadas ?? 0),
+    familiasAfectadas: Number(data.familiasAfectadas ?? 0),
+    prioridad: String(data.prioridad ?? "MEDIA") as PrioridadEventoAsistenciaSocial,
+    actualizadoEn,
+  };
+}
+
+function parsearMetadatosHitoIncidente(
+  raw: Record<string, unknown> | string | null | undefined
+): Record<string, unknown> | null {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    return raw;
+  }
+  return null;
+}
 
 /**
  * Obtiene la lista paginada de incidentes para el tablero Kanban con sus metadatos de paginación.
@@ -36,6 +103,10 @@ export async function listarIncidentesKanbanService(
     justificacionPrioridad: fila.justificacion_prioridad ?? null,
     totalReportesTerreno: Number(fila.total_reportes_terreno ?? 0),
     requiereAsistenciaSocial: Boolean(fila.requiere_asistencia_social),
+    personasAfectadas: Number(fila.personas_afectadas ?? 0),
+    eventoAsistenciaSocial: parsearEventoAsistenciaSocialResumen(
+      fila.evento_asistencia_social_resumen
+    ),
     fechaCierre: fila.fecha_cierre
       ? typeof fila.fecha_cierre === "string"
         ? fila.fecha_cierre
@@ -111,6 +182,8 @@ export async function obtenerDetalleIncidenteService(
     adjuntosIncidente,
     justificacionReclasificacion,
     reclasificacionTipologiaRaw = null,
+    eventoAsistenciaSocialRaw = null,
+    bitacoraHitosRaw = [],
   } = resultado;
 
   const tieneVerificacionCompletada = misiones.some(
@@ -498,6 +571,46 @@ export async function obtenerDetalleIncidenteService(
       })
     : undefined;
 
+  const eventoAsistenciaSocialMapeado: EventoAsistenciaSocialResumen | null =
+    eventoAsistenciaSocialRaw
+      ? {
+          id: eventoAsistenciaSocialRaw.id,
+          codigo: eventoAsistenciaSocialRaw.codigo,
+          estado: eventoAsistenciaSocialRaw.estado as EstadoEventoAsistenciaSocial,
+          asistenteSocialId: eventoAsistenciaSocialRaw.asistente_social_id ?? null,
+          asistenteSocialNombre: eventoAsistenciaSocialRaw.asistente_social_nombre ?? null,
+          personasAfectadas: Number(eventoAsistenciaSocialRaw.personas_afectadas ?? 0),
+          familiasAfectadas: Number(eventoAsistenciaSocialRaw.familias_afectadas ?? 0),
+          prioridad: eventoAsistenciaSocialRaw.prioridad as PrioridadEventoAsistenciaSocial,
+          actualizadoEn:
+            typeof eventoAsistenciaSocialRaw.actualizado_en === "string"
+              ? new Date(eventoAsistenciaSocialRaw.actualizado_en).toISOString()
+              : new Date(eventoAsistenciaSocialRaw.actualizado_en).toISOString(),
+        }
+      : null;
+
+  const personasAfectadasDesdeReportes =
+    reportesOrdenadosFecha.find((r) => Number(r.personasAfectadas ?? 0) > 0)
+      ?.personasAfectadas ?? 0;
+  const personasAfectadasFinal =
+    personasAfectadasDesdeReportes > 0
+      ? personasAfectadasDesdeReportes
+      : Number(eventoAsistenciaSocialMapeado?.personasAfectadas ?? 0);
+
+  const bitacoraHitosMapeada = bitacoraHitosRaw.map((h) => ({
+    id: h.id,
+    misionId: h.mision_id,
+    misionCodigo: h.mision_codigo,
+    hito: h.hito,
+    descripcion: h.descripcion,
+    registradoPor: h.registrador_nombre ?? null,
+    metadatos: parsearMetadatosHitoIncidente(h.metadatos),
+    creadoEn:
+      typeof h.creado_en === "string"
+        ? h.creado_en
+        : new Date(h.creado_en).toISOString(),
+  }));
+
   return {
     id: incidente.id,
     codigo: incidente.codigo,
@@ -516,6 +629,8 @@ export async function obtenerDetalleIncidenteService(
       (incidente as { justificacion_prioridad?: string | null }).justificacion_prioridad ??
       null,
     requiereAsistenciaSocial: Boolean(incidente.requiere_asistencia_social),
+    personasAfectadas: personasAfectadasFinal,
+    eventoAsistenciaSocial: eventoAsistenciaSocialMapeado,
     fechaCierre: incidente.fecha_cierre
       ? typeof incidente.fecha_cierre === "string"
         ? incidente.fecha_cierre
@@ -567,6 +682,7 @@ export async function obtenerDetalleIncidenteService(
     justificacionReclasificacion: justificacionReclasificacion ?? null,
     reclasificacionTipologia,
     ultimoReporte,
+    bitacoraHitos: bitacoraHitosMapeada,
     creadoEn:
       typeof incidente.creado_en === "string"
         ? incidente.creado_en

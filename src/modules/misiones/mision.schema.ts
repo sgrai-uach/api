@@ -1158,6 +1158,24 @@ export const CerrarMisionCuadrillaBodySchema = z
         description: "Indica si durante los trabajos se detectó vulnerabilidad social que requiera Ficha FIBE",
         example: false,
       }),
+    personas_afectadas: z
+      .number({ message: "La cantidad de personas afectadas debe ser un número entero." })
+      .int("La cantidad de personas afectadas debe ser un número entero.")
+      .min(0, "La cantidad de personas afectadas no puede ser negativa.")
+      .max(5000, "La cantidad de personas afectadas excede el máximo permitido.")
+      .optional()
+      .openapi({
+        description:
+          "Cantidad de personas afectadas constatadas o actualizadas al cerrar la misión de cuadrilla (opcional; si se omite hereda reportes previos del incidente)",
+        example: 4,
+      }),
+    familias: z
+      .array(FamiliaAfectadaInputSchema)
+      .optional()
+      .openapi({
+        description:
+          "Desglose preliminar opcional por familia afectada para derivación social DGRD / FIBE",
+      }),
     adjunto_ids: z
       .array(z.string().uuid("Cada identificador de adjunto debe ser un UUID válido."))
       .max(20, "No se pueden vincular más de 20 adjuntos por informe.")
@@ -1221,6 +1239,8 @@ export type CerrarMisionCuadrillaInput = {
   danosEstimados: string | null;
   requiereApoyoAdicional: boolean;
   requiereAsistenciaSocial: boolean;
+  personasAfectadas?: number;
+  familias?: Array<z.infer<typeof FamiliaAfectadaInputSchema>>;
   adjuntoIds: string[];
   adjuntos: AdjuntoReporteInput[];
   latitud?: number;
@@ -1246,6 +1266,19 @@ export const CerrarMisionCuadrillaInputSchema = z
     requiereApoyoAdicional: z.boolean().optional(),
     requiere_asistencia_social: z.boolean().optional(),
     requiereAsistenciaSocial: z.boolean().optional(),
+    personas_afectadas: z
+      .number({ message: "La cantidad de personas afectadas debe ser un número entero." })
+      .int("La cantidad de personas afectadas debe ser un número entero.")
+      .min(0, "La cantidad de personas afectadas no puede ser negativa.")
+      .max(5000, "La cantidad de personas afectadas excede el máximo permitido.")
+      .optional(),
+    personasAfectadas: z
+      .number({ message: "La cantidad de personas afectadas debe ser un número entero." })
+      .int("La cantidad de personas afectadas debe ser un número entero.")
+      .min(0, "La cantidad de personas afectadas no puede ser negativa.")
+      .max(5000, "La cantidad de personas afectadas excede el máximo permitido.")
+      .optional(),
+    familias: z.array(FamiliaAfectadaInputSchema).optional(),
     adjunto_ids: z.array(z.string().uuid("Cada identificador de adjunto debe ser un UUID válido.")).max(20, "No se pueden vincular más de 20 adjuntos por informe.").optional(),
     adjuntoIds: z.array(z.string().uuid("Cada identificador de adjunto debe ser un UUID válido.")).max(20, "No se pueden vincular más de 20 adjuntos por informe.").optional(),
     adjuntos: z.array(AdjuntoReporteInputSchema).max(20, "No se pueden adjuntar más de 20 archivos por informe.").optional(),
@@ -1380,6 +1413,18 @@ export const CerrarMisionCuadrillaInputSchema = z
         message: "Debe proporcionar tanto latitud como longitud si incluye coordenadas GPS.",
       });
     }
+
+    // 6. Coherencia demográfica opcional de familias afectadas (HU-25 / H39)
+    if (Array.isArray(data.familias) && data.familias.length > 0) {
+      data.familias.forEach((fam, idx) => {
+        validarCoherenciaFamilia(
+          fam as Record<string, unknown>,
+          ctx,
+          ["familias", idx],
+          { minimoIntegrantes: 0, validarRutSiExiste: true }
+        );
+      });
+    }
   })
   .transform((data): CerrarMisionCuadrillaInput => {
     const resumenFaenas = String(data.resumen_faenas ?? data.resumenFaenas ?? "").trim();
@@ -1404,6 +1449,7 @@ export const CerrarMisionCuadrillaInputSchema = z
     const danosRaw = data.danos_estimados ?? data.danosEstimados;
     const danosEstimados =
       typeof danosRaw === "string" && danosRaw.trim().length > 0 ? danosRaw.trim() : null;
+    const personasAfectadas = data.personas_afectadas ?? data.personasAfectadas;
 
     return {
       resumenFaenas,
@@ -1418,6 +1464,8 @@ export const CerrarMisionCuadrillaInputSchema = z
       requiereAsistenciaSocial: Boolean(
         data.requiere_asistencia_social ?? data.requiereAsistenciaSocial ?? false
       ),
+      ...(personasAfectadas !== undefined ? { personasAfectadas } : {}),
+      ...(Array.isArray(data.familias) ? { familias: data.familias } : {}),
       adjuntoIds: data.adjunto_ids ?? data.adjuntoIds ?? [],
       adjuntos: data.adjuntos ?? [],
       latitud: data.latitud,

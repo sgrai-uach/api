@@ -27,6 +27,8 @@ export interface FilaIncidenteResumen {
   justificacion_prioridad?: string | null;
   total_reportes_terreno?: number | string;
   requiere_asistencia_social: boolean;
+  personas_afectadas?: number | string | null;
+  evento_asistencia_social_resumen?: Record<string, unknown> | string | null;
   fecha_cierre?: Date | string | null;
   motivo_no_abordable?: string | null;
   fuente_origen: string;
@@ -175,6 +177,55 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
         "incidente.prioridad_sugerida",
         "incidente.justificacion_prioridad",
         "incidente.requiere_asistencia_social",
+        sql<number>`COALESCE(
+          (
+            SELECT rt.personas_afectadas
+            FROM reporte_terreno rt
+            INNER JOIN mision m ON m.id = rt.mision_id
+            WHERE m.incidente_id = incidente.id
+              AND COALESCE(rt.personas_afectadas, 0) > 0
+            ORDER BY
+              CASE rt.tipo_reporte
+                WHEN 'REPORTE_CUADRILLA' THEN 3
+                WHEN 'VERIFICACION_CIERRE' THEN 2
+                WHEN 'EVALUACION_PRIORIDAD' THEN 1
+                ELSE 0
+              END DESC,
+              COALESCE(rt.version_reporte, 0) DESC,
+              rt.creado_en DESC
+            LIMIT 1
+          ),
+          (
+            SELECT eas.personas_afectadas
+            FROM evento_asistencia_social eas
+            WHERE eas.incidente_id = incidente.id
+              AND eas.eliminado_en IS NULL
+              AND eas.estado <> 'DESCARTADO'
+            ORDER BY eas.creado_en DESC
+            LIMIT 1
+          ),
+          0
+        )::int`.as("personas_afectadas"),
+        sql<Record<string, unknown> | null>`(
+          SELECT json_build_object(
+            'id', eas.id,
+            'codigo', eas.codigo,
+            'estado', eas.estado,
+            'asistenteSocialId', eas.asistente_social_id,
+            'asistenteSocialNombre', asu.nombre,
+            'personasAfectadas', eas.personas_afectadas,
+            'familiasAfectadas', eas.familias_afectadas,
+            'prioridad', eas.prioridad,
+            'actualizadoEn', eas.actualizado_en
+          )
+          FROM evento_asistencia_social eas
+          LEFT JOIN usuario asu ON asu.id = eas.asistente_social_id
+          WHERE eas.incidente_id = incidente.id
+            AND eas.eliminado_en IS NULL
+            AND eas.estado <> 'DESCARTADO'
+          ORDER BY eas.creado_en DESC
+          LIMIT 1
+        )`.as("evento_asistencia_social_resumen"),
         "incidente.fecha_cierre",
         "incidente.motivo_no_abordable",
         "incidente.fuente_origen",
@@ -735,6 +786,86 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     adjuntosIncidente = undefined;
   }
 
+  let eventoAsistenciaSocialRaw: {
+    id: string;
+    codigo: string;
+    estado: string;
+    asistente_social_id: string | null;
+    asistente_social_nombre: string | null;
+    personas_afectadas: number | string;
+    familias_afectadas: number | string;
+    prioridad: string;
+    actualizado_en: Date | string;
+  } | null = null;
+
+  try {
+    const filaAsistencia = await db
+      .selectFrom("evento_asistencia_social")
+      .leftJoin(
+        "usuario as asistente",
+        "asistente.id",
+        "evento_asistencia_social.asistente_social_id"
+      )
+      .select([
+        "evento_asistencia_social.id",
+        "evento_asistencia_social.codigo",
+        "evento_asistencia_social.estado",
+        "evento_asistencia_social.asistente_social_id",
+        "asistente.nombre as asistente_social_nombre",
+        "evento_asistencia_social.personas_afectadas",
+        "evento_asistencia_social.familias_afectadas",
+        "evento_asistencia_social.prioridad",
+        "evento_asistencia_social.actualizado_en",
+      ])
+      .where("evento_asistencia_social.incidente_id", "=", id)
+      .where("evento_asistencia_social.eliminado_en", "is", null)
+      .where("evento_asistencia_social.estado", "<>", "DESCARTADO")
+      .orderBy("evento_asistencia_social.creado_en", "desc")
+      .limit(1)
+      .executeTakeFirst();
+
+    eventoAsistenciaSocialRaw = filaAsistencia ?? null;
+  } catch {
+    eventoAsistenciaSocialRaw = null;
+  }
+
+  let bitacoraHitosRaw: Array<{
+    id: string;
+    mision_id: string;
+    mision_codigo: string;
+    hito: string;
+    descripcion: string;
+    registrador_nombre: string | null;
+    metadatos?: Record<string, unknown> | string | null;
+    creado_en: Date | string;
+  }> = [];
+
+  try {
+    const filasHitos = await db
+      .selectFrom("mision")
+      .innerJoin("mision_hito", "mision_hito.mision_id", "mision.id")
+      .leftJoin("usuario as registrador", "registrador.id", "mision_hito.registrado_por_id")
+      .select([
+        "mision_hito.id",
+        "mision.id as mision_id",
+        "mision.codigo as mision_codigo",
+        "mision_hito.hito",
+        "mision_hito.descripcion",
+        "registrador.nombre as registrador_nombre",
+        "mision_hito.metadatos",
+        "mision_hito.creado_en",
+      ])
+      .where("mision.incidente_id", "=", id)
+      .orderBy("mision_hito.creado_en", "asc")
+      .execute();
+
+    if (Array.isArray(filasHitos)) {
+      bitacoraHitosRaw = filasHitos;
+    }
+  } catch {
+    bitacoraHitosRaw = [];
+  }
+
   return {
     incidente,
     misiones,
@@ -743,6 +874,8 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     ...(adjuntosIncidente !== undefined ? { adjuntosIncidente } : {}),
     justificacionReclasificacion: hitoReclasificacion?.descripcion ?? null,
     reclasificacionTipologiaRaw,
+    eventoAsistenciaSocialRaw,
+    bitacoraHitosRaw,
   } as {
     incidente: Omit<
       typeof incidente,
@@ -759,5 +892,7 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     adjuntosIncidente?: typeof adjuntosIncidente;
     justificacionReclasificacion: string | null;
     reclasificacionTipologiaRaw?: typeof reclasificacionTipologiaRaw;
+    eventoAsistenciaSocialRaw?: typeof eventoAsistenciaSocialRaw;
+    bitacoraHitosRaw?: typeof bitacoraHitosRaw;
   };
 }

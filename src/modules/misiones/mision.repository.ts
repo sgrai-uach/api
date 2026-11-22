@@ -3187,18 +3187,71 @@ export async function cerrarMisionCuadrillaRepo(
         }
       }
 
-      // 6. Calcular versión correlativa e insertar informe técnico en `reporte_terreno`
+      // 6. Calcular versión correlativa, heredar/consolidar afectación social e insertar informe técnico en `reporte_terreno`
       let totalReportesPrevios = 0;
+      let personasAfectadasHeredadas = 0;
+      let familiasHeredadas: Array<Record<string, unknown>> = [];
       try {
-        const reportesPrevios = await trx
+        let consultaPrevios = trx
           .selectFrom("reporte_terreno")
-          .select("id")
-          .where("mision_id", "=", misionExistente.id)
-          .execute();
-        totalReportesPrevios = reportesPrevios.length;
+          .select([
+            "reporte_terreno.id",
+            "reporte_terreno.mision_id",
+            "reporte_terreno.personas_afectadas",
+            "reporte_terreno.detalles_evaluacion",
+            "reporte_terreno.creado_en",
+          ]);
+
+        if (misionExistente.incidente_id) {
+          consultaPrevios = consultaPrevios
+            .innerJoin("mision", "mision.id", "reporte_terreno.mision_id")
+            .where("mision.incidente_id", "=", misionExistente.incidente_id);
+        } else {
+          consultaPrevios = consultaPrevios.where(
+            "reporte_terreno.mision_id",
+            "=",
+            misionExistente.id
+          );
+        }
+
+        const reportesPrevios = await consultaPrevios.execute();
+        const reportesMision = reportesPrevios.filter(
+          (r) => !r.mision_id || r.mision_id === misionExistente.id
+        );
+        totalReportesPrevios = reportesMision.length;
+
+        const ordenadosDesc = [...reportesPrevios].sort(
+          (a, b) =>
+            new Date(b.creado_en ?? 0).getTime() - new Date(a.creado_en ?? 0).getTime()
+        );
+        for (const repPrevio of ordenadosDesc) {
+          const pers = Number(repPrevio.personas_afectadas ?? 0);
+          if (pers > 0 && personasAfectadasHeredadas === 0) {
+            personasAfectadasHeredadas = Math.trunc(pers);
+          }
+          if (familiasHeredadas.length === 0 && repPrevio.detalles_evaluacion) {
+            const detPrev = parsearObjetoJson(repPrevio.detalles_evaluacion);
+            if (Array.isArray(detPrev?.familias) && detPrev.familias.length > 0) {
+              familiasHeredadas = detPrev.familias as Array<Record<string, unknown>>;
+            }
+          }
+        }
       } catch {
         totalReportesPrevios = 0;
       }
+
+      const consolidadoFamilias =
+        Array.isArray(input.familias) && input.familias.length > 0
+          ? consolidarFamiliasCanonicas(
+              input.familias as Array<Record<string, unknown>>
+            )
+          : null;
+
+      const personasAfectadasFinal = consolidadoFamilias
+        ? consolidadoFamilias.nucleoFamiliarTotal
+        : input.personasAfectadas !== undefined
+          ? Math.max(0, Math.trunc(Number(input.personasAfectadas)))
+          : personasAfectadasHeredadas;
 
       const versionReporte = totalReportesPrevios + 1;
       const prioridadSugeridaInc =
@@ -3216,6 +3269,23 @@ export async function cerrarMisionCuadrillaRepo(
         materialesConsumidos: materialesPersistidos,
         requiereApoyoAdicional: input.requiereApoyoAdicional,
         requiereAsistenciaSocial: input.requiereAsistenciaSocial,
+        personasAfectadas: personasAfectadasFinal,
+        ...(consolidadoFamilias
+          ? {
+              familias: consolidadoFamilias.familias,
+              familiasAfectadas: consolidadoFamilias.familiasAfectadas,
+              nucleoFamiliarTotal: consolidadoFamilias.nucleoFamiliarTotal,
+              cantidadNinos: consolidadoFamilias.cantidadNinos,
+              cantidadAdultosMayores: consolidadoFamilias.cantidadAdultosMayores,
+              personasDiscapacitadas: consolidadoFamilias.personasDiscapacitadas,
+              personasElectrodependientes:
+                consolidadoFamilias.personasElectrodependientes,
+              mascotasAfectadas: consolidadoFamilias.mascotasAfectadas,
+              nivelCompromisoVivienda: consolidadoFamilias.nivelCompromisoVivienda,
+            }
+          : familiasHeredadas.length > 0
+            ? { familias: familiasHeredadas }
+            : {}),
       };
 
       const reporteInsertado = await trx
@@ -3237,7 +3307,7 @@ export async function cerrarMisionCuadrillaRepo(
           requiere_apoyo_adicional: input.requiereApoyoAdicional,
           danos_estimados: input.danosEstimados,
           observaciones: input.observaciones,
-          personas_afectadas: 0,
+          personas_afectadas: personasAfectadasFinal,
           estado_terreno: input.estadoTerreno,
           horas_hombre: input.horasHombre,
           materiales_consumidos: JSON.stringify(materialesPersistidos),
@@ -3541,7 +3611,9 @@ export async function cerrarMisionCuadrillaRepo(
           ),
           danosEstimados: reporteInsertado.danos_estimados ?? input.danosEstimados,
           observaciones: reporteInsertado.observaciones ?? input.observaciones,
-          personasAfectadas: Number(reporteInsertado.personas_afectadas ?? 0),
+          personasAfectadas: Number(
+            reporteInsertado.personas_afectadas ?? personasAfectadasFinal
+          ),
           estadoTerreno: reporteInsertado.estado_terreno ?? input.estadoTerreno,
           horasHombre: Number(reporteInsertado.horas_hombre ?? input.horasHombre),
           materialesConsumidos: materialesPersistidos,

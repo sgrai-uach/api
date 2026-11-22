@@ -6,6 +6,7 @@ import {
 } from "@/lib/shared/pagination.schema";
 import { EstadoNotificacionMisionEnum } from "@/modules/misiones/notificacion-mision.schema";
 import { MaterialConsumidoDetalleSchema } from "@/modules/misiones/mision.schema";
+import { EventoAsistenciaSocialResumenSchema } from "@/modules/eventos-atp/asistencia-social.schema";
 
 extendZodWithOpenApi(z);
 
@@ -103,6 +104,21 @@ export const IncidenteResumenSchema = z.object({
   justificacionPrioridad: z.string().nullable().optional().openapi({ description: "Justificación técnica de la patrulla si modificó la prioridad sugerida (HU-38)" }),
   totalReportesTerreno: z.number().optional().openapi({ description: "Cantidad total de reportes de evaluación en terreno enviados al Centro de Mando" }),
   requiereAsistenciaSocial: z.boolean().openapi({ description: "Indica si se requiere derivación para ficha FIBE" }),
+  personasAfectadas: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .openapi({
+      description: "Cantidad de personas afectadas constatadas en terreno o asistencia social (HU-25)",
+      example: 4,
+    }),
+  eventoAsistenciaSocial: EventoAsistenciaSocialResumenSchema.nullable()
+    .optional()
+    .openapi({
+      description:
+        "Resumen del evento activo de asistencia social DGRD/FIBE vinculado al incidente (HU-25)",
+    }),
   fechaCierre: z.string().nullable().optional().openapi({ description: "Fecha y hora de cierre del incidente (si aplica)" }),
   motivoNoAbordable: z.string().nullable().optional().openapi({ description: "Motivo fundado cuando el incidente fue declarado NO_ABORDABLE" }),
   fuenteOrigen: z.string().openapi({ description: "Fuente de origen del reporte (CHATBOT, LLAMADA, TERRENO, SENAPRED)" }),
@@ -187,6 +203,21 @@ export const RecursoAsociadoSchema = z.object({
 
 export type RecursoAsociado = z.infer<typeof RecursoAsociadoSchema>;
 
+export const HitoIncidenteDetalleSchema = z
+  .object({
+    id: z.string().uuid(),
+    misionId: z.string().uuid(),
+    misionCodigo: z.string(),
+    hito: z.string(),
+    descripcion: z.string(),
+    registradoPor: z.string().nullable(),
+    metadatos: z.record(z.string(), z.unknown()).nullable().optional(),
+    creadoEn: z.string(),
+  })
+  .openapi("HitoIncidenteDetalle");
+
+export type HitoIncidenteDetalle = z.infer<typeof HitoIncidenteDetalleSchema>;
+
 // 6. Detalle exhaustivo para el modal/panel lateral del Incidente
 export const IncidenteDetalleSchema = z.object({
   id: z.string().uuid(),
@@ -206,6 +237,21 @@ export const IncidenteDetalleSchema = z.object({
     description: "Justificación técnica de cambio de prioridad en terreno (HU-38)",
   }),
   requiereAsistenciaSocial: z.boolean(),
+  personasAfectadas: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .openapi({
+      description: "Cantidad de personas afectadas constatadas en terreno o asistencia social (HU-25)",
+      example: 4,
+    }),
+  eventoAsistenciaSocial: EventoAsistenciaSocialResumenSchema.nullable()
+    .optional()
+    .openapi({
+      description:
+        "Resumen del evento activo de asistencia social DGRD/FIBE vinculado al incidente (HU-25)",
+    }),
   fechaCierre: z.string().nullable().optional().openapi({
     description: "Fecha y hora de cierre del incidente (ej. al declararse NO_ABORDABLE o RESUELTO)",
   }),
@@ -365,6 +411,13 @@ export const IncidenteDetalleSchema = z.object({
     .optional()
     .openapi({
       description: "Resumen del último reporte o constatación enviado por alguna misión asignada al incidente",
+    }),
+  bitacoraHitos: z
+    .array(HitoIncidenteDetalleSchema)
+    .optional()
+    .openapi({
+      description:
+        "Bitácora cronológica de hitos de las misiones del incidente (mision_hito), incluyendo derivaciones a Asistencia Social (DGRD)",
     }),
   creadoEn: z.string(),
   actualizadoEn: z.string(),
