@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import {
+  NivelCompromisoViviendaSchema,
+  validarCoherenciaFamilia,
+} from "@/modules/shared/familia-afectada.schema";
 
 extendZodWithOpenApi(z);
 
@@ -21,6 +25,95 @@ export const PrioridadEventoAsistenciaSocialSchema = z.enum([
 ]);
 
 export type PrioridadEventoAsistenciaSocial = z.infer<typeof PrioridadEventoAsistenciaSocialSchema>;
+
+export const NivelCompromisoViviendaSocialSchema = NivelCompromisoViviendaSchema;
+
+export type NivelCompromisoViviendaSocial = z.infer<typeof NivelCompromisoViviendaSocialSchema>;
+
+/**
+ * Desglose preliminar individual por grupo familiar / hogar afectado (homologado con H38/H39).
+ * Estos datos son preliminares y NO constituyen una FIBE formal.
+ */
+export const FamiliaAfectadaSocialSchema = z
+  .object({
+    id: z.string().trim().max(100).optional(),
+    referencia: z.string().trim().max(120, "La referencia del hogar no puede superar 120 caracteres").optional(),
+    nucleoFamiliarTotal: z.coerce
+      .number()
+      .int("El total de integrantes debe ser un número entero")
+      .min(1, "Cada familia debe registrar al menos 1 integrante"),
+    cantidadNinos: z.coerce.number().int().min(0, "La cantidad de niños no puede ser negativa").default(0),
+    cantidadAdultosMayores: z.coerce
+      .number()
+      .int()
+      .min(0, "La cantidad de adultos mayores no puede ser negativa")
+      .default(0),
+    personasDiscapacitadas: z.coerce
+      .number()
+      .int()
+      .min(0, "La cantidad de personas con discapacidad no puede ser negativa")
+      .default(0),
+    personasElectrodependientes: z.coerce
+      .number()
+      .int()
+      .min(0, "La cantidad de personas electrodependientes no puede ser negativa")
+      .default(0),
+    mascotasAfectadas: z.coerce
+      .number()
+      .int()
+      .min(0, "La cantidad de mascotas afectadas no puede ser negativa")
+      .default(0),
+    nivelCompromisoVivienda: NivelCompromisoViviendaSocialSchema.nullable().optional(),
+    contactoNombre: z
+      .string()
+      .trim()
+      .max(150, "El nombre de contacto preliminar de la familia no puede superar 150 caracteres")
+      .nullable()
+      .optional(),
+    contactoTelefono: z
+      .string()
+      .trim()
+      .max(50, "El teléfono de contacto preliminar de la familia no puede superar 50 caracteres")
+      .nullable()
+      .optional(),
+    contactoRut: z
+      .string()
+      .trim()
+      .max(20, "El RUT de contacto preliminar de la familia no puede superar 20 caracteres")
+      .nullable()
+      .optional(),
+  })
+  .superRefine((f, ctx) => {
+    validarCoherenciaFamilia(f as Record<string, unknown>, ctx, [], {
+      minimoIntegrantes: 1,
+      validarRutSiExiste: true,
+    });
+  });
+
+export type FamiliaAfectadaSocial = z.infer<typeof FamiliaAfectadaSocialSchema>;
+
+/**
+ * Desglose demográfico y condición habitacional consolidada del evento social (homologado con H38/H39).
+ */
+export const DetallesEvaluacionSocialSchema = z.object({
+  familias: z.array(FamiliaAfectadaSocialSchema).optional(),
+  nucleoFamiliarTotal: z.coerce.number().int().min(0).optional(),
+  familiasAfectadas: z.coerce.number().int().min(0).optional(),
+  cantidadNinos: z.coerce.number().int().min(0).optional(),
+  cantidadAdultosMayores: z.coerce.number().int().min(0).optional(),
+  personasDiscapacitadas: z.coerce.number().int().min(0).optional(),
+  personasElectrodependientes: z.coerce.number().int().min(0).optional(),
+  mascotasAfectadas: z.coerce.number().int().min(0).optional(),
+  nivelCompromisoVivienda: NivelCompromisoViviendaSocialSchema.nullable().optional(),
+  danosEstimados: z
+    .string()
+    .trim()
+    .max(500, "Los daños estimados no pueden superar los 500 caracteres")
+    .nullable()
+    .optional(),
+});
+
+export type DetallesEvaluacionSocial = z.infer<typeof DetallesEvaluacionSocialSchema>;
 
 /**
  * Esquema de entrada para crear un evento excepcional de asistencia social (H28).
@@ -145,6 +238,22 @@ export const CrearEventoAsistenciaSocialInputSchema = z.object({
       description: "Identificador opcional de incidente previo (nulo para casos excepcionales independientes)",
       example: null,
     }),
+  asistenteSocialId: z
+    .string()
+    .uuid("El identificador del asistente social debe ser un UUID válido")
+    .optional()
+    .nullable()
+    .openapi({
+      description:
+        "Identificador opcional de un usuario con rol ASISTENTE_SOCIAL disponible para asignación inmediata al crear el evento (H31 Opción A)",
+      example: null,
+    }),
+  detallesEvaluacion: DetallesEvaluacionSocialSchema.nullable()
+    .optional()
+    .openapi({
+      description:
+        "Desglose demográfico por familia y condición habitacional opcional (homologado con H38/H39). Si incluye familias, sus totales sobrescriben personasAfectadas y familiasAfectadas.",
+    }),
 });
 
 export type CrearEventoAsistenciaSocialInput = z.infer<
@@ -187,6 +296,22 @@ export const ListarEventosAsistenciaSocialQuerySchema = z.object({
       description: "Búsqueda textual insensible a mayúsculas por código, descripción, dirección o contacto",
       example: "Collico",
     }),
+  incidenteId: z
+    .string()
+    .uuid("UUID de incidente inválido")
+    .optional()
+    .openapi({
+      description: "Filtrar por UUID de incidente vinculado",
+      example: "a1000000-0000-4000-8000-000000000006",
+    }),
+  asistenteSocialId: z
+    .string()
+    .uuid("UUID de asistente social inválido")
+    .optional()
+    .openapi({
+      description: "Filtrar por UUID del asistente social asignado",
+      example: "00000000-0000-4000-8000-000000000019",
+    }),
 });
 
 export type ListarEventosAsistenciaSocialQuery = z.infer<
@@ -214,8 +339,16 @@ export const EventoAsistenciaSocialResponseSchema = z.object({
   delegacionId: z.string().uuid().nullable().openapi({ example: "30000000-0000-4000-8000-000000000001" }),
   delegacionNombre: z.string().nullable().openapi({ example: "Delegación Municipal Costa" }),
   incidenteId: z.string().uuid().nullable().openapi({ example: null }),
+  incidenteCodigo: z
+    .string()
+    .nullable()
+    .optional()
+    .openapi({ description: "Código del incidente vinculado si aplica", example: "INC-2026-0006" }),
   asistenteSocialId: z.string().uuid().nullable().openapi({ example: null }),
   asistenteSocialNombre: z.string().nullable().openapi({ example: null }),
+  detallesEvaluacion: DetallesEvaluacionSocialSchema.nullable().openapi({
+    description: "Desglose demográfico por familia y condición habitacional (null en modo aproximado)",
+  }),
   creadoPor: z
     .object({
       id: z.string().uuid().openapi({ example: "00000000-0000-4000-8000-000000000003" }),
@@ -243,4 +376,162 @@ export const ListarEventosAsistenciaSocialResponseSchema = z.object({
 
 export type ListarEventosAsistenciaSocialResponse = z.infer<
   typeof ListarEventosAsistenciaSocialResponseSchema
+>;
+
+/**
+ * Parámetros de ruta para operaciones sobre un evento de asistencia social específico (H31).
+ */
+export const EventoAsistenciaSocialIdParamSchema = z.object({
+  id: z.string().uuid("El identificador del evento de asistencia social debe ser un UUID válido").openapi({
+    description: "UUID del evento de asistencia social",
+    example: "70000000-0000-4000-8000-000000000001",
+  }),
+});
+
+export type EventoAsistenciaSocialIdParam = z.infer<typeof EventoAsistenciaSocialIdParamSchema>;
+
+/**
+ * Esquema de entrada para asignar un asistente social a un evento pendiente (H31).
+ */
+export const AsignarAsistenteSocialInputSchema = z.object({
+  asistenteSocialId: z
+    .string()
+    .uuid("El identificador del asistente social debe ser un UUID válido")
+    .openapi({
+      description: "UUID del usuario con rol ASISTENTE_SOCIAL en estado disponible",
+      example: "00000000-0000-4000-8000-000000000006",
+    }),
+});
+
+export type AsignarAsistenteSocialInput = z.infer<typeof AsignarAsistenteSocialInputSchema>;
+
+/**
+ * Esquema de respuesta al asignar un asistente social a un evento (H31).
+ */
+export const AsignarAsistenteSocialResponseSchema = z.object({
+  message: z.string().openapi({
+    example: "Asistente social asignado exitosamente al evento de asistencia social.",
+  }),
+  data: EventoAsistenciaSocialResponseSchema,
+});
+
+export type AsignarAsistenteSocialResponse = z.infer<typeof AsignarAsistenteSocialResponseSchema>;
+
+/**
+ * Resumen compacto de un evento de asistencia social vinculado a un incidente (HU-25).
+ */
+export const EventoAsistenciaSocialResumenSchema = z
+  .object({
+    id: z.string().uuid(),
+    codigo: z.string().openapi({ example: "AS-2026-0001" }),
+    estado: EstadoEventoAsistenciaSocialSchema,
+    asistenteSocialId: z.string().uuid().nullable(),
+    asistenteSocialNombre: z.string().nullable(),
+    personasAfectadas: z.number().int().min(0),
+    familiasAfectadas: z.number().int().min(0),
+    prioridad: PrioridadEventoAsistenciaSocialSchema,
+    actualizadoEn: z.string(),
+  })
+  .openapi("EventoAsistenciaSocialResumen");
+
+export type EventoAsistenciaSocialResumen = z.infer<
+  typeof EventoAsistenciaSocialResumenSchema
+>;
+
+/**
+ * Parámetro de ruta para derivar un incidente resuelto a asistencia social (HU-25).
+ */
+export const IncidenteAsistenciaSocialParamSchema = z.object({
+  id: z
+    .string()
+    .uuid("El identificador del incidente debe ser un UUID válido")
+    .openapi({
+      description: "UUID del incidente resuelto",
+      example: "a1000000-0000-4000-8000-000000000006",
+    }),
+});
+
+export type IncidenteAsistenciaSocialParam = z.infer<
+  typeof IncidenteAsistenciaSocialParamSchema
+>;
+
+/**
+ * Cuerpo de entrada para asignar un asistente social a un incidente resuelto (HU-25).
+ */
+export const DerivarAsistenciaSocialIncidenteInputSchema = z
+  .object({
+    asistenteSocialId: z
+      .string()
+      .uuid("El identificador del asistente social debe ser un UUID válido")
+      .openapi({
+        description: "UUID del usuario con rol ASISTENTE_SOCIAL en estado disponible",
+        example: "00000000-0000-4000-8000-000000000019",
+      }),
+    observaciones: z
+      .string()
+      .trim()
+      .max(1000, "Las observaciones no pueden superar los 1000 caracteres")
+      .nullable()
+      .optional()
+      .openapi({
+        description:
+          "Observaciones operativas del Encargado para orientar el levantamiento de la Ficha Básica de Emergencia (FIBE) por la DGRD",
+        example: "Priorizar visita domiciliaria para levantamiento de FIBE.",
+      }),
+    prioridad: PrioridadEventoAsistenciaSocialSchema.optional().openapi({
+      description:
+        "Prioridad social opcional; si se omite se hereda la prioridad vigente del incidente",
+      example: "ALTA",
+    }),
+  })
+  .openapi("DerivarAsistenciaSocialIncidenteInput");
+
+export type DerivarAsistenciaSocialIncidenteInput = z.infer<
+  typeof DerivarAsistenciaSocialIncidenteInputSchema
+>;
+
+/**
+ * Hito de bitácora operativa registrado al derivar un incidente resuelto a Asistencia Social (HU-25).
+ */
+export const HitoDerivacionSocialSchema = z
+  .object({
+    id: z.string().uuid(),
+    misionId: z.string().uuid(),
+    hito: z.string().openapi({ example: "DERIVACION_ASISTENCIA_SOCIAL" }),
+    descripcion: z.string().openapi({
+      example:
+        "Incidente INC-2026-0006 derivado a Asistencia Social (DGRD / FIBE) mediante evento AS-2026-0001, asignado a Claudia Rojas Vidal.",
+    }),
+    registradoPorId: z.string().uuid().nullable(),
+    metadatos: z.record(z.string(), z.unknown()).nullable().optional(),
+    creadoEn: z.string().datetime(),
+  })
+  .openapi("HitoDerivacionSocial");
+
+export type HitoDerivacionSocial = z.infer<typeof HitoDerivacionSocialSchema>;
+
+/**
+ * Respuesta canónica de POST /api/incidentes/{id}/asistencia-social (HU-25).
+ */
+export const DerivarAsistenciaSocialIncidenteResponseSchema = z
+  .object({
+    message: z.string().openapi({
+      example:
+        "Incidente derivado a Asistencia Social y profesional asignado para levantamiento de ficha FIBE.",
+    }),
+    accion: z.enum(["CREADO", "ACTUALIZADO"]).openapi({
+      description:
+        "Indica si se creó un nuevo registro en evento_asistencia_social o se actualizó uno previo en PENDIENTE/ASIGNADO",
+      example: "CREADO",
+    }),
+    data: EventoAsistenciaSocialResponseSchema,
+    hito: HitoDerivacionSocialSchema.nullable().openapi({
+      description:
+        "Hito registrado en mision_hito (null si el incidente resuelto no registraba misiones previas)",
+    }),
+  })
+  .openapi("DerivarAsistenciaSocialIncidenteResponse");
+
+export type DerivarAsistenciaSocialIncidenteResponse = z.infer<
+  typeof DerivarAsistenciaSocialIncidenteResponseSchema
 >;

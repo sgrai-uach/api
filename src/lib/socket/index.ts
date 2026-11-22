@@ -7,6 +7,7 @@ import type {
   SocketData,
   RedisSocketMessage,
   MisionRechazadaPayload,
+  AdjuntoCreadoPayload,
 } from "./types";
 
 export interface IncidenteNotificacionPayload {
@@ -35,7 +36,20 @@ export interface IncidenteActualizadoPayload {
   codigo: string;
   nuevoEstado: string;
   prioridad: string;
+  prioridadSugerida?: string | null;
+  justificacionPrioridad?: string | null;
+  requiereAsistenciaSocial?: boolean;
+  verificado?: boolean;
   actualizadoEn: string;
+  tipoIncidenteId?: string | null;
+  tipoAfectacion?: string;
+  justificacion?: string | null;
+  motivoNoAbordable?: string | null;
+  fechaCierre?: string | null;
+  dictamen?: string | null;
+  reporteTerreno?: Record<string, unknown> | null;
+  eventoAsistenciaSocial?: Record<string, unknown> | null;
+  hitoDerivacionSocial?: Record<string, unknown> | null;
 }
 
 export type TypedSocketServer = SocketIOServer<
@@ -45,24 +59,31 @@ export type TypedSocketServer = SocketIOServer<
   SocketData
 >;
 
+const globalForSocket = globalThis as typeof globalThis & {
+  __sgraiSocketIo?: TypedSocketServer | SocketIOServer | null;
+};
+
 let ioInstance: TypedSocketServer | SocketIOServer | null = null;
 let redisPublisher: Redis | null = null;
 
 export const REDIS_SOCKET_CHANNEL = "sgrai:socket-events";
 
-export function setSocketServer(server: TypedSocketServer | SocketIOServer): void {
+export function setSocketServer(
+  server: TypedSocketServer | SocketIOServer | null
+): void {
   ioInstance = server;
+  globalForSocket.__sgraiSocketIo = server;
 }
 
 export function getSocketServer(): TypedSocketServer | SocketIOServer | null {
-  return ioInstance;
+  return ioInstance ?? globalForSocket.__sgraiSocketIo ?? null;
 }
 
 function getRedisPublisher(): Redis | null {
   if (!redisPublisher && process.env.REDIS_URL) {
     redisPublisher = new Redis(process.env.REDIS_URL, {
-      maxRetriesPerRequest: 1,
-      retryStrategy: () => null,
+      maxRetriesPerRequest: 3,
+      retryStrategy: (times: number) => Math.min(times * 500, 5000),
       lazyConnect: true,
     });
     redisPublisher.on("error", () => {});
@@ -78,9 +99,10 @@ function emitirEvento<E extends keyof ServerToClientEvents>(
   event: E,
   payload: Parameters<ServerToClientEvents[E]>[0]
 ): void {
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to(room) as any).emit(event, payload);
+    (io.to(room) as any).emit(event, payload);
     return;
   }
 
@@ -98,9 +120,10 @@ function emitirEvento<E extends keyof ServerToClientEvents>(
  * un nuevo incidente manual o verificado.
  */
 export function notificarIncidenteCreado(incidente: IncidenteNotificacionPayload): boolean {
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     try {
-      ioInstance.to("sala:encargados").emit("incidente:creado", {
+      io.to("sala:encargados").emit("incidente:creado", {
         evento: "incidente:creado",
         datos: incidente,
         emitidoEn: new Date().toISOString(),
@@ -133,9 +156,10 @@ export function notificarIncidenteCreado(incidente: IncidenteNotificacionPayload
  * identificada por su código de seguimiento numérico.
  */
 export function notificarActualizacionSeguimiento(datos: SeguimientoEstadoPayload): boolean {
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     try {
-      ioInstance.to(`sala:seguimiento:${datos.codigoSeguimiento}`).emit("incidente:estado_actualizado", {
+      io.to(`sala:seguimiento:${datos.codigoSeguimiento}`).emit("incidente:estado_actualizado", {
         evento: "incidente:estado_actualizado",
         datos,
         emitidoEn: new Date().toISOString(),
@@ -174,15 +198,16 @@ export function notificarIncidenteActualizado(datos: IncidenteActualizadoPayload
     emitidoEn: new Date().toISOString(),
   };
 
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     try {
-      ioInstance.to("sala:encargados").emit("incidente:actualizado", payload);
+      io.to("sala:encargados").emit("incidente:actualizado", payload);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to("encargado") as any).emit("incidente:actualizado", payload);
+      (io.to("encargado") as any).emit("incidente:actualizado", payload);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to("mapa") as any).emit("incidente:actualizado", payload);
+      (io.to("mapa") as any).emit("incidente:actualizado", payload);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance as any).emit("incidente:actualizado", payload);
+      (io as any).emit("incidente:actualizado", payload);
       return true;
     } catch (error) {
       console.error("Error al emitir actualización de incidente vía Socket.io:", error);
@@ -259,13 +284,14 @@ export function emitirAvisoDescartado(payload: {
  * Emite la notificación de recurso actualizado a las vistas de Encargado y Supervisor.
  */
 export function emitirRecursoActualizado(recurso: Record<string, unknown>): void {
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("recurso:actualizado", recurso);
+    (io.to("encargado") as any).emit("recurso:actualizado", recurso);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("recurso:actualizado", recurso);
+    (io.to("supervisor") as any).emit("recurso:actualizado", recurso);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("recurso:actualizado", recurso);
+    (io as any).emit("recurso:actualizado", recurso);
     return;
   }
 
@@ -293,13 +319,14 @@ export function emitirRecursoEliminado(payload: {
   eliminadoPorId: string;
   eliminadoEn: string;
 }): void {
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("recurso:eliminado", payload);
+    (io.to("encargado") as any).emit("recurso:eliminado", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("recurso:eliminado", payload);
+    (io.to("supervisor") as any).emit("recurso:eliminado", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("recurso:eliminado", payload);
+    (io as any).emit("recurso:eliminado", payload);
     return;
   }
 
@@ -323,15 +350,16 @@ export function emitirRecursoEliminado(payload: {
  * Permite reflejar inmediatamente el nuevo punto en el mapa interactivo y módulos cartográficos.
  */
 export function emitirPuntoCriticoCreado(payload: Record<string, unknown>): void {
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("punto_critico:creado", payload);
+    (io.to("encargado") as any).emit("punto_critico:creado", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("punto_critico:creado", payload);
+    (io.to("supervisor") as any).emit("punto_critico:creado", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("administrador") as any).emit("punto_critico:creado", payload);
+    (io.to("administrador") as any).emit("punto_critico:creado", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("punto_critico:creado", payload);
+    (io as any).emit("punto_critico:creado", payload);
     return;
   }
 
@@ -364,11 +392,12 @@ export function emitirEventoAtpCreado(payload: unknown): void {
     "administrador",
   ];
 
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     // Una sola emisión multi-sala: Socket.io deduplica los sockets que
     // pertenecen a más de una sala y no se realiza broadcast global.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to(salas) as any).emit("evento_atp:creado", payload);
+    (io.to(salas) as any).emit("evento_atp:creado", payload);
     return;
   }
 
@@ -393,15 +422,16 @@ export function emitirEventoAtpCreado(payload: unknown): void {
  * Emite la notificación de nuevo evento de recuperación creado a las vistas de Encargado y al mapa interactivo.
  */
 export function emitirRecuperacionCreada(payload: unknown): void {
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("recuperacion:creada", payload);
+    (io.to("sala:encargados") as any).emit("recuperacion:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("recuperacion:creada", payload);
+    (io.to("encargado") as any).emit("recuperacion:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("mapa") as any).emit("recuperacion:creada", payload);
+    (io.to("mapa") as any).emit("recuperacion:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("recuperacion:creada", payload);
+    (io as any).emit("recuperacion:creada", payload);
     return;
   }
 
@@ -422,36 +452,88 @@ export function emitirRecuperacionCreada(payload: unknown): void {
 
 /**
  * Emite la notificación de nuevo evento de asistencia social creado al panel de eventos pendientes
- * y a las vistas de Encargado, Asistente Social y Administrador (H28).
+ * y a las vistas de Asistente Social, Encargado, Centro de Mando y Administrador (H28 / HU-25).
  */
 export function emitirAsistenciaSocialCreada(payload: unknown): void {
-  if (ioInstance) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("asistencia_social:creada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("asistencia_social:creada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("asistente_social") as any).emit("asistencia_social:creada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("administrador") as any).emit("asistencia_social:creada", payload);
-    // Difusión general para actualización reactiva del panel de pendientes
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("asistencia_social:creada", payload);
+  const salas = [
+    "asistente_social",
+    "encargado",
+    "sala:encargados",
+    "centro_mando",
+    "administrador",
+  ];
+
+  const io = getSocketServer();
+  if (io) {
+    for (const sala of salas) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (io.to(sala) as any).emit("asistencia_social:creada", payload);
+    }
+    if (typeof (io as { emit?: unknown }).emit === "function") {
+      // Difusión general para actualización reactiva en clientes suscritos al evento
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (io as any).emit("asistencia_social:creada", payload);
+    }
     return;
   }
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "sala:encargados",
-          event: "asistencia_social:creada",
-          payload,
-        })
-      )
-      .catch(() => {});
+    for (const sala of salas) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room: sala,
+            event: "asistencia_social:creada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
+  }
+}
+
+/**
+ * Emite la notificación de evento de asistencia social actualizado (ej. asignación en H31 / reasignación en H25)
+ * hacia la sala `asistente_social`, `centro_mando` y salas operativas de Encargado/Administrador.
+ */
+export function emitirAsistenciaSocialActualizada(payload: unknown): void {
+  const salas = [
+    "asistente_social",
+    "centro_mando",
+    "sala:encargados",
+    "encargado",
+    "administrador",
+  ];
+
+  const io = getSocketServer();
+  if (io) {
+    for (const sala of salas) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (io.to(sala) as any).emit("asistencia_social:actualizada", payload);
+    }
+    if (typeof (io as { emit?: unknown }).emit === "function") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (io as any).emit("asistencia_social:actualizada", payload);
+    }
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    for (const sala of salas) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room: sala,
+            event: "asistencia_social:actualizada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 
@@ -460,15 +542,16 @@ export function emitirAsistenciaSocialCreada(payload: unknown): void {
  * Permite reflejar inmediatamente los cambios geoespaciales y atributos en el módulo cartográfico.
  */
 export function emitirPuntoCriticoActualizado(payload: Record<string, unknown>): void {
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("punto_critico:actualizado", payload);
+    (io.to("encargado") as any).emit("punto_critico:actualizado", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("punto_critico:actualizado", payload);
+    (io.to("supervisor") as any).emit("punto_critico:actualizado", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("administrador") as any).emit("punto_critico:actualizado", payload);
+    (io.to("administrador") as any).emit("punto_critico:actualizado", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("punto_critico:actualizado", payload);
+    (io as any).emit("punto_critico:actualizado", payload);
     return;
   }
 
@@ -497,16 +580,17 @@ export function emitirPuntoCriticoEliminado(payload: {
   eliminadoPorId: string;
   eliminadoEn: string;
 }): void {
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("punto_critico:eliminado", payload);
+    (io.to("encargado") as any).emit("punto_critico:eliminado", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("punto_critico:eliminado", payload);
+    (io.to("supervisor") as any).emit("punto_critico:eliminado", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("administrador") as any).emit("punto_critico:eliminado", payload);
+    (io.to("administrador") as any).emit("punto_critico:eliminado", payload);
     // Difusión general para actualización reactiva de mapas y tablas
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("punto_critico:eliminado", payload);
+    (io as any).emit("punto_critico:eliminado", payload);
     return;
   }
 
@@ -538,19 +622,20 @@ export function emitirEventoPrevencionCreado(payload: {
 }): void {
   const patrullaRoom = `patrulla:${payload.patrulla.id}`;
 
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("prevencion:creada", payload);
+    (io.to("sala:encargados") as any).emit("prevencion:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("prevencion:creada", payload);
+    (io.to("encargado") as any).emit("prevencion:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("mapa") as any).emit("prevencion:creada", payload);
+    (io.to("mapa") as any).emit("prevencion:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to(patrullaRoom) as any).emit("prevencion:creada", payload);
+    (io.to(patrullaRoom) as any).emit("prevencion:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to(`sala:${patrullaRoom}`) as any).emit("prevencion:creada", payload);
+    (io.to(`sala:${patrullaRoom}`) as any).emit("prevencion:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("prevencion:creada", payload);
+    (io as any).emit("prevencion:creada", payload);
     return;
   }
 
@@ -590,12 +675,14 @@ export function emitirCuadrillaCreada(payload: unknown): void {
 }
 
 /**
- * Emite la notificación de cuadrilla actualizada con nueva dotación a las salas operativas (H81).
+ * Emite la notificación de cuadrilla actualizada con nueva dotación a las salas operativas (H81 / HU-68).
  */
 export function emitirCuadrillaActualizada(payload: unknown): void {
   emitirEvento("operaciones", "cuadrilla:actualizada", payload);
   emitirEvento("encargado", "cuadrilla:actualizada", payload);
+  emitirEvento("sala:encargados", "cuadrilla:actualizada", payload);
   emitirEvento("supervisor", "cuadrilla:actualizada", payload);
+  emitirEvento("mapa", "cuadrilla:actualizada", payload);
 }
 
 /**
@@ -623,19 +710,20 @@ export function notificarPatrullaActualizada(payload: {
 }): void {
   const patrullaRoom = `patrulla:${payload.patrullaId}`;
 
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("patrulla:actualizada", payload);
+    (io.to("encargado") as any).emit("patrulla:actualizada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("patrulla:actualizada", payload);
+    (io.to("sala:encargados") as any).emit("patrulla:actualizada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("patrulla:actualizada", payload);
+    (io.to("supervisor") as any).emit("patrulla:actualizada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("mapa") as any).emit("patrulla:actualizada", payload);
+    (io.to("mapa") as any).emit("patrulla:actualizada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to(patrullaRoom) as any).emit("patrulla:actualizada", payload);
+    (io.to(patrullaRoom) as any).emit("patrulla:actualizada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("patrulla:actualizada", payload);
+    (io as any).emit("patrulla:actualizada", payload);
     return;
   }
 
@@ -669,21 +757,22 @@ export function notificarPatrullaDesactivada(payload: {
 }): void {
   const patrullaRoom = `patrulla:${payload.patrullaId}`;
 
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("patrulla:desactivada", payload);
+    (io.to("encargado") as any).emit("patrulla:desactivada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("patrulla:desactivada", payload);
+    (io.to("sala:encargados") as any).emit("patrulla:desactivada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("patrulla:desactivada", payload);
+    (io.to("supervisor") as any).emit("patrulla:desactivada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("administrador") as any).emit("patrulla:desactivada", payload);
+    (io.to("administrador") as any).emit("patrulla:desactivada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("mapa") as any).emit("patrulla:desactivada", payload);
+    (io.to("mapa") as any).emit("patrulla:desactivada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to(patrullaRoom) as any).emit("patrulla:desactivada", payload);
+    (io.to(patrullaRoom) as any).emit("patrulla:desactivada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("patrulla:desactivada", payload);
+    (io as any).emit("patrulla:desactivada", payload);
     return;
   }
 
@@ -721,19 +810,20 @@ export function notificarPatrullaCreada(payload: {
 }): void {
   const patrullaRoom = `patrulla:${payload.patrullaId}`;
 
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("patrulla:creada", payload);
+    (io.to("encargado") as any).emit("patrulla:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("patrulla:creada", payload);
+    (io.to("sala:encargados") as any).emit("patrulla:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("patrulla:creada", payload);
+    (io.to("supervisor") as any).emit("patrulla:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("mapa") as any).emit("patrulla:creada", payload);
+    (io.to("mapa") as any).emit("patrulla:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to(patrullaRoom) as any).emit("patrulla:creada", payload);
+    (io.to(patrullaRoom) as any).emit("patrulla:creada", payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("patrulla:creada", payload);
+    (io as any).emit("patrulla:creada", payload);
     return;
   }
 
@@ -759,14 +849,15 @@ export function notificarPatrullaCreada(payload: {
  * Verifica si existen sockets activos conectados a una sala específica.
  */
 export async function tieneConexionEnSala(room: string): Promise<boolean> {
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     try {
-      const sockets = await ioInstance.in(room).fetchSockets();
+      const sockets = await io.in(room).fetchSockets();
       return sockets.length > 0;
     } catch {
       // Fallback a adapter local
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const roomSet = (ioInstance as any).sockets?.adapter?.rooms?.get(room);
+      const roomSet = (io as any).sockets?.adapter?.rooms?.get(room);
       return (roomSet && roomSet.size > 0) || false;
     }
   }
@@ -799,13 +890,14 @@ export function notificarMisionAsignada(payload: {
     rooms.push(`patrulla:${payload.patrullaId}`);
   }
 
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     for (const room of rooms) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to(room) as any).emit("mision:asignada", payload);
+      (io.to(room) as any).emit("mision:asignada", payload);
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("mision:asignada", payload);
+    (io as any).emit("mision:asignada", payload);
     return;
   }
 
@@ -833,8 +925,11 @@ export interface MisionActualizadaPayload {
   tipoMision: string;
   patrullaId?: string | null;
   cuadrillaId?: string | null;
+  cuadrillaNombre?: string | null;
   incidenteId?: string | null;
+  incidenteCodigo?: string | null;
   fechaInicio: string | null;
+  fechaCierre?: string | null;
   hito: {
     id: string;
     hito: string;
@@ -842,23 +937,28 @@ export interface MisionActualizadaPayload {
     registradoPorId: string | null;
     creadoEn: string;
   };
+  reporteTerreno?: Record<string, unknown> | null;
   actualizadoEn: string;
 }
 
 /**
- * Emite una notificación en tiempo real hacia la sala 'encargado' del Centro de Mando
- * cuando una patrulla verificadora o unidad de terreno actualiza o acepta una misión (HU-36).
- *
- * No se realiza broadcast global: el evento se emite únicamente a las salas
- * `encargado`, `sala:encargados` y `supervisor`.
+ * Emite una notificación en tiempo real hacia las salas del Centro de Mando (`encargado`, `sala:encargados`,
+ * `supervisor` y `mapa`) y a la unidad asignada cuando una unidad de terreno actualiza, acepta o cierra una misión.
  */
 export function notificarMisionActualizada(payload: MisionActualizadaPayload): void {
-  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  const rooms = ["encargado", "sala:encargados", "supervisor", "mapa"];
+  if (payload.cuadrillaId) {
+    rooms.push(`cuadrilla:${payload.cuadrillaId}`);
+  }
+  if (payload.patrullaId) {
+    rooms.push(`patrulla:${payload.patrullaId}`);
+  }
 
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     for (const room of rooms) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to(room) as any).emit("mision:actualizada", payload);
+      (io.to(room) as any).emit("mision:actualizada", payload);
     }
     return;
   }
@@ -897,10 +997,11 @@ export function notificarTrazabilidadActualizada(payload: {
 }): void {
   const rooms = ["encargado", "sala:encargados", "supervisor"];
 
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     for (const room of rooms) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to(room) as any).emit("notificacion:trazabilidad_actualizada", payload);
+      (io.to(room) as any).emit("notificacion:trazabilidad_actualizada", payload);
     }
     return;
   }
@@ -937,13 +1038,14 @@ export function notificarPatrullaLiberada(payload: {
   const patrullaRoom = `patrulla:${payload.patrullaId}`;
   const rooms = ["encargado", "sala:encargados", "supervisor", "mapa", patrullaRoom];
 
-  if (ioInstance) {
+  const io = getSocketServer();
+  if (io) {
     for (const room of rooms) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to(room) as any).emit("patrulla:liberada", payload);
+      (io.to(room) as any).emit("patrulla:liberada", payload);
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("patrulla:liberada", payload);
+    (io as any).emit("patrulla:liberada", payload);
     return;
   }
 
@@ -965,33 +1067,29 @@ export function notificarPatrullaLiberada(payload: {
 }
 
 /**
- * Emite una notificación en tiempo real hacia la sala 'encargado' del Centro de Mando
- * cuando una patrulla verificadora rechaza una misión asignada (HU-69).
+ * Emite una alerta prioritaria en tiempo real hacia la sala 'encargado' del Centro de Mando
+ * cuando una patrulla verificadora (HU-69) o cuadrilla operativa (HU-41) rechaza una misión asignada.
  */
 export function notificarMisionRechazada(payload: MisionRechazadaPayload): void {
-  if (ioInstance) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("mision:rechazada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("mision:rechazada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("mision:rechazada", payload);
-    if (payload.patrullaId) {
+  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  if (payload.cuadrillaId) {
+    rooms.push(`cuadrilla:${payload.cuadrillaId}`);
+  }
+  if (payload.patrullaId) {
+    rooms.push(`patrulla:${payload.patrullaId}`);
+  }
+
+  const io = getSocketServer();
+  if (io) {
+    for (const room of rooms) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to(`patrulla:${payload.patrullaId}`) as any).emit("mision:rechazada", payload);
+      (io.to(room) as any).emit("mision:rechazada", payload);
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("mision:rechazada", payload);
     return;
   }
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    const rooms = ["encargado", "sala:encargados", "supervisor"];
-    if (payload.patrullaId) {
-      rooms.push(`patrulla:${payload.patrullaId}`);
-    }
-
     for (const room of rooms) {
       publisher
         .publish(
@@ -1004,6 +1102,17 @@ export function notificarMisionRechazada(payload: MisionRechazadaPayload): void 
         )
         .catch(() => {});
     }
+  }
+}
+
+/**
+ * Emite una notificación en tiempo real hacia el Centro de Mando
+ * cuando se adjunta nueva evidencia multimedia (HU-43).
+ */
+export function notificarAdjuntoCreado(payload: AdjuntoCreadoPayload): void {
+  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  for (const room of rooms) {
+    emitirEvento(room, "adjunto:creado", payload);
   }
 }
 

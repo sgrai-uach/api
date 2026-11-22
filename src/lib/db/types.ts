@@ -313,6 +313,11 @@ export interface EventoAsistenciaSocialTable {
   delegacion_id: string | null;
   asistente_social_id: string | null;
   evento_atp_id: string | null;
+  detalles_evaluacion?: ColumnType<
+    Record<string, unknown> | null,
+    Record<string, unknown> | string | null | undefined,
+    Record<string, unknown> | string | null
+  >;
   creado_por_id: string;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
@@ -498,6 +503,16 @@ export interface IncidenteTable {
   ubicacion: ColumnType<unknown, unknown, unknown>;
   estado: ColumnType<EstadoIncidente, EstadoIncidente | undefined, EstadoIncidente>;
   prioridad: ColumnType<PrioridadIncidente, PrioridadIncidente | undefined, PrioridadIncidente>;
+  prioridad_sugerida?: ColumnType<
+    PrioridadIncidente | null,
+    PrioridadIncidente | null | undefined,
+    PrioridadIncidente | null
+  >;
+  justificacion_prioridad?: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
   requiere_asistencia_social: ColumnType<boolean, boolean | undefined, boolean>;
   fuente_origen: ColumnType<OrigenReporte | string, OrigenReporte | string | undefined, OrigenReporte | string>;
   asterisk_call_id: string | null;
@@ -507,6 +522,8 @@ export interface IncidenteTable {
   encargado_id: string | null;
   aviso_id?: string | null;
   evento_atp_id: string | null;
+  fecha_cierre?: ColumnType<Date | null, Date | string | null | undefined, Date | string | null>;
+  motivo_no_abordable?: ColumnType<string | null, string | null | undefined, string | null>;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }
@@ -553,13 +570,41 @@ export interface AdjuntoTable {
   aviso_id: string | null;
   incidente_id: string | null;
   reporte_terreno_id?: string | null;
+  sha256_hash?: string | null;
   creado_en: Generated<Date>;
 }
+
+export type DictamenVerificacion = "REQUIERE_CUADRILLA" | "NO_ABORDABLE";
+
+export type TipoReporteTerreno =
+  | "EVALUACION_PRIORIDAD"
+  | "VERIFICACION_CIERRE"
+  | "REPORTE_CUADRILLA";
 
 export interface ReporteTerrenoTable {
   id: Generated<string>;
   mision_id: string;
   evaluador_id: string;
+  tipo_reporte?: ColumnType<
+    TipoReporteTerreno | string,
+    TipoReporteTerreno | string | undefined,
+    TipoReporteTerreno | string
+  >;
+  dictamen?: ColumnType<
+    DictamenVerificacion | null,
+    DictamenVerificacion | null | undefined,
+    DictamenVerificacion | null
+  >;
+  motivo_no_abordable?: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
+  requiere_asistencia_social?: ColumnType<
+    boolean,
+    boolean | undefined,
+    boolean
+  >;
   resumen_tecnico: string;
   acciones_realizadas: string | null;
   requiere_apoyo_adicional: ColumnType<boolean, boolean | undefined, boolean>;
@@ -567,6 +612,38 @@ export interface ReporteTerrenoTable {
   observaciones: string | null;
   personas_afectadas: ColumnType<number, number | undefined, number>;
   estado_terreno: ColumnType<string, string | undefined, string>;
+  version_reporte?: ColumnType<number, number | undefined, number>;
+  es_rectificacion?: ColumnType<boolean, boolean | undefined, boolean>;
+  prioridad_sugerida?: ColumnType<
+    PrioridadIncidente | null,
+    PrioridadIncidente | null | undefined,
+    PrioridadIncidente | null
+  >;
+  prioridad_asignada?: ColumnType<
+    PrioridadIncidente | null,
+    PrioridadIncidente | null | undefined,
+    PrioridadIncidente | null
+  >;
+  justificacion_prioridad?: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
+  detalles_evaluacion?: ColumnType<
+    Record<string, unknown>,
+    Record<string, unknown> | string | undefined,
+    Record<string, unknown> | string
+  >;
+  horas_hombre?: ColumnType<
+    number | string | null,
+    number | string | null | undefined,
+    number | string | null
+  >;
+  materiales_consumidos?: ColumnType<
+    unknown,
+    unknown | string | undefined,
+    unknown | string
+  >;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }
@@ -607,6 +684,11 @@ export interface MisionHitoTable {
   registrado_por_id: string | null;
   latitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
   longitud: ColumnType<number | null, number | string | null | undefined, number | string | null>;
+  metadatos?: ColumnType<
+    Record<string, unknown> | null,
+    Record<string, unknown> | string | null | undefined,
+    Record<string, unknown> | string | null
+  >;
   creado_en: Generated<Date>;
 }
 

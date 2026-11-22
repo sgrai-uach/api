@@ -62,7 +62,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 
 4. **Recuperación y Asistencia Social:**
    - **`Recuperación` (ex: Asistencia Social):** Fase posterior al control del evento crítico para tareas de normalización, despeje de escombros y apoyo a damnificados.
-   - **`Beneficio`:** Asignación y entrega de subsidios, materiales de construcción, techumbres, canastas o ayudas de emergencia articuladas con DIDECO mediante la Ficha Básica de Emergencia (FIBE).
+   - **`Beneficio`:** Asignación y entrega de subsidios, materiales de construcción, techumbres, canastas o ayudas de emergencia articuladas con la DGRD (Dirección de Gestión del Riesgo de Desastres) mediante la Ficha Básica de Emergencia (FIBE).
 
 5. **Organización, Seguridad y Notificaciones:**
    - **`Delegación`:** Sede territorial operativa (Norte, Sur, Costa, Calle Calle).
@@ -97,15 +97,15 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | *(Dotación de Integrantes)* | `cuadrilla_personal` (vista `cuadrilla_integrante`) | Migración 031 / 032 / 042 | Operaciones | Asignación N:M de funcionarios a cuadrillas con índice de unicidad activa y auditoría. |
 | **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 / 012 / 015 / 016 | Eventos ATP | Puntos críticos, factores de riesgo, edición (HU-55) y borrado lógico (HU-56). |
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
-| **Reporte Terreno** | `reporte_terreno` | Migración 011 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
+| **Reporte Terreno** | `reporte_terreno` | Migración 011 / 053 / 056 / 059 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
 | **Recuperación** | `recuperacion` | Migración 017 | Eventos ATP / Recuperación | Eventos e intervenciones territoriales de recuperación y entrega de recursos (HU-29). |
-| **Asistencia Social** | `evento_asistencia_social` | Migración 022 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social y requerimientos para levantamiento de ficha FIBE (HU-28). |
+| **Asistencia Social** | `evento_asistencia_social` | Migración 022 / 083 / 084 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social, derivaciones post-incidente resuelto (HU-25) y requerimientos para levantamiento de ficha FIBE (HU-28 / DGRD). |
 | **Disponibilidad (enum)** | `estado_operativo` | Migración 002 / 025 | Operaciones | Enum de disponibilidad del funcionario (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`), normalizado a `usuario.estado_operativo` (H11). |
 | **Permisos de Personal** | `permiso` / `rol_permiso` | Migración 030 | Seguridad | `personal:leer`, `personal:crear`, `personal:editar` y `personal:gestionar` (H11). |
 | **Notificaciones de Misión** | `notificaciones_mision` | Migración 061 | Misiones / Terreno | Trazabilidad y máquina de estados auditable (`PENDIENTE_ENVIO`, `ENVIADA`, `RECIBIDA`, `LEIDA`) para órdenes de terreno (HU-35). |
 | **EventoATP** | *`evento_atp`* | Hoja de Ruta (Roadmap) | Eventos ATP | Agrupación macro de incidentes / eventos climáticos mayores. |
 | **Log de Misión** | *`log_mision`* | Hoja de Ruta (Roadmap) | Misiones | Bitácora cronológica detallada de hitos de misión. |
-| **Beneficio** | *`beneficio`* | Hoja de Ruta (Roadmap) | Asistencia Social | Ayudas sociales entregadas a damnificados (FIBE / DIDECO). |
+| **Beneficio** | *`beneficio`* | Hoja de Ruta (Roadmap) | Asistencia Social | Ayudas sociales entregadas a damnificados (FIBE / DGRD). |
 | **Factores de Riesgo (Niveles)**| *`factor_riesgo`* | Hoja de Ruta (Roadmap) | Incidentes | Parámetros de evaluación de riesgo y severidad. |
 | **Notificaciones** | *`notificacion`* | Hoja de Ruta (Roadmap) | Notificaciones | Registro de notificaciones push / WebSocket generadas. |
 
@@ -386,7 +386,11 @@ Registro formal de incidente de emergencia gestionado bajo la metodología del S
 | `ubicacion` | `GEOMETRY` | NO | — | Geometría PostGIS `Point(lng, lat)`, SRID 4326. Indexada con GiST. |
 | `estado` | `VARCHAR(50)` | NO | `'REPORTADO'` | Estado canónico ICS (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, `NO_ABORDABLE`, `RESUELTO`). |
 | `prioridad` | `VARCHAR(20)` | NO | `'MEDIA'` | Severidad ICS (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
-| `requiere_asistencia_social`| `BOOLEAN` | NO | `false` | Indica si requiere derivación a DIDECO para Ficha FIBE. |
+| `prioridad_sugerida` | `VARCHAR(20)` | SÍ | `NULL` | Prioridad sugerida preliminarmente por el sistema según evaluación de terreno (`BAJA`, `MEDIA`, `ALTA`, `CRITICA` - HU-38 / Migración 053). |
+| `justificacion_prioridad` | `TEXT` | SÍ | `NULL` | Justificación técnica obligatoria cuando la patrulla modifica la prioridad sugerida en terreno (HU-38 / Migración 053). |
+| `requiere_asistencia_social`| `BOOLEAN` | NO | `false` | Indica si requiere derivación a Asistente Social DGRD para Ficha FIBE. |
+| `fecha_cierre` | `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal de cierre del incidente (ej. al declararse `NO_ABORDABLE` en HU-39 / Migración 056). |
+| `motivo_no_abordable` | `TEXT` | SÍ | `NULL` | Justificación fundada (mín. 15 caracteres) cuando el incidente es declarado `NO_ABORDABLE` desde terreno (HU-39 / HU-86 / Migración 056). |
 | `fuente_origen` | `VARCHAR(50)` | NO | `'CHATBOT'` | Canal original (`CHATBOT`, `LLAMADA_TELEFONICA`, `FUNCIONARIO_TERRENO`, `SENAPRED`). |
 | `asterisk_call_id`| `VARCHAR(100)`| SÍ | `NULL` | Identificador de llamada telefónica IVR si aplica. |
 | `asterisk_caller_phone`| `VARCHAR(30)`| SÍ | `NULL` | Número de teléfono entrante de la llamada IVR. |
@@ -546,6 +550,7 @@ Registro cronológico de hitos tácticos de la misión (despacho, aceptación po
 | `registrado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` (ON DELETE SET NULL). Funcionario o líder de patrulla en sesión. |
 | `latitud` | `DECIMAL(10, 7)` | SÍ | `NULL` | Coordenada Y opcional reportada desde terreno. |
 | `longitud` | `DECIMAL(10, 7)` | SÍ | `NULL` | Coordenada X opcional reportada desde terreno. |
+| `metadatos` | `JSONB` | SÍ | `NULL` | Metadatos estructurados del hito (ej. `{ tipoAnterior, tipoAnteriorId, tipoNuevo, tipoNuevoId, justificacion }` en `TIPOLOGIA_RECLASIFICADA`, Migración 055). |
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Marca temporal del hito. |
 
 #### Tabla: `reporte_terreno` (Reporte Técnico de Terreno - HU-17 / Migración 011)
@@ -562,7 +567,19 @@ Informes técnicos y diagnósticos estructurados levantados por patrullas verifi
 | `danos_estimados` | `TEXT` | SÍ | `NULL` | Estimación descriptiva o cuantitativa de daños. |
 | `observaciones` | `TEXT` | SÍ | `NULL` | Condiciones climáticas o notas de seguridad. |
 | `personas_afectadas` | `INTEGER` | NO | `0` | Cantidad estimada de damnificados en el punto. |
-| `estado_terreno` | `VARCHAR(50)` | NO | `'FINALIZADO'` | Estado operativo del reporte (`PRELIMINAR`, `EN_PROCESO`, `FINALIZADO`). |
+| `estado_terreno` | `VARCHAR(50)` | NO | `'FINALIZADO'` | Estado operativo del reporte (`PRELIMINAR`, `EN_VERIFICACION`, `EN_PROCESO`, `FINALIZADO`, `CRITICO`, `ESTABLE`, `INACCESIBLE`, `CONTROLADO`). |
+| `tipo_reporte` | `VARCHAR(40)` | NO | `'EVALUACION_PRIORIDAD'` | Clasificación del informe (`EVALUACION_PRIORIDAD` en HU-38, `VERIFICACION_CIERRE` en HU-39, `REPORTE_CUADRILLA`). Migración 056. |
+| `dictamen` | `VARCHAR(30)` | SÍ | `NULL` | Dictamen operativo de verificación (`REQUIERE_CUADRILLA` o `NO_ABORDABLE` - HU-39 / Migración 056). |
+| `motivo_no_abordable` | `TEXT` | SÍ | `NULL` | Motivo técnico fundado cuando `dictamen = 'NO_ABORDABLE'` (mín. 15 caracteres - HU-39 / HU-86 / Migración 056). |
+| `requiere_asistencia_social` | `BOOLEAN` | NO | `false` | Indicador de derivación a Asistente Social / Ficha FIBE capturado en el informe de verificación (HU-39 / Migración 056). |
+| `version_reporte` | `INTEGER` | NO | `1` | Número correlativo de envío del reporte en la misión (`1` inicial, `2+` rectificaciones - HU-38 / Migración 053). |
+| `es_rectificacion` | `BOOLEAN` | NO | `false` | `true` cuando el reporte es una modificación/reenvío posterior al primer reporte de evaluación (HU-38 / Migración 053). |
+| `prioridad_sugerida` | `VARCHAR(20)` | SÍ | `NULL` | Prioridad sugerida por el sistema en el momento del envío de este reporte (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
+| `prioridad_asignada` | `VARCHAR(20)` | SÍ | `NULL` | Prioridad confirmada o ajustada por la patrulla en este reporte (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
+| `justificacion_prioridad` | `TEXT` | SÍ | `NULL` | Justificación técnica registrada en este reporte ante discrepancia con la prioridad sugerida. |
+| `detalles_evaluacion` | `JSONB` | NO | `'{}'` | Desglose estructurado del formulario de evaluación en terreno (núcleo familiar, niños, adultos mayores, discapacitados, electrodependientes, mascotas, compromiso de vivienda, riesgos activos y puntaje). |
+| `horas_hombre` | `NUMERIC(6, 2)` | SÍ | `NULL` | Horas hombre invertidas por la cuadrilla operativa en la resolución de la emergencia (`CHECK >= 0`, `chk_reporte_terreno_horas_hombre` - HU-68 / Migración 059). |
+| `materiales_consumidos` | `JSONB` | NO | `'[]'` | Desglose de insumos y cantidades consumidas en la faena (`[{ recursoId, nombre, cantidad, unidad, observacion, stockAnterior, stockPosterior }]` - HU-68 / Migración 059). |
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de emisión del informe. |
 | `actualizado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Última modificación del informe. |
 
@@ -589,8 +606,8 @@ Almacena el ciclo de vida auditable de las notificaciones de despacho táctico e
 
 ### 3.4 Módulo: Eventos ATP y Asistencia Social
 
-#### Tabla: `evento_asistencia_social` (Eventos Excepcionales y Requerimientos de FIBE - HU-28 / Migración 022)
-Gestiona el levantamiento de casos excepcionales de vulnerabilidad social y requerimientos para la Ficha Básica de Emergencia (FIBE), permitiendo su registro directo sin requerir la existencia previa de un incidente formal, o bien vinculado opcionalmente a uno.
+#### Tabla: `evento_asistencia_social` (Eventos Excepcionales y Requerimientos de FIBE - HU-28 / HU-25 / Migraciones 022, 083 y 084)
+Gestiona el levantamiento de casos excepcionales de vulnerabilidad social y la derivación de incidentes resueltos para la Ficha Básica de Emergencia (FIBE) en la DGRD, permitiendo su registro directo sin incidente previo o vinculado de manera única (índice único parcial `uq_evento_asistencia_social_incidente_activo` sobre `incidente_id` cuando `incidente_id IS NOT NULL AND eliminado_en IS NULL AND estado <> 'DESCARTADO'`, Migración `084`).
 
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
 |---|---|---|---|---|
@@ -612,6 +629,7 @@ Gestiona el levantamiento de casos excepcionales de vulnerabilidad social y requ
 | `incidente_id` | `UUID` | SÍ | `NULL` | FK a `incidente.id` (ON DELETE SET NULL). Nullable si es generado de manera autónoma. |
 | `delegacion_id` | `UUID` | SÍ | `NULL` | FK a `delegacion.id` territorial (ON DELETE SET NULL). |
 | `asistente_social_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` (ON DELETE SET NULL). Profesional asistente social asignado al caso. |
+| `detalles_evaluacion` | `JSONB` | SÍ | `NULL` | Desglose demográfico por familia (`familias[]`), totales de grupos vulnerables, compromiso de vivienda y daños estimados (homologado con H38/H39, Migración `083`). `NULL` indica modo de estimación aproximada sin desglose familiar. |
 | `creado_por_id` | `UUID` | NO | — | FK a `usuario.id` (ON DELETE RESTRICT). Funcionario que ingresó el registro (Encargado o Administrador). |
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de creación del registro. |
 | `actualizado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de última modificación. |
@@ -635,7 +653,7 @@ Las siguientes entidades forman parte del diseño conceptual inicial del sistema
 - **Campos proyectados:** `id` (UUID), `mision_id` (FK a `mision`), `usuario_id` (FK a `usuario`), `estado_anterior`, `nuevo_estado`, `mensaje_bitacora`, `latitud`, `longitud`, `creado_en`.
 
 #### Entidad: `recuperacion` (Puntos y Eventos de Recuperación)
-- **Propósito:** Gestión de la fase posterior a la emergencia para labores de despeje de vías, remoción de escombros, sanitización y coordinación con DIDECO para asistencia social.
+- **Propósito:** Gestión de la fase posterior a la emergencia para labores de despeje de vías, remoción de escombros, sanitización y coordinación con la DGRD para asistencia social.
 - **Relaciones:** Derivada desde `mision` (misiones de tipo `RECUPERACION`), relación 1:N con `beneficio`, vinculada a `delegacion`.
 - **Campos proyectados:** `id` (UUID), `mision_id` (FK a `mision`), `delegacion_id` (FK a `delegacion`), `sector`, `estado` (`EN_EVALUACION`, `EN_EJECUCION`, `FINALIZADO`), `familias_afectadas`, `creado_en`.
 
@@ -736,8 +754,8 @@ Para mantener la integridad referencial y permitir pruebas end-to-end homogénea
    - La patrulla verificadora realiza el triage primario. Al escalar y despachar una cuadrilla operativa para la atención en terreno, la patrulla verificadora debe quedar liberada en el sistema (`patrulla_verificadora.estado = 'DISPONIBLE'`).
 5. **Rechazo Justificado de Misiones:**
    - Si una cuadrilla rechaza una misión (`mision.estado = 'RECHAZADA'`), la columna `mision.justificacion_rechazo` es **estrictamente obligatoria** (no puede ser `NULL` ni string vacío).
-6. **Manejo de Vulnerabilidad Social (FIBE / DIDECO):**
-   - No existe tabla de "Albergues". La vulnerabilidad social se señaliza mediante el booleano `incidente.requiere_asistencia_social = true` a nivel de incidente o a través del registro autónomo y directo en `evento_asistencia_social` (HU-28), derivando a DIDECO para el levantamiento de la Ficha Básica de Emergencia (FIBE).
+6. **Manejo de Vulnerabilidad Social (FIBE / DGRD):**
+   - No existe tabla ni módulo de "Albergues". La vulnerabilidad social se señaliza mediante el booleano `incidente.requiere_asistencia_social = true` a nivel de incidente, mediante la derivación post-cierre en `POST /api/incidentes/{id}/asistencia-social` (HU-25), o a través del registro autónomo directo en `evento_asistencia_social` (HU-28), derivando exclusivamente al levantamiento de la Ficha Básica de Emergencia (FIBE) y entrega de ayudas con la DGRD (Dirección de Gestión del Riesgo de Desastres).
 
 ---
 

@@ -10,6 +10,7 @@ export interface ServerToClientEvents {
     "prevencion:creada": (payload: unknown) => void;
     "recuperacion:creada": (payload: unknown) => void;
     "asistencia_social:creada": (payload: unknown) => void;
+    "asistencia_social:actualizada": (payload: unknown) => void;
     "punto_critico:creado": (payload: unknown) => void;
     "evento_atp:creado": (payload: unknown) => void;
     "punto_critico:eliminado": (payload: {
@@ -70,8 +71,11 @@ export interface ServerToClientEvents {
         tipoMision: string;
         patrullaId?: string | null;
         cuadrillaId?: string | null;
+        cuadrillaNombre?: string | null;
         incidenteId?: string | null;
+        incidenteCodigo?: string | null;
         fechaInicio: string | null;
+        fechaCierre?: string | null;
         hito: {
             id: string;
             hito: string;
@@ -79,6 +83,7 @@ export interface ServerToClientEvents {
             registradoPorId: string | null;
             creadoEn: string;
         };
+        reporteTerreno?: Record<string, unknown> | null;
         actualizadoEn: string;
     }) => void;
     "notificacion:trazabilidad_actualizada": (payload: {
@@ -93,6 +98,18 @@ export interface ServerToClientEvents {
         leidaAt?: string | null;
         actualizadoEn: string;
     }) => void;
+    "adjunto:creado": (payload: AdjuntoCreadoPayload) => void;
+}
+
+export interface AdjuntoCreadoPayload {
+    id: string;
+    nombreArchivo: string;
+    url: string;
+    tipoMime: string;
+    tamanoBytes: number;
+    incidenteId: string | null;
+    reporteTerrenoId: string | null;
+    creadoEn: string;
 }
 
 export interface MisionRechazadaPayload {
@@ -101,7 +118,9 @@ export interface MisionRechazadaPayload {
     tipoMision: string;
     motivo: string;
     justificacionRechazo?: string;
-    patrullaId: string | null;
+    cuadrillaId?: string | null;
+    cuadrillaNombre?: string | null;
+    patrullaId?: string | null;
     patrullaNombre?: string | null;
     incidenteId: string | null;
     incidenteCodigo?: string | null;

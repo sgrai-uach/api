@@ -6,6 +6,8 @@ import {
 import {
   crearEventoAsistenciaSocialService,
   listarEventosAsistenciaSocialService,
+  AsistenteSocialNotFoundError,
+  AsistenteSocialNoDisponibleError,
 } from "@/modules/eventos-atp/asistencia-social.service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
@@ -127,6 +129,14 @@ export async function POST(req: NextRequest) {
 
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ message: error.message }, { status: 403 });
+    }
+
+    if (error instanceof AsistenteSocialNotFoundError) {
+      return NextResponse.json({ message: error.message }, { status: 404 });
+    }
+
+    if (error instanceof AsistenteSocialNoDisponibleError) {
+      return NextResponse.json({ message: error.message }, { status: 409 });
     }
 
     console.error("Error al registrar evento de asistencia social:", error);

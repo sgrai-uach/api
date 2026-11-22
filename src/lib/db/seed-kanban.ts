@@ -4,12 +4,12 @@ import { sql } from "kysely";
 export async function sembrarDatosKanban() {
   console.log("Iniciando inserción de datos de prueba para el Tablero Kanban...");
 
-  // 1. Obtener IDs de delegaciones maestras
+  // 1. Obtener IDs de delegaciones maestras (por código oficial o coincidencia parcial de nombre)
   const delegaciones = await db.selectFrom("delegacion").selectAll().execute();
-  const delNorte = delegaciones.find((d) => d.nombre === "Norte")?.id;
-  const delSur = delegaciones.find((d) => d.nombre === "Sur")?.id;
-  const delCosta = delegaciones.find((d) => d.nombre === "Costa")?.id;
-  const delCalleCalle = delegaciones.find((d) => d.nombre === "Calle Calle")?.id;
+  const delNorte = delegaciones.find((d) => d.codigo === "DEL_NORTE" || d.nombre.includes("Norte"))?.id;
+  const delSur = delegaciones.find((d) => d.codigo === "DEL_SUR" || d.nombre.includes("Sur"))?.id;
+  const delCosta = delegaciones.find((d) => d.codigo === "DEL_COSTA" || d.nombre.includes("Costa"))?.id;
+  const delCalleCalle = delegaciones.find((d) => d.codigo === "DEL_CALLE_CALLE" || d.nombre.includes("Calle Calle"))?.id;
 
   // 2. Obtener IDs de tipos de incidente
   const tipos = await db.selectFrom("tipo_incidente").selectAll().execute();
@@ -118,22 +118,145 @@ export async function sembrarDatosKanban() {
     ON CONFLICT (id) DO NOTHING;
   `.execute(db);
 
-  // 7. Equipos Operativos: Patrullas Verificadoras y Cuadrillas
+  // 7. Usuarios Operativos de Terreno (Delegados de Cuadrilla, Brigadistas y Patrullas Verificadoras)
+  const rolPatrullaId = "20000000-0000-4000-8000-000000000004";
+  const rolDelegadoId = "20000000-0000-4000-8000-000000000005";
+  const rolAsistenteSocialId = "20000000-0000-4000-8000-000000000006";
+  const rolBrigadistaId = "20000000-0000-4000-8000-000000000009";
+
+  const delegadoSurId = "00000000-0000-4000-8000-000000000005";
+  const delegadoNorteId = "00000000-0000-4000-8000-000000000006";
+  const delegadoCostaId = "00000000-0000-4000-8000-000000000011";
+  const brigadista1Id = "00000000-0000-4000-8000-000000000009";
+  const brigadista2Id = "00000000-0000-4000-8000-000000000013";
+  const patrullaCostaLiderId = "00000000-0000-4000-8000-000000000017";
+  const patrullaSurLiderId = "00000000-0000-4000-8000-000000000018";
+  const asistenteSocialId = "00000000-0000-4000-8000-000000000019";
+
+  await sql`
+    INSERT INTO usuario (id, rut, nombres, apellidos, email, rol_id, delegacion_id, activo, estado_operativo)
+    VALUES
+      (${delegadoSurId}, '15.111.222-3', 'Carlos', 'Delegado', 'delegado@valdivia.cl', ${rolDelegadoId}, ${delSur ?? null}, true, 'disponible'),
+      (${delegadoNorteId}, '16.789.012-3', 'Andrés', 'Morales Ríos', 'delegado.norte@valdivia.cl', ${rolDelegadoId}, ${delNorte ?? null}, true, 'disponible'),
+      (${delegadoCostaId}, '18.123.789-4', 'Matías', 'Oyarzún Vera', 'delegado.costa@valdivia.cl', ${rolDelegadoId}, ${delCosta ?? null}, true, 'disponible'),
+      (${brigadista1Id}, '16.222.333-4', 'Pedro', 'Obrero', 'brigadista1@valdivia.cl', ${rolBrigadistaId}, ${delNorte ?? null}, true, 'disponible'),
+      (${brigadista2Id}, '17.333.444-5', 'Jorge', 'Almonacid', 'brigadista2@valdivia.cl', ${rolBrigadistaId}, ${delSur ?? null}, true, 'disponible'),
+      (${patrullaCostaLiderId}, '19.111.222-3', 'Matías', 'Alarcón', 'patrulla.costa@valdivia.cl', ${rolPatrullaId}, ${delCosta ?? null}, true, 'disponible'),
+      (${patrullaSurLiderId}, '18.999.000-2', 'Loreto', 'Sánchez', 'patrulla.sur@valdivia.cl', ${rolPatrullaId}, ${delSur ?? null}, true, 'disponible'),
+      (${asistenteSocialId}, '17.444.555-6', 'Claudia', 'Rojas Vidal', 'asistente.social@valdivia.cl', ${rolAsistenteSocialId}, ${delSur ?? null}, true, 'disponible')
+    ON CONFLICT (email) DO UPDATE SET
+      nombres = EXCLUDED.nombres,
+      apellidos = EXCLUDED.apellidos,
+      rol_id = EXCLUDED.rol_id,
+      delegacion_id = EXCLUDED.delegacion_id,
+      activo = true,
+      estado_operativo = 'disponible';
+  `.execute(db);
+
+  // Obtener los IDs reales de los usuarios por email (por si algún usuario preexistía con otro ID)
+  const usuariosTerreno = await db
+    .selectFrom("usuario")
+    .select(["id", "email"])
+    .where("email", "in", [
+      "delegado@valdivia.cl",
+      "delegado.norte@valdivia.cl",
+      "delegado.costa@valdivia.cl",
+      "brigadista1@valdivia.cl",
+      "brigadista2@valdivia.cl",
+      "patrulla.costa@valdivia.cl",
+      "patrulla.sur@valdivia.cl",
+    ])
+    .execute();
+
+  const idPorEmail = new Map(usuariosTerreno.map((u) => [u.email, u.id]));
+  const realDelegadoSurId = idPorEmail.get("delegado@valdivia.cl") ?? delegadoSurId;
+  const realDelegadoNorteId = idPorEmail.get("delegado.norte@valdivia.cl") ?? delegadoNorteId;
+  const realDelegadoCostaId = idPorEmail.get("delegado.costa@valdivia.cl") ?? delegadoCostaId;
+  const realBrigadista1Id = idPorEmail.get("brigadista1@valdivia.cl") ?? brigadista1Id;
+  const realBrigadista2Id = idPorEmail.get("brigadista2@valdivia.cl") ?? brigadista2Id;
+  const realPatrullaCostaId = idPorEmail.get("patrulla.costa@valdivia.cl") ?? patrullaCostaLiderId;
+  const realPatrullaSurId = idPorEmail.get("patrulla.sur@valdivia.cl") ?? patrullaSurLiderId;
+
+  if (delSur && delNorte && delCosta) {
+    await sql`
+      INSERT INTO personal (id, usuario_id, delegacion_id, especialidad, cargo, disponible_terreno)
+      VALUES
+        ('40000000-0000-4000-8000-000000000010', ${realDelegadoSurId}, ${delSur}, 'Mando y coordinación de cuadrilla', 'Delegado de Cuadrilla', true),
+        ('40000000-0000-4000-8000-000000000011', ${realDelegadoNorteId}, ${delNorte}, 'Mando y coordinación de cuadrilla', 'Delegado de Cuadrilla', true),
+        ('40000000-0000-4000-8000-000000000012', ${realDelegadoCostaId}, ${delCosta}, 'Mando y coordinación de cuadrilla', 'Delegado de Cuadrilla', true),
+        ('40000000-0000-4000-8000-000000000001', ${realBrigadista1Id}, ${delNorte}, 'Poda de Altura y Despeje', 'Motosierrista', true),
+        ('40000000-0000-4000-8000-000000000002', ${realBrigadista2Id}, ${delSur}, 'Operación de Motobomba y Achique', 'Operario', true),
+        ('40000000-0000-4000-8000-000000000013', ${realPatrullaCostaId}, ${delCosta}, 'Evaluación y Diagnóstico Rápido', 'Inspector Técnico de Terreno', true),
+        ('40000000-0000-4000-8000-000000000014', ${realPatrullaSurId}, ${delSur}, 'Evaluación y Diagnóstico Rápido', 'Inspector Técnico de Terreno', true)
+      ON CONFLICT (usuario_id) DO UPDATE SET
+        delegacion_id = EXCLUDED.delegacion_id,
+        especialidad = EXCLUDED.especialidad,
+        cargo = EXCLUDED.cargo,
+        disponible_terreno = true;
+    `.execute(db);
+  }
+
+  // Equipos Operativos: Patrullas Verificadoras y Cuadrillas
   await sql`
     INSERT INTO patrulla_verificadora (id, nombre, estado, delegacion_id, usuario_lider_id)
     VALUES
-      ('f1000000-0000-4000-8000-000000000001', 'Patrulla Rápida Costa-1', 'EN_VERIFICACION', ${delCosta ?? null}, ${encargadoId}),
-      ('f1000000-0000-4000-8000-000000000002', 'Patrulla Rápida Centro-Sur', 'DISPONIBLE', ${delSur ?? null}, ${encargadoId})
-    ON CONFLICT (id) DO NOTHING;
+      ('f1000000-0000-4000-8000-000000000001', 'Patrulla Rápida Costa-1', 'EN_VERIFICACION', ${delCosta ?? null}, ${realPatrullaCostaId}),
+      ('f1000000-0000-4000-8000-000000000002', 'Patrulla Rápida Centro-Sur', 'DISPONIBLE', ${delSur ?? null}, ${realPatrullaSurId})
+    ON CONFLICT (id) DO UPDATE SET
+      nombre = EXCLUDED.nombre,
+      estado = EXCLUDED.estado,
+      delegacion_id = EXCLUDED.delegacion_id,
+      usuario_lider_id = EXCLUDED.usuario_lider_id;
   `.execute(db);
 
   await sql`
-    INSERT INTO cuadrilla (id, nombre, estado, delegacion_id, usuario_delegado_id)
+    INSERT INTO cuadrilla (id, nombre, estado, delegacion_id, usuario_delegado_id, activo, eliminado_en)
     VALUES
-      ('c1000000-0000-4000-8000-000000000001', 'Cuadrilla Aguas Lluvias Alfa', 'EN_MISION', ${delSur ?? null}, ${encargadoId}),
-      ('c1000000-0000-4000-8000-000000000002', 'Cuadrilla Vías y Despeje Urbano', 'EN_MISION', ${delNorte ?? null}, ${encargadoId})
-    ON CONFLICT (id) DO NOTHING;
+      ('c1000000-0000-4000-8000-000000000001', 'Cuadrilla Aguas Lluvias Alfa', 'EN_MISION', ${delSur ?? null}, ${realDelegadoSurId}, true, NULL),
+      ('c1000000-0000-4000-8000-000000000002', 'Cuadrilla Vías y Despeje Urbano', 'EN_MISION', ${delNorte ?? null}, ${realDelegadoNorteId}, true, NULL),
+      ('c1000000-0000-4000-8000-000000000003', 'Cuadrilla Mitigación Costera', 'DISPONIBLE', ${delCosta ?? null}, ${realDelegadoCostaId}, true, NULL)
+    ON CONFLICT (id) DO UPDATE SET
+      nombre = EXCLUDED.nombre,
+      estado = EXCLUDED.estado,
+      delegacion_id = EXCLUDED.delegacion_id,
+      usuario_delegado_id = EXCLUDED.usuario_delegado_id,
+      activo = true,
+      eliminado_en = NULL;
   `.execute(db);
+
+  // Asignación de Personal Operativo a Cuadrillas
+  const personalBrigadistas = await db
+    .selectFrom("personal")
+    .select(["id", "usuario_id"])
+    .where("usuario_id", "in", [realBrigadista1Id, realBrigadista2Id])
+    .execute();
+  const personalPorUsuario = new Map(personalBrigadistas.map((p) => [p.usuario_id, p.id]));
+  const personalBrig1 = personalPorUsuario.get(realBrigadista1Id);
+  const personalBrig2 = personalPorUsuario.get(realBrigadista2Id);
+
+  if (personalBrig2) {
+    await sql`
+      INSERT INTO cuadrilla_personal (id, cuadrilla_id, personal_id, activo, desvinculado_en)
+      VALUES ('ce100000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', ${personalBrig2}, true, NULL)
+      ON CONFLICT (id) DO UPDATE SET
+        cuadrilla_id = EXCLUDED.cuadrilla_id,
+        personal_id = EXCLUDED.personal_id,
+        activo = true,
+        desvinculado_en = NULL;
+    `.execute(db);
+  }
+
+  if (personalBrig1) {
+    await sql`
+      INSERT INTO cuadrilla_personal (id, cuadrilla_id, personal_id, activo, desvinculado_en)
+      VALUES ('ce100000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000002', ${personalBrig1}, true, NULL)
+      ON CONFLICT (id) DO UPDATE SET
+        cuadrilla_id = EXCLUDED.cuadrilla_id,
+        personal_id = EXCLUDED.personal_id,
+        activo = true,
+        desvinculado_en = NULL;
+    `.execute(db);
+  }
 
   // 8. Asignación de Recursos a Cuadrillas
   await sql`
@@ -292,7 +415,7 @@ export async function sembrarDatosKanban() {
         ST_SetSRID(ST_MakePoint(-73.2380000, -39.8310000), 4326),
         'RESUELTO',
         'MEDIA',
-        false,
+        true,
         'CHATBOT',
         ${adminId},
         ${encargadoId},
@@ -450,6 +573,7 @@ export async function sembrarDatosKanban() {
       tipo_incidente_id = EXCLUDED.tipo_incidente_id,
       delegacion_id = EXCLUDED.delegacion_id,
       fuente_incidente_id = EXCLUDED.fuente_incidente_id,
+      requiere_asistencia_social = EXCLUDED.requiere_asistencia_social,
       actualizado_en = EXCLUDED.actualizado_en;
   `.execute(db);
 
@@ -534,6 +658,35 @@ export async function sembrarDatosKanban() {
         CURRENT_TIMESTAMP - interval '4 hours 30 minutes'
       )
     ON CONFLICT (id) DO NOTHING;
+  `.execute(db);
+
+  // 11. Informe final de cuadrilla con afectación social para INC-2026-0006 (RESUELTO / HU-25)
+  await sql`
+    INSERT INTO reporte_terreno (
+      id, mision_id, evaluador_id, tipo_reporte, requiere_asistencia_social,
+      version_reporte, es_rectificacion, resumen_tecnico, acciones_realizadas,
+      danos_estimados, observaciones, personas_afectadas, estado_terreno, horas_hombre
+    )
+    VALUES (
+      'e2000000-0000-4000-8000-000000000004',
+      'd1000000-0000-4000-8000-000000000004',
+      ${realDelegadoSurId},
+      'REPORTE_CUADRILLA',
+      true,
+      1,
+      false,
+      'Desobstrucción de colector y evacuación de aguas completada. Se constata grupo familiar con pérdida de enseres que requiere ficha FIBE (DGRD).',
+      'Succión con motobomba 4 pulgadas y habilitación de drenaje.',
+      'Anegamiento de primer nivel en vivienda colindante.',
+      'Caso elegible para derivación inmediata a Asistencia Social post-cierre.',
+      4,
+      'FINALIZADO',
+      4.5
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      personas_afectadas = EXCLUDED.personas_afectadas,
+      requiere_asistencia_social = EXCLUDED.requiere_asistencia_social,
+      resumen_tecnico = EXCLUDED.resumen_tecnico;
   `.execute(db);
 
   console.log("¡Datos de prueba para el Tablero Kanban sembrados exitosamente!");
