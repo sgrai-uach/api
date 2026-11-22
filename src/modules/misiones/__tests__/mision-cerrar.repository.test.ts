@@ -661,4 +661,94 @@ describe("HU-68: mision.repository - cerrarMisionCuadrillaRepo", () => {
     expect(resultado.cuadrilla.estado).toBe("EN_MISION");
     expect(mockTrx.updateTable).not.toHaveBeenCalledWith("cuadrilla");
   });
+
+  it("debe aceptar personasAfectadas o heredar personas_afectadas de reportes previos del incidente (HU-25 / H68)", async () => {
+    const fechaCierre = new Date("2026-11-21T20:00:00.000Z");
+
+    mockTrx.executeTakeFirst
+      .mockResolvedValueOnce(misionBaseEnCurso)
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        titulo: misionBaseEnCurso.titulo,
+        tipo_mision: "ATENCION_CUADRILLA",
+        estado: "COMPLETADA",
+        prioridad: "ALTA",
+        incidente_id: incidenteId,
+        cuadrilla_id: cuadrillaId,
+        fecha_inicio: misionBaseEnCurso.fecha_inicio,
+        fecha_cierre: fechaCierre,
+        actualizado_en: fechaCierre,
+      })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        id: cuadrillaId,
+        nombre: "Cuadrilla Vías y Canales 1",
+        estado: "DISPONIBLE",
+        delegacion_id: delegacionId,
+      })
+      .mockResolvedValueOnce({
+        id: incidenteId,
+        codigo: "INC-2026-0042",
+        estado: "EN_ATENCION",
+        prioridad: "ALTA",
+        requiere_asistencia_social: false,
+      })
+      .mockResolvedValueOnce({
+        nombre: "Carlos Gómez",
+        email: "carlos@valdivia.cl",
+        rut: null,
+      });
+
+    // Reporte previo en el mismo incidente constató 5 personas afectadas
+    mockTrx.execute.mockResolvedValueOnce([
+      {
+        id: "rep-previo-patrulla",
+        mision_id: "mision-verif-previa",
+        personas_afectadas: 5,
+        detalles_evaluacion: null,
+        creado_en: new Date("2026-11-21T16:00:00.000Z"),
+      },
+    ]);
+
+    mockTrx.executeTakeFirstOrThrow
+      .mockResolvedValueOnce({
+        id: "rep-006",
+        mision_id: misionId,
+        resumen_tecnico: baseInput.resumenFaenas,
+        acciones_realizadas: baseInput.resumenFaenas,
+        requiere_apoyo_adicional: false,
+        danos_estimados: null,
+        observaciones: null,
+        personas_afectadas: 5,
+        estado_terreno: "FINALIZADO",
+        horas_hombre: 6.5,
+        creado_en: fechaCierre,
+        actualizado_en: fechaCierre,
+      })
+      .mockResolvedValueOnce({
+        id: "hito-006",
+        mision_id: misionId,
+        hito: "MISION_COMPLETADA",
+        descripcion: "Cierre completo.",
+        registrado_por_id: delegadoId,
+        latitud: null,
+        longitud: null,
+        creado_en: fechaCierre,
+      });
+
+    const resultado = await cerrarMisionCuadrillaRepo(
+      misionId,
+      delegadoId,
+      false,
+      baseInput
+    );
+
+    expect(resultado.reporteTerreno.personasAfectadas).toBe(5);
+    expect(mockTrx.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        personas_afectadas: 5,
+      })
+    );
+  });
 });

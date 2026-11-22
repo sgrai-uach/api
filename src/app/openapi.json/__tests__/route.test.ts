@@ -234,6 +234,25 @@ describe("Endpoint GET /openapi.json", () => {
     ).toBeDefined();
     expect(spec.paths["/api/eventos-atp/asistencia-social"].post.responses["404"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/asistencia-social"].post.responses["409"]).toBeDefined();
+
+    // Rutas y esquemas de Derivación a Asistencia Social Post-Incidente (HU-25)
+    expect(spec.paths["/api/incidentes/{id}/asistencia-social"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/{id}/asistencia-social"].post).toBeDefined();
+    expect(spec.paths["/api/incidentes/{id}/asistencia-social"].post.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(spec.paths["/api/incidentes/{id}/asistencia-social"].post.responses["200"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/{id}/asistencia-social"].post.responses["201"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/{id}/asistencia-social"].post.responses["400"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/{id}/asistencia-social"].post.responses["401"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/{id}/asistencia-social"].post.responses["403"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/{id}/asistencia-social"].post.responses["404"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/{id}/asistencia-social"].post.responses["409"]).toBeDefined();
+    expect(spec.paths["/api/incidentes/{id}/asistencia-social"].post.responses["500"]).toBeDefined();
+    expect(spec.components.schemas.EventoAsistenciaSocialResumen).toBeDefined();
+    expect(spec.components.schemas.DerivarAsistenciaSocialIncidenteInput).toBeDefined();
+    expect(spec.components.schemas.HitoDerivacionSocial).toBeDefined();
+    expect(spec.components.schemas.DerivarAsistenciaSocialIncidenteResponse).toBeDefined();
   });
 });
 

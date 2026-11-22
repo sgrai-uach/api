@@ -3,11 +3,15 @@ import {
   crearEventoAsistenciaSocialService,
   listarEventosAsistenciaSocialService,
   asignarAsistenteSocialService,
+  derivarIncidenteAAsistenciaSocialService,
   consolidarEvaluacionSocialParaPersistencia,
   EventoAsistenciaSocialNotFoundError,
   AsistenteSocialNotFoundError,
   EstadoEventoAsistenciaSocialInvalidoError,
   AsistenteSocialNoDisponibleError,
+  IncidenteNoEncontradoError,
+  IncidenteNoElegibleAsistenciaSocialError,
+  EventoAsistenciaSocialEnProcesoError,
 } from "../asistencia-social.service";
 import * as authService from "@/modules/seguridad/auth.service";
 import * as repository from "../asistencia-social.repository";
@@ -24,11 +28,13 @@ vi.mock("../asistencia-social.repository", async (importOriginal) => {
     listarEventosAsistenciaSocialPaginados: vi.fn(),
     contarEventosAsistenciaSocial: vi.fn(),
     asignarAsistenteSocialEventoRepo: vi.fn(),
+    derivarIncidenteAAsistenciaSocialRepo: vi.fn(),
   };
 });
 vi.mock("@/lib/socket", () => ({
   emitirAsistenciaSocialCreada: vi.fn(),
   emitirAsistenciaSocialActualizada: vi.fn(),
+  notificarIncidenteActualizado: vi.fn(),
 }));
 
 describe("asistencia-social.service - Lógica de Negocio y RBAC (H28)", () => {
@@ -403,6 +409,135 @@ describe("asistencia-social.service - Lógica de Negocio y RBAC (H28)", () => {
       await expect(
         asignarAsistenteSocialService(eventoId, { asistenteSocialId }, usuarioEncargado.id)
       ).rejects.toThrow(AsistenteSocialNoDisponibleError);
+    });
+  });
+
+  describe("derivarIncidenteAAsistenciaSocialService (HU-25)", () => {
+    const incidenteId = "a1000000-0000-4000-8000-000000000006";
+    const asistenteSocialId = "00000000-0000-4000-8000-000000000019";
+
+    const eventoDerivadoMock: repository.FilaEventoAsistenciaSocialConRelaciones = {
+      ...filaGuardadaMock,
+      id: "70000000-0000-4000-8000-000000000099",
+      codigo: "AS-2026-0020",
+      estado: "ASIGNADO",
+      incidente_id: incidenteId,
+      incidente_codigo: "INC-2026-0006",
+      asistente_social_id: asistenteSocialId,
+      asistente_social_nombre: "Claudia Rojas Vidal",
+    };
+
+    const hitoDerivadoMock: repository.FilaHitoDerivacionSocial = {
+      id: "80000000-0000-4000-8000-000000000010",
+      mision_id: "d1000000-0000-4000-8000-000000000004",
+      hito: "DERIVACION_ASISTENCIA_SOCIAL",
+      descripcion: "Incidente INC-2026-0006 derivado a Asistencia Social (DGRD / FIBE).",
+      registrado_por_id: usuarioEncargado.id,
+      metadatos: { eventoAsistenciaSocialCodigo: "AS-2026-0020" },
+      creado_en: new Date("2026-11-21T20:00:00Z"),
+    };
+
+    it("debe validar permiso RBAC asistencia_social:crear y emitir asistencia_social:creada e incidente:actualizado al crear (HU-25)", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(usuarioEncargado);
+      vi.spyOn(repository, "derivarIncidenteAAsistenciaSocialRepo").mockResolvedValueOnce({
+        ok: true,
+        accion: "CREADO",
+        evento: eventoDerivadoMock,
+        hito: hitoDerivadoMock,
+        incidente: {
+          id: incidenteId,
+          codigo: "INC-2026-0006",
+          estado: "RESUELTO",
+          prioridad: "MEDIA",
+          requiere_asistencia_social: true,
+          actualizado_en: new Date("2026-11-21T20:00:00Z"),
+        },
+      });
+
+      const res = await derivarIncidenteAAsistenciaSocialService(
+        incidenteId,
+        { asistenteSocialId, observaciones: "FIBE prioritaria" },
+        usuarioEncargado.id
+      );
+
+      expect(authService.verificarPermiso).toHaveBeenCalledWith(
+        usuarioEncargado.id,
+        "asistencia_social:crear"
+      );
+      expect(res.accion).toBe("CREADO");
+      expect(res.data.estado).toBe("ASIGNADO");
+      expect(res.data.incidenteCodigo).toBe("INC-2026-0006");
+      expect(res.hito?.hito).toBe("DERIVACION_ASISTENCIA_SOCIAL");
+      expect(socket.emitirAsistenciaSocialCreada).toHaveBeenCalledWith(res.data);
+      expect(socket.emitirAsistenciaSocialActualizada).not.toHaveBeenCalled();
+      expect(socket.notificarIncidenteActualizado).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: incidenteId,
+          codigo: "INC-2026-0006",
+          nuevoEstado: "RESUELTO",
+          requiereAsistenciaSocial: true,
+        })
+      );
+    });
+
+    it("debe emitir también asistencia_social:actualizada cuando actualiza un evento social previo", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(usuarioEncargado);
+      vi.spyOn(repository, "derivarIncidenteAAsistenciaSocialRepo").mockResolvedValueOnce({
+        ok: true,
+        accion: "ACTUALIZADO",
+        evento: eventoDerivadoMock,
+        hito: hitoDerivadoMock,
+        incidente: {
+          id: incidenteId,
+          codigo: "INC-2026-0006",
+          estado: "RESUELTO",
+          prioridad: "ALTA",
+          requiere_asistencia_social: true,
+          actualizado_en: new Date("2026-11-21T20:05:00Z"),
+        },
+      });
+
+      const res = await derivarIncidenteAAsistenciaSocialService(
+        incidenteId,
+        { asistenteSocialId },
+        usuarioEncargado.id
+      );
+
+      expect(res.accion).toBe("ACTUALIZADO");
+      expect(socket.emitirAsistenciaSocialCreada).toHaveBeenCalledWith(res.data);
+      expect(socket.emitirAsistenciaSocialActualizada).toHaveBeenCalledWith(res.data);
+    });
+
+    it("debe mapear los motivos de rechazo del repositorio a errores de dominio HTTP esperados", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValue(usuarioEncargado);
+
+      const casos: Array<{
+        motivo: Extract<repository.ResultadoDerivacionIncidenteSocial, { ok: false }>["motivo"];
+        errorClass: new (...args: never[]) => Error;
+      }> = [
+        { motivo: "INCIDENTE_NO_ENCONTRADO", errorClass: IncidenteNoEncontradoError },
+        { motivo: "ASISTENTE_NO_ENCONTRADO", errorClass: AsistenteSocialNotFoundError },
+        { motivo: "ASISTENTE_NO_ELEGIBLE", errorClass: AsistenteSocialNoDisponibleError },
+        { motivo: "EVENTO_EN_PROCESO_O_FINALIZADO", errorClass: EventoAsistenciaSocialEnProcesoError },
+        { motivo: "INCIDENTE_NO_RESUELTO", errorClass: IncidenteNoElegibleAsistenciaSocialError },
+        { motivo: "INCIDENTE_SIN_AFECTACION_SOCIAL", errorClass: IncidenteNoElegibleAsistenciaSocialError },
+      ];
+
+      for (const caso of casos) {
+        vi.spyOn(repository, "derivarIncidenteAAsistenciaSocialRepo").mockResolvedValueOnce({
+          ok: false,
+          motivo: caso.motivo,
+          detalle: `Error simulado ${caso.motivo}`,
+        });
+
+        await expect(
+          derivarIncidenteAAsistenciaSocialService(
+            incidenteId,
+            { asistenteSocialId },
+            usuarioEncargado.id
+          )
+        ).rejects.toThrow(caso.errorClass);
+      }
     });
   });
 });

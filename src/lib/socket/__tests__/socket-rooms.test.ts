@@ -5,7 +5,21 @@ import {
   notificarMisionActualizada,
   notificarIncidenteActualizado,
   emitirCuadrillaActualizada,
+  emitirAsistenciaSocialCreada,
+  emitirAsistenciaSocialActualizada,
+  REDIS_SOCKET_CHANNEL,
 } from "../index";
+
+const publishSpy = vi.fn().mockResolvedValue(1);
+
+vi.mock("ioredis", () => {
+  return {
+    default: vi.fn().mockImplementation(() => ({
+      on: vi.fn(),
+      publish: publishSpy,
+    })),
+  };
+});
 
 describe("Socket.io Salas Destino - mision:actualizada, incidente:actualizado y cuadrilla:actualizada (HU-68)", () => {
   beforeEach(() => {
@@ -128,5 +142,69 @@ describe("Socket.io Salas Destino - mision:actualizada, incidente:actualizado y 
     expect(ioMock.to).toHaveBeenCalledWith("encargado");
     setSocketServer(null as any);
     expect((globalThis as { __sgraiSocketIo?: unknown }).__sgraiSocketIo).toBeNull();
+  });
+
+  it("debe emitir asistencia_social:creada y asistencia_social:actualizada a las salas asistente_social y encargado vía Socket.io y Redis Pub/Sub (HU-25)", () => {
+    const roomsEmitidos: string[] = [];
+    const emitMock = vi.fn();
+    const ioMock: any = {
+      to: vi.fn((room: string) => {
+        roomsEmitidos.push(room);
+        return { emit: emitMock };
+      }),
+      emit: emitMock,
+    };
+
+    setSocketServer(ioMock);
+    const payload = { id: "ev-1", codigo: "AS-2026-0001", estado: "ASIGNADO" };
+    emitirAsistenciaSocialCreada(payload);
+
+    expect(roomsEmitidos).toContain("asistente_social");
+    expect(roomsEmitidos).toContain("encargado");
+    expect(roomsEmitidos).toContain("sala:encargados");
+    expect(roomsEmitidos).toContain("centro_mando");
+    expect(roomsEmitidos).toContain("administrador");
+    expect(emitMock).toHaveBeenCalledWith("asistencia_social:creada", payload);
+
+    roomsEmitidos.length = 0;
+    emitirAsistenciaSocialActualizada(payload);
+    expect(roomsEmitidos).toContain("asistente_social");
+    expect(roomsEmitidos).toContain("encargado");
+    expect(emitMock).toHaveBeenCalledWith("asistencia_social:actualizada", payload);
+
+    // Rama Redis Pub/Sub multi-sala sin instancia directa de Socket.io
+    setSocketServer(null as any);
+    const redisAnterior = process.env.REDIS_URL;
+    process.env.REDIS_URL = "redis://localhost:6379";
+
+    try {
+      emitirAsistenciaSocialCreada(payload);
+      const canalesPublicados = publishSpy.mock.calls.map(([canal, msg]) => ({
+        canal,
+        parsed: JSON.parse(msg as string),
+      }));
+      expect(
+        canalesPublicados.some(
+          (c) =>
+            c.canal === REDIS_SOCKET_CHANNEL &&
+            c.parsed.event === "asistencia_social:creada" &&
+            c.parsed.room === "asistente_social"
+        )
+      ).toBe(true);
+      expect(
+        canalesPublicados.some(
+          (c) =>
+            c.canal === REDIS_SOCKET_CHANNEL &&
+            c.parsed.event === "asistencia_social:creada" &&
+            c.parsed.room === "encargado"
+        )
+      ).toBe(true);
+    } finally {
+      if (redisAnterior === undefined) {
+        delete process.env.REDIS_URL;
+      } else {
+        process.env.REDIS_URL = redisAnterior;
+      }
+    }
   });
 });

@@ -505,5 +505,143 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
         resumen: "Extracción de agua y limpieza de colector completada.",
       });
     });
+
+    it("debe mapear personasAfectadas, eventoAsistenciaSocial y bitacoraHitos con DERIVACION_ASISTENCIA_SOCIAL (HU-25)", async () => {
+      const filaSocial: repo.FilaIncidenteResumen = {
+        id: "a1000000-0000-4000-8000-000000000006",
+        codigo: "INC-2026-0006",
+        codigo_seguimiento: "10000006",
+        tipo_afectacion: "Inundación",
+        descripcion: "Vivienda afectada",
+        direccion_texto: "Av. Pedro Montt 1100",
+        latitud: -39.831,
+        longitud: -73.238,
+        estado: "RESUELTO",
+        prioridad: "MEDIA",
+        requiere_asistencia_social: true,
+        personas_afectadas: 4,
+        evento_asistencia_social_resumen: {
+          id: "70000000-0000-4000-8000-000000000010",
+          codigo: "AS-2026-0001",
+          estado: "ASIGNADO",
+          asistenteSocialId: "00000000-0000-4000-8000-000000000019",
+          asistenteSocialNombre: "Claudia Rojas Vidal",
+          personasAfectadas: 4,
+          familiasAfectadas: 1,
+          prioridad: "MEDIA",
+          actualizadoEn: "2026-11-21T20:00:00.000Z",
+        },
+        fuente_origen: "CHATBOT",
+        informante_nombre: "Juan Pérez",
+        delegacion_nombre: "Sur",
+        total_misiones: 1,
+        creado_en: new Date("2026-11-21T10:00:00Z"),
+        actualizado_en: new Date("2026-11-21T20:00:00Z"),
+      };
+
+      vi.mocked(repo.listarIncidentesPaginadosRepo).mockResolvedValueOnce({
+        filas: [filaSocial],
+        total: 1,
+      });
+
+      const lista = await listarIncidentesKanbanService({ page: 1, limit: 20, estado: "RESUELTO" });
+      expect(lista.data[0].personasAfectadas).toBe(4);
+      expect(lista.data[0].eventoAsistenciaSocial).toMatchObject({
+        codigo: "AS-2026-0001",
+        estado: "ASIGNADO",
+        asistenteSocialNombre: "Claudia Rojas Vidal",
+      });
+
+      vi.mocked(repo.obtenerIncidenteDetallePorIdRepo).mockResolvedValueOnce({
+        incidente: {
+          id: "a1000000-0000-4000-8000-000000000006",
+          codigo: "INC-2026-0006",
+          codigo_seguimiento: "10000006",
+          tipo_afectacion: "Inundación",
+          descripcion: "Vivienda afectada",
+          direccion_texto: "Av. Pedro Montt 1100",
+          latitud: -39.831,
+          longitud: -73.238,
+          estado: "RESUELTO",
+          prioridad: "MEDIA",
+          requiere_asistencia_social: true,
+          fuente_origen: "CHATBOT",
+          asterisk_call_id: null,
+          asterisk_caller_phone: null,
+          creado_en: new Date("2026-11-21T10:00:00Z"),
+          actualizado_en: new Date("2026-11-21T20:00:00Z"),
+          informante_id: null,
+          informante_rut: null,
+          informante_nombre: null,
+          informante_telefono: null,
+          delegacion_id: null,
+          delegacion_nombre: null,
+          delegacion_descripcion: null,
+          creador_id: null,
+          creador_nombre: null,
+          creador_email: null,
+          encargado_id: null,
+          encargado_nombre: null,
+          encargado_email: null,
+        },
+        misiones: [],
+        recursosAsociados: [],
+        reportesEvaluacionTerreno: [
+          {
+            id: "rep-006",
+            mision_id: "d1000000-0000-4000-8000-000000000004",
+            evaluador_id: "u-1",
+            tipo_reporte: "REPORTE_CUADRILLA",
+            requiere_asistencia_social: true,
+            estado_terreno: "FINALIZADO",
+            version_reporte: 1,
+            es_rectificacion: false,
+            prioridad_sugerida: "MEDIA",
+            prioridad_asignada: "MEDIA",
+            justificacion_prioridad: null,
+            resumen_tecnico: "Faena finalizada",
+            acciones_realizadas: null,
+            danos_estimados: null,
+            observaciones: null,
+            personas_afectadas: 4,
+            requiere_apoyo_adicional: false,
+            evaluador_nombre: "Carlos Delegado",
+            evaluador_email: "delegado@valdivia.cl",
+            evaluador_rut: null,
+            creado_en: new Date("2026-11-21T19:00:00Z"),
+          },
+        ],
+        eventoAsistenciaSocialRaw: {
+          id: "70000000-0000-4000-8000-000000000010",
+          codigo: "AS-2026-0001",
+          estado: "ASIGNADO",
+          asistente_social_id: "00000000-0000-4000-8000-000000000019",
+          asistente_social_nombre: "Claudia Rojas Vidal",
+          personas_afectadas: 4,
+          familias_afectadas: 1,
+          prioridad: "MEDIA",
+          actualizado_en: new Date("2026-11-21T20:00:00Z"),
+        },
+        bitacoraHitosRaw: [
+          {
+            id: "hito-social-1",
+            mision_id: "d1000000-0000-4000-8000-000000000004",
+            mision_codigo: "MIS-2026-0004",
+            hito: "DERIVACION_ASISTENCIA_SOCIAL",
+            descripcion: "Incidente INC-2026-0006 derivado a Asistencia Social (DGRD / FIBE).",
+            registrador_nombre: "Encargado de Operaciones",
+            metadatos: { asistenteSocialNombre: "Claudia Rojas Vidal" },
+            creado_en: new Date("2026-11-21T20:00:00Z"),
+          },
+        ],
+        justificacionReclasificacion: null,
+      });
+
+      const detalle = await obtenerDetalleIncidenteService("a1000000-0000-4000-8000-000000000006");
+      expect(detalle?.personasAfectadas).toBe(4);
+      expect(detalle?.eventoAsistenciaSocial?.codigo).toBe("AS-2026-0001");
+      expect(detalle?.bitacoraHitos).toHaveLength(1);
+      expect(detalle?.bitacoraHitos?.[0].hito).toBe("DERIVACION_ASISTENCIA_SOCIAL");
+    });
   });
 });

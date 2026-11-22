@@ -169,4 +169,36 @@ describe("Esquema CerrarMisionCuadrilla (HU-68)", () => {
     });
     expect(sinCoordenadas.success).toBe(true);
   });
+
+  it("debe aceptar personas_afectadas y familias opcionales válidas en cierre de cuadrilla (HU-25 / H68)", () => {
+    const valido = CerrarMisionCuadrillaInputSchema.safeParse({
+      resumen_faenas: "Despeje total de calzada y verificación de viviendas aledañas.",
+      horas_hombre: 3.5,
+      estado_terreno: "FINALIZADO",
+      personas_afectadas: 4,
+      requiere_asistencia_social: true,
+      familias: [
+        {
+          referencia: "Casa #14",
+          nucleoFamiliarTotal: 4,
+          cantidadNinos: 2,
+          contactoNombre: "Juana Soto",
+          contactoTelefono: "+56912345678",
+        },
+      ],
+    });
+    expect(valido.success).toBe(true);
+    if (valido.success) {
+      expect(valido.data.personasAfectadas).toBe(4);
+      expect(valido.data.familias).toHaveLength(1);
+    }
+
+    const negativo = CerrarMisionCuadrillaInputSchema.safeParse({
+      resumen_faenas: "Despeje total de calzada y verificación de viviendas aledañas.",
+      horas_hombre: 3.5,
+      estado_terreno: "FINALIZADO",
+      personas_afectadas: -1,
+    });
+    expect(negativo.success).toBe(false);
+  });
 });
