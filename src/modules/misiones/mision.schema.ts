@@ -433,7 +433,7 @@ export const CrearMisionResponseSchema = z.object({
 export type CrearMisionResponse = z.infer<typeof CrearMisionResponseSchema>;
 
 // ==========================================
-// HU-36: Aceptación de Misión por Patrulla Verificadora
+// HU-36 / HU-40: Aceptación de Misión en Terreno (Patrulla Verificadora y Delegado de Cuadrilla)
 // ==========================================
 
 export const AceptarMisionInputSchema = z
@@ -475,11 +475,12 @@ export const MisionHitoRegistradoSchema = z
     misionId: z.string().uuid().openapi({ description: "Identificador único UUID de la misión" }),
     hito: z.string().openapi({ description: "Código canónico del hito", example: "MISION_ACEPTADA" }),
     descripcion: z.string().openapi({
-      description: "Glosa descriptiva del hito operativo",
-      example: "Misión Aceptada por Patrulla",
+      description:
+        "Glosa descriptiva del hito operativo ('Asignación Aceptada por Cuadrilla' en HU-40 o 'Misión Aceptada por Patrulla' en HU-36)",
+      example: "Asignación Aceptada por Cuadrilla",
     }),
     registradoPorId: z.string().uuid().nullable().openapi({
-      description: "UUID del funcionario de patrulla en sesión que confirmó la salida",
+      description: "UUID del funcionario en sesión (Delegado de Cuadrilla o líder de patrulla) que confirmó la aceptación",
     }),
     latitud: z.number().nullable().openapi({ description: "Latitud reportada al momento del hito" }),
     longitud: z.number().nullable().openapi({ description: "Longitud reportada al momento del hito" }),
@@ -492,7 +493,8 @@ export type MisionHitoRegistrado = z.infer<typeof MisionHitoRegistradoSchema>;
 export const AceptarMisionResponseSchema = z
   .object({
     message: z.string().openapi({
-      example: "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
+      example:
+        "Asignación de misión aceptada exitosamente. La cuadrilla inicia el desplazamiento y asume la atención del incidente.",
     }),
     data: z.object({
       mision: z.object({
@@ -505,17 +507,30 @@ export const AceptarMisionResponseSchema = z
         prioridad: PrioridadMisionEnum,
         incidenteId: z.string().uuid().nullable(),
         patrullaId: z.string().uuid().nullable(),
+        cuadrillaId: z.string().uuid().nullable().optional(),
         fechaInicio: z.string().openapi({
           description: "Timestamp ISO 8601 fijado al momento de aceptar la misión",
         }),
         actualizadoEn: z.string(),
       }),
+      cuadrilla: z
+        .object({
+          id: z.string().uuid(),
+          nombre: z.string(),
+          estado: z.string().openapi({
+            description: "Actualizado a EN_MISION al aceptar la asignación (HU-40)",
+            example: "EN_MISION",
+          }),
+          delegacionId: z.string().uuid().nullable().optional(),
+        })
+        .nullable()
+        .optional(),
       patrulla: z
         .object({
           id: z.string().uuid(),
           nombre: z.string(),
           estado: z.string().openapi({
-            description: "Se mantiene en EN_VERIFICACION durante el trayecto y evaluación",
+            description: "Se mantiene en EN_VERIFICACION durante el trayecto y evaluación (HU-36)",
             example: "EN_VERIFICACION",
           }),
         })
@@ -525,9 +540,11 @@ export const AceptarMisionResponseSchema = z
           id: z.string().uuid(),
           codigo: z.string(),
           estado: z.string().openapi({
-            description: "Permanece en estado canónico VERIFICANDO (no 'En camino')",
-            example: "VERIFICANDO",
+            description:
+              "EN_ATENCION cuando acepta una cuadrilla (HU-40) o VERIFICANDO cuando acepta una patrulla (HU-36)",
+            example: "EN_ATENCION",
           }),
+          prioridad: z.string().optional(),
         })
         .nullable(),
       hito: MisionHitoRegistradoSchema,

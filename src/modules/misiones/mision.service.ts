@@ -673,20 +673,91 @@ export async function asignarPatrullaVerificacionService(
   };
 }
 /**
- * HU-36 - Servicio de negocio para confirmar y aceptar una misión asignada a una patrulla verificadora.
+ * HU-36 / HU-40 - Servicio de negocio para confirmar y aceptar una misión asignada
+ * a una patrulla verificadora (HU-36) o a una cuadrilla operativa (HU-40).
  *
  * 1. Ejecuta la transición atómica en base de datos (`DESPACHADA` -> `EN_CURSO`, `fecha_inicio = CURRENT_TIMESTAMP`,
  *    registro de hito `'MISION_ACEPTADA'` en `mision_hito`).
- * 2. Mantiene la patrulla en `EN_VERIFICACION` y el incidente en `VERIFICANDO`.
- * 3. Emite en tiempo real el evento WebSocket `mision:actualizada` hacia la sala `encargado` del Centro de Mando.
+ * 2. Para cuadrilla (HU-40): actualiza `cuadrilla.estado = 'EN_MISION'`, `incidente.estado = 'EN_ATENCION'`,
+ *    y emite `mision:actualizada`, `incidente:actualizado` y `cuadrilla:actualizada` al Centro de Mando.
+ * 3. Para patrulla (HU-36): mantiene patrulla en `EN_VERIFICACION` e incidente en `VERIFICANDO`,
+ *    y emite `mision:actualizada`.
  */
 export async function aceptarMisionService(
   misionId: string,
   usuarioId: string,
   esAdmin = false,
-  input?: AceptarMisionInput
+  input?: AceptarMisionInput,
+  opcionesPermiso?: {
+    puedeEjecutarCuadrilla?: boolean;
+    puedeVerificarPatrulla?: boolean;
+  }
 ): Promise<AceptarMisionResponse> {
-  const resultado = await aceptarMisionPatrullaRepo(misionId, usuarioId, esAdmin, input);
+  const resultado = opcionesPermiso
+    ? await aceptarMisionPatrullaRepo(misionId, usuarioId, esAdmin, input, opcionesPermiso)
+    : await aceptarMisionPatrullaRepo(misionId, usuarioId, esAdmin, input);
+
+  if (resultado.cuadrilla) {
+    try {
+      notificarMisionActualizada({
+        misionId: resultado.mision.id,
+        codigo: resultado.mision.codigo,
+        estado: resultado.mision.estado,
+        tipoMision: resultado.mision.tipoMision,
+        patrullaId: resultado.mision.patrullaId,
+        cuadrillaId: resultado.mision.cuadrillaId ?? resultado.cuadrilla.id,
+        cuadrillaNombre: resultado.cuadrilla.nombre,
+        incidenteId: resultado.mision.incidenteId,
+        incidenteCodigo: resultado.incidente?.codigo ?? null,
+        prioridad: resultado.incidente?.prioridad ?? resultado.mision.prioridad,
+        fechaInicio: resultado.mision.fechaInicio,
+        hito: {
+          id: resultado.hito.id,
+          hito: resultado.hito.hito,
+          descripcion: resultado.hito.descripcion,
+          registradoPorId: resultado.hito.registradoPorId,
+          creadoEn: resultado.hito.creadoEn,
+        },
+        actualizadoEn: resultado.mision.actualizadoEn,
+      });
+
+      if (resultado.incidente?.id) {
+        notificarIncidenteActualizado({
+          id: resultado.incidente.id,
+          codigo: resultado.incidente.codigo,
+          nuevoEstado: resultado.incidente.estado || "EN_ATENCION",
+          prioridad: resultado.incidente.prioridad ?? resultado.mision.prioridad,
+          actualizadoEn: resultado.mision.actualizadoEn,
+        });
+      }
+
+      emitirCuadrillaActualizada({
+        id: resultado.cuadrilla.id,
+        nombre: resultado.cuadrilla.nombre,
+        estado: resultado.cuadrilla.estado,
+        delegacionId: resultado.cuadrilla.delegacionId ?? null,
+      });
+    } catch (error) {
+      console.error("Error al emitir eventos WebSocket tras aceptar asignación de cuadrilla:", error);
+    }
+
+    return {
+      message:
+        "Asignación de misión aceptada exitosamente. La cuadrilla inicia el desplazamiento y asume la atención del incidente.",
+      data: {
+        mision: resultado.mision,
+        cuadrilla: {
+          id: resultado.cuadrilla.id,
+          nombre: resultado.cuadrilla.nombre,
+          estado: resultado.cuadrilla.estado,
+          delegacionId: resultado.cuadrilla.delegacionId ?? null,
+        },
+        patrulla: resultado.patrulla,
+        incidente: resultado.incidente,
+        hito: resultado.hito,
+      },
+    };
+  }
 
   try {
     notificarMisionActualizada({
