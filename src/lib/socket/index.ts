@@ -35,7 +35,18 @@ export interface IncidenteActualizadoPayload {
   codigo: string;
   nuevoEstado: string;
   prioridad: string;
+  prioridadSugerida?: string | null;
+  justificacionPrioridad?: string | null;
+  requiereAsistenciaSocial?: boolean;
+  verificado?: boolean;
   actualizadoEn: string;
+  tipoIncidenteId?: string | null;
+  tipoAfectacion?: string;
+  justificacion?: string | null;
+  motivoNoAbordable?: string | null;
+  fechaCierre?: string | null;
+  dictamen?: string | null;
+  reporteTerreno?: Record<string, unknown> | null;
 }
 
 export type TypedSocketServer = SocketIOServer<
@@ -456,6 +467,44 @@ export function emitirAsistenciaSocialCreada(payload: unknown): void {
 }
 
 /**
+ * Emite la notificación de evento de asistencia social actualizado (ej. asignación de asistente social en H31)
+ * hacia la sala `asistente_social`, `centro_mando` y salas operativas de Encargado/Administrador.
+ */
+export function emitirAsistenciaSocialActualizada(payload: unknown): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("asistente_social") as any).emit("asistencia_social:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("centro_mando") as any).emit("asistencia_social:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("asistencia_social:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("asistencia_social:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("administrador") as any).emit("asistencia_social:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("asistencia_social:actualizada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    for (const room of ["asistente_social", "centro_mando", "sala:encargados"]) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "asistencia_social:actualizada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
+  }
+}
+
+/**
  * Emite la notificación de punto crítico actualizado a las vistas de Encargado, Supervisor y Administrador (HU-55).
  * Permite reflejar inmediatamente los cambios geoespaciales y atributos en el módulo cartográfico.
  */
@@ -835,6 +884,7 @@ export interface MisionActualizadaPayload {
   cuadrillaId?: string | null;
   incidenteId?: string | null;
   fechaInicio: string | null;
+  fechaCierre?: string | null;
   hito: {
     id: string;
     hito: string;
@@ -842,6 +892,7 @@ export interface MisionActualizadaPayload {
     registradoPorId: string | null;
     creadoEn: string;
   };
+  reporteTerreno?: Record<string, unknown> | null;
   actualizadoEn: string;
 }
 

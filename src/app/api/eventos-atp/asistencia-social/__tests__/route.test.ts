@@ -49,6 +49,7 @@ describe("Route Handlers /api/eventos-atp/asistencia-social (H28)", () => {
     incidenteId: null,
     asistenteSocialId: null,
     asistenteSocialNombre: null,
+    detallesEvaluacion: null,
     creadoPor: {
       id: usuarioEncargadoId,
       nombre: "Encargado de Operaciones",
@@ -123,6 +124,95 @@ describe("Route Handlers /api/eventos-atp/asistencia-social (H28)", () => {
       expect(json.data.codigo).toBe("AS-2026-0001");
       expect(json.data.estado).toBe("PENDIENTE");
       expect(json.data.incidenteId).toBeNull();
+    });
+
+    it("debe responder 201 incluyendo detallesEvaluacion cuando se registra desglose familiar", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+      const detalles = {
+        familias: [
+          {
+            referencia: "Hogar Beneficencia",
+            nucleoFamiliarTotal: 5,
+            cantidadNinos: 2,
+            cantidadAdultosMayores: 0,
+            personasDiscapacitadas: 1,
+            personasElectrodependientes: 0,
+            mascotasAfectadas: 0,
+            nivelCompromisoVivienda: "MODERADO" as const,
+          },
+        ],
+        familiasAfectadas: 1,
+        nucleoFamiliarTotal: 5,
+        cantidadNinos: 2,
+        cantidadAdultosMayores: 0,
+        personasDiscapacitadas: 1,
+        personasElectrodependientes: 0,
+        mascotasAfectadas: 0,
+        nivelCompromisoVivienda: "MODERADO" as const,
+        danosEstimados: "Daño parcial en dormitorio",
+      };
+
+      vi.spyOn(asistenciaSocialService, "crearEventoAsistenciaSocialService").mockResolvedValueOnce({
+        ...mockEventoResponse,
+        personasAfectadas: 5,
+        familiasAfectadas: 1,
+        detallesEvaluacion: detalles,
+      });
+
+      const req = new NextRequest("http://localhost:3000/api/eventos-atp/asistencia-social", {
+        method: "POST",
+        body: JSON.stringify({
+          ...payloadValido,
+          personasAfectadas: 5,
+          familiasAfectadas: 1,
+          detallesEvaluacion: detalles,
+        }),
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(201);
+      const json = await res.json();
+      expect(json.data.personasAfectadas).toBe(5);
+      expect(json.data.familiasAfectadas).toBe(1);
+      expect(json.data.detallesEvaluacion.familias).toHaveLength(1);
+      expect(json.data.detallesEvaluacion.cantidadNinos).toBe(2);
+      expect(json.data.detallesEvaluacion.personasDiscapacitadas).toBe(1);
+    });
+
+    it("debe responder 404 si el asistenteSocialId opcional no existe (H31 Opción A)", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+      vi.spyOn(asistenciaSocialService, "crearEventoAsistenciaSocialService").mockRejectedValueOnce(
+        new asistenciaSocialService.AsistenteSocialNotFoundError()
+      );
+
+      const req = new NextRequest("http://localhost:3000/api/eventos-atp/asistencia-social", {
+        method: "POST",
+        body: JSON.stringify({
+          ...payloadValido,
+          asistenteSocialId: "00000000-0000-4000-8000-000000000006",
+        }),
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(404);
+    });
+
+    it("debe responder 409 si el asistenteSocialId opcional no está disponible o no tiene rol ASISTENTE_SOCIAL", async () => {
+      vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+      vi.spyOn(asistenciaSocialService, "crearEventoAsistenciaSocialService").mockRejectedValueOnce(
+        new asistenciaSocialService.AsistenteSocialNoDisponibleError()
+      );
+
+      const req = new NextRequest("http://localhost:3000/api/eventos-atp/asistencia-social", {
+        method: "POST",
+        body: JSON.stringify({
+          ...payloadValido,
+          asistenteSocialId: "00000000-0000-4000-8000-000000000006",
+        }),
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(409);
     });
   });
 

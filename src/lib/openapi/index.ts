@@ -101,6 +101,26 @@ import {
 } from "@/modules/incidentes/incidente-kanban.schema";
 
 import {
+  TipoIncidenteCatalogoItemSchema,
+  ListarTiposIncidenteResponseSchema,
+  ReclasificarTipologiaInputSchema,
+  ReclasificarTipologiaResponseSchema,
+  IncidenteReclasificadoResumenSchema,
+  MisionHitoTipologiaSchema,
+} from "@/modules/incidentes/tipologia.schema";
+
+import {
+  EvaluacionTerrenoInputSchema,
+  CalcularPrioridadInputSchema,
+  CalcularPrioridadResponseSchema,
+  ActualizarPrioridadIncidenteInputSchema,
+  ActualizarPrioridadIncidenteResponseSchema,
+  ReporteEvaluacionTerrenoItemSchema,
+  IncidentePrioridadActualizadaResumenSchema,
+  MisionHitoPrioridadSchema,
+} from "@/modules/incidentes/prioridad.schema";
+
+import {
   IncidentesKpisQuerySchema,
   IncidentesKpisResponseSchema,
 } from "@/modules/incidentes/incidente-kpi.schema";
@@ -156,6 +176,9 @@ import {
   AceptarMisionResponseSchema,
   AsignarCuadrillaMisionInputSchema,
   AsignarCuadrillaMisionResponseSchema,
+  AdjuntoReporteInputSchema,
+  CrearReporteVerificacionInputSchema,
+  EnviarReporteVerificacionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -163,6 +186,11 @@ import {
   ListarEventosAsistenciaSocialQuerySchema,
   EventoAsistenciaSocialResponseSchema,
   ListarEventosAsistenciaSocialResponseSchema,
+  EventoAsistenciaSocialIdParamSchema,
+  AsignarAsistenteSocialInputSchema,
+  AsignarAsistenteSocialResponseSchema,
+  FamiliaAfectadaSocialSchema,
+  DetallesEvaluacionSocialSchema,
 } from "@/modules/eventos-atp/asistencia-social.schema";
 
 import {
@@ -250,6 +278,17 @@ registry.register("VerificarDuplicadoInput", VerificarDuplicadoInputSchema);
 registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema);
 registry.register("IncidenteResponse", IncidenteResponseSchema);
 registry.register("IncidentesKpisResponse", IncidentesKpisResponseSchema);
+registry.register("EvaluacionTerrenoInput", EvaluacionTerrenoInputSchema);
+registry.register("CalcularPrioridadInput", CalcularPrioridadInputSchema);
+registry.register("CalcularPrioridadResponse", CalcularPrioridadResponseSchema);
+registry.register("ActualizarPrioridadIncidenteInput", ActualizarPrioridadIncidenteInputSchema);
+registry.register("ActualizarPrioridadIncidenteResponse", ActualizarPrioridadIncidenteResponseSchema);
+registry.register("ReporteEvaluacionTerrenoItem", ReporteEvaluacionTerrenoItemSchema);
+registry.register("IncidentePrioridadActualizadaResumen", IncidentePrioridadActualizadaResumenSchema);
+registry.register("MisionHitoPrioridad", MisionHitoPrioridadSchema);
+registry.register("AdjuntoReporteInput", AdjuntoReporteInputSchema);
+registry.register("CrearReporteVerificacionInput", CrearReporteVerificacionInputSchema);
+registry.register("EnviarReporteVerificacionResponse", EnviarReporteVerificacionResponseSchema);
 
 // Registrar esquemas de Eventos ATP (Puntos Críticos y Asistencia Social)
 registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
@@ -258,6 +297,8 @@ registry.register("CrearPuntoCriticoBody", CrearPuntoCriticoBodySchema);
 registry.register("ActualizarPuntoCriticoBody", ActualizarPuntoCriticoBodySchema);
 registry.register("PuntoCriticoDetalleResponse", PuntoCriticoDetalleResponseSchema);
 registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSchema);
+registry.register("FamiliaAfectadaSocial", FamiliaAfectadaSocialSchema);
+registry.register("DetallesEvaluacionSocial", DetallesEvaluacionSocialSchema);
 registry.register("CrearEventoAsistenciaSocialInput", CrearEventoAsistenciaSocialInputSchema);
 registry.register("EventoAsistenciaSocialResponse", EventoAsistenciaSocialResponseSchema);
 registry.register("ListarEventosAsistenciaSocialResponse", ListarEventosAsistenciaSocialResponseSchema);
@@ -965,6 +1006,57 @@ registry.registerPath({
     401: { description: "No autenticado" },
     403: { description: "No autorizado / falta permiso incidentes:kanban" },
     404: { description: "Incidente no encontrado" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 15b. PATCH /api/incidentes/{id}/tipologia (HU-37: Reclasificación tipológica en terreno)
+registry.register("TipoIncidenteCatalogoItem", TipoIncidenteCatalogoItemSchema);
+registry.register("ListarTiposIncidenteResponse", ListarTiposIncidenteResponseSchema);
+registry.register("ReclasificarTipologiaInput", ReclasificarTipologiaInputSchema);
+registry.register("IncidenteReclasificadoResumen", IncidenteReclasificadoResumenSchema);
+registry.register("MisionHitoTipologia", MisionHitoTipologiaSchema);
+registry.register("ReclasificarTipologiaResponse", ReclasificarTipologiaResponseSchema);
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/incidentes/{id}/tipologia",
+  summary: "Reclasificar tipología de incidente en terreno (HU-37)",
+  description:
+    "Permite a la patrulla verificadora reclasificar técnicamente la tipología del incidente tras la evaluación presencial en terreno, corrigiendo tipificaciones ciudadanas inexactas. Requiere que la misión asignada haya sido aceptada previamente (estado EN_CURSO) y justificación obligatoria del cambio. Actualiza atómicamente incidente.tipo_incidente_id y sincroniza incidente.tipo_afectacion, registra el hito en mision_hito ('Tipología reclasificada en terreno a: [Nombre del Tipo]. Justificación: [Motivo]') y emite el evento WebSocket 'incidente:actualizado' a la sala 'sala:encargados'. Requiere el permiso RBAC 'misiones:terreno:verificar'.",
+  tags: ["Incidentes"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de la patrulla verificadora"),
+      "x-user-id": z.string().uuid().optional().describe("ID de usuario para entornos de prueba"),
+    }),
+    params: z.object({
+      id: z.string().uuid().describe("Identificador UUID del incidente"),
+    }),
+    body: {
+      description: "Datos requeridos para la reclasificación: nuevo tipo de incidente y justificación técnica",
+      content: {
+        "application/json": {
+          schema: ReclasificarTipologiaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Tipología del incidente reclasificada exitosamente en terreno",
+      content: {
+        "application/json": {
+          schema: ReclasificarTipologiaResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada inválidos o tipo de incidente inactivo" },
+    401: { description: "No autenticado" },
+    403: { description: "No autorizado / falta permiso misiones:terreno:verificar o pertenece a otra patrulla" },
+    404: { description: "Incidente, tipo de incidente o misión no encontrados" },
+    409: { description: "Conflicto: la misión no ha sido aceptada todavía (debe encontrarse en estado EN_CURSO)" },
     500: { description: "Error interno del servidor" },
   },
 });
@@ -1947,6 +2039,62 @@ registry.registerPath({
     400: { description: "Datos de entrada inválidos o campos obligatorios faltantes" },
     401: { description: "No autenticado" },
     403: { description: "Acceso denegado. Se requiere permiso 'asistencia_social:crear'" },
+    404: { description: "Asistente social especificado no encontrado" },
+    409: {
+      description:
+        "El usuario seleccionado no posee rol ASISTENTE_SOCIAL activo o no está disponible",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// PATCH /api/eventos-atp/asistencia-social/{id} (H31)
+registry.registerPath({
+  method: "patch",
+  path: "/api/eventos-atp/asistencia-social/{id}",
+  description:
+    "Asigna un asistente social disponible (rol ASISTENTE_SOCIAL) a un evento de asistencia social en estado PENDIENTE, realizando la transición atómica a ASIGNADO y emitiendo el evento WebSocket asistencia_social:actualizada.",
+  summary: "Asignar asistente social a evento de asistencia social",
+  tags: ["Eventos ATP - Asistencia Social"],
+  request: {
+    headers: z.object({
+      authorization: z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer del usuario con permiso 'asistencia_social:crear'" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
+    }),
+    params: EventoAsistenciaSocialIdParamSchema,
+    body: {
+      description: "UUID del asistente social disponible a asignar",
+      content: {
+        "application/json": {
+          schema: AsignarAsistenteSocialInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Asistente social asignado exitosamente; evento actualizado a estado ASIGNADO",
+      content: {
+        "application/json": {
+          schema: AsignarAsistenteSocialResponseSchema,
+        },
+      },
+    },
+    400: { description: "Identificador o cuerpo de solicitud inválido" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Se requiere permiso 'asistencia_social:crear'" },
+    404: { description: "Evento de asistencia social o usuario asistente social no encontrado" },
+    409: {
+      description:
+        "Conflicto de estado (evento no está en PENDIENTE) o el usuario seleccionado no tiene rol ASISTENTE_SOCIAL / no está disponible",
+    },
     500: { description: "Error interno del servidor" },
   },
 });
@@ -2698,6 +2846,143 @@ registry.registerPath({
     500: {
       description: "Error interno del servidor al procesar el rechazo de la misión",
     },
+  },
+});
+
+// POST /api/incidentes/{id}/prioridad/calcular (HU-38: Pre-cálculo de prioridad sugerida)
+registry.registerPath({
+  method: "post",
+  path: "/api/incidentes/{id}/prioridad/calcular",
+  summary: "Calcular prioridad sugerida del incidente según formulario de evaluación en terreno (HU-38)",
+  description:
+    "Calcula determinísticamente la prioridad_sugerida (BAJA, MEDIA, ALTA, CRITICA), el puntaje acumulado y los factores gatillantes a partir de los datos demográficos, vulnerabilidad (niños, adultos mayores, discapacitados, electrodependientes, mascotas), compromiso de vivienda y riesgos activos constatados por la patrulla verificadora. Requiere permiso 'misiones:terreno:verificar'.",
+  tags: ["Incidentes", "Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del incidente a evaluar"),
+    }),
+    body: {
+      description: "Datos del formulario de evaluación en terreno",
+      content: {
+        "application/json": {
+          schema: CalcularPrioridadInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Prioridad sugerida calculada exitosamente",
+      content: {
+        "application/json": {
+          schema: CalcularPrioridadResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada o UUID inválidos" },
+    401: { description: "No autenticado" },
+    403: { description: "Sin permiso requerido: misiones:terreno:verificar" },
+    404: { description: "Incidente no encontrado" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// PATCH /api/incidentes/{id}/prioridad (HU-38: Asignar o modificar prioridad y enviar reporte de evaluación en terreno)
+registry.registerPath({
+  method: "patch",
+  path: "/api/incidentes/{id}/prioridad",
+  summary: "Asignar o modificar la prioridad del incidente y emitir reporte de evaluación en terreno al Centro de Mando (HU-38)",
+  description:
+    "Permite a la patrulla verificadora confirmar o modificar la prioridad del incidente basándose en la evaluación técnica en terreno y la prioridad_sugerida por el sistema. Si la prioridad asignada difiere de la sugerida, exige justificacion_prioridad (mínimo 5 caracteres). Ejecuta en una transacción atómica: (1) inserta un nuevo reporte versionado en reporte_terreno (version_reporte = N + 1, preservando reportes anteriores), (2) actualiza incidente.prioridad, incidente.prioridad_sugerida e incidente.justificacion_prioridad, y (3) registra el hito PRIORIDAD_ASIGNADA o PRIORIDAD_RECTIFICADA en mision_hito. Emite los eventos WebSocket 'incidente:actualizado' y 'mision:actualizada' al Centro de Mando. Requiere permiso 'misiones:terreno:verificar' y misión en estado EN_CURSO.",
+  tags: ["Incidentes", "Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del incidente a priorizar"),
+    }),
+    body: {
+      description: "Evaluación de terreno, prioridad seleccionada y justificación técnica",
+      content: {
+        "application/json": {
+          schema: ActualizarPrioridadIncidenteInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Prioridad actualizada y reporte de evaluación emitido exitosamente",
+      content: {
+        "application/json": {
+          schema: ActualizarPrioridadIncidenteResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos inválidos o cambio de prioridad sugerida sin justificación técnica de al menos 5 caracteres",
+    },
+    401: { description: "No autenticado" },
+    403: {
+      description:
+        "Sin permiso 'misiones:terreno:verificar' o el usuario no pertenece a la patrulla asignada",
+    },
+    404: { description: "Incidente o misión no encontrada" },
+    409: {
+      description:
+        "Conflicto: la misión no ha sido aceptada por la patrulla (debe estar en estado EN_CURSO)",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// POST /api/misiones/{id}/reporte (HU-39 / HU-86: Enviar informe técnico de verificación y cerrar misión)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/reporte",
+  summary: "Enviar informe técnico de verificación en terreno y cerrar misión inicial de patrullaje (HU-39 / HU-86)",
+  description:
+    "Permite a la patrulla verificadora enviar el informe técnico consolidado de terreno con dictamen operativo ('REQUIERE_CUADRILLA' o 'NO_ABORDABLE'), resumen técnico (>= 10 caracteres), estado del terreno, estimación de personas damnificadas (rescatable desde el reporte previo de prioridad HU-38 y modificable), daños estimados, observaciones, indicador de Ficha FIBE (requiere_asistencia_social) y sección preparada para evidencia fotográfica (HU-43). Ejecuta una transacción atómica que: (1) persiste el reporte en reporte_terreno con evaluador_id = usuario.id, (2) cierra la misión (COMPLETADA con fecha_cierre), (3) libera la patrulla a DISPONIBLE, (4) si es NO_ABORDABLE (exige motivo_no_abordable >= 15 caracteres), transiciona el incidente a NO_ABORDABLE con fecha_cierre y motivo, o si solicita Ficha FIBE marca incidente.requiere_asistencia_social = true, y (5) registra el hito VERIFICACION_COMPLETADA en mision_hito. Emite eventos WebSocket 'mision:actualizada', 'incidente:actualizado' y 'patrulla:actualizada' / 'patrulla:liberada'. Requiere permiso RBAC 'reportes:crear'.",
+  tags: ["Misiones", "Incidentes"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      description: "Informe técnico de verificación en terreno y dictamen de cierre",
+      content: {
+        "application/json": {
+          schema: CrearReporteVerificacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Informe técnico registrado y misión de verificación cerrada exitosamente",
+      content: {
+        "application/json": {
+          schema: EnviarReporteVerificacionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos de entrada inválidos (ej. resumen_tecnico < 10 caracteres o dictamen NO_ABORDABLE sin motivo_no_abordable >= 15 caracteres)",
+    },
+    401: { description: "No autenticado o token inválido" },
+    403: {
+      description:
+        "Sin permiso 'reportes:crear' o el usuario no pertenece a la patrulla asignada a la misión",
+    },
+    404: { description: "Misión no encontrada" },
+    409: {
+      description:
+        "Conflicto: la misión no se encuentra en estado EN_CURSO (ej. está DESPACHADA o ya fue COMPLETADA)",
+    },
+    500: { description: "Error interno del servidor" },
   },
 });
 

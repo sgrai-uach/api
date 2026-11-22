@@ -68,6 +68,7 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
+| `PATCH` | `/api/eventos-atp/asistencia-social/{id}` | Asignar un asistente social disponible a un evento en estado `PENDIENTE`, transicionando atómicamente a `ASIGNADO` (H31). |
 | `POST` | `/api/eventos-atp` | Registrar el marco oficial de un Evento de Alerta Temprana Preventiva con alcance territorial, estado `ACTIVO` y notificación Socket.io (H61). |
 
 > Nota: Los contratos OpenAPI 3.0 se autogeneran a partir de los esquemas Zod y están expuestos públicamente en `GET /openapi.json`.
@@ -844,11 +845,15 @@ Al registrar exitosamente un evento de asistencia social excepcional, el backend
 
 ---
 
-## 9. Detalle de Endpoints: Asistencia Social y FIBE (H28)
+## 9. Detalle de Endpoints: Asistencia Social y FIBE (H28 / H31)
 
 ### 9.1 `POST /api/eventos-atp/asistencia-social`
 
 Permite al rol **Encargado** (o Administrador) registrar un caso excepcional que requiere levantamiento urgente de la Ficha Básica de Emergencia (FIBE), **sin necesidad de que provenga de un incidente formal previo**.
+
+#### Reglas de Negocio Aplicadas
+- **Desglose familiar opcional y descarte de aproximación (`detallesEvaluacion`):** El cliente puede enviar una estimación aproximada (`personasAfectadas`, `familiasAfectadas`) o bien incluir el objeto estructurado `detallesEvaluacion` homologado con H38/H39. Si `detallesEvaluacion.familias` contiene 1 o más hogares, el servidor recalcula autoritativamente todos los totales demográficos (`familiasAfectadas`, `nucleoFamiliarTotal`, niños, adultos mayores, discapacidad, electrodependientes y mascotas) y **sobrescribe `personasAfectadas` y `familiasAfectadas`**, descartando la estimación aproximada previa.
+- **Asignación opcional inmediata al crear (`asistenteSocialId`, Opción A H31):** Si se envía un `asistenteSocialId` válido, la creación se ejecuta atómicamente validando que el usuario exista (`404 Not Found`), esté activo con rol `ASISTENTE_SOCIAL` y en estado `disponible` (`409 Conflict`), registrando el evento directamente en estado `ASIGNADO`.
 
 #### Cabeceras Requeridas
 | Cabecera | Tipo | Obligatorio | Descripción |
@@ -858,18 +863,35 @@ Permite al rol **Encargado** (o Administrador) registrar un caso excepcional que
 #### Cuerpo de la Petición (Request Body)
 ```json
 {
-  "descripcion": "Familia de 4 integrantes con vivienda inundada por desborde secundario fuera de radio de incidente.",
+  "descripcion": "Familia de 5 integrantes con vivienda inundada por desborde secundario fuera de radio de incidente.",
   "tipoAfectacion": "VIVIENDA_ANEGADA",
   "direccionTexto": "Calle Los Alerces 1420, Sector Collico",
   "latitud": -39.8234,
   "longitud": -73.2189,
-  "personasAfectadas": 4,
+  "personasAfectadas": 5,
   "familiasAfectadas": 1,
   "prioridad": "ALTA",
   "contactoNombre": "María González",
   "contactoTelefono": "+56912345678",
   "contactoRut": "12.345.678-9",
-  "delegacionId": "30000000-0000-4000-8000-000000000001"
+  "delegacionId": "30000000-0000-4000-8000-000000000001",
+  "asistenteSocialId": null,
+  "detallesEvaluacion": {
+    "nivelCompromisoVivienda": "MODERADO",
+    "danosEstimados": "Ingreso de agua en dormitorio principal",
+    "familias": [
+      {
+        "referencia": "Hogar González",
+        "nucleoFamiliarTotal": 5,
+        "cantidadNinos": 2,
+        "cantidadAdultosMayores": 0,
+        "personasDiscapacitadas": 1,
+        "personasElectrodependientes": 0,
+        "mascotasAfectadas": 0,
+        "nivelCompromisoVivienda": "MODERADO"
+      }
+    ]
+  }
 }
 ```
 
@@ -881,9 +903,9 @@ Permite al rol **Encargado** (o Administrador) registrar un caso excepcional que
   "data": {
     "id": "70000000-0000-4000-8000-000000000001",
     "codigo": "AS-2026-0001",
-    "descripcion": "Familia de 4 integrantes con vivienda inundada por desborde secundario...",
+    "descripcion": "Familia de 5 integrantes con vivienda inundada por desborde secundario...",
     "tipoAfectacion": "VIVIENDA_ANEGADA",
-    "personasAfectadas": 4,
+    "personasAfectadas": 5,
     "familiasAfectadas": 1,
     "direccionTexto": "Calle Los Alerces 1420, Sector Collico",
     "latitud": -39.8234,
@@ -898,6 +920,29 @@ Permite al rol **Encargado** (o Administrador) registrar un caso excepcional que
     "incidenteId": null,
     "asistenteSocialId": null,
     "asistenteSocialNombre": null,
+    "detallesEvaluacion": {
+      "familias": [
+        {
+          "referencia": "Hogar González",
+          "nucleoFamiliarTotal": 5,
+          "cantidadNinos": 2,
+          "cantidadAdultosMayores": 0,
+          "personasDiscapacitadas": 1,
+          "personasElectrodependientes": 0,
+          "mascotasAfectadas": 0,
+          "nivelCompromisoVivienda": "MODERADO"
+        }
+      ],
+      "familiasAfectadas": 1,
+      "nucleoFamiliarTotal": 5,
+      "cantidadNinos": 2,
+      "cantidadAdultosMayores": 0,
+      "personasDiscapacitadas": 1,
+      "personasElectrodependientes": 0,
+      "mascotasAfectadas": 0,
+      "nivelCompromisoVivienda": "MODERADO",
+      "danosEstimados": "Ingreso de agua en dormitorio principal"
+    },
     "creadoPor": {
       "id": "00000000-0000-4000-8000-000000000003",
       "nombre": "Encargado de Operaciones"
@@ -908,9 +953,11 @@ Permite al rol **Encargado** (o Administrador) registrar un caso excepcional que
 }
 ```
 
-* **`400 Bad Request`:** Coordenadas fuera de rango o campos obligatorios vacíos (`descripcion`, `direccionTexto`, `latitud`, `longitud`).
+* **`400 Bad Request`:** Coordenadas fuera de rango, campos obligatorios vacíos (`descripcion`, `direccionTexto`, `latitud`, `longitud`) o inconsistencia en `detallesEvaluacion.familias` (`cantidadNinos + cantidadAdultosMayores > nucleoFamiliarTotal`).
 * **`401 Unauthorized`:** Cabecera de autenticación ausente o inválida.
 * **`403 Forbidden`:** Usuario no posee permiso `asistencia_social:crear`.
+* **`404 Not Found`:** El `asistenteSocialId` especificado no existe.
+* **`409 Conflict`:** El usuario indicado en `asistenteSocialId` no posee rol `ASISTENTE_SOCIAL` activo o no se encuentra en estado `disponible`.
 
 ---
 
@@ -953,6 +1000,7 @@ Consulta los eventos de asistencia social con filtros de estado, delegación, pr
       "incidenteId": null,
       "asistenteSocialId": null,
       "asistenteSocialNombre": null,
+      "detallesEvaluacion": null,
       "creadoPor": {
         "id": "00000000-0000-4000-8000-000000000003",
         "nombre": "Encargado de Operaciones"
@@ -1174,3 +1222,43 @@ La ruta y sus esquemas quedan publicados en `GET /openapi.json`:
 - Seguridad: `security: [{ bearerAuth: [] }]`.
 - Esquemas: `CrearEventoAtpInput`, `EventoAtpResponse` y `CrearEventoAtpResponse`.
 - Respuestas documentadas: `201`, `400`, `401`, `403`, `409` y `500`.
+
+---
+
+## Ciclo de Estados y Asignación de Eventos de Asistencia Social (H31)
+
+### Ciclo de Vida del Evento de Asistencia Social
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDIENTE: Creación manual (H28)
+    PENDIENTE --> ASIGNADO: Asignar Asistente Social (H31)
+    PENDIENTE --> DESCARTADO: Descarte administrativo
+    ASIGNADO --> EN_EVALUACION_FIBE: Inicio evaluación FIBE
+    EN_EVALUACION_FIBE --> FINALIZADO: Cierre de caso social
+```
+
+### Detalle de Endpoint: `PATCH /api/eventos-atp/asistencia-social/{id}` (H31)
+
+Asigna formalmente un profesional con rol `ASISTENTE_SOCIAL` en estado operativo `disponible` a un evento de asistencia social que se encuentre en estado `PENDIENTE`.
+
+#### Reglas de Negocio Aplicadas
+1. **Control de Acceso RBAC:** Requiere el permiso `asistencia_social:crear` (`Encargado` o `Administrador`).
+2. **Transición Atómica:** Mediante transacción PostgreSQL con bloqueo de fila (`FOR UPDATE`), verifica que el evento exista, no esté eliminado lógicamente y se encuentre en estado `PENDIENTE`, actualizando `asistente_social_id`, `estado = 'ASIGNADO'` y `actualizado_en = CURRENT_TIMESTAMP`.
+3. **Elegibilidad del Profesional:** Valida que `asistenteSocialId` corresponda a un usuario activo, con rol `ASISTENTE_SOCIAL` y `estado_operativo = 'disponible'`.
+4. **Notificación en Tiempo Real:** Emite el evento WebSocket `asistencia_social:actualizada` hacia las salas `asistente_social`, `centro_mando`, `sala:encargados`, `encargado` y `administrador` con la entidad actualizada.
+
+#### Errores Esperables
+- `400 Bad Request`: UUID de ruta o `asistenteSocialId` inválido.
+- `401 Unauthorized`: Ausencia de cabecera de autenticación.
+- `403 Forbidden`: El usuario no cuenta con el permiso `asistencia_social:crear`.
+- `404 Not Found`: El evento o el usuario asistente social no existe.
+- `409 Conflict`: El evento ya no está en estado `PENDIENTE`, o el usuario seleccionado no posee rol `ASISTENTE_SOCIAL` / no está en estado `disponible`.
+
+### Catastro Preliminar por Familia, Coherencia Demográfica y Alcance frente a la FIBE
+
+> **Nota crítica de dominio:** Todos los datos familiares, demográficos y de contacto capturados en `POST /api/eventos-atp/asistencia-social` (`detallesEvaluacion.familias[]`) son **estrictamente preliminares** y **NO corresponden a la FIBE** (*Ficha Básica de Emergencias*), cuyo levantamiento formal por familia corresponde a una historia de usuario aparte.
+
+- **Coherencia demográfica estricta por familia:** `nucleoFamiliarTotal >= 1`, `cantidadNinos + cantidadAdultosMayores <= nucleoFamiliarTotal`, `personasDiscapacitadas <= nucleoFamiliarTotal`, `personasElectrodependientes <= nucleoFamiliarTotal`, `mascotasAfectadas >= 0`, y `contactoRut` validado con Módulo 11 si se informa.
+- **Separación de contacto por familia:** cuando `detallesEvaluacion.familias[]` contiene elementos, cada familia almacena su propio contacto preliminar (`contactoNombre`, `contactoTelefono`, `contactoRut`), se descarta cualquier contacto global aproximado y las columnas raíz `contacto_nombre`, `contacto_telefono` y `contacto_rut` se sincronizan desde la primera familia que registre contacto.
+- **Búsqueda en JSONB:** el filtro `busqueda` en `GET /api/eventos-atp/asistencia-social` busca también sobre el texto serializado de `detalles_evaluacion` (`CAST(detalles_evaluacion AS TEXT) ILIKE`).

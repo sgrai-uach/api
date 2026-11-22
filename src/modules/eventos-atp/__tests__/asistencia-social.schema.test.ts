@@ -110,4 +110,125 @@ describe("asistencia-social.schema - Validaciones Zod (H28)", () => {
       expect(parsed.data.prioridad).toBe("CRITICA");
     }
   });
+
+  it("debe validar detallesEvaluacion con desglose por familia y campos demográficos homologados H38/H39", () => {
+    const payloadConFamilias = {
+      ...payloadValido,
+      personasAfectadas: 5,
+      familiasAfectadas: 1,
+      detallesEvaluacion: {
+        nivelCompromisoVivienda: "MODERADO",
+        danosEstimados: "Ingreso de agua en dormitorio y comedor",
+        familias: [
+          {
+            referencia: "Familia González",
+            nucleoFamiliarTotal: 5,
+            cantidadNinos: 2,
+            cantidadAdultosMayores: 0,
+            personasDiscapacitadas: 1,
+            personasElectrodependientes: 0,
+            mascotasAfectadas: 0,
+            nivelCompromisoVivienda: "MODERADO",
+          },
+        ],
+      },
+    };
+
+    const parsed = CrearEventoAsistenciaSocialInputSchema.safeParse(payloadConFamilias);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.detallesEvaluacion?.familias).toHaveLength(1);
+      expect(parsed.data.detallesEvaluacion?.familias?.[0].nucleoFamiliarTotal).toBe(5);
+      expect(parsed.data.detallesEvaluacion?.familias?.[0].cantidadNinos).toBe(2);
+      expect(parsed.data.detallesEvaluacion?.familias?.[0].personasDiscapacitadas).toBe(1);
+    }
+  });
+
+  it("debe rechazar detallesEvaluacion si niños + adultos mayores, discapacidad o electrodependientes superan nucleoFamiliarTotal", () => {
+    const payloadNinosExceden = {
+      ...payloadValido,
+      detallesEvaluacion: {
+        familias: [
+          {
+            nucleoFamiliarTotal: 5,
+            cantidadNinos: 6,
+          },
+        ],
+      },
+    };
+    expect(CrearEventoAsistenciaSocialInputSchema.safeParse(payloadNinosExceden).success).toBe(false);
+
+    const payloadDiscapExcede = {
+      ...payloadValido,
+      detallesEvaluacion: {
+        familias: [
+          {
+            nucleoFamiliarTotal: 5,
+            personasDiscapacitadas: 10,
+          },
+        ],
+      },
+    };
+    expect(CrearEventoAsistenciaSocialInputSchema.safeParse(payloadDiscapExcede).success).toBe(false);
+
+    const payloadElectroExcede = {
+      ...payloadValido,
+      detallesEvaluacion: {
+        familias: [
+          {
+            nucleoFamiliarTotal: 5,
+            personasElectrodependientes: 6,
+          },
+        ],
+      },
+    };
+    expect(CrearEventoAsistenciaSocialInputSchema.safeParse(payloadElectroExcede).success).toBe(false);
+  });
+
+  it("debe aceptar contacto preliminar por familia (contactoNombre, contactoTelefono, contactoRut válido) y rechazar RUT inválido", () => {
+    const valido = CrearEventoAsistenciaSocialInputSchema.safeParse({
+      ...payloadValido,
+      detallesEvaluacion: {
+        familias: [
+          {
+            referencia: "Familia Veas",
+            nucleoFamiliarTotal: 5,
+            cantidadNinos: 2,
+            personasDiscapacitadas: 1,
+            contactoNombre: "Ana Veas",
+            contactoTelefono: "+56912345678",
+            contactoRut: "11.111.111-1",
+          },
+        ],
+      },
+    });
+    expect(valido.success).toBe(true);
+
+    const rutInvalido = CrearEventoAsistenciaSocialInputSchema.safeParse({
+      ...payloadValido,
+      detallesEvaluacion: {
+        familias: [
+          {
+            nucleoFamiliarTotal: 5,
+            contactoRut: "11.111.111-9",
+          },
+        ],
+      },
+    });
+    expect(rutInvalido.success).toBe(false);
+  });
+
+  it("debe aceptar asistenteSocialId UUID opcional válido al crear evento (Opción A H31) y rechazar UUID inválido", () => {
+    const valido = CrearEventoAsistenciaSocialInputSchema.safeParse({
+      ...payloadValido,
+      asistenteSocialId: "00000000-0000-4000-8000-000000000006",
+    });
+    expect(valido.success).toBe(true);
+
+    const invalido = CrearEventoAsistenciaSocialInputSchema.safeParse({
+      ...payloadValido,
+      asistenteSocialId: "id-invalido",
+    });
+    expect(invalido.success).toBe(false);
+  });
 });
