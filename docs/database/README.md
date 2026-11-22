@@ -538,8 +538,8 @@ Misiones tácticas despachadas a patrullas verificadoras o cuadrillas operativas
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de creación. |
 | `actualizado_en`| `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de última actualización. |
 
-#### Tabla: `mision_hito` (Bitácora de Hitos de Misión - HU-20 / HU-36 / Migración 028)
-Registro cronológico de hitos tácticos de la misión (despacho, aceptación por patrulla en terreno con `hito = 'MISION_ACEPTADA'` y `descripcion = 'Misión Aceptada por Patrulla'`, cierre, etc.).
+#### Tabla: `mision_hito` (Bitácora de Hitos de Misión - HU-20 / HU-36 / HU-40 / Migración 028)
+Registro cronológico de hitos tácticos de la misión (despacho, aceptación por patrulla en terreno con `hito = 'MISION_ACEPTADA'` y `descripcion = 'Misión Aceptada por Patrulla'`, aceptación por delegado de cuadrilla con `hito = 'MISION_ACEPTADA'` y `descripcion = 'Asignación Aceptada por Cuadrilla'` en HU-40, cierre, etc.).
 
 | Columna | Tipo | Nullable | Default | Descripción / Restricciones |
 |---|---|---|---|---|

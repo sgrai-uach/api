@@ -1481,26 +1481,26 @@ registry.register("AceptarMisionResponse", AceptarMisionResponseSchema);
 registry.registerPath({
   method: "post",
   path: "/api/misiones/{id}/aceptar",
-  summary: "Confirmar y aceptar misión asignada desde terreno (HU-36)",
+  summary: "Confirmar y aceptar misión asignada desde terreno (HU-36 / HU-40)",
   description:
-    "Permite a la patrulla verificadora confirmar y aceptar la misión asignada desde su dispositivo móvil (PWA). Ejecuta una transición atómica actualizando mision.estado de DESPACHADA a EN_CURSO, fijando mision.fecha_inicio = CURRENT_TIMESTAMP y registrando el hito 'Misión Aceptada por Patrulla' (código 'MISION_ACEPTADA') en mision_hito. Mantiene patrulla_verificadora.estado en EN_VERIFICACION e incidente.estado en VERIFICANDO, y emite el evento WebSocket 'mision:actualizada' hacia la sala 'encargado'. Requiere el permiso RBAC 'misiones:terreno:verificar'.",
+    "Permite al Delegado de Cuadrilla (HU-40) o a la patrulla verificadora (HU-36) confirmar y aceptar la misión asignada desde su dispositivo móvil (PWA). Para cuadrillas (`ATENCION_CUADRILLA`, requiere permiso `misiones:terreno:ejecutar`): ejecuta una transacción atómica que (1) actualiza `mision.estado` de `DESPACHADA` a `EN_CURSO` fijando `fecha_inicio = CURRENT_TIMESTAMP`, (2) actualiza `cuadrilla.estado = 'EN_MISION'`, (3) actualiza `incidente.estado = 'EN_ATENCION'`, (4) registra el hito `'Asignación Aceptada por Cuadrilla'` (`MISION_ACEPTADA`) en `mision_hito`, y emite los eventos WebSocket `incidente:actualizado` y `mision:actualizada` hacia el Centro de Mando. Para patrullas verificadoras (`VERIFICACION`, requiere permiso `misiones:terreno:verificar`), mantiene `patrulla_verificadora.estado = 'EN_VERIFICACION'` e `incidente.estado = 'VERIFICANDO'` registrando `'Misión Aceptada por Patrulla'`.",
   tags: ["Misiones"],
   security: [{ BearerAuth: [] }],
   request: {
     headers: z.object({
-      authorization: z.string().optional().describe("Token Bearer JWT de sesión de la patrulla verificadora"),
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión de terreno (Delegado de Cuadrilla o Patrulla)"),
       "x-user-id": z
         .string()
         .uuid()
         .optional()
-        .openapi({ description: "UUID del usuario autenticado con permiso misiones:terreno:verificar" }),
+        .openapi({ description: "UUID del usuario autenticado con permiso misiones:terreno:ejecutar o misiones:terreno:verificar" }),
     }),
     params: z.object({
       id: MisionIdParamSchema,
     }),
     body: {
       required: false,
-      description: "Coordenadas GPS opcionales al momento de confirmar la salida en la PWA",
+      description: "Coordenadas GPS opcionales al momento de confirmar la aceptación en la PWA",
       content: {
         "application/json": {
           schema: AceptarMisionInputSchema,
@@ -1521,12 +1521,12 @@ registry.registerPath({
     401: { description: "No autenticado o token de sesión inválido/expirado" },
     403: {
       description:
-        "Acceso denegado. Se requiere el permiso 'misiones:terreno:verificar' y pertenecer a la patrulla asignada",
+        "Acceso denegado. Se requiere el permiso 'misiones:terreno:ejecutar' (cuadrilla) o 'misiones:terreno:verificar' (patrulla) y pertenecer a la unidad asignada",
     },
     404: { description: "No se encontró ninguna misión con el identificador proporcionado" },
     409: {
       description:
-        "Conflicto de estado: la misión no se encuentra en estado 'DESPACHADA' (ej. ya fue aceptada o cancelada)",
+        "Conflicto de estado: la misión no se encuentra en estado 'DESPACHADA' (ej. ya fue aceptada o cancelada), la unidad está dada de baja o el incidente está cerrado",
     },
     500: { description: "Error interno del servidor" },
   },
