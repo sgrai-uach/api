@@ -2,6 +2,7 @@ import {
   obtenerMisionDetallePorIdRepo,
   crearMisionVerificacionRepo,
   aceptarMisionPatrullaRepo,
+  rechazarMisionPatrullaRepo,
   asignarCuadrillaIncidenteRepo,
 } from "./mision.repository";
 import type {
@@ -15,6 +16,8 @@ import type {
   AceptarMisionResponse,
   AsignarCuadrillaMisionInput,
   AsignarCuadrillaMisionResponse,
+  RechazarMisionInput,
+  RechazarMisionResponse,
 } from "./mision.schema";
 import {
   notificarMisionAsignada,
@@ -25,6 +28,7 @@ import {
   tieneConexionEnSala,
   notificarPatrullaLiberada,
   emitirCuadrillaActualizada,
+  notificarMisionRechazada,
 } from "@/lib/socket";
 import { marcarNotificacionEnviadaRepo } from "./notificacion-mision.repository";
 
@@ -498,6 +502,77 @@ export async function aceptarMisionService(
   return {
     message:
       "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
+    data: {
+      mision: resultado.mision,
+      patrulla: resultado.patrulla,
+      incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
+
+export async function rechazarMisionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: RechazarMisionInput
+): Promise<RechazarMisionResponse> {
+  const resultado = await rechazarMisionPatrullaRepo(
+    misionId,
+    usuarioId,
+    input.justificacionRechazo,
+    esAdmin,
+    {
+      latitud: input.latitud,
+      longitud: input.longitud,
+    }
+  );
+
+  // Emitir eventos en tiempo real
+  try {
+    notificarMisionRechazada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      tipoMision: "VERIFICACION",
+      motivo: resultado.mision.justificacionRechazo,
+      justificacionRechazo: resultado.mision.justificacionRechazo,
+      patrullaId: resultado.patrulla.id || null,
+      patrullaNombre: resultado.patrulla.nombre,
+      incidenteId: resultado.incidente.id || null,
+      incidenteCodigo: resultado.incidente.codigo,
+      rechazadoPorId: usuarioId,
+      rechazadoEn: resultado.mision.actualizadoEn,
+    });
+
+    if (resultado.incidente.id) {
+      notificarIncidenteActualizado({
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        nuevoEstado: resultado.incidente.estado,
+        prioridad: resultado.incidente.prioridad,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
+
+    if (resultado.patrulla.id) {
+      notificarPatrullaActualizada({
+        patrullaId: resultado.patrulla.id,
+        nombre: resultado.patrulla.nombre,
+        estado: resultado.patrulla.estado,
+        delegacionId: resultado.patrulla.delegacionId ?? null,
+        usuarioLiderId: resultado.patrulla.usuarioLiderId ?? null,
+        misionActivaId: null,
+        incidenteId: null,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras rechazar misión:", error);
+  }
+
+  return {
+    message:
+      "Misión rechazada exitosamente. El incidente ha vuelto a estado REPORTADO para su reasignación.",
     data: {
       mision: resultado.mision,
       patrulla: resultado.patrulla,
