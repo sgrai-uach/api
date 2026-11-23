@@ -35,6 +35,7 @@ export interface FilaIncidenteResumen {
   total_misiones: number | string;
   tiene_mision_despachada?: boolean;
   tiene_mision_en_curso?: boolean;
+  cuadrilla_en_terreno?: boolean | number;
   trazabilidad_notificacion?: string | null;
   verificado?: boolean | number;
   reclasificado_en_terreno?: boolean | number;
@@ -214,6 +215,20 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
             .whereRef("mision.incidente_id", "=", "incidente.id")
             .where("mision.estado", "=", "EN_CURSO")
             .as("tiene_mision_en_curso"),
+        (eb) =>
+          eb
+            .selectFrom("mision")
+            .innerJoin("mision_hito", "mision_hito.mision_id", "mision.id")
+            .select(
+              sql<boolean>`case when count(mision.id) > 0 then true else false end`.as(
+                "cuadrilla_en_terreno"
+              )
+            )
+            .whereRef("mision.incidente_id", "=", "incidente.id")
+            .where("mision.tipo_mision", "=", "ATENCION_CUADRILLA")
+            .where("mision.estado", "not in", ["CANCELADA", "RECHAZADA"])
+            .where("mision_hito.hito", "=", "LLEGADA_TERRENO")
+            .as("cuadrilla_en_terreno"),
         (eb) =>
           eb
             .selectFrom("mision")

@@ -110,6 +110,7 @@ export const IncidenteResumenSchema = z.object({
   totalMisiones: z.number().openapi({ description: "Cantidad de misiones tácticas despachadas o generadas para este incidente" }),
   tieneMisionDespachada: z.boolean().optional().openapi({ description: "Indica si el incidente posee una misión en estado PLANIFICADA o DESPACHADA pendiente de confirmación en terreno" }),
   tieneMisionEnCurso: z.boolean().optional().openapi({ description: "Indica si el incidente posee una misión en estado EN_CURSO activa en terreno" }),
+  cuadrillaEnTerreno: z.boolean().optional().openapi({ description: "Indica si la cuadrilla asignada ya reportó su llegada física a terreno (LLEGADA_TERRENO)" }),
   trazabilidadNotificacion: EstadoNotificacionMisionEnum.optional().openapi({
     description: "Último estado de trazabilidad de notificación de misión asociado al incidente (HU-35)",
   }),
