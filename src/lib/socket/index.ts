@@ -7,6 +7,7 @@ import type {
   SocketData,
   RedisSocketMessage,
   MisionRechazadaPayload,
+  AdjuntoCreadoPayload,
 } from "./types";
 
 export interface IncidenteNotificacionPayload {
@@ -35,7 +36,18 @@ export interface IncidenteActualizadoPayload {
   codigo: string;
   nuevoEstado: string;
   prioridad: string;
+  prioridadSugerida?: string | null;
+  justificacionPrioridad?: string | null;
+  requiereAsistenciaSocial?: boolean;
+  verificado?: boolean;
   actualizadoEn: string;
+  tipoIncidenteId?: string | null;
+  tipoAfectacion?: string;
+  justificacion?: string | null;
+  motivoNoAbordable?: string | null;
+  fechaCierre?: string | null;
+  dictamen?: string | null;
+  reporteTerreno?: Record<string, unknown> | null;
 }
 
 export type TypedSocketServer = SocketIOServer<
@@ -830,30 +842,40 @@ export interface MisionActualizadaPayload {
   misionId: string;
   codigo: string;
   estado: string;
-  tipoMision: string;
+  tipoMision?: string;
   patrullaId?: string | null;
+  patrullaNombre?: string | null;
   cuadrillaId?: string | null;
+  cuadrillaNombre?: string | null;
   incidenteId?: string | null;
-  fechaInicio: string | null;
+  incidenteCodigo?: string | null;
+  prioridad?: string | null;
+  fechaInicio?: string | null;
+  fechaCierre?: string | null;
   hito: {
     id: string;
     hito: string;
     descripcion: string;
-    registradoPorId: string | null;
-    creadoEn: string;
+    registradoPorId?: string | null;
+    creadoEn?: string;
+    [key: string]: unknown;
   };
+  reporteTerreno?: Record<string, unknown> | null;
   actualizadoEn: string;
 }
 
 /**
- * Emite una notificación en tiempo real hacia la sala 'encargado' del Centro de Mando
- * cuando una patrulla verificadora o unidad de terreno actualiza o acepta una misión (HU-36).
- *
- * No se realiza broadcast global: el evento se emite únicamente a las salas
- * `encargado`, `sala:encargados` y `supervisor`.
+ * Emite una notificación en tiempo real hacia las salas del Centro de Mando (`encargado`, `sala:encargados`,
+ * `supervisor` y `mapa`) y a la unidad asignada cuando una unidad de terreno actualiza o acepta una misión (HU-36, HU-40, HU-42).
  */
 export function notificarMisionActualizada(payload: MisionActualizadaPayload): void {
-  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  const rooms = ["encargado", "sala:encargados", "supervisor", "mapa"];
+  if (payload.cuadrillaId) {
+    rooms.push(`cuadrilla:${payload.cuadrillaId}`);
+  }
+  if (payload.patrullaId) {
+    rooms.push(`patrulla:${payload.patrullaId}`);
+  }
 
   if (ioInstance) {
     for (const room of rooms) {
@@ -965,33 +987,28 @@ export function notificarPatrullaLiberada(payload: {
 }
 
 /**
- * Emite una notificación en tiempo real hacia la sala 'encargado' del Centro de Mando
- * cuando una patrulla verificadora rechaza una misión asignada (HU-69).
+ * Emite una alerta prioritaria en tiempo real hacia la sala 'encargado' del Centro de Mando
+ * cuando una cuadrilla operativa (HU-41) o patrulla verificadora (HU-69) rechaza una misión asignada.
  */
 export function notificarMisionRechazada(payload: MisionRechazadaPayload): void {
+  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  if (payload.cuadrillaId) {
+    rooms.push(`cuadrilla:${payload.cuadrillaId}`);
+  }
+  if (payload.patrullaId) {
+    rooms.push(`patrulla:${payload.patrullaId}`);
+  }
+
   if (ioInstance) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("mision:rechazada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("mision:rechazada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("mision:rechazada", payload);
-    if (payload.patrullaId) {
+    for (const room of rooms) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to(`patrulla:${payload.patrullaId}`) as any).emit("mision:rechazada", payload);
+      (ioInstance.to(room) as any).emit("mision:rechazada", payload);
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("mision:rechazada", payload);
     return;
   }
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    const rooms = ["encargado", "sala:encargados", "supervisor"];
-    if (payload.patrullaId) {
-      rooms.push(`patrulla:${payload.patrullaId}`);
-    }
-
     for (const room of rooms) {
       publisher
         .publish(
@@ -1004,6 +1021,66 @@ export function notificarMisionRechazada(payload: MisionRechazadaPayload): void 
         )
         .catch(() => {});
     }
+  }
+}
+
+/**
+ * Emite una notificación en tiempo real cuando se registra un hito en la bitácora de la misión (HU-42).
+ * Impacta la línea de tiempo vertical del Encargado (H23) y el Centro de Mando.
+ */
+export function notificarHitoMisionRegistrado(payload: {
+  misionId: string;
+  codigoMision: string;
+  hito: string;
+  descripcion: string;
+  latitud: number;
+  longitud: number;
+  registradoPor: {
+    id: string;
+    nombre: string;
+  };
+  registradoEn: string;
+  nuevoEstadoMision: string;
+}): void {
+  const misionRoom = `mision:${payload.misionId}`;
+
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("mision:hito_registrado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("mision:hito_registrado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("mision:hito_registrado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to(misionRoom) as any).emit("mision:hito_registrado", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("mision:hito_registrado", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "encargado",
+          event: "mision:hito_registrado",
+          payload,
+        })
+      )
+      .catch(() => {});
+  }
+}
+
+/**
+ * Emite una notificación en tiempo real hacia el Centro de Mando
+ * cuando se adjunta nueva evidencia multimedia (HU-43).
+ */
+export function notificarAdjuntoCreado(payload: AdjuntoCreadoPayload): void {
+  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  for (const room of rooms) {
+    emitirEvento(room, "adjunto:creado", payload);
   }
 }
 

@@ -98,16 +98,25 @@ export const IncidenteResumenSchema = z.object({
   longitud: z.number().openapi({ description: "Longitud geográfica en EPSG:4326" }),
   estado: EstadoIncidenteEnum.openapi({ description: "Estado actual de atención (columna en Kanban)" }),
   prioridad: PrioridadIncidenteEnum.openapi({ description: "Nivel de severidad o urgencia" }),
+  prioridadSugerida: PrioridadIncidenteEnum.nullable().optional().openapi({ description: "Prioridad sugerida preliminarmente por el sistema según evaluación de terreno (HU-38)" }),
+  justificacionPrioridad: z.string().nullable().optional().openapi({ description: "Justificación técnica de la patrulla si modificó la prioridad sugerida (HU-38)" }),
+  totalReportesTerreno: z.number().optional().openapi({ description: "Cantidad total de reportes de evaluación en terreno enviados al Centro de Mando" }),
   requiereAsistenciaSocial: z.boolean().openapi({ description: "Indica si se requiere derivación para ficha FIBE" }),
+  fechaCierre: z.string().nullable().optional().openapi({ description: "Fecha y hora de cierre del incidente (si aplica)" }),
+  motivoNoAbordable: z.string().nullable().optional().openapi({ description: "Motivo fundado cuando el incidente fue declarado NO_ABORDABLE" }),
   fuenteOrigen: z.string().openapi({ description: "Fuente de origen del reporte (CHATBOT, LLAMADA, TERRENO, SENAPRED)" }),
   informanteNombre: z.string().nullable().openapi({ description: "Nombre de pila del ciudadano informante o null si anónimo" }),
   delegacionNombre: z.string().nullable().openapi({ description: "Nombre de la delegación territorial correspondiente" }),
   totalMisiones: z.number().openapi({ description: "Cantidad de misiones tácticas despachadas o generadas para este incidente" }),
+  tieneMisionDespachada: z.boolean().optional().openapi({ description: "Indica si el incidente posee una misión en estado PLANIFICADA o DESPACHADA pendiente de confirmación en terreno" }),
+  tieneMisionEnCurso: z.boolean().optional().openapi({ description: "Indica si el incidente posee una misión en estado EN_CURSO activa en terreno" }),
+  cuadrillaEnTerreno: z.boolean().optional().openapi({ description: "Indica si la cuadrilla asignada ya reportó su llegada física a terreno (LLEGADA_TERRENO)" }),
   trazabilidadNotificacion: EstadoNotificacionMisionEnum.optional().openapi({
     description: "Último estado de trazabilidad de notificación de misión asociado al incidente (HU-35)",
   }),
   verificado: z.boolean().default(false).openapi({ description: "Indica si la patrulla verificadora completó el diagnóstico técnico en terreno" }),
-  tieneMisionDespachada: z.boolean().optional().openapi({ description: "Indica si el incidente cuenta con una misión despachada pendiente de confirmación en terreno" }),
+  reclasificadoEnTerreno: z.boolean().optional().openapi({ description: "Indica si el incidente fue verificado o reclasificado en terreno" }),
+  justificacionReclasificacion: z.string().nullable().optional().openapi({ description: "Motivo o justificación técnica de la evaluación en terreno" }),
   creadoEn: z.string().openapi({ description: "Fecha y hora de registro en formato ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Última fecha y hora de actualización en formato ISO 8601" }),
 });
@@ -186,7 +195,19 @@ export const IncidenteDetalleSchema = z.object({
   longitud: z.number(),
   estado: EstadoIncidenteEnum,
   prioridad: PrioridadIncidenteEnum,
+  prioridadSugerida: PrioridadIncidenteEnum.nullable().optional().openapi({
+    description: "Prioridad sugerida calculada por el sistema en terreno (HU-38)",
+  }),
+  justificacionPrioridad: z.string().nullable().optional().openapi({
+    description: "Justificación técnica de cambio de prioridad en terreno (HU-38)",
+  }),
   requiereAsistenciaSocial: z.boolean(),
+  fechaCierre: z.string().nullable().optional().openapi({
+    description: "Fecha y hora de cierre del incidente (ej. al declararse NO_ABORDABLE o RESUELTO)",
+  }),
+  motivoNoAbordable: z.string().nullable().optional().openapi({
+    description: "Motivo técnico fundado registrado por la patrulla verificadora si fue declarado NO_ABORDABLE (HU-39 / HU-86)",
+  }),
   fuenteOrigen: z.string(),
   asteriskCallId: z.string().nullable(),
   asteriskCallerPhone: z.string().nullable(),
@@ -225,6 +246,95 @@ export const IncidenteDetalleSchema = z.object({
     .openapi({ description: "Encargado de operaciones asignado" }),
   misiones: z.array(MisionDetalleSchema).openapi({ description: "Misiones tácticas vinculadas a la atención de este incidente" }),
   recursosAsociados: z.array(RecursoAsociadoSchema).openapi({ description: "Consolidado de recursos materiales y vehículos asignados en las misiones" }),
+  reportesEvaluacionTerreno: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        misionId: z.string().uuid(),
+        tipoReporte: z.string().optional(),
+        dictamen: z.enum(["REQUIERE_CUADRILLA", "NO_ABORDABLE"]).nullable().optional(),
+        motivoNoAbordable: z.string().nullable().optional(),
+        requiereAsistenciaSocial: z.boolean().optional(),
+        estadoTerreno: z.string().optional(),
+        versionReporte: z.number().int(),
+        esRectificacion: z.boolean(),
+        etiquetaReporte: z.string(),
+        prioridadSugerida: PrioridadIncidenteEnum.nullable(),
+        prioridadAsignada: PrioridadIncidenteEnum.nullable(),
+        justificacionPrioridad: z.string().nullable(),
+        resumenTecnico: z.string(),
+        accionesRealizadas: z.string().nullable(),
+        danosEstimados: z.string().nullable(),
+        observaciones: z.string().nullable(),
+        personasAfectadas: z.number(),
+        requiereApoyoAdicional: z.boolean(),
+        evaluacion: z.record(z.string(), z.unknown()),
+        adjuntos: z
+          .array(
+            z.object({
+              id: z.string().uuid(),
+              nombreArchivo: z.string(),
+              url: z.string(),
+              tipoMime: z.string(),
+              tamanoBytes: z.number(),
+              creadoEn: z.string(),
+            })
+          )
+          .optional(),
+        evaluador: z.object({
+          id: z.string().uuid(),
+          nombre: z.string(),
+          email: z.string().nullable().optional(),
+          rut: z.string().nullable().optional(),
+        }),
+        creadoEn: z.string(),
+      })
+    )
+    .optional()
+    .openapi({
+      description:
+        "Historial cronológico de reportes de evaluación en terreno enviados por la patrulla (incluyendo reporte inicial #1 y rectificaciones posteriores #2+)",
+    }),
+  verificado: z.boolean().default(false).openapi({ description: "Indica si la verificación presencial fue completada" }),
+  reclasificadoEnTerreno: z.boolean().default(false).openapi({ description: "Indica si fue verificado o reclasificado en terreno" }),
+  justificacionReclasificacion: z.string().nullable().optional().openapi({ description: "Justificación técnica en terreno" }),
+  reclasificacionTipologia: z
+    .object({
+      hitoId: z.string().uuid(),
+      misionId: z.string().uuid(),
+      misionCodigo: z.string(),
+      tipoAnterior: z.string().nullable(),
+      tipoNuevo: z.string(),
+      justificacion: z.string(),
+      registradoPor: z.string().nullable(),
+      creadoEn: z.string(),
+    })
+    .nullable()
+    .optional()
+    .openapi({
+      description: "Detalle de la última reclasificación de tipología en terreno si hubo cambio",
+    }),
+  ultimoReporte: z
+    .object({
+      origen: z.enum(["REPORTE_TERRENO", "RECLASIFICACION"]),
+      reporteId: z.string(),
+      misionId: z.string().uuid(),
+      misionCodigo: z.string(),
+      evaluadorNombre: z.string(),
+      creadoEn: z.string(),
+      resumen: z.string(),
+      prioridadAsignada: PrioridadIncidenteEnum.nullable(),
+      dictamen: z.enum(["REQUIERE_CUADRILLA", "NO_ABORDABLE"]).nullable().optional(),
+      motivoNoAbordable: z.string().nullable().optional(),
+      tipoReporte: z.string().nullable().optional(),
+      versionReporte: z.number().int().nullable(),
+      esRectificacion: z.boolean(),
+    })
+    .nullable()
+    .optional()
+    .openapi({
+      description: "Resumen del último reporte o constatación enviado por alguna misión asignada al incidente",
+    }),
   creadoEn: z.string(),
   actualizadoEn: z.string(),
 });
