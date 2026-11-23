@@ -44,6 +44,8 @@ export interface FilaIncidenteResumen {
   dictamen_terreno?: string | null;
   reclasificado_en_terreno?: boolean | number;
   justificacion_reclasificacion?: string | null;
+  apoyo_solicitado?: boolean | number;
+  detalle_apoyo_requerido?: string | null;
   creado_en: Date | string;
   actualizado_en: Date | string;
 }
@@ -335,6 +337,24 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
             .orderBy("mision_hito.creado_en", "desc")
             .limit(1)
             .as("justificacion_reclasificacion"),
+        sql<boolean>`(
+          EXISTS (
+            SELECT 1
+            FROM reporte_terreno rt
+            INNER JOIN mision m ON m.id = rt.mision_id
+            WHERE m.incidente_id = incidente.id
+              AND rt.requiere_apoyo_adicional = true
+          )
+        )`.as("apoyo_solicitado"),
+        sql<string | null>`(
+          SELECT rt.detalle_apoyo_requerido
+          FROM reporte_terreno rt
+          INNER JOIN mision m ON m.id = rt.mision_id
+          WHERE m.incidente_id = incidente.id
+            AND rt.requiere_apoyo_adicional = true
+          ORDER BY rt.creado_en DESC
+          LIMIT 1
+        )`.as("detalle_apoyo_requerido"),
       ])
       .orderBy(
         sql`case when exists (
@@ -598,6 +618,7 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     observaciones: string | null;
     personas_afectadas: number;
     requiere_apoyo_adicional: boolean;
+    detalle_apoyo_requerido?: string | null;
     detalles_evaluacion?: Record<string, unknown> | string | null;
     horas_hombre?: number | string | null;
     materiales_consumidos?: unknown;
@@ -642,6 +663,7 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
             "reporte_terreno.observaciones",
             "reporte_terreno.personas_afectadas",
             "reporte_terreno.requiere_apoyo_adicional",
+            "reporte_terreno.detalle_apoyo_requerido",
             "reporte_terreno.detalles_evaluacion",
             "reporte_terreno.horas_hombre",
             "reporte_terreno.materiales_consumidos",

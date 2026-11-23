@@ -68,6 +68,8 @@ export async function listarIncidentesKanbanService(
       null,
     reclasificadoEnTerreno: Boolean(fila.verificado || fila.reclasificado_en_terreno),
     justificacionReclasificacion: fila.justificacion_reclasificacion ?? null,
+    apoyoSolicitado: Boolean(fila.apoyo_solicitado),
+    detalleApoyoRequerido: fila.detalle_apoyo_requerido ?? null,
     creadoEn:
       typeof fila.creado_en === "string"
         ? fila.creado_en
@@ -150,9 +152,11 @@ export async function obtenerDetalleIncidenteService(
             : "Informe Técnico de Verificación (Cierre — Requiere Cuadrilla)"
           : tipoReporte === "REPORTE_CUADRILLA"
             ? "Informe Técnico Final de Cuadrilla (Cierre de Misión)"
-            : esRectificacion
-              ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
-              : `Reporte de Evaluación #1 (Inicial)`;
+            : tipoReporte === "SOLICITUD_APOYO"
+              ? "Solicitud de Apoyo Adicional en Terreno"
+              : esRectificacion
+                ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
+                : `Reporte de Evaluación #1 (Inicial)`;
 
       const esReporteCuadrilla = tipoReporte === "REPORTE_CUADRILLA";
       let materialesConsumidosMapeados:
@@ -234,6 +238,7 @@ export async function obtenerDetalleIncidenteService(
         observaciones: rep.observaciones ?? null,
         personasAfectadas: Number(rep.personas_afectadas ?? 0),
         requiereApoyoAdicional: Boolean(rep.requiere_apoyo_adicional),
+        detalleApoyoRequerido: rep.detalle_apoyo_requerido ?? null,
         ...(esReporteCuadrilla && rep.horas_hombre !== undefined
           ? {
               horasHombre:
@@ -445,6 +450,7 @@ export async function obtenerDetalleIncidenteService(
         ? { horasHombre: topReporteTerreno.horasHombre }
         : {}),
       requiereApoyoAdicional: topReporteTerreno.requiereApoyoAdicional,
+      detalleApoyoRequerido: topReporteTerreno.detalleApoyoRequerido ?? null,
       ...(topReporteTerreno.tipoReporte === "REPORTE_CUADRILLA" &&
       topReporteTerreno.materialesConsumidos !== undefined
         ? { materialesConsumidos: topReporteTerreno.materialesConsumidos }
@@ -501,6 +507,12 @@ export async function obtenerDetalleIncidenteService(
         };
       })
     : undefined;
+
+  const reportesConApoyo = [...reportesMapeados]
+    .filter((r) => r.requiereApoyoAdicional)
+    .sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime());
+  const apoyoSolicitado = reportesConApoyo.length > 0;
+  const detalleApoyoRequerido = reportesConApoyo[0]?.detalleApoyoRequerido ?? null;
 
   return {
     id: incidente.id,
@@ -569,6 +581,8 @@ export async function obtenerDetalleIncidenteService(
     dictamenTerreno,
     reclasificadoEnTerreno: esVerificado,
     justificacionReclasificacion: justificacionReclasificacion ?? null,
+    apoyoSolicitado,
+    detalleApoyoRequerido,
     reclasificacionTipologia,
     ultimoReporte,
     creadoEn:
