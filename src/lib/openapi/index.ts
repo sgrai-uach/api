@@ -186,6 +186,8 @@ import {
   CerrarMisionCuadrillaBodySchema,
   RecursoConsumidoActualizadoSchema,
   CerrarMisionCuadrillaResponseSchema,
+  SolicitarApoyoMisionBodySchema,
+  SolicitarApoyoMisionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -3181,6 +3183,56 @@ registry.registerPath({
     409: {
       description:
         "Conflicto: la misión no está en estado EN_CURSO, no tiene cuadrilla asignada, o el stock del recurso consumido es insuficiente",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// POST /api/misiones/{id}/apoyo (HU-44: Solicitar apoyo adicional en reporte de terreno)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/apoyo",
+  summary: "Solicitar apoyo adicional de recursos materiales o humanos en terreno (HU-44)",
+  description:
+    "Permite al Delegado de Cuadrilla (o unidad asignada en terreno) indicar en su reporte si requiere apoyo adicional de recursos materiales o humanos sin interrumpir la faena en curso. Si `requiereApoyoAdicional` es true, exige `detalleApoyoRequerido` (>= 5 caracteres). Persiste en `reporte_terreno` (`tipo_reporte = 'SOLICITUD_APOYO'`), registra el hito `APOYO_SOLICITADO` en `mision_hito`, emite la alerta visual prioritaria `'mision:apoyo_solicitado'` hacia la sala `encargado` del Centro de Mando y actualiza el tablero Kanban (`apoyoSolicitado`). Requiere permiso RBAC `'reportes:crear'`.",
+  tags: ["Misiones", "Incidentes"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      required: true,
+      description: "Indicador de requerimiento de apoyo adicional y detalle específico de refuerzos solicitados",
+      content: {
+        "application/json": {
+          schema: SolicitarApoyoMisionBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Solicitud de apoyo adicional registrada y alertada al Centro de Mando exitosamente",
+      content: {
+        "application/json": {
+          schema: SolicitarApoyoMisionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos inválidos (ej. UUID inválido, JSON mal formado, o requiereApoyoAdicional = true sin detalleApoyoRequerido >= 5 caracteres)",
+    },
+    401: { description: "No autenticado o token inválido" },
+    403: {
+      description:
+        "Acceso denegado. Se requiere el permiso 'reportes:crear' y pertenecer a la unidad asignada a la misión (o rol Administrador)",
+    },
+    404: { description: "Misión no encontrada" },
+    409: {
+      description:
+        "Conflicto: la misión no se encuentra en estado EN_CURSO",
     },
     500: { description: "Error interno del servidor" },
   },

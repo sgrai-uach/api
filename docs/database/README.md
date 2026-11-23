@@ -97,7 +97,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | *(Dotación de Integrantes)* | `cuadrilla_personal` (vista `cuadrilla_integrante`) | Migración 031 / 032 / 042 | Operaciones | Asignación N:M de funcionarios a cuadrillas con índice de unicidad activa y auditoría. |
 | **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 / 012 / 015 / 016 | Eventos ATP | Puntos críticos, factores de riesgo, edición (HU-55) y borrado lógico (HU-56). |
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
-| **Reporte Terreno** | `reporte_terreno` | Migración 011 / 053 / 056 / 059 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
+| **Reporte Terreno** | `reporte_terreno` | Migración 011 / 053 / 056 / 059 / 085 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
 | **Recuperación** | `recuperacion` | Migración 017 | Eventos ATP / Recuperación | Eventos e intervenciones territoriales de recuperación y entrega de recursos (HU-29). |
 | **Asistencia Social** | `evento_asistencia_social` | Migración 022 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social y requerimientos para levantamiento de ficha FIBE (HU-28). |
 | **Disponibilidad (enum)** | `estado_operativo` | Migración 002 / 025 | Operaciones | Enum de disponibilidad del funcionario (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`), normalizado a `usuario.estado_operativo` (H11). |
@@ -564,11 +564,12 @@ Informes técnicos y diagnósticos estructurados levantados por patrullas verifi
 | `resumen_tecnico` | `TEXT` | NO | — | Diagnóstico y detalle técnico consolidado de la intervención. |
 | `acciones_realizadas` | `TEXT` | SÍ | `NULL` | Maniobras operativas ejecutadas en terreno. |
 | `requiere_apoyo_adicional` | `BOOLEAN` | NO | `false` | Indicador de necesidad de escalamiento de recursos. |
+| `detalle_apoyo_requerido` | `TEXT` | SÍ | `NULL` | Detalle específico de recursos materiales o humanos adicionales solicitados desde terreno (HU-44 / Migración 085). |
 | `danos_estimados` | `TEXT` | SÍ | `NULL` | Estimación descriptiva o cuantitativa de daños. |
 | `observaciones` | `TEXT` | SÍ | `NULL` | Condiciones climáticas o notas de seguridad. |
 | `personas_afectadas` | `INTEGER` | NO | `0` | Cantidad estimada de damnificados en el punto. |
 | `estado_terreno` | `VARCHAR(50)` | NO | `'FINALIZADO'` | Estado operativo del reporte (`PRELIMINAR`, `EN_VERIFICACION`, `EN_PROCESO`, `FINALIZADO`, `CRITICO`, `ESTABLE`, `INACCESIBLE`, `CONTROLADO`). |
-| `tipo_reporte` | `VARCHAR(40)` | NO | `'EVALUACION_PRIORIDAD'` | Clasificación del informe (`EVALUACION_PRIORIDAD` en HU-38, `VERIFICACION_CIERRE` en HU-39, `REPORTE_CUADRILLA`). Migración 056. |
+| `tipo_reporte` | `VARCHAR(40)` | NO | `'EVALUACION_PRIORIDAD'` | Clasificación del informe (`EVALUACION_PRIORIDAD` en HU-38, `VERIFICACION_CIERRE` en HU-39, `REPORTE_CUADRILLA` en HU-68, `SOLICITUD_APOYO` en HU-44). Migración 056 / 085. |
 | `dictamen` | `VARCHAR(30)` | SÍ | `NULL` | Dictamen operativo de verificación (`REQUIERE_CUADRILLA` o `NO_ABORDABLE` - HU-39 / Migración 056). |
 | `motivo_no_abordable` | `TEXT` | SÍ | `NULL` | Motivo técnico fundado cuando `dictamen = 'NO_ABORDABLE'` (mín. 15 caracteres - HU-39 / HU-86 / Migración 056). |
 | `requiere_asistencia_social` | `BOOLEAN` | NO | `false` | Indicador de derivación a Asistente Social / Ficha FIBE capturado en el informe de verificación (HU-39 / Migración 056). |

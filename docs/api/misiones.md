@@ -46,6 +46,7 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 | `POST` | `/api/misiones` | `misiones:asignar` | Despacho y asignación de misión operativa a terreno: verificación primaria con patrulla (HU-20) o atención técnica con cuadrilla liberando la patrulla previa (HU-21 / Regla ICS §3.2). |
 | `POST` | `/api/misiones/{id}/aceptar` | `misiones:terreno:ejecutar` / `misiones:terreno:verificar` | Confirmar y aceptar misión asignada desde terreno (PWA), transicionando de `DESPACHADA` a `EN_CURSO`, registrando `fecha_inicio` y el hito `'Asignación Aceptada por Cuadrilla'` (HU-40, pasando cuadrilla a `EN_MISION` e incidente a `EN_ATENCION`) o `'Misión Aceptada por Patrulla'` (HU-36) en `mision_hito`. |
 | `POST` | `/api/misiones/{id}/llegada` | `misiones:terreno:ejecutar` | Reportar arribo a terreno de la brigada operativa, registrar hito `LLEGADA_TERRENO`, actualizar ubicación de miembros y habilitar cálculo de tiempos de respuesta (HU-42). |
+| `POST` | `/api/misiones/{id}/apoyo` | `reportes:crear` | Indicar en el reporte de terreno si se requiere apoyo adicional de recursos materiales o humanos (mín. 5 caracteres en `detalleApoyoRequerido` si aplica), registrando el hito `APOYO_SOLICITADO` y emitiendo alerta prioritaria `mision:apoyo_solicitado` hacia la sala `encargado` (HU-44). |
 | `POST` | `/api/misiones/{id}/rechazar` | `misiones:terreno:ejecutar` / `misiones:terreno:verificar` | Rechazar asignación de misión por Delegado de Cuadrilla (HU-41) o Patrulla Verificadora (HU-69) con justificación técnica obligatoria (≥ 5 caracteres, Regla §3.3), devolviendo la unidad a `DISPONIBLE` y el incidente a `VERIFICANDO` o `REPORTADO`. |
 | `POST` | `/api/misiones/{id}/cerrar` | `misiones:terreno:ejecutar` | Enviar informe técnico final de resolución de emergencia por Delegado de Cuadrilla, descontar materiales consumidos, cerrar la misión (`COMPLETADA`) y devolver la cuadrilla a `DISPONIBLE` (HU-68). |
 | `POST` | `/api/incidentes/{id}/prioridad/calcular` | `misiones:terreno:verificar` | Calcular la `prioridad_sugerida` y factores gatillantes en base al formulario de evaluación técnica en terreno de la patrulla verificadora (HU-38). |
@@ -1044,16 +1045,17 @@ Permite al Centro de Mando (`sgrai-web`) consultar de forma instantánea el snap
   - En `POST /api/misiones/{id}/llegada`: Coordenadas geográficas fuera de rango (-90 a 90 / -180 a 180), JSON mal formado o la misión carece de cuadrilla asignada.
   - En `POST /api/misiones/{id}/rechazar`: `justificacion_rechazo` ausente, vacía o con menos de 5 caracteres útiles (Regla §3.3), UUID no válido, JSON mal formado o coordenadas GPS fuera de rango WGS84 / sin paridad.
   - En `POST /api/misiones/{id}/cerrar`: `resumen_faenas` menor a 15 caracteres, `horas_hombre` menor o igual a 0 (o > 1000), `estado_terreno` inválido, `recurso_id` duplicado en `materiales_consumidos`, intento de consumir un recurso individual (`es_individual = true`), o coordenadas GPS sin paridad.
+  - En `POST /api/misiones/{id}/apoyo`: `requiereApoyoAdicional = true` sin `detalleApoyoRequerido` válido (mínimo 5 caracteres), UUID no válido o JSON mal formado.
   - En `PATCH /api/terreno/notificaciones/{id}/estado`: El parámetro `id` no cumple el estándar UUID versión 4; el body no es JSON válido o el estado no es `"RECIBIDA"` ni `"LEIDA"`.
   - En `POST /api/misiones`: Body no es JSON válido o los identificadores no son UUIDs válidos.
 - **`401 Unauthorized`:**
   - Petición sin token JWT Bearer o sesión expirada.
 - **`403 Forbidden`:**
-  - El usuario no cuenta con el permiso requerido (`misiones:leer` para consulta, `misiones:asignar` para despacho, `reportes:crear` para el envío de informe técnico en `POST /api/misiones/{id}/reporte`, `misiones:terreno:ejecutar` para aceptación, rechazo, llegada y cierre por cuadrilla en HU-40/HU-41/HU-42/HU-68, `misiones:terreno:verificar` para la aceptación/rechazo por patrulla y para los endpoints de terreno `PATCH /api/terreno/notificaciones/{id}/estado` y `GET /api/terreno/misiones/pendientes`), o intenta operar sobre una misión asignada a otra patrulla verificadora o cuadrilla operativa.
+  - El usuario no cuenta con el permiso requerido (`misiones:leer` para consulta, `misiones:asignar` para despacho, `reportes:crear` para el envío de informe técnico en `POST /api/misiones/{id}/reporte` y solicitud de apoyo adicional en `POST /api/misiones/{id}/apoyo`, `misiones:terreno:ejecutar` para aceptación, rechazo, llegada y cierre por cuadrilla en HU-40/HU-41/HU-42/HU-68, `misiones:terreno:verificar` para la aceptación/rechazo por patrulla y para los endpoints de terreno `PATCH /api/terreno/notificaciones/{id}/estado` y `GET /api/terreno/misiones/pendientes`), o intenta operar sobre una misión asignada a otra patrulla verificadora o cuadrilla operativa.
   - En `POST /api/misiones/{id}/llegada`: El usuario no es el delegado asignado a la cuadrilla de esa misión en particular (y no posee rol de Administrador).
   - Pertenencia a patrulla ajena: En `PATCH /api/terreno/notificaciones/{id}/estado`, si la notificación pertenece a otra patrulla y el usuario no es `ADMIN`.
 - **`404 Not Found`:**
-  - En `GET /api/misiones/{id}`, `POST /api/misiones/{id}/aceptar`, `POST /api/misiones/{id}/llegada`, `POST /api/misiones/{id}/rechazar`, `POST /api/misiones/{id}/reporte` y `POST /api/misiones/{id}/cerrar`: No existe ninguna misión (o recurso material en `cerrar`) con el UUID proporcionado.
+  - En `GET /api/misiones/{id}`, `POST /api/misiones/{id}/aceptar`, `POST /api/misiones/{id}/llegada`, `POST /api/misiones/{id}/apoyo`, `POST /api/misiones/{id}/rechazar`, `POST /api/misiones/{id}/reporte` y `POST /api/misiones/{id}/cerrar`: No existe ninguna misión (o recurso material en `cerrar`) con el UUID proporcionado.
   - En `PATCH /api/terreno/notificaciones/{id}/estado`: No existe ninguna notificación con el UUID proporcionado.
   - En `POST /api/misiones`: El `incidenteId`, la `patrullaId` o la `cuadrillaId` proporcionada no existe en la base de datos o ha sido desactivada lógicamente.
 - **`409 Conflict`:**
@@ -1087,6 +1089,8 @@ Permite al Centro de Mando (`sgrai-web`) consultar de forma instantánea el snap
   - En `POST /api/misiones/{id}/cerrar`:
     1. La misión no tiene una cuadrilla operativa asignada, aún está en estado `DESPACHADA` (sin llegada/inicio en terreno) o ya fue `COMPLETADA` / `RECHAZADA` / `CANCELADA`.
     2. El stock disponible del recurso material reportado en `materiales_consumidos` es insuficiente respecto a lo consumido.
+  - En `POST /api/misiones/{id}/apoyo`:
+    1. La misión no se encuentra en estado `EN_CURSO` (ej. está `DESPACHADA` o ya fue `COMPLETADA`/`CANCELADA`/`RECHAZADA`).
 - **`500 Internal Server Error`:**
   - Error inesperado de persistencia o fallo de base de datos.
 
@@ -1132,7 +1136,11 @@ Al confirmarse la asignación y operación de misiones mediante los endpoints de
 10. **`recurso:actualizado` (HU-68)**:
     - **Salas destino:** `encargado` y `supervisor`.
     - **Propósito:** Actualizar en tiempo real el stock (`cantidadInventario`, `cantidadEnUso`) y el estado operativo del recurso material tras descontar insumos consumidos en terreno.
-11. **`telemetria:posicion` (HU-70: Transmisión y Retransmisión GPS en Terreno)**:
+11. **`mision:apoyo_solicitado` (HU-44)**:
+    - **Salas destino:** `encargado`, `sala:encargados` y `supervisor`.
+    - **Payload:** `{ reporteId, misionId, misionCodigo, incidenteId, incidenteCodigo, cuadrillaId, cuadrillaNombre, evaluadorId, evaluadorNombre, requiereApoyoAdicional: true, detalleApoyoRequerido, prioridadAlerta: "ALTA", solicitadoEn }`.
+    - **Propósito:** Emitir alerta visual prioritaria inmediata hacia el Centro de Mando cuando una cuadrilla u unidad en terreno solicita apoyo adicional material o humano, sin interrumpir la faena en curso.
+12. **`telemetria:posicion` (HU-70: Transmisión y Retransmisión GPS en Terreno)**:
     - **Evento de Entrada (Client-to-Server):** Emitido periódicamente (cada 30 a 60 segundos) por la app PWA móvil de patrullas y delegados de cuadrilla cuando se encuentran en misión activa (`EN_CURSO`).
       - **Payload:**
         ```json
