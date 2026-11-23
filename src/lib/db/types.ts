@@ -574,7 +574,8 @@ export type DictamenVerificacion = "REQUIERE_CUADRILLA" | "NO_ABORDABLE";
 export type TipoReporteTerreno =
   | "EVALUACION_PRIORIDAD"
   | "VERIFICACION_CIERRE"
-  | "REPORTE_CUADRILLA";
+  | "REPORTE_CUADRILLA"
+  | "SOLICITUD_APOYO";
 
 export interface ReporteTerrenoTable {
   id: Generated<string>;
@@ -603,6 +604,11 @@ export interface ReporteTerrenoTable {
   resumen_tecnico: string;
   acciones_realizadas: string | null;
   requiere_apoyo_adicional: ColumnType<boolean, boolean | undefined, boolean>;
+  detalle_apoyo_requerido?: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
   danos_estimados: string | null;
   observaciones: string | null;
   personas_afectadas: ColumnType<number, number | undefined, number>;
