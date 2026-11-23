@@ -6,6 +6,7 @@ import type {
   InterServerEvents,
   SocketData,
   RedisSocketMessage,
+  MisionRechazadaPayload,
 } from "./types";
 
 export interface IncidenteNotificacionPayload {
@@ -347,6 +348,45 @@ export function emitirPuntoCriticoCreado(payload: Record<string, unknown>): void
         })
       )
       .catch(() => {});
+  }
+}
+
+/**
+ * Emite la notificación de nuevo Evento ATP creado a las salas operativas,
+ * administrativas y al mapa interactivo (H61).
+ */
+export function emitirEventoAtpCreado(payload: unknown): void {
+  const salas = [
+    "sala:encargados",
+    "encargado",
+    "supervisor",
+    "mapa",
+    "admin",
+    "administrador",
+  ];
+
+  if (ioInstance) {
+    // Una sola emisión multi-sala: Socket.io deduplica los sockets que
+    // pertenecen a más de una sala y no se realiza broadcast global.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to(salas) as any).emit("evento_atp:creado", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    for (const sala of salas) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room: sala,
+            event: "evento_atp:creado",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 
@@ -917,6 +957,49 @@ export function notificarPatrullaLiberada(payload: {
           JSON.stringify({
             room,
             event: "patrulla:liberada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
+  }
+}
+
+/**
+ * Emite una notificación en tiempo real hacia la sala 'encargado' del Centro de Mando
+ * cuando una patrulla verificadora rechaza una misión asignada (HU-69).
+ */
+export function notificarMisionRechazada(payload: MisionRechazadaPayload): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("mision:rechazada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("mision:rechazada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("supervisor") as any).emit("mision:rechazada", payload);
+    if (payload.patrullaId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to(`patrulla:${payload.patrullaId}`) as any).emit("mision:rechazada", payload);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("mision:rechazada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    const rooms = ["encargado", "sala:encargados", "supervisor"];
+    if (payload.patrullaId) {
+      rooms.push(`patrulla:${payload.patrullaId}`);
+    }
+
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "mision:rechazada",
             payload,
           })
         )

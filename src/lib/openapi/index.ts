@@ -72,6 +72,8 @@ import {
 import {
   CrearMisionVerificacionSchema,
   CrearMisionResponseSchema,
+  RechazarMisionBodySchema,
+  RechazarMisionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -177,6 +179,12 @@ import {
   CrearEventoPrevencionResponseSchema,
 } from "@/modules/eventos-atp/evento-prevencion.schema";
 
+import {
+  CrearEventoAtpInputSchema,
+  CrearEventoAtpResponseSchema,
+  EventoAtpResponseSchema,
+} from "@/modules/eventos-atp/evento-atp.schema";
+
 extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
@@ -262,6 +270,9 @@ registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSc
 registry.register("CrearEventoAsistenciaSocialInput", CrearEventoAsistenciaSocialInputSchema);
 registry.register("EventoAsistenciaSocialResponse", EventoAsistenciaSocialResponseSchema);
 registry.register("ListarEventosAsistenciaSocialResponse", ListarEventosAsistenciaSocialResponseSchema);
+registry.register("CrearEventoAtpInput", CrearEventoAtpInputSchema);
+registry.register("EventoAtpResponse", EventoAtpResponseSchema);
+registry.register("CrearEventoAtpResponse", CrearEventoAtpResponseSchema);
 
 // Registrar esquemas de Misiones (HU-20 / HU-21)
 registry.register("CrearMisionVerificacionInput", CrearMisionVerificacionSchema);
@@ -999,7 +1010,7 @@ registry.registerPath({
   description:
     "Permite a la patrulla verificadora reclasificar técnicamente la tipología del incidente tras la evaluación presencial en terreno, corrigiendo tipificaciones ciudadanas inexactas. Requiere que la misión asignada haya sido aceptada previamente (estado EN_CURSO) y justificación obligatoria del cambio. Actualiza atómicamente incidente.tipo_incidente_id y sincroniza incidente.tipo_afectacion, registra el hito en mision_hito ('Tipología reclasificada en terreno a: [Nombre del Tipo]. Justificación: [Motivo]') y emite el evento WebSocket 'incidente:actualizado' a la sala 'sala:encargados'. Requiere el permiso RBAC 'misiones:terreno:verificar'.",
   tags: ["Incidentes"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: z.string().uuid().describe("Identificador UUID del incidente"),
@@ -1473,6 +1484,8 @@ registry.registerPath({
 });
 
 // 22. GET /api/misiones/{id} (HU-17: Detalle Completo de Misión)
+registry.register("RechazarMisionBody", RechazarMisionBodySchema);
+registry.register("RechazarMisionResponse", RechazarMisionResponseSchema);
 registry.register("AceptarMisionInput", AceptarMisionInputSchema);
 registry.register("MisionHitoRegistrado", MisionHitoRegistradoSchema);
 registry.register("AceptarMisionResponse", AceptarMisionResponseSchema);
@@ -2704,6 +2717,108 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor al consultar misiones pendientes",
+    },
+  },
+});
+
+// POST /api/misiones/{id}/rechazar (HU-69: Rechazo de misión por patrulla verificadora)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/rechazar",
+  summary: "Rechazar misión de verificación por patrulla en terreno (HU-69)",
+  description:
+    "Permite a una patrulla verificadora rechazar una misión asignada ingresando una justificación obligatoria (mínimo 5 caracteres según Regla Crítica §3.3). Ejecuta una transacción atómica que: (1) actualiza la misión a estado RECHAZADA y persiste la justificación, (2) transiciona la patrulla a DISPONIBLE, (3) revierte el incidente a REPORTADO para su inmediata reasignación, y (4) registra el hito en mision_hito. Emite la notificación WebSocket mision:rechazada hacia la sala encargado.",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: RechazarMisionBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Misión rechazada exitosamente y devuelta a estado REPORTADO para reasignación",
+      content: {
+        "application/json": {
+          schema: RechazarMisionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos de entrada inválidos, justificación menor a 5 caracteres o coordenadas geográficas fuera de rango WGS84",
+    },
+    401: {
+      description: "No autenticado, token ausente o usuario inactivo",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere pertenecer a la patrulla asignada o rol Administrador",
+    },
+    404: {
+      description: "Misión no encontrada",
+    },
+    409: {
+      description:
+        "Conflicto: la misión ya fue rechazada, no se encuentra en estado DESPACHADA, o no es de tipo VERIFICACION / no tiene patrulla asignada",
+    },
+    500: {
+      description: "Error interno del servidor al procesar el rechazo de la misión",
+    },
+  },
+});
+
+// 28. POST /api/eventos-atp (H61)
+registry.registerPath({
+  method: "post",
+  path: "/api/eventos-atp",
+  summary: "Crear Evento de Alerta Temprana Preventiva (ATP)",
+  description:
+    "Registra el marco oficial de un Evento ATP, persiste su alcance territorial en evento_atp_delegacion dentro de una sola transacción PostgreSQL y emite el evento WebSocket evento_atp:creado a las salas administrativas, operativas y del mapa. Requiere rol Administrador o el permiso eventos_atp:crear.",
+  tags: ["Eventos ATP"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      description: "Datos requeridos para crear el Evento ATP",
+      required: true,
+      content: {
+        "application/json": {
+          schema: CrearEventoAtpInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Evento ATP creado exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearEventoAtpResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos inválidos, fechas inconsistentes o delegaciones inexistentes",
+    },
+    401: {
+      description: "No autenticado. Se requiere cabecera Authorization válida",
+    },
+    403: {
+      description:
+        "Acceso denegado. Se requiere rol Administrador o permiso eventos_atp:crear",
+    },
+    409: {
+      description: "Conflicto por código de Evento ATP duplicado",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la solicitud",
     },
   },
 });
