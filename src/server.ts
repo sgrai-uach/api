@@ -5,6 +5,9 @@ import Redis from "ioredis";
 import { loadEnvConfig } from "@next/env";
 import { setSocketServer, REDIS_SOCKET_CHANNEL } from "./lib/socket";
 import { actualizarEstadoNotificacionService } from "./modules/misiones/notificacion-mision.service";
+import { verificarTokenJwt } from "./modules/seguridad/jwt";
+import { TelemetriaPosicionPayloadSchema } from "./modules/geolocalizacion/telemetria.schema";
+import { guardarPosicionUnidad } from "./modules/geolocalizacion/telemetria-cache.service";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -82,6 +85,27 @@ async function bootstrap() {
     }
   }
 
+  // Middleware de autenticación opcional / progresivo para sockets conectados con JWT
+  io.use(async (socket, next) => {
+    const rawToken =
+      socket.handshake.auth?.token ||
+      (typeof socket.handshake.headers?.authorization === "string"
+        ? socket.handshake.headers.authorization.replace(/^Bearer\s+/i, "")
+        : null);
+
+    if (rawToken) {
+      try {
+        const payload = await verificarTokenJwt(rawToken);
+        socket.data.userId = payload.sub;
+        socket.data.role = payload.rolCodigo;
+      } catch (err) {
+        console.warn("[Socket.io Auth Warning]: Token inválido en handshake:", err);
+        return next(new Error("Autenticación inválida: token no válido o expirado"));
+      }
+    }
+    return next();
+  });
+
   io.on("connection", (socket) => {
     socket.on("join", (room: string) => {
       socket.join(room);
@@ -120,6 +144,21 @@ async function bootstrap() {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Error al procesar acuse de notificación.";
         callback?.({ ok: false, error: msg });
+      }
+    });
+
+    socket.on("telemetria:posicion", async (data) => {
+      const validacion = TelemetriaPosicionPayloadSchema.safeParse(data);
+      if (!validacion.success) {
+        console.warn("[Socket Telemetria]: Coordenadas o payload inválido recibido:", validacion.error.issues);
+        return;
+      }
+
+      try {
+        const posicionPersistida = await guardarPosicionUnidad(validacion.data);
+        io.to("mapa").emit("telemetria:posicion", posicionPersistida);
+      } catch (err) {
+        console.error("[Socket Telemetria]: Error procesando telemetría:", err);
       }
     });
   });

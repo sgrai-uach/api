@@ -18,6 +18,10 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.components.securitySchemes.BearerAuth.scheme).toBe("bearer");
     expect(spec.components.securitySchemes.BearerAuth.bearerFormat).toBe("JWT");
 
+    // Rutas de Geolocalización y Telemetría (HU-70)
+    expect(spec.paths["/api/geolocalizacion/posiciones"]).toBeDefined();
+    expect(spec.paths["/api/geolocalizacion/posiciones"].get).toBeDefined();
+
     // Rutas de Patrullas Verificadoras (HU-16, HU-84, HU-85)
     expect(spec.paths["/api/patrullas"]).toBeDefined();
     expect(spec.paths["/api/patrullas"].get).toBeDefined();

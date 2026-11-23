@@ -1,4 +1,8 @@
 import type { AvisoItemDTO } from "@/modules/incidentes/types";
+import type {
+    TelemetriaPosicionDTO,
+    PosicionUnidadActivaDTO,
+} from "@/modules/geolocalizacion/telemetria.schema";
 
 export interface ServerToClientEvents {
     "aviso:nuevo": (aviso: AvisoItemDTO | Record<string, unknown>) => void;
@@ -116,6 +120,7 @@ export interface ServerToClientEvents {
         actualizadoEn: string;
     }) => void;
     "adjunto:creado": (payload: AdjuntoCreadoPayload) => void;
+    "telemetria:posicion": (payload: PosicionUnidadActivaDTO | TelemetriaPosicionDTO) => void;
 }
 
 export interface AdjuntoCreadoPayload {
@@ -154,6 +159,7 @@ export interface ClientToServerEvents {
         payload: { notificacionId: string; estado: "RECIBIDA" | "LEIDA" },
         callback?: (response: { ok: boolean; message?: string; error?: string }) => void
     ) => void;
+    "telemetria:posicion": (payload: TelemetriaPosicionDTO) => void;
 }
 
 export interface InterServerEvents {

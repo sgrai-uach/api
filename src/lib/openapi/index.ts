@@ -210,6 +210,7 @@ import {
   CrearEventoAtpResponseSchema,
   EventoAtpResponseSchema,
 } from "@/modules/eventos-atp/evento-atp.schema";
+import { PosicionesActivasResponseSchema } from "@/modules/geolocalizacion/telemetria.schema";
 
 extendZodWithOpenApi(z);
 
@@ -2967,6 +2968,33 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor al almacenar la evidencia",
+    },
+  },
+});
+
+// GET /api/geolocalizacion/posiciones (HU-70: Consulta de posiciones activas de telemetría)
+registry.registerPath({
+  method: "get",
+  path: "/api/geolocalizacion/posiciones",
+  summary: "Obtener posiciones GPS activas de unidades en terreno (HU-70)",
+  description:
+    "Retorna la lista de últimas posiciones GPS conocidas de todas las unidades operativas (patrullas y cuadrillas) vigentes en la caché de telemetría de Redis. Permite hidratar de forma instantánea el mapa interactivo del Centro de Mando en sgrai-web.",
+  tags: ["Geolocalizacion"],
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: {
+      description: "Posiciones activas obtenidas exitosamente",
+      content: {
+        "application/json": {
+          schema: PosicionesActivasResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "No autenticado o token ausente",
+    },
+    500: {
+      description: "Error interno del servidor al consultar posiciones activas",
     },
   },
 });
