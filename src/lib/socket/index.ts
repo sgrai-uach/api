@@ -8,6 +8,7 @@ import type {
   RedisSocketMessage,
   MisionRechazadaPayload,
   AdjuntoCreadoPayload,
+  MisionApoyoSolicitadoPayload,
 } from "./types";
 import type { PosicionUnidadActivaDTO } from "@/modules/geolocalizacion/telemetria.schema";
 
@@ -1112,6 +1113,38 @@ export function notificarAdjuntoCreado(payload: AdjuntoCreadoPayload): void {
   const rooms = ["encargado", "sala:encargados", "supervisor"];
   for (const room of rooms) {
     emitirEvento(room, "adjunto:creado", payload);
+  }
+}
+
+/**
+ * Emite una alerta visual prioritaria en tiempo real hacia la sala `encargado` del Centro de Mando
+ * cuando una cuadrilla operativa o unidad de terreno solicita apoyo adicional (HU-44).
+ */
+export function notificarApoyoSolicitado(payload: MisionApoyoSolicitadoPayload): void {
+  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  const io = getSocketServer();
+  if (io) {
+    for (const room of rooms) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (io.to(room) as any).emit("mision:apoyo_solicitado", payload);
+    }
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    for (const room of rooms) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "mision:apoyo_solicitado",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 

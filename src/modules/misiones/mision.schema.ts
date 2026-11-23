@@ -153,6 +153,10 @@ export const ReporteTerrenoDetalleSchema = z.object({
   resumenTecnico: z.string().openapi({ description: "Diagnóstico técnico consolidado de la intervención" }),
   accionesRealizadas: z.string().nullable().openapi({ description: "Labores y maniobras ejecutadas en terreno" }),
   requiereApoyoAdicional: z.boolean().openapi({ description: "Indica si se requiere escalamiento logístico o relevo" }),
+  detalleApoyoRequerido: z.string().nullable().optional().openapi({
+    description: "Detalle de los recursos materiales o humanos adicionales solicitados desde terreno (HU-44)",
+    example: "Se solicita motoniveladora y cuadrilla adicional de despeje",
+  }),
   danosEstimados: z.string().nullable().openapi({ description: "Descripción o estimación preliminar de daños observados" }),
   observaciones: z.string().nullable().openapi({ description: "Observaciones de seguridad o condiciones de terreno" }),
   personasAfectadas: z.number().openapi({ description: "Cantidad estimada de personas o familias afectadas" }),
@@ -1466,4 +1470,122 @@ export const CerrarMisionCuadrillaResponseSchema = z
 
 export type CerrarMisionCuadrillaResponse = z.infer<
   typeof CerrarMisionCuadrillaResponseSchema
+>;
+
+// ==========================================
+// HU-44: Solicitar Apoyo Adicional en Terreno
+// ==========================================
+
+export const SolicitarApoyoMisionBodySchema = z
+  .object({
+    requiereApoyoAdicional: z.boolean().optional(),
+    requiere_apoyo_adicional: z.boolean().optional(),
+    detalleApoyoRequerido: z.string().nullable().optional(),
+    detalle_apoyo_requerido: z.string().nullable().optional(),
+    resumenTecnico: z.string().optional(),
+    resumen_tecnico: z.string().optional(),
+    observaciones: z.string().nullable().optional(),
+  })
+  .openapi("SolicitarApoyoMisionInput");
+
+export const SolicitarApoyoMisionInputSchema = z
+  .object({
+    requiereApoyoAdicional: z.boolean({
+      message: "Debe indicar si requiere apoyo adicional (requiereApoyoAdicional).",
+    }),
+    detalleApoyoRequerido: z
+      .string()
+      .trim()
+      .max(1000, "El detalle de apoyo requerido no puede exceder los 1000 caracteres.")
+      .nullable()
+      .optional(),
+    resumenTecnico: z
+      .string()
+      .trim()
+      .min(5, "El resumen técnico debe contener al menos 5 caracteres.")
+      .max(1000, "El resumen técnico no puede exceder los 1000 caracteres.")
+      .optional(),
+    observaciones: z
+      .string()
+      .trim()
+      .max(1000, "Las observaciones no pueden exceder los 1000 caracteres.")
+      .nullable()
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.requiereApoyoAdicional) {
+      const detalle = typeof data.detalleApoyoRequerido === "string"
+        ? data.detalleApoyoRequerido.trim()
+        : "";
+      if (detalle.length < 5) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["detalleApoyoRequerido"],
+          message:
+            "Debe especificar el detalle de apoyo requerido (mínimo 5 caracteres) cuando requiereApoyoAdicional es true.",
+        });
+      }
+    }
+  })
+  .transform((data) => ({
+    requiereApoyoAdicional: data.requiereApoyoAdicional,
+    detalleApoyoRequerido: data.requiereApoyoAdicional
+      ? (data.detalleApoyoRequerido ?? "").trim()
+      : null,
+    ...(data.resumenTecnico !== undefined
+      ? { resumenTecnico: data.resumenTecnico }
+      : {}),
+    observaciones: data.observaciones ?? null,
+  }));
+
+export const SolicitarApoyoMisionInputNormalizedSchema = z.preprocess((raw) => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return raw;
+  }
+  const obj = raw as Record<string, unknown>;
+  const reqApoyo =
+    obj.requiereApoyoAdicional !== undefined
+      ? obj.requiereApoyoAdicional
+      : obj.requiere_apoyo_adicional;
+  const detApoyo =
+    obj.detalleApoyoRequerido !== undefined
+      ? obj.detalleApoyoRequerido
+      : obj.detalle_apoyo_requerido;
+  const resTec =
+    obj.resumenTecnico !== undefined ? obj.resumenTecnico : obj.resumen_tecnico;
+
+  return {
+    requiereApoyoAdicional: reqApoyo,
+    detalleApoyoRequerido: detApoyo,
+    ...(resTec !== undefined ? { resumenTecnico: resTec } : {}),
+    ...(obj.observaciones !== undefined ? { observaciones: obj.observaciones } : {}),
+  };
+}, SolicitarApoyoMisionInputSchema);
+
+export type SolicitarApoyoMisionInput = z.infer<
+  typeof SolicitarApoyoMisionInputSchema
+>;
+
+export const SolicitarApoyoMisionResponseSchema = z
+  .object({
+    message: z.string().openapi({
+      example:
+        "Solicitud de apoyo adicional registrada y alertada al Centro de Mando exitosamente.",
+    }),
+    data: z.object({
+      reporteId: z.string().uuid(),
+      misionId: z.string().uuid(),
+      misionCodigo: z.string(),
+      incidenteId: z.string().uuid().nullable(),
+      requiereApoyoAdicional: z.boolean(),
+      detalleApoyoRequerido: z.string().nullable(),
+      hito: MisionHitoRegistradoSchema.nullable(),
+      alertaEmitida: z.boolean(),
+      creadoEn: z.string(),
+    }),
+  })
+  .openapi("SolicitarApoyoMisionResponse");
+
+export type SolicitarApoyoMisionResponse = z.infer<
+  typeof SolicitarApoyoMisionResponseSchema
 >;

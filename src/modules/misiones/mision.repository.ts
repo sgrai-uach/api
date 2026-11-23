@@ -22,6 +22,7 @@ import type {
   CrearReporteVerificacionInput,
   CerrarMisionCuadrillaInput,
   MaterialConsumidoDetalle,
+  SolicitarApoyoMisionInput,
 } from "./mision.schema";
 import { crearNotificacionMisionRepo } from "./notificacion-mision.repository";
 import type { NotificacionMisionDetalle } from "./notificacion-mision.schema";
@@ -129,6 +130,7 @@ export interface MisionDetalleQueryResult {
     resumen_tecnico: string;
     acciones_realizadas: string | null;
     requiere_apoyo_adicional: boolean;
+    detalle_apoyo_requerido?: string | null;
     danos_estimados: string | null;
     observaciones: string | null;
     personas_afectadas: number;
@@ -359,6 +361,7 @@ export async function obtenerMisionDetallePorIdRepo(
         "reporte_terreno.resumen_tecnico",
         "reporte_terreno.acciones_realizadas",
         "reporte_terreno.requiere_apoyo_adicional",
+        "reporte_terreno.detalle_apoyo_requerido",
         "reporte_terreno.danos_estimados",
         "reporte_terreno.observaciones",
         "reporte_terreno.personas_afectadas",
@@ -4041,4 +4044,201 @@ export async function cerrarMisionCuadrillaRepo(
     }
     throw err;
   }
+}
+
+// ========================================================
+// HU-44: Solicitar Apoyo Adicional en Reporte de Terreno
+// ========================================================
+
+export interface RegistrarSolicitudApoyoResult {
+  reporteId: string;
+  misionId: string;
+  misionCodigo: string;
+  cuadrillaId: string | null;
+  cuadrillaNombre: string | null;
+  evaluadorId: string;
+  evaluadorNombre: string | null;
+  incidente: {
+    id: string;
+    codigo: string;
+    estado: string;
+    prioridad: string;
+  } | null;
+  requiereApoyoAdicional: boolean;
+  detalleApoyoRequerido: string | null;
+  hito: {
+    id: string;
+    misionId: string;
+    hito: string;
+    descripcion: string;
+    registradoPorId: string | null;
+    latitud: number | null;
+    longitud: number | null;
+    creadoEn: string;
+  } | null;
+  creadoEn: string;
+}
+
+/**
+ * Registra atómicamente una solicitud de apoyo adicional en terreno (HU-44).
+ *
+ * 1. Verifica existencia de la misión y bloquea la fila.
+ * 2. Valida pertenencia del usuario a la cuadrilla (delegado) o patrulla (líder), salvo Administrador.
+ * 3. Exige que la misión se encuentre en estado `EN_CURSO`.
+ * 4. Persiste el registro en `reporte_terreno` (`tipo_reporte = 'SOLICITUD_APOYO'`) con
+ *    `requiere_apoyo_adicional` y `detalle_apoyo_requerido`.
+ * 5. Si `requiereApoyoAdicional` es true, inserta el hito `APOYO_SOLICITADO` en `mision_hito`.
+ * 6. Si la misión posee un incidente asociado, actualiza `incidente.actualizado_en`.
+ */
+export async function registrarSolicitudApoyoMisionRepo(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: SolicitarApoyoMisionInput
+): Promise<RegistrarSolicitudApoyoResult> {
+  return await db.transaction().execute(async (trx) => {
+    const mision = await trx
+      .selectFrom("mision")
+      .leftJoin("cuadrilla", "cuadrilla.id", "mision.cuadrilla_id")
+      .leftJoin(
+        "patrulla_verificadora",
+        "patrulla_verificadora.id",
+        "mision.patrulla_id"
+      )
+      .leftJoin("incidente", "incidente.id", "mision.incidente_id")
+      .select([
+        "mision.id",
+        "mision.codigo",
+        "mision.estado",
+        "mision.cuadrilla_id",
+        "mision.patrulla_id",
+        "mision.incidente_id",
+        "cuadrilla.nombre as cuadrilla_nombre",
+        "cuadrilla.usuario_delegado_id as cuadrilla_delegado_id",
+        "patrulla_verificadora.usuario_lider_id as patrulla_lider_id",
+        "incidente.codigo as incidente_codigo",
+        "incidente.estado as incidente_estado",
+        "incidente.prioridad as incidente_prioridad",
+      ])
+      .where("mision.id", "=", misionId)
+      .forUpdate("mision")
+      .executeTakeFirst();
+
+    if (!mision) {
+      throw new NotFoundError(
+        "No se encontró ninguna misión con el identificador proporcionado."
+      );
+    }
+
+    if (!esAdmin) {
+      const esDelegadoCuadrilla =
+        Boolean(mision.cuadrilla_id) && mision.cuadrilla_delegado_id === usuarioId;
+      const esLiderPatrulla =
+        Boolean(mision.patrulla_id) && mision.patrulla_lider_id === usuarioId;
+
+      if (!esDelegadoCuadrilla && !esLiderPatrulla) {
+        throw new ForbiddenError(
+          "No tiene autorización para registrar solicitudes de apoyo sobre una misión asignada a otra unidad operativa."
+        );
+      }
+    }
+
+    if (mision.estado !== "EN_CURSO") {
+      throw new ConflictError(
+        `Solo es posible solicitar apoyo adicional en terreno cuando la misión está en estado 'EN_CURSO' (estado actual: '${mision.estado}').`
+      );
+    }
+
+    const evaluador = await trx
+      .selectFrom("usuario")
+      .select(["id", "nombre"])
+      .where("id", "=", usuarioId)
+      .executeTakeFirst();
+
+    const detalleNormalizado = input.requiereApoyoAdicional
+      ? (input.detalleApoyoRequerido ?? "").trim()
+      : null;
+
+    const resumenTecnico =
+      input.resumenTecnico?.trim() ||
+      (input.requiereApoyoAdicional
+        ? `Solicitud de apoyo adicional en terreno: ${detalleNormalizado}`
+        : "Actualización en terreno sin requerimiento de apoyo adicional");
+
+    const reporteCreado = await trx
+      .insertInto("reporte_terreno")
+      .values({
+        mision_id: misionId,
+        evaluador_id: usuarioId,
+        tipo_reporte: "SOLICITUD_APOYO",
+        resumen_tecnico: resumenTecnico,
+        requiere_apoyo_adicional: input.requiereApoyoAdicional,
+        detalle_apoyo_requerido: detalleNormalizado,
+        observaciones: input.observaciones ?? null,
+        estado_terreno: "EN_CURSO",
+      })
+      .returning(["id", "creado_en"])
+      .executeTakeFirstOrThrow();
+
+    let hitoResultado: RegistrarSolicitudApoyoResult["hito"] = null;
+    if (input.requiereApoyoAdicional && detalleNormalizado) {
+      const hitoInsertado = await trx
+        .insertInto("mision_hito")
+        .values({
+          mision_id: misionId,
+          hito: "APOYO_SOLICITADO",
+          descripcion: detalleNormalizado,
+          registrado_por_id: usuarioId,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+
+      hitoResultado = {
+        id: hitoInsertado.id,
+        misionId: hitoInsertado.mision_id,
+        hito: hitoInsertado.hito,
+        descripcion: hitoInsertado.descripcion,
+        registradoPorId: hitoInsertado.registrado_por_id,
+        latitud:
+          hitoInsertado.latitud !== null && hitoInsertado.latitud !== undefined
+            ? Number(hitoInsertado.latitud)
+            : null,
+        longitud:
+          hitoInsertado.longitud !== null && hitoInsertado.longitud !== undefined
+            ? Number(hitoInsertado.longitud)
+            : null,
+        creadoEn: new Date(hitoInsertado.creado_en).toISOString(),
+      };
+    }
+
+    if (mision.incidente_id) {
+      await trx
+        .updateTable("incidente")
+        .set({ actualizado_en: sql`CURRENT_TIMESTAMP` })
+        .where("id", "=", mision.incidente_id)
+        .execute();
+    }
+
+    return {
+      reporteId: reporteCreado.id,
+      misionId: mision.id,
+      misionCodigo: mision.codigo,
+      cuadrillaId: mision.cuadrilla_id ?? null,
+      cuadrillaNombre: mision.cuadrilla_nombre ?? null,
+      evaluadorId: usuarioId,
+      evaluadorNombre: evaluador?.nombre ?? null,
+      incidente: mision.incidente_id
+        ? {
+            id: mision.incidente_id,
+            codigo: mision.incidente_codigo ?? "",
+            estado: mision.incidente_estado ?? "EN_ATENCION",
+            prioridad: mision.incidente_prioridad ?? "MEDIA",
+          }
+        : null,
+      requiereApoyoAdicional: input.requiereApoyoAdicional,
+      detalleApoyoRequerido: detalleNormalizado,
+      hito: hitoResultado,
+      creadoEn: new Date(reporteCreado.creado_en).toISOString(),
+    };
+  });
 }

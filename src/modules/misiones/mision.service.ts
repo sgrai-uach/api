@@ -8,6 +8,7 @@ import {
   rechazarMisionCuadrillaRepo,
   crearReporteVerificacionYCerrarMisionRepo,
   cerrarMisionCuadrillaRepo,
+  registrarSolicitudApoyoMisionRepo,
 } from "./mision.repository";
 import type {
   MisionDetalleCompleto,
@@ -27,6 +28,8 @@ import type {
   EnviarReporteVerificacionResponse,
   CerrarMisionCuadrillaInput,
   CerrarMisionCuadrillaResponse,
+  SolicitarApoyoMisionInput,
+  SolicitarApoyoMisionResponse,
 } from "./mision.schema";
 import type {
   ReportarLlegadaBody,
@@ -44,6 +47,7 @@ import {
   emitirCuadrillaActualizada,
   emitirRecursoActualizado,
   notificarMisionRechazada,
+  notificarApoyoSolicitado,
 } from "@/lib/socket";
 import { marcarNotificacionEnviadaRepo } from "./notificacion-mision.repository";
 
@@ -253,9 +257,11 @@ export async function obtenerDetalleMisionService(
           : "Informe Técnico de Verificación (Cierre — Requiere Cuadrilla)"
         : tipoReporte === "REPORTE_CUADRILLA"
           ? "Informe Técnico Final de Cuadrilla (Cierre de Misión)"
-          : esRectificacion
-            ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
-            : `Reporte de Evaluación #1 (Inicial)`;
+          : tipoReporte === "SOLICITUD_APOYO"
+            ? "Solicitud de Apoyo Adicional en Terreno"
+            : esRectificacion
+              ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
+              : `Reporte de Evaluación #1 (Inicial)`;
 
     const esReporteCuadrilla = tipoReporte === "REPORTE_CUADRILLA";
 
@@ -282,6 +288,7 @@ export async function obtenerDetalleMisionService(
       resumenTecnico: rep.resumen_tecnico,
       accionesRealizadas: rep.acciones_realizadas ?? null,
       requiereApoyoAdicional: Boolean(rep.requiere_apoyo_adicional),
+      detalleApoyoRequerido: rep.detalle_apoyo_requerido ?? null,
       danosEstimados: rep.danos_estimados ?? null,
       observaciones: rep.observaciones ?? null,
       personasAfectadas: Number(rep.personas_afectadas ?? 0),
@@ -1288,6 +1295,83 @@ export async function cerrarMisionCuadrillaService(
       incidente: resultado.incidente,
       recursosActualizados: resultado.recursosActualizados,
       hito: resultado.hito,
+    },
+  };
+}
+
+// ========================================================
+// HU-44: Solicitar Apoyo Adicional en Terreno
+// ========================================================
+
+/**
+ * Registra la solicitud de apoyo adicional de una cuadrilla (o unidad en terreno),
+ * emite una alerta visual prioritaria en tiempo real hacia la sala `encargado` del Centro
+ * de Mando y notifica la actualización del incidente para mostrar el badge en Kanban.
+ */
+export async function solicitarApoyoMisionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: SolicitarApoyoMisionInput
+): Promise<SolicitarApoyoMisionResponse> {
+  const resultado = await registrarSolicitudApoyoMisionRepo(
+    misionId,
+    usuarioId,
+    esAdmin,
+    input
+  );
+
+  let alertaEmitida = false;
+  if (resultado.requiereApoyoAdicional && resultado.detalleApoyoRequerido) {
+    try {
+      notificarApoyoSolicitado({
+        reporteId: resultado.reporteId,
+        misionId: resultado.misionId,
+        misionCodigo: resultado.misionCodigo,
+        incidenteId: resultado.incidente?.id ?? null,
+        incidenteCodigo: resultado.incidente?.codigo ?? null,
+        cuadrillaId: resultado.cuadrillaId,
+        cuadrillaNombre: resultado.cuadrillaNombre,
+        evaluadorId: resultado.evaluadorId,
+        evaluadorNombre: resultado.evaluadorNombre,
+        requiereApoyoAdicional: true,
+        detalleApoyoRequerido: resultado.detalleApoyoRequerido,
+        prioridadAlerta: "ALTA",
+        solicitadoEn: resultado.creadoEn,
+      });
+
+      if (resultado.incidente) {
+        notificarIncidenteActualizado({
+          id: resultado.incidente.id,
+          codigo: resultado.incidente.codigo,
+          nuevoEstado: resultado.incidente.estado,
+          prioridad: resultado.incidente.prioridad,
+          actualizadoEn: resultado.creadoEn,
+        });
+      }
+      alertaEmitida = true;
+    } catch (error) {
+      console.error(
+        "Error no bloqueante al emitir alerta WebSocket de apoyo adicional:",
+        error
+      );
+    }
+  }
+
+  return {
+    message: resultado.requiereApoyoAdicional
+      ? "Solicitud de apoyo adicional registrada y alertada al Centro de Mando exitosamente."
+      : "Reporte de terreno registrado sin requerimiento de apoyo adicional.",
+    data: {
+      reporteId: resultado.reporteId,
+      misionId: resultado.misionId,
+      misionCodigo: resultado.misionCodigo,
+      incidenteId: resultado.incidente?.id ?? null,
+      requiereApoyoAdicional: resultado.requiereApoyoAdicional,
+      detalleApoyoRequerido: resultado.detalleApoyoRequerido,
+      hito: resultado.hito,
+      alertaEmitida,
+      creadoEn: resultado.creadoEn,
     },
   };
 }

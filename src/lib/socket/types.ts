@@ -120,7 +120,24 @@ export interface ServerToClientEvents {
         actualizadoEn: string;
     }) => void;
     "adjunto:creado": (payload: AdjuntoCreadoPayload) => void;
+    "mision:apoyo_solicitado": (payload: MisionApoyoSolicitadoPayload) => void;
     "telemetria:posicion": (payload: PosicionUnidadActivaDTO | TelemetriaPosicionDTO) => void;
+}
+
+export interface MisionApoyoSolicitadoPayload {
+    reporteId: string;
+    misionId: string;
+    misionCodigo: string;
+    incidenteId: string | null;
+    incidenteCodigo: string | null;
+    cuadrillaId: string | null;
+    cuadrillaNombre: string | null;
+    evaluadorId: string;
+    evaluadorNombre: string | null;
+    requiereApoyoAdicional: true;
+    detalleApoyoRequerido: string;
+    prioridadAlerta: "ALTA";
+    solicitadoEn: string;
 }
 
 export interface AdjuntoCreadoPayload {
