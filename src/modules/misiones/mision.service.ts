@@ -7,12 +7,14 @@ import {
   asignarCuadrillaIncidenteRepo,
   rechazarMisionCuadrillaRepo,
   crearReporteVerificacionYCerrarMisionRepo,
+  cerrarMisionCuadrillaRepo,
 } from "./mision.repository";
 import type {
   MisionDetalleCompleto,
   MisionBitacoraHito,
   ReporteTerrenoDetalle,
   AdjuntoEvidencia,
+  MaterialConsumidoDetalle,
   CrearMisionVerificacionInput,
   CrearMisionResponse,
   AceptarMisionInput,
@@ -23,6 +25,8 @@ import type {
   RechazarMisionResponse,
   CrearReporteVerificacionInput,
   EnviarReporteVerificacionResponse,
+  CerrarMisionCuadrillaInput,
+  CerrarMisionCuadrillaResponse,
 } from "./mision.schema";
 import type {
   ReportarLlegadaBody,
@@ -38,6 +42,7 @@ import {
   tieneConexionEnSala,
   notificarPatrullaLiberada,
   emitirCuadrillaActualizada,
+  emitirRecursoActualizado,
   notificarMisionRechazada,
 } from "@/lib/socket";
 import { marcarNotificacionEnviadaRepo } from "./notificacion-mision.repository";
@@ -45,6 +50,19 @@ import { marcarNotificacionEnviadaRepo } from "./notificacion-mision.repository"
 function formatearFechaIso(fecha: Date | string | null | undefined): string | null {
   if (!fecha) return null;
   return typeof fecha === "string" ? new Date(fecha).toISOString() : fecha.toISOString();
+}
+
+function parsearMaterialesConsumidos(raw: unknown): MaterialConsumidoDetalle[] {
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed as MaterialConsumidoDetalle[];
 }
 
 function desglosarHitoTiempo(
@@ -102,7 +120,13 @@ export async function obtenerDetalleMisionService(
     return null;
   }
 
-  const { mision, recursosCuadrilla, reportesTerreno: reportesRaw, hitos = [] } = resultado;
+  const {
+    mision,
+    recursosCuadrilla,
+    reportesTerreno: reportesRaw,
+    hitos = [],
+    adjuntosMision,
+  } = resultado;
 
   // 1. Bitácora de tiempos (incorporando hitos reales de mision_hito o fallback a timestamps)
   const bitacoraTiempos: MisionBitacoraHito[] = [];
@@ -227,9 +251,13 @@ export async function obtenerDetalleMisionService(
         ? dictamen === "NO_ABORDABLE"
           ? "Informe Técnico de Verificación (Cierre — No Abordable)"
           : "Informe Técnico de Verificación (Cierre — Requiere Cuadrilla)"
-        : esRectificacion
-          ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
-          : `Reporte de Evaluación #1 (Inicial)`;
+        : tipoReporte === "REPORTE_CUADRILLA"
+          ? "Informe Técnico Final de Cuadrilla (Cierre de Misión)"
+          : esRectificacion
+            ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
+            : `Reporte de Evaluación #1 (Inicial)`;
+
+    const esReporteCuadrilla = tipoReporte === "REPORTE_CUADRILLA";
 
     return {
       id: rep.id,
@@ -258,6 +286,19 @@ export async function obtenerDetalleMisionService(
       observaciones: rep.observaciones ?? null,
       personasAfectadas: Number(rep.personas_afectadas ?? 0),
       estadoTerreno: rep.estado_terreno || "FINALIZADO",
+      ...(esReporteCuadrilla && rep.horas_hombre !== undefined
+        ? {
+            horasHombre:
+              rep.horas_hombre !== null ? Number(rep.horas_hombre) : null,
+          }
+        : {}),
+      ...(esReporteCuadrilla && rep.materiales_consumidos !== undefined
+        ? {
+            materialesConsumidos: parsearMaterialesConsumidos(
+              rep.materiales_consumidos
+            ),
+          }
+        : {}),
       evaluador: {
         id: rep.evaluador_id,
         nombre: rep.evaluador_nombre || "Funcionario en Terreno",
@@ -379,6 +420,32 @@ export async function obtenerDetalleMisionService(
     .sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime());
   const reporteVerificacion = reportesCierre[0] ?? null;
 
+  const reportesCuadrilla = reportesMapeados
+    .filter((r) => r.tipoReporte === "REPORTE_CUADRILLA")
+    .sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime());
+  const ultimoReporteCuadrilla = reportesCuadrilla[0] ?? null;
+
+  const adjuntosMisionMapeados: AdjuntoEvidencia[] | undefined = Array.isArray(adjuntosMision)
+    ? adjuntosMision.map((adj) => {
+        let urlNormalizada = adj.url;
+        if (
+          !urlNormalizada.startsWith("http://") &&
+          !urlNormalizada.startsWith("https://") &&
+          !urlNormalizada.startsWith("/")
+        ) {
+          urlNormalizada = `/${urlNormalizada}`;
+        }
+        return {
+          id: adj.id,
+          nombreArchivo: adj.nombre_archivo,
+          url: urlNormalizada,
+          tipoMime: adj.tipo_mime,
+          tamanoBytes: Number(adj.tamano_bytes),
+          creadoEn: formatearFechaIso(adj.creado_en) || new Date().toISOString(),
+        };
+      })
+    : undefined;
+
   return {
     id: mision.id,
     codigo: mision.codigo,
@@ -409,6 +476,7 @@ export async function obtenerDetalleMisionService(
     patrulla,
     bitacoraTiempos,
     reportesTerreno: reportesMapeados,
+    ...(adjuntosMisionMapeados ? { adjuntos: adjuntosMisionMapeados } : {}),
     evaluaciones: {
       tipologiaEvaluada: hitosTipologia.length > 0,
       tipologiaEvaluadaEn: ultimoHitoTipologia
@@ -423,6 +491,8 @@ export async function obtenerDetalleMisionService(
       reporteVerificacionEnviado: Boolean(reporteVerificacion),
       reporteVerificacionEnviadoEn: reporteVerificacion?.creadoEn ?? null,
       dictamenVerificacion: reporteVerificacion?.dictamen ?? null,
+      reporteCuadrillaEnviado: Boolean(ultimoReporteCuadrilla),
+      reporteCuadrillaEnviadoEn: ultimoReporteCuadrilla?.creadoEn ?? null,
     },
   };
 }
@@ -1011,6 +1081,7 @@ export async function enviarReporteVerificacionService(
       tipoMision: resultado.mision.tipoMision,
       patrullaId: resultado.mision.patrullaId,
       incidenteId: resultado.mision.incidenteId,
+      incidenteCodigo: resultado.incidente?.codigo ?? null,
       fechaInicio: resultado.mision.fechaInicio,
       fechaCierre: resultado.mision.fechaCierre,
       hito: {
@@ -1089,6 +1160,133 @@ export async function enviarReporteVerificacionService(
           }
         : null,
       incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
+
+/**
+ * HU-68 - Servicio de negocio para enviar el informe técnico final de resolución de la emergencia
+ * y cerrar la misión operativa de cuadrilla.
+ *
+ * 1. Ejecuta la transacción atómica (`cerrarMisionCuadrillaRepo`): descuenta materiales consumidos,
+ *    crea `reporte_terreno` (`REPORTE_CUADRILLA`), actualiza `mision.estado = 'COMPLETADA'`,
+ *    transiciona `cuadrilla.estado = 'DISPONIBLE'` (si no posee otra misión activa) y registra
+ *    el hito `MISION_COMPLETADA` en `mision_hito`. El incidente permanece abierto hasta H86.
+ * 2. Emite eventos WebSocket `mision:actualizada`, `incidente:actualizado` (salas `encargado` y `mapa`),
+ *    `cuadrilla:actualizada` y `recurso:actualizado`.
+ */
+export async function cerrarMisionCuadrillaService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin = false,
+  input: CerrarMisionCuadrillaInput
+): Promise<CerrarMisionCuadrillaResponse> {
+  const resultado = await cerrarMisionCuadrillaRepo(
+    misionId,
+    usuarioId,
+    esAdmin,
+    input
+  );
+
+  // Normalizar URLs de adjuntos para compatibilidad con Caddy (/uploads/...)
+  const adjuntosNormalizados: AdjuntoEvidencia[] =
+    resultado.reporteTerreno.adjuntos.map((adj) => {
+      let urlNorm = adj.url;
+      if (
+        !urlNorm.startsWith("http://") &&
+        !urlNorm.startsWith("https://") &&
+        !urlNorm.startsWith("/")
+      ) {
+        urlNorm = `/${urlNorm}`;
+      }
+      return { ...adj, url: urlNorm };
+    });
+
+  const reporteTerrenoDto: ReporteTerrenoDetalle = {
+    ...resultado.reporteTerreno,
+    adjuntos: adjuntosNormalizados,
+  };
+
+  try {
+    notificarMisionActualizada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      estado: resultado.mision.estado,
+      tipoMision: resultado.mision.tipoMision,
+      cuadrillaId: resultado.mision.cuadrillaId,
+      cuadrillaNombre: resultado.cuadrilla.nombre,
+      incidenteId: resultado.mision.incidenteId,
+      incidenteCodigo: resultado.incidente?.codigo ?? null,
+      fechaInicio: resultado.mision.fechaInicio,
+      fechaCierre: resultado.mision.fechaCierre,
+      hito: {
+        id: resultado.hito.id,
+        hito: resultado.hito.hito,
+        descripcion: resultado.hito.descripcion,
+        registradoPorId: resultado.hito.registradoPorId,
+        creadoEn: resultado.hito.creadoEn,
+      },
+      reporteTerreno: reporteTerrenoDto as unknown as Record<string, unknown>,
+      actualizadoEn: resultado.mision.actualizadoEn,
+    });
+
+    if (resultado.incidente) {
+      notificarIncidenteActualizado({
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        nuevoEstado: resultado.incidente.estado,
+        prioridad: resultado.incidente.prioridad,
+        requiereAsistenciaSocial: resultado.incidente.requiereAsistenciaSocial,
+        reporteTerreno: reporteTerrenoDto as unknown as Record<string, unknown>,
+        actualizadoEn: resultado.mision.actualizadoEn,
+      });
+    }
+
+    if (resultado.cuadrilla.estado === "DISPONIBLE") {
+      emitirCuadrillaActualizada({
+        id: resultado.cuadrilla.id,
+        nombre: resultado.cuadrilla.nombre,
+        estado: resultado.cuadrilla.estado,
+        delegacionId: resultado.cuadrilla.delegacionId,
+      });
+    }
+
+    for (const rec of resultado.recursosActualizados) {
+      emitirRecursoActualizado({
+        id: rec.id,
+        nombre: rec.nombre,
+        cantidadInventario: rec.cantidadInventarioActual,
+        cantidadEnUso: rec.cantidadEnUsoActual,
+        estado: rec.estado,
+        actualizadoEn: resultado.mision.actualizadoEn,
+      });
+    }
+  } catch (error) {
+    console.error(
+      "Error no bloqueante al emitir eventos WebSocket tras cerrar misión de cuadrilla:",
+      error
+    );
+  }
+
+  const mensaje =
+    resultado.cuadrilla.estado === "DISPONIBLE"
+      ? "Informe técnico final registrado, misión cerrada y cuadrilla disponible exitosamente."
+      : "Informe técnico final registrado y misión cerrada exitosamente. La cuadrilla mantiene misiones activas pendientes.";
+
+  return {
+    message: mensaje,
+    data: {
+      reporteTerreno: reporteTerrenoDto,
+      mision: resultado.mision,
+      cuadrilla: {
+        id: resultado.cuadrilla.id,
+        nombre: resultado.cuadrilla.nombre,
+        estado: resultado.cuadrilla.estado,
+        delegacionId: resultado.cuadrilla.delegacionId,
+      },
+      incidente: resultado.incidente,
+      recursosActualizados: resultado.recursosActualizados,
       hito: resultado.hito,
     },
   };

@@ -422,6 +422,10 @@ export const ReporteEvaluacionTerrenoItemSchema = z
   .object({
     id: z.string().uuid().openapi({ description: "UUID único del reporte de evaluación en terreno" }),
     misionId: z.string().uuid().openapi({ description: "UUID de la misión de verificación asociada" }),
+    tipoReporte: z.string().optional().openapi({
+      description: "Naturaleza del reporte de terreno",
+      example: "EVALUACION_PRIORIDAD",
+    }),
     versionReporte: z.number().int().openapi({
       description: "Número correlativo de envío del reporte dentro de la misión (1 = inicial, 2+ = rectificaciones)",
       example: 1,

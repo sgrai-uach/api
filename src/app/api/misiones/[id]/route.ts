@@ -6,6 +6,7 @@ import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import {
   PERMISO_LEER_MISION,
   PERMISO_VERIFICAR_MISION_TERRENO,
+  PERMISO_EJECUTAR_MISION_TERRENO,
   PERMISO_CREAR_REPORTE,
 } from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
@@ -32,7 +33,11 @@ export async function GET(req: NextRequest, props: RouteContext) {
       }
 
       let autorizadoTerreno = false;
-      for (const permisoAlt of [PERMISO_VERIFICAR_MISION_TERRENO, PERMISO_CREAR_REPORTE]) {
+      for (const permisoAlt of [
+        PERMISO_VERIFICAR_MISION_TERRENO,
+        PERMISO_EJECUTAR_MISION_TERRENO,
+        PERMISO_CREAR_REPORTE,
+      ]) {
         try {
           const usuarioAlt = await verificarPermiso(usuarioId, permisoAlt);
           if (usuarioAlt && typeof usuarioAlt.id === "string") {

@@ -224,4 +224,51 @@ describe("Route Handler GET /api/misiones/[id] (HU-17)", () => {
     const json = await res.json();
     expect(json.data.codigo).toBe("MIS-2026-001");
   });
+
+  it("debe retornar 200 si un operador DELEGADO_CUADRILLA carece de misiones:leer pero posee misiones:terreno:ejecutar", async () => {
+    vi.mocked(authService.verificarPermiso)
+      .mockRejectedValueOnce(new ForbiddenError("No cuenta con el permiso requerido: misiones:leer"))
+      .mockRejectedValueOnce(
+        new ForbiddenError("No cuenta con el permiso requerido: misiones:terreno:verificar")
+      )
+      .mockResolvedValueOnce({
+        id: "d0000000-0000-4000-8000-000000000001",
+        nombre: "Carlos Gómez",
+        rol: "DELEGADO_CUADRILLA",
+      });
+
+    vi.mocked(misionService.obtenerDetalleMisionService).mockResolvedValueOnce({
+      id: "60000000-0000-4000-8000-000000000002",
+      codigo: "MIS-2026-002",
+      titulo: "Atención táctica de emergencia",
+      descripcion: "Despeje de alcantarilla",
+      tipoMision: "ATENCION_CUADRILLA",
+      estado: "EN_CURSO",
+      prioridad: "ALTA",
+      justificacionRechazo: null,
+      fechaInicio: "2026-10-02T10:00:00.000Z",
+      fechaCierre: null,
+      creadoEn: "2026-10-02T09:30:00.000Z",
+      actualizadoEn: "2026-10-02T10:00:00.000Z",
+      creadoPor: null,
+      encargado: null,
+      incidente: null,
+      prevencion: null,
+      cuadrilla: null,
+      patrulla: null,
+      bitacoraTiempos: [],
+      reportesTerreno: [],
+    });
+
+    const req = new NextRequest("http://localhost:3000/api/misiones/60000000-0000-4000-8000-000000000002", {
+      headers: { "x-user-id": "d0000000-0000-4000-8000-000000000001" },
+    });
+    const res = await GET(req, {
+      params: Promise.resolve({ id: "60000000-0000-4000-8000-000000000002" }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data.codigo).toBe("MIS-2026-002");
+  });
 });

@@ -523,6 +523,7 @@ export class PrioridadRepository {
         reporteTerreno: {
           id: reporteInsertado.id,
           misionId: misionSeleccionada.id,
+          tipoReporte: "EVALUACION_PRIORIDAD",
           versionReporte,
           esRectificacion,
           etiquetaReporte,
@@ -601,7 +602,9 @@ export async function asegurarColumnasHu38EnEsquema(): Promise<void> {
     ADD COLUMN IF NOT EXISTS tipo_reporte varchar(40) NOT NULL DEFAULT 'EVALUACION_PRIORIDAD',
     ADD COLUMN IF NOT EXISTS dictamen varchar(30),
     ADD COLUMN IF NOT EXISTS motivo_no_abordable text,
-    ADD COLUMN IF NOT EXISTS requiere_asistencia_social boolean NOT NULL DEFAULT false;
+    ADD COLUMN IF NOT EXISTS requiere_asistencia_social boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS horas_hombre numeric(6, 2),
+    ADD COLUMN IF NOT EXISTS materiales_consumidos jsonb NOT NULL DEFAULT '[]'::jsonb;
   `.execute(db);
 
   await sql`

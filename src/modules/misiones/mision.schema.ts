@@ -37,6 +37,70 @@ export const EstadoTerrenoVerificacionEnum = z.enum([
   "FINALIZADO",
 ]);
 
+export const EstadoTerrenoCierreEnum = z.enum([
+  "CONTROLADO",
+  "ESTABLE",
+  "FINALIZADO",
+  "REQUIERE_SEGUIMIENTO",
+  "CRITICO",
+  "INACCESIBLE",
+]);
+
+export const MaterialConsumidoBodySchema = z
+  .object({
+    recurso_id: z
+      .string()
+      .uuid("El identificador del recurso debe ser un UUID válido.")
+      .openapi({
+        description: "Identificador único UUID del recurso material o insumo consumido",
+        example: "b0000000-0000-4000-8000-000000000010",
+      }),
+    cantidad: z
+      .number({ message: "La cantidad consumida debe ser un número entero." })
+      .int("La cantidad consumida debe ser un número entero.")
+      .min(1, "La cantidad consumida debe ser al menos 1.")
+      .openapi({
+        description: "Cantidad física de unidades consumidas durante la faena",
+        example: 15,
+      }),
+    unidad: z
+      .string()
+      .trim()
+      .min(1, "La unidad de medida no puede estar vacía.")
+      .max(50, "La unidad de medida no puede exceder los 50 caracteres.")
+      .optional()
+      .openapi({
+        description: "Unidad de medida referencial (ej. sacos, unidades, litros)",
+        example: "sacos",
+      }),
+    observacion: z
+      .string()
+      .trim()
+      .max(300, "La observación del material no puede exceder los 300 caracteres.")
+      .optional()
+      .openapi({
+        description: "Observación específica sobre el consumo del material",
+        example: "Utilizados para contención perimetral en acceso norte",
+      }),
+  })
+  .openapi("MaterialConsumidoBody");
+
+export type MaterialConsumidoBody = z.infer<typeof MaterialConsumidoBodySchema>;
+
+export const MaterialConsumidoDetalleSchema = z
+  .object({
+    recursoId: z.string().uuid().openapi({ description: "UUID del recurso consumido" }),
+    nombre: z.string().openapi({ description: "Nombre del recurso material", example: "Sacos de arena 25kg" }),
+    cantidad: z.number().int().min(1).openapi({ description: "Cantidad consumida", example: 15 }),
+    unidad: z.string().nullable().optional().openapi({ description: "Unidad de medida", example: "sacos" }),
+    observacion: z.string().nullable().optional().openapi({ description: "Observación adicional del consumo" }),
+    stockAnterior: z.number().int().nonnegative().optional().openapi({ description: "Stock en inventario previo al descuento" }),
+    stockPosterior: z.number().int().nonnegative().optional().openapi({ description: "Stock en inventario posterior al descuento" }),
+  })
+  .openapi("MaterialConsumidoDetalle");
+
+export type MaterialConsumidoDetalle = z.infer<typeof MaterialConsumidoDetalleSchema>;
+
 // Parámetro de ruta para consultar detalle de misión
 export const MisionIdParamSchema = z.string().uuid({
   message: "El identificador de la misión debe ser un UUID válido.",
@@ -93,6 +157,8 @@ export const ReporteTerrenoDetalleSchema = z.object({
   observaciones: z.string().nullable().openapi({ description: "Observaciones de seguridad o condiciones de terreno" }),
   personasAfectadas: z.number().openapi({ description: "Cantidad estimada de personas o familias afectadas" }),
   estadoTerreno: z.string().openapi({ description: "Estado operativo al momento del reporte (ej. FINALIZADO, EN_CURSO)" }),
+  horasHombre: z.number().nullable().optional().openapi({ description: "Horas hombre invertidas por la cuadrilla (HU-68)", example: 6.5 }),
+  materialesConsumidos: z.array(MaterialConsumidoDetalleSchema).optional().openapi({ description: "Listado de materiales e insumos consumidos en la faena (HU-68)" }),
   adjuntos: z.array(AdjuntoEvidenciaSchema).openapi({
     description: "Fotografías, videos o documentos levantados como evidencia en terreno",
   }),
@@ -169,6 +235,8 @@ export const RecursoAsignadoMisionSchema = z.object({
   nombre: z.string().openapi({ description: "Nombre o descripción del recurso o vehículo" }),
   tipo: z.string().openapi({ description: "Categoría del recurso (HERRAMIENTA, VEHICULO, EQUIPO, etc.)" }),
   cantidadAsignada: z.number().openapi({ description: "Cantidad física asignada a la cuadrilla" }),
+  esIndividual: z.boolean().optional().openapi({ description: "Indica si es maquinaria/vehículo individual (true) o insumo consumible/granel (false)" }),
+  unidad: z.string().nullable().optional().openapi({ description: "Unidad de medida declarada en el detalle del recurso" }),
 });
 
 export type RecursoAsignadoMision = z.infer<typeof RecursoAsignadoMisionSchema>;
@@ -249,6 +317,9 @@ export const MisionDetalleCompletoSchema = z.object({
   reportesTerreno: z.array(ReporteTerrenoDetalleSchema).openapi({
     description: "Informes técnicos levantados en terreno con su respectiva evidencia multimedia (vacío si no hay reportes)",
   }),
+  adjuntos: z.array(AdjuntoEvidenciaSchema).optional().openapi({
+    description: "Evidencia multimedia cargada durante la misión o vinculada al incidente asociado (HU-43)",
+  }),
   evaluaciones: z
     .object({
       tipologiaEvaluada: z.boolean(),
@@ -260,6 +331,8 @@ export const MisionDetalleCompletoSchema = z.object({
       reporteVerificacionEnviado: z.boolean().optional(),
       reporteVerificacionEnviadoEn: z.string().nullable().optional(),
       dictamenVerificacion: DictamenAtencionEnum.nullable().optional(),
+      reporteCuadrillaEnviado: z.boolean().optional(),
+      reporteCuadrillaEnviadoEn: z.string().nullable().optional(),
     })
     .optional()
     .openapi({
@@ -991,4 +1064,406 @@ export const EnviarReporteVerificacionResponseSchema = z
 
 export type EnviarReporteVerificacionResponse = z.infer<
   typeof EnviarReporteVerificacionResponseSchema
+>;
+
+// ==========================================
+// HU-68: Informe Técnico Final y Cierre de Misión de Cuadrilla
+// ==========================================
+
+export const CerrarMisionCuadrillaBodySchema = z
+  .object({
+    resumen_faenas: z
+      .string({ message: "El resumen de faenas ejecutadas es obligatorio." })
+      .trim()
+      .min(15, "El resumen de faenas ejecutadas debe contener al menos 15 caracteres.")
+      .max(2000, "El resumen de faenas ejecutadas no puede exceder los 2000 caracteres.")
+      .openapi({
+        description: "Resumen técnico de las faenas ejecutadas en terreno (obligatorio, mínimo 15 caracteres)",
+        example:
+          "Despeje completo de alcantarilla obstruida, extracción de sedimentos e instalación de barrera de sacos de arena.",
+      }),
+    materiales_consumidos: z
+      .array(MaterialConsumidoBodySchema)
+      .max(50, "No se pueden reportar más de 50 ítems de materiales consumidos en un mismo cierre.")
+      .optional()
+      .default([])
+      .openapi({
+        description: "Listado de materiales e insumos consumidos con desglose de cantidades",
+      }),
+    horas_hombre: z
+      .number({ message: "Las horas hombre invertidas son obligatorias y deben ser un número válido." })
+      .finite("Las horas hombre invertidas deben ser un número finito.")
+      .positive("Las horas hombre invertidas deben ser mayores a 0.")
+      .max(1000, "Las horas hombre invertidas no pueden exceder las 1000 horas.")
+      .openapi({
+        description: "Horas hombre totales invertidas por la cuadrilla en la faena (admite decimales)",
+        example: 6.5,
+      }),
+    estado_terreno: EstadoTerrenoCierreEnum.openapi({
+      description: "Evaluación del estado final del terreno al culminar los trabajos",
+      example: "CONTROLADO",
+    }),
+    observaciones: z
+      .string()
+      .max(2000, "Las observaciones no pueden exceder los 2000 caracteres.")
+      .nullable()
+      .optional()
+      .openapi({
+        description: "Observaciones adicionales de terreno o recomendaciones post-intervención",
+        example: "Calzada habilitada al tránsito; se sugiere limpieza preventiva de cámara aguas arriba.",
+      }),
+    danos_estimados: z
+      .string()
+      .max(2000, "Los daños estimados no pueden exceder los 2000 caracteres.")
+      .nullable()
+      .optional()
+      .openapi({
+        description: "Detalle de daños remanentes constatados tras la faena",
+        example: "Solera poniente con desgaste superficial sin riesgo estructural.",
+      }),
+    requiere_apoyo_adicional: z
+      .boolean()
+      .optional()
+      .default(false)
+      .openapi({
+        description: "Indica si el punto requiere apoyo posterior o seguimiento logístico adicional",
+        example: false,
+      }),
+    requiere_asistencia_social: z
+      .boolean()
+      .optional()
+      .default(false)
+      .openapi({
+        description: "Indica si durante los trabajos se detectó vulnerabilidad social que requiera Ficha FIBE",
+        example: false,
+      }),
+    adjunto_ids: z
+      .array(z.string().uuid("Cada identificador de adjunto debe ser un UUID válido."))
+      .max(20, "No se pueden vincular más de 20 adjuntos por informe.")
+      .optional()
+      .openapi({
+        description: "Listado opcional de UUIDs de evidencias multimedia cargadas vía POST /api/evidencia/adjuntos",
+      }),
+    adjuntos: z
+      .array(AdjuntoReporteInputSchema)
+      .max(20, "No se pueden adjuntar más de 20 archivos por informe.")
+      .optional()
+      .openapi({
+        description: "Metadatos opcionales de archivos multimedia asociados al informe técnico final",
+      }),
+    latitud: z
+      .number({ message: "La latitud debe ser un número válido." })
+      .finite("La latitud debe ser un número finito.")
+      .min(-90, "La latitud debe estar entre -90 y 90.")
+      .max(90, "La latitud debe estar entre -90 y 90.")
+      .optional()
+      .openapi({
+        description: "Coordenada GPS opcional de latitud (WGS84) al cerrar la misión",
+        example: -39.819588,
+      }),
+    longitud: z
+      .number({ message: "La longitud debe ser un número válido." })
+      .finite("La longitud debe ser un número finito.")
+      .min(-180, "La longitud debe estar entre -180 y 180.")
+      .max(180, "La longitud debe estar entre -180 y 180.")
+      .optional()
+      .openapi({
+        description: "Coordenada GPS opcional de longitud (WGS84) al cerrar la misión",
+        example: -73.245209,
+      }),
+  })
+  .openapi("CerrarMisionCuadrillaBody");
+
+export type CerrarMisionCuadrillaBody = z.infer<typeof CerrarMisionCuadrillaBodySchema>;
+
+const MaterialConsumidoInputRawSchema = z.object({
+  recurso_id: z.string().optional(),
+  recursoId: z.string().optional(),
+  cantidad: z.unknown().optional(),
+  unidad: z.string().nullable().optional(),
+  observacion: z.string().nullable().optional(),
+});
+
+export type MaterialConsumidoInput = {
+  recursoId: string;
+  cantidad: number;
+  unidad?: string | null;
+  observacion?: string | null;
+};
+
+export type CerrarMisionCuadrillaInput = {
+  resumenFaenas: string;
+  materialesConsumidos: MaterialConsumidoInput[];
+  horasHombre: number;
+  estadoTerreno: z.infer<typeof EstadoTerrenoCierreEnum>;
+  observaciones: string | null;
+  danosEstimados: string | null;
+  requiereApoyoAdicional: boolean;
+  requiereAsistenciaSocial: boolean;
+  adjuntoIds: string[];
+  adjuntos: AdjuntoReporteInput[];
+  latitud?: number;
+  longitud?: number;
+};
+
+const uuidV4OrGenericSchema = z.string().uuid();
+
+export const CerrarMisionCuadrillaInputSchema = z
+  .object({
+    resumen_faenas: z.unknown().optional(),
+    resumenFaenas: z.unknown().optional(),
+    materiales_consumidos: z.array(MaterialConsumidoInputRawSchema).max(50, "No se pueden reportar más de 50 ítems de materiales consumidos.").optional(),
+    materialesConsumidos: z.array(MaterialConsumidoInputRawSchema).max(50, "No se pueden reportar más de 50 ítems de materiales consumidos.").optional(),
+    horas_hombre: z.unknown().optional(),
+    horasHombre: z.unknown().optional(),
+    estado_terreno: z.unknown().optional(),
+    estadoTerreno: z.unknown().optional(),
+    observaciones: z.string().max(2000, "Las observaciones no pueden exceder los 2000 caracteres.").nullable().optional(),
+    danos_estimados: z.string().max(2000, "Los daños estimados no pueden exceder los 2000 caracteres.").nullable().optional(),
+    danosEstimados: z.string().max(2000, "Los daños estimados no pueden exceder los 2000 caracteres.").nullable().optional(),
+    requiere_apoyo_adicional: z.boolean().optional(),
+    requiereApoyoAdicional: z.boolean().optional(),
+    requiere_asistencia_social: z.boolean().optional(),
+    requiereAsistenciaSocial: z.boolean().optional(),
+    adjunto_ids: z.array(z.string().uuid("Cada identificador de adjunto debe ser un UUID válido.")).max(20, "No se pueden vincular más de 20 adjuntos por informe.").optional(),
+    adjuntoIds: z.array(z.string().uuid("Cada identificador de adjunto debe ser un UUID válido.")).max(20, "No se pueden vincular más de 20 adjuntos por informe.").optional(),
+    adjuntos: z.array(AdjuntoReporteInputSchema).max(20, "No se pueden adjuntar más de 20 archivos por informe.").optional(),
+    latitud: z
+      .number({ message: "La latitud debe ser un número válido." })
+      .finite("La latitud debe ser un número finito válido.")
+      .min(-90, "La latitud debe estar entre -90 y 90.")
+      .max(90, "La latitud debe estar entre -90 y 90.")
+      .optional(),
+    longitud: z
+      .number({ message: "La longitud debe ser un número válido." })
+      .finite("La longitud debe ser un número finito válido.")
+      .min(-180, "La longitud debe estar entre -180 y 180.")
+      .max(180, "La longitud debe estar entre -180 y 180.")
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    // 1. Validar resumen_faenas (obligatorio, mín. 15 caracteres útiles)
+    const resumenRaw = data.resumen_faenas ?? data.resumenFaenas;
+    if (typeof resumenRaw !== "string") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["resumen_faenas"],
+        message: "El resumen de faenas ejecutadas es obligatorio y debe contener al menos 15 caracteres.",
+      });
+    } else {
+      const resumenLimpio = resumenRaw.trim();
+      if (resumenLimpio.length < 15) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["resumen_faenas"],
+          message: "El resumen de faenas ejecutadas es obligatorio y debe contener al menos 15 caracteres.",
+        });
+      } else if (resumenLimpio.length > 2000) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["resumen_faenas"],
+          message: "El resumen de faenas ejecutadas no puede exceder los 2000 caracteres.",
+        });
+      }
+    }
+
+    // 2. Validar horas_hombre (obligatorio, finito, > 0 y <= 1000)
+    const horasRaw = data.horas_hombre ?? data.horasHombre;
+    if (typeof horasRaw !== "number" || !Number.isFinite(horasRaw)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["horas_hombre"],
+        message: "Las horas hombre invertidas son obligatorias y deben ser un número válido.",
+      });
+    } else if (horasRaw <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["horas_hombre"],
+        message: "Las horas hombre invertidas deben ser mayores a 0.",
+      });
+    } else if (horasRaw > 1000) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["horas_hombre"],
+        message: "Las horas hombre invertidas no pueden exceder las 1000 horas.",
+      });
+    }
+
+    // 3. Validar estado_terreno (obligatorio dentro de EstadoTerrenoCierreEnum)
+    const estadoRaw = data.estado_terreno ?? data.estadoTerreno;
+    const estadoVal = EstadoTerrenoCierreEnum.safeParse(estadoRaw);
+    if (!estadoVal.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["estado_terreno"],
+        message:
+          "Debe seleccionar una evaluación válida para el estado final del terreno (CONTROLADO, ESTABLE, FINALIZADO, REQUIERE_SEGUIMIENTO, CRITICO o INACCESIBLE).",
+      });
+    }
+
+    // 4. Validar materiales_consumidos y prohibir recurso_id duplicados
+    const materialesRaw = data.materiales_consumidos ?? data.materialesConsumidos ?? [];
+    const recursosVistos = new Set<string>();
+    materialesRaw.forEach((item, idx) => {
+      const recursoId = (item.recurso_id ?? item.recursoId ?? "").trim();
+      if (!uuidV4OrGenericSchema.safeParse(recursoId).success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["materiales_consumidos", idx, "recurso_id"],
+          message: "Cada material consumido debe indicar un UUID de recurso válido.",
+        });
+      } else if (recursosVistos.has(recursoId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["materiales_consumidos", idx, "recurso_id"],
+          message: "No se permiten recursos duplicados en el listado de materiales consumidos.",
+        });
+      } else {
+        recursosVistos.add(recursoId);
+      }
+
+      if (
+        typeof item.cantidad !== "number" ||
+        !Number.isInteger(item.cantidad) ||
+        item.cantidad < 1
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["materiales_consumidos", idx, "cantidad"],
+          message: "La cantidad consumida debe ser un número entero mayor o igual a 1.",
+        });
+      }
+
+      if (typeof item.unidad === "string" && item.unidad.trim().length > 50) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["materiales_consumidos", idx, "unidad"],
+          message: "La unidad de medida no puede exceder los 50 caracteres.",
+        });
+      }
+
+      if (typeof item.observacion === "string" && item.observacion.trim().length > 300) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["materiales_consumidos", idx, "observacion"],
+          message: "La observación del material no puede exceder los 300 caracteres.",
+        });
+      }
+    });
+
+    // 5. Paridad estricta de coordenadas GPS
+    if ((data.latitud !== undefined) !== (data.longitud !== undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["longitud"],
+        message: "Debe proporcionar tanto latitud como longitud si incluye coordenadas GPS.",
+      });
+    }
+  })
+  .transform((data): CerrarMisionCuadrillaInput => {
+    const resumenFaenas = String(data.resumen_faenas ?? data.resumenFaenas ?? "").trim();
+    const horasNum = Number(data.horas_hombre ?? data.horasHombre);
+    const horasHombre = Math.round(horasNum * 100) / 100;
+    const estadoTerreno = (data.estado_terreno ??
+      data.estadoTerreno) as z.infer<typeof EstadoTerrenoCierreEnum>;
+    const materialesRaw = data.materiales_consumidos ?? data.materialesConsumidos ?? [];
+    const materialesConsumidos: MaterialConsumidoInput[] = materialesRaw.map((item) => ({
+      recursoId: String(item.recurso_id ?? item.recursoId).trim(),
+      cantidad: Number(item.cantidad),
+      unidad: typeof item.unidad === "string" && item.unidad.trim() ? item.unidad.trim() : null,
+      observacion:
+        typeof item.observacion === "string" && item.observacion.trim()
+          ? item.observacion.trim()
+          : null,
+    }));
+
+    const obsRaw = data.observaciones;
+    const observaciones =
+      typeof obsRaw === "string" && obsRaw.trim().length > 0 ? obsRaw.trim() : null;
+    const danosRaw = data.danos_estimados ?? data.danosEstimados;
+    const danosEstimados =
+      typeof danosRaw === "string" && danosRaw.trim().length > 0 ? danosRaw.trim() : null;
+
+    return {
+      resumenFaenas,
+      materialesConsumidos,
+      horasHombre,
+      estadoTerreno,
+      observaciones,
+      danosEstimados,
+      requiereApoyoAdicional: Boolean(
+        data.requiere_apoyo_adicional ?? data.requiereApoyoAdicional ?? false
+      ),
+      requiereAsistenciaSocial: Boolean(
+        data.requiere_asistencia_social ?? data.requiereAsistenciaSocial ?? false
+      ),
+      adjuntoIds: data.adjunto_ids ?? data.adjuntoIds ?? [],
+      adjuntos: data.adjuntos ?? [],
+      latitud: data.latitud,
+      longitud: data.longitud,
+    };
+  });
+
+export const RecursoConsumidoActualizadoSchema = z
+  .object({
+    id: z.string().uuid(),
+    nombre: z.string(),
+    cantidadConsumida: z.number().int().min(1),
+    cantidadInventarioAnterior: z.number().int().nonnegative(),
+    cantidadInventarioActual: z.number().int().nonnegative(),
+    cantidadEnUsoActual: z.number().int().nonnegative(),
+    estado: z.string(),
+  })
+  .openapi("RecursoConsumidoActualizado");
+
+export type RecursoConsumidoActualizado = z.infer<
+  typeof RecursoConsumidoActualizadoSchema
+>;
+
+export const CerrarMisionCuadrillaResponseSchema = z
+  .object({
+    message: z.string().openapi({
+      example:
+        "Informe técnico final registrado, misión cerrada y cuadrilla disponible exitosamente.",
+    }),
+    data: z.object({
+      reporteTerreno: ReporteTerrenoDetalleSchema,
+      mision: z.object({
+        id: z.string().uuid(),
+        codigo: z.string(),
+        titulo: z.string(),
+        tipoMision: TipoMisionEnum,
+        estado: EstadoMisionEnum.openapi({ example: "COMPLETADA" }),
+        prioridad: PrioridadMisionEnum,
+        incidenteId: z.string().uuid().nullable(),
+        cuadrillaId: z.string().uuid().nullable(),
+        fechaInicio: z.string().nullable(),
+        fechaCierre: z.string(),
+        actualizadoEn: z.string(),
+      }),
+      cuadrilla: z.object({
+        id: z.string().uuid(),
+        nombre: z.string(),
+        estado: z.string().openapi({ example: "DISPONIBLE" }),
+        delegacionId: z.string().uuid().nullable().optional(),
+      }),
+      incidente: z
+        .object({
+          id: z.string().uuid(),
+          codigo: z.string(),
+          estado: z.string().openapi({ example: "EN_ATENCION" }),
+          prioridad: z.string(),
+          requiereAsistenciaSocial: z.boolean(),
+        })
+        .nullable(),
+      recursosActualizados: z.array(RecursoConsumidoActualizadoSchema),
+      hito: MisionHitoRegistradoSchema.extend({
+        metadatos: z.record(z.string(), z.unknown()).nullable().optional(),
+      }),
+    }),
+  })
+  .openapi("CerrarMisionCuadrillaResponse");
+
+export type CerrarMisionCuadrillaResponse = z.infer<
+  typeof CerrarMisionCuadrillaResponseSchema
 >;

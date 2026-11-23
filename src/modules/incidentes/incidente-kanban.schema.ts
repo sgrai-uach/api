@@ -5,6 +5,7 @@ import {
   PaginationMetaSchema,
 } from "@/lib/shared/pagination.schema";
 import { EstadoNotificacionMisionEnum } from "@/modules/misiones/notificacion-mision.schema";
+import { MaterialConsumidoDetalleSchema } from "@/modules/misiones/mision.schema";
 
 extendZodWithOpenApi(z);
 
@@ -115,6 +116,10 @@ export const IncidenteResumenSchema = z.object({
     description: "Último estado de trazabilidad de notificación de misión asociado al incidente (HU-35)",
   }),
   verificado: z.boolean().default(false).openapi({ description: "Indica si la patrulla verificadora completó el diagnóstico técnico en terreno" }),
+  faenasCuadrillaCompletadas: z.boolean().optional().openapi({ description: "Indica si la cuadrilla operativa finalizó sus faenas y envió el informe técnico final (HU-68)" }),
+  estadoTerrenoFinal: z.string().nullable().optional().openapi({ description: "Estado final del terreno informado por la cuadrilla al cierre (HU-68)" }),
+  horasHombreRegistradas: z.number().nullable().optional().openapi({ description: "Horas hombre invertidas reportadas en el último cierre de cuadrilla (HU-68)" }),
+  dictamenTerreno: z.enum(["REQUIERE_CUADRILLA", "NO_ABORDABLE"]).nullable().optional().openapi({ description: "Último dictamen técnico emitido por la patrulla verificadora (HU-39)" }),
   reclasificadoEnTerreno: z.boolean().optional().openapi({ description: "Indica si el incidente fue verificado o reclasificado en terreno" }),
   justificacionReclasificacion: z.string().nullable().optional().openapi({ description: "Motivo o justificación técnica de la evaluación en terreno" }),
   creadoEn: z.string().openapi({ description: "Fecha y hora de registro en formato ISO 8601" }),
@@ -268,6 +273,8 @@ export const IncidenteDetalleSchema = z.object({
         observaciones: z.string().nullable(),
         personasAfectadas: z.number(),
         requiereApoyoAdicional: z.boolean(),
+        horasHombre: z.number().nullable().optional(),
+        materialesConsumidos: z.array(MaterialConsumidoDetalleSchema).optional(),
         evaluacion: z.record(z.string(), z.unknown()),
         adjuntos: z
           .array(
@@ -295,7 +302,27 @@ export const IncidenteDetalleSchema = z.object({
       description:
         "Historial cronológico de reportes de evaluación en terreno enviados por la patrulla (incluyendo reporte inicial #1 y rectificaciones posteriores #2+)",
     }),
+  adjuntos: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        nombreArchivo: z.string(),
+        url: z.string(),
+        tipoMime: z.string(),
+        tamanoBytes: z.number(),
+        creadoEn: z.string(),
+      })
+    )
+    .optional()
+    .openapi({
+      description:
+        "Evidencias multimedia vinculadas directamente al incidente (incluyendo archivos cargados en terreno durante misiones en curso antes del informe de cierre)",
+    }),
   verificado: z.boolean().default(false).openapi({ description: "Indica si la verificación presencial fue completada" }),
+  faenasCuadrillaCompletadas: z.boolean().optional().openapi({ description: "Indica si la cuadrilla operativa finalizó sus faenas y envió el informe técnico final (HU-68)" }),
+  estadoTerrenoFinal: z.string().nullable().optional().openapi({ description: "Estado final del terreno informado por la cuadrilla al cierre (HU-68)" }),
+  horasHombreRegistradas: z.number().nullable().optional().openapi({ description: "Horas hombre invertidas reportadas en el último cierre de cuadrilla (HU-68)" }),
+  dictamenTerreno: z.enum(["REQUIERE_CUADRILLA", "NO_ABORDABLE"]).nullable().optional().openapi({ description: "Último dictamen técnico emitido por la patrulla verificadora (HU-39)" }),
   reclasificadoEnTerreno: z.boolean().default(false).openapi({ description: "Indica si fue verificado o reclasificado en terreno" }),
   justificacionReclasificacion: z.string().nullable().optional().openapi({ description: "Justificación técnica en terreno" }),
   reclasificacionTipologia: z
@@ -327,6 +354,11 @@ export const IncidenteDetalleSchema = z.object({
       dictamen: z.enum(["REQUIERE_CUADRILLA", "NO_ABORDABLE"]).nullable().optional(),
       motivoNoAbordable: z.string().nullable().optional(),
       tipoReporte: z.string().nullable().optional(),
+      estadoTerreno: z.string().nullable().optional(),
+      etiquetaReporte: z.string().nullable().optional(),
+      horasHombre: z.number().nullable().optional(),
+      requiereApoyoAdicional: z.boolean().optional(),
+      materialesConsumidos: z.array(MaterialConsumidoDetalleSchema).nullable().optional(),
       versionReporte: z.number().int().nullable(),
       esRectificacion: z.boolean(),
     })

@@ -194,6 +194,19 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.components.schemas.CrearReporteVerificacionInput).toBeDefined();
     expect(spec.components.schemas.EnviarReporteVerificacionResponse).toBeDefined();
 
+    // Rutas de Misiones (HU-68: Cierre de Misión de Cuadrilla)
+    expect(spec.paths["/api/misiones/{id}/cerrar"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/cerrar"].post).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/cerrar"].post.responses["201"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/cerrar"].post.responses["400"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/cerrar"].post.responses["401"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/cerrar"].post.responses["403"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/cerrar"].post.responses["404"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/cerrar"].post.responses["409"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/cerrar"].post.responses["500"]).toBeDefined();
+    expect(spec.components.schemas.CerrarMisionCuadrillaBody).toBeDefined();
+    expect(spec.components.schemas.CerrarMisionCuadrillaResponse).toBeDefined();
+
     // Rutas de Personal (HU-12 y HU-13)
     expect(spec.paths["/api/personal"]).toBeDefined();
     expect(spec.paths["/api/personal"].get).toBeDefined();

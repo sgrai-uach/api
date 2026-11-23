@@ -10,12 +10,14 @@ vi.mock("../mision.repository", () => ({
   crearMisionVerificacionRepo: vi.fn(),
   aceptarMisionPatrullaRepo: vi.fn(),
   asignarCuadrillaIncidenteRepo: vi.fn(),
+  cerrarMisionCuadrillaRepo: vi.fn(),
 }));
 
 vi.mock("@/lib/socket", () => ({
   notificarMisionRechazada: vi.fn(),
   notificarIncidenteActualizado: vi.fn(),
   emitirCuadrillaActualizada: vi.fn(),
+  emitirRecursoActualizado: vi.fn(),
   notificarMisionAsignada: vi.fn(),
   notificarPatrullaActualizada: vi.fn(),
   notificarMisionActualizada: vi.fn(),

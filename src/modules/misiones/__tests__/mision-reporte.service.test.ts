@@ -12,6 +12,7 @@ vi.mock("../mision.repository", () => ({
   crearMisionVerificacionRepo: vi.fn(),
   asignarCuadrillaIncidenteRepo: vi.fn(),
   crearReporteVerificacionYCerrarMisionRepo: vi.fn(),
+  cerrarMisionCuadrillaRepo: vi.fn(),
 }));
 
 vi.mock("@/lib/socket", () => ({
@@ -21,6 +22,7 @@ vi.mock("@/lib/socket", () => ({
   notificarPatrullaActualizada: vi.fn(),
   notificarPatrullaLiberada: vi.fn(),
   emitirCuadrillaActualizada: vi.fn(),
+  emitirRecursoActualizado: vi.fn(),
 }));
 
 describe("Mision Service - enviarReporteVerificacionService y detalle de evaluaciones (HU-39 / HU-86)", () => {
