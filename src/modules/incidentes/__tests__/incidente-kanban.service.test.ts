@@ -686,5 +686,109 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
       expect(detalleCierre?.ultimoReporte).not.toHaveProperty("horasHombre");
       expect(detalleCierre?.ultimoReporte?.tipoReporte).toBe("VERIFICACION_CIERRE");
     });
+
+    it("debe exponer apoyoSolicitado y detalleApoyoRequerido en listado Kanban y detalle de incidente (HU-44)", async () => {
+      vi.mocked(repo.listarIncidentesPaginadosRepo).mockResolvedValueOnce({
+        filas: [
+          {
+            id: "a0000000-0000-4000-8000-000000000099",
+            codigo: "INC-2026-0099",
+            codigo_seguimiento: "99999999",
+            tipo_afectacion: "Inundación",
+            descripcion: "Calle anegada",
+            direccion_texto: "Av. Picarte 2500",
+            latitud: -39.82,
+            longitud: -73.23,
+            estado: "EN_ATENCION",
+            prioridad: "ALTA",
+            requiere_asistencia_social: false,
+            fuente_origen: "FUNCIONARIO_TERRENO",
+            informante_nombre: null,
+            delegacion_nombre: "Sur",
+            total_misiones: 1,
+            apoyo_solicitado: true,
+            detalle_apoyo_requerido:
+              "Se solicita motoniveladora y cuadrilla adicional de despeje",
+            creado_en: new Date("2026-11-23T20:00:00Z"),
+            actualizado_en: new Date("2026-11-23T20:30:00Z"),
+          },
+        ],
+        total: 1,
+      });
+
+      const listado = await listarIncidentesKanbanService({ page: 1, limit: 20 });
+      expect(listado.data[0].apoyoSolicitado).toBe(true);
+      expect(listado.data[0].detalleApoyoRequerido).toBe(
+        "Se solicita motoniveladora y cuadrilla adicional de despeje"
+      );
+
+      vi.mocked(repo.obtenerIncidenteDetallePorIdRepo).mockResolvedValueOnce({
+        incidente: {
+          id: "a0000000-0000-4000-8000-000000000099",
+          codigo: "INC-2026-0099",
+          codigo_seguimiento: "99999999",
+          tipo_afectacion: "Inundación",
+          descripcion: "Calle anegada",
+          direccion_texto: "Av. Picarte 2500",
+          latitud: -39.82,
+          longitud: -73.23,
+          estado: "EN_ATENCION",
+          prioridad: "ALTA",
+          requiere_asistencia_social: false,
+          fuente_origen: "FUNCIONARIO_TERRENO",
+          asterisk_call_id: null,
+          asterisk_caller_phone: null,
+          creado_en: new Date("2026-11-23T20:00:00Z"),
+          actualizado_en: new Date("2026-11-23T20:30:00Z"),
+          informante_id: null,
+          informante_rut: null,
+          informante_nombre: null,
+          informante_telefono: null,
+          delegacion_id: null,
+          delegacion_nombre: null,
+          delegacion_descripcion: null,
+          creador_id: null,
+          creador_nombre: null,
+          creador_email: null,
+          encargado_id: null,
+          encargado_nombre: null,
+          encargado_email: null,
+        },
+        misiones: [],
+        recursosAsociados: [],
+        reportesEvaluacionTerreno: [
+          {
+            id: "rep-apoyo-1",
+            mision_id: "60000000-0000-4000-8000-000000000001",
+            evaluador_id: "00000000-0000-4000-8000-000000000005",
+            tipo_reporte: "SOLICITUD_APOYO",
+            estado_terreno: "EN_CURSO",
+            version_reporte: 1,
+            es_rectificacion: false,
+            resumen_tecnico: "Solicitud de apoyo adicional en terreno",
+            acciones_realizadas: null,
+            danos_estimados: null,
+            observaciones: null,
+            personas_afectadas: 0,
+            requiere_apoyo_adicional: true,
+            detalle_apoyo_requerido:
+              "Se solicita motoniveladora y cuadrilla adicional de despeje",
+            evaluador_nombre: "Carlos Delegado",
+            evaluador_email: "delegado@valdivia.cl",
+            evaluador_rut: "15.111.222-3",
+            creado_en: new Date("2026-11-23T20:30:00Z"),
+          },
+        ],
+        justificacionReclasificacion: null,
+      });
+
+      const detalle = await obtenerDetalleIncidenteService(
+        "a0000000-0000-4000-8000-000000000099"
+      );
+      expect(detalle?.apoyoSolicitado).toBe(true);
+      expect(detalle?.detalleApoyoRequerido).toBe(
+        "Se solicita motoniveladora y cuadrilla adicional de despeje"
+      );
+    });
   });
 });

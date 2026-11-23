@@ -95,6 +95,13 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/misiones/{id}/llegada"].post.responses["403"]).toBeDefined();
     expect(spec.paths["/api/misiones/{id}/llegada"].post.responses["404"]).toBeDefined();
     expect(spec.paths["/api/misiones/{id}/llegada"].post.responses["409"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/apoyo"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/apoyo"].post).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/apoyo"].post.responses["201"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/apoyo"].post.responses["400"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/apoyo"].post.responses["403"]).toBeDefined();
+    expect(spec.components.schemas.SolicitarApoyoMisionInput).toBeDefined();
+    expect(spec.components.schemas.SolicitarApoyoMisionResponse).toBeDefined();
 
     // Rutas de Terreno - Notificaciones y ACKs (HU-35)
     expect(spec.paths["/api/terreno/notificaciones/{id}/estado"]).toBeDefined();
