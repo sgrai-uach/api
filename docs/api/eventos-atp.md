@@ -65,6 +65,8 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `POST` | `/api/puntos-criticos` | Registrar un nuevo punto crítico con coordenadas PostGIS, código autogenerado y emisión en tiempo real vía Socket.io (HU-58). |
 | `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
+| `GET` | `/api/eventos-atp/prevencion` | Listar eventos y misiones preventivas desplegadas en puntos críticos con paginación y filtros estándar H34 (H76). |
+| `PATCH` | `/api/eventos-atp/prevencion/{id}` | Modificar tareas planificadas, nombre, prioridad, fecha estimada de finalización y recursos materiales de un evento de prevención activo (H77). |
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
@@ -967,6 +969,54 @@ Consulta los eventos de asistencia social con filtros de estado, delegación, pr
   "totalPaginas": 1
 }
 ```
+
+---
+
+## Detalle de Endpoint: `GET /api/eventos-atp/prevencion` (H76 — Estándar H34)
+
+Retorna el listado paginado de eventos y misiones preventivas activas (excluyendo registros con borrado lógico `activo = false` o `eliminado_en IS NOT NULL`), incluyendo delegación municipal, estado, unidad a cargo (patrulla verificadora o cuadrilla), fechas operativas, recursos asignados y detalle georreferenciado PostGIS del punto crítico asociado.
+
+### Reglas de Negocio Aplicadas
+- **Despacho preventivo sin incidente previo** (`GEMINI.md` §6): Los eventos preventivos pueden existir vinculados a un punto crítico (`prevencion`) o mediante coordenadas libres sin incidente formal previo.
+- **Control de Acceso (RBAC):** Requiere permiso `prevencion:eventos:leer` (asignado a `Administrador`, `Encargado` y `Supervisor`).
+- **Estándar H34 (`docs/api/estandar-filtros-listados.md`):** Paginación mediante `page` (default `1`) y `limit` (default `20`, máximo `100`), devolviendo `data` y `meta`.
+- **Lista vacía:** Si no hay registros coincidentes, responde `200 OK` con `data: []` y `meta.total: 0`.
+
+### Parámetros de Consulta (Query Params)
+
+| Parámetro | Tipo | Requerido | Default | Descripción |
+|---|---|---|---|---|
+| `page` | `number` | No | `1` | Número de página (1-indexed). |
+| `limit` | `number` | No | `20` | Cantidad de elementos por página (máximo `100`). |
+| `delegacionId` | `UUID` | No | - | Filtra por UUID de la delegación municipal asignada. |
+| `estado` | `string` | No | - | Filtra por estado operativo (`PLANIFICADA`, `EN_CURSO`, `COMPLETADA`, `CANCELADA`). |
+| `busqueda` | `string` | No | - | Búsqueda case-insensitive sobre código, nombre, sector o código/nombre del punto crítico asociado. |
+
+### Errores Esperables
+- `400 Bad Request`: `delegacionId` no es un UUID válido, `estado` fuera del enum permitido, o parámetros de paginación fuera de rango.
+- `401 Unauthorized`: Cabecera de autenticación ausente o token inválido.
+- `403 Forbidden`: El usuario autenticado no posee el permiso `prevencion:eventos:leer`.
+
+
+---
+
+## Detalle de Endpoint: `PATCH /api/eventos-atp/prevencion/{id}` (H77)
+
+Permite al Encargado modificar las tareas planificadas (`descripcion`), nombre (`nombre`), prioridad territorial (`prioridad`), fecha estimada de finalización (`fechaEstimadaFin`) y recursos materiales vinculados (`recursos`) de un evento de prevención activo ante alertas meteorológicas o cambios operacionales.
+
+### Reglas de Negocio Aplicadas
+- **Control de Acceso (RBAC):** Requiere permiso `prevencion:eventos:crear` (`401 Unauthorized` / `403 Forbidden`).
+- **Restricción de Estado (`409 Conflict`):** La edición está bloqueada si el evento se encuentra en estado `COMPLETADA` o `CANCELADA`, o si fue desactivado lógicamente (`activo = false`). Solo son editables eventos activos en estado `PLANIFICADA` o `EN_CURSO`.
+- **Reasignación Diferencial de Recursos e Inventario:** Si se envía el arreglo `recursos`, el sistema calcula el *delta* respecto a los recursos actualmente asignados en `evento_prevencion_recurso`: devuelve stock a bodega para recursos removidos o reducidos, y valida disponibilidad con bloqueo transaccional (`FOR UPDATE`) antes de descontar incrementos (`409 Conflict` si el stock es insuficiente). Si se omite `recursos`, las asignaciones actuales no se alteran; enviar `recursos: []` desvincula todos los materiales devolviendo su stock.
+- **Sincronización con Misión y Tiempo Real:** Los cambios en `nombre`, `descripcion` y `prioridad` se sincronizan con la misión táctica asociada (`mision.evento_prevencion_id`), y tras el commit se emite el evento Socket.io `"prevencion:actualizada"` a las salas operativas (`sala:encargados`, `encargado`, `mapa` y sala de la patrulla asignada).
+- **Auditoría:** Cada actualización registra `actualizado_en` y `actualizado_por_id` con el UUID del usuario autenticado.
+
+### Errores Esperables
+- `400 Bad Request`: `id` no es UUID válido, cuerpo JSON malformado, payload vacío (sin campos a actualizar) o validaciones Zod fallidas.
+- `401 Unauthorized`: Cabecera de autenticación ausente o token inválido.
+- `403 Forbidden`: El usuario autenticado no posee el permiso `prevencion:eventos:crear`.
+- `404 Not Found`: El evento de prevención o alguno de los recursos solicitados no existe (o fue eliminado).
+- `409 Conflict`: El evento se encuentra en estado `COMPLETADA`, `CANCELADA` o `activo = false`, o bien no existe stock suficiente en bodega para incrementar un recurso.
 
 ---
 

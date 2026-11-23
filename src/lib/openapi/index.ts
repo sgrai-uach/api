@@ -168,6 +168,11 @@ import {
 import {
   CrearEventoPrevencionInputSchema,
   CrearEventoPrevencionResponseSchema,
+  EditarEventoPrevencionInputSchema,
+  EditarEventoPrevencionResponseSchema,
+  EventoPrevencionIdParamSchema,
+  ListarEventosPrevencionQuerySchema,
+  ListarEventosPrevencionResponseSchema,
 } from "@/modules/eventos-atp/evento-prevencion.schema";
 
 import {
@@ -1999,6 +2004,97 @@ registry.registerPath({
     },
     409: {
       description: "Conflicto: la patrulla verificadora no está disponible o stock insuficiente",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 27b. GET /api/eventos-atp/prevencion (H76 / Estándar H34)
+registry.register("ListarEventosPrevencionQuery", ListarEventosPrevencionQuerySchema);
+registry.register("ListarEventosPrevencionResponse", ListarEventosPrevencionResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/prevencion",
+  summary: "Listar eventos y misiones de prevención con paginación y filtros (H76 / H34)",
+  description:
+    "Retorna el listado paginado de eventos de prevención desplegados en puntos críticos comunales bajo el estándar H34, incluyendo delegación, estado, misión, patrulla o cuadrilla a cargo, recursos asignados y detalle georreferenciado PostGIS del punto crítico.",
+  tags: ["Eventos ATP"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    query: ListarEventosPrevencionQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado paginado de eventos de prevención obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarEventosPrevencionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos (delegacionId, estado o paginación)",
+    },
+    401: {
+      description: "No autenticado o token de sesión inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'prevencion:eventos:leer'",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+// 27c. PATCH /api/eventos-atp/prevencion/{id} (H77)
+registry.register("EditarEventoPrevencionInput", EditarEventoPrevencionInputSchema);
+registry.register("EditarEventoPrevencionResponse", EditarEventoPrevencionResponseSchema);
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/eventos-atp/prevencion/{id}",
+  summary: "Editar planificación y recursos de un evento de prevención activo (H77)",
+  description:
+    "Permite modificar nombre, descripción de tareas, prioridad, fecha estimada de finalización y recursos materiales vinculados a un evento de prevención activo (PLANIFICADA o EN_CURSO). Bloquea con 409 Conflict si el evento está COMPLETADA, CANCELADA o inactivo. Registra auditoría (actualizado_en, actualizado_por_id) y sincroniza inventario y misión asociada.",
+  tags: ["Eventos ATP"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: EventoPrevencionIdParamSchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: EditarEventoPrevencionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Evento de prevención actualizado exitosamente",
+      content: {
+        "application/json": {
+          schema: EditarEventoPrevencionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Identificador inválido o datos de entrada inválidos",
+    },
+    401: {
+      description: "No autenticado o token de sesión inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'prevencion:eventos:crear'",
+    },
+    404: {
+      description: "Evento de prevención o recurso no encontrado",
+    },
+    409: {
+      description: "El evento está en estado COMPLETADA/CANCELADA/inactivo o no hay stock suficiente",
     },
     500: {
       description: "Error interno del servidor",

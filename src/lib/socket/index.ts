@@ -581,6 +581,65 @@ export function emitirEventoPrevencionCreado(payload: {
 }
 
 /**
+ * Emite una notificación en tiempo real cuando se actualiza la planificación
+ * de un evento de prevención activo (H77).
+ */
+export function emitirEventoPrevencionActualizado(payload: {
+  id: string;
+  codigo: string;
+  nombre: string;
+  patrulla?: { id: string; nombre: string; estado: string } | null;
+  [key: string]: unknown;
+}): void {
+  const patrullaRoom = payload.patrulla?.id ? `patrulla:${payload.patrulla.id}` : null;
+
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("prevencion:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("prevencion:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("mapa") as any).emit("prevencion:actualizada", payload);
+    if (patrullaRoom) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to(patrullaRoom) as any).emit("prevencion:actualizada", payload);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ioInstance.to(`sala:${patrullaRoom}`) as any).emit("prevencion:actualizada", payload);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("prevencion:actualizada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room: "sala:encargados",
+          event: "prevencion:actualizada",
+          payload,
+        })
+      )
+      .catch(() => {});
+
+    if (patrullaRoom) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room: patrullaRoom,
+            event: "prevencion:actualizada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
+  }
+}
+
+/**
  * Emite la notificación de creación de cuadrilla en tiempo real a las salas operativas (H79).
  */
 export function emitirCuadrillaCreada(payload: unknown): void {

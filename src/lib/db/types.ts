@@ -587,8 +587,13 @@ export interface EventoPrevencionTable {
   ubicacion: unknown;
   evento_atp_id: string | null;
   creado_por_id: string;
+  fecha_estimada_fin: Date | null;
+  actualizado_por_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
+  activo: ColumnType<boolean, boolean | undefined, boolean>;
+  eliminado_en: Date | null;
+  eliminado_por_id: string | null;
 }
 
 export interface EventoPrevencionRecursoTable {
