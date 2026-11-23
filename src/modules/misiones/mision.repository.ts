@@ -3052,7 +3052,7 @@ export async function reportarLlegadaCuadrillaRepo(
         "cuadrilla.nombre as cuadrilla_nombre",
       ])
       .where("mision.id", "=", misionId)
-      .forUpdate()
+      .forUpdate("mision")
       .executeTakeFirst();
 
     if (!mision) {
