@@ -6,10 +6,10 @@ export async function sembrarEstadosIncidentes() {
 
   // 1. Obtener delegaciones
   const delegaciones = await db.selectFrom("delegacion").selectAll().execute();
-  const delNorte = delegaciones.find((d) => d.nombre === "Norte")?.id ?? delegaciones[0]?.id;
-  const delSur = delegaciones.find((d) => d.nombre === "Sur")?.id ?? delegaciones[0]?.id;
-  const delCosta = delegaciones.find((d) => d.nombre === "Costa")?.id ?? delegaciones[0]?.id;
-  const delCalleCalle = delegaciones.find((d) => d.nombre === "Calle Calle")?.id ?? delegaciones[0]?.id;
+  const delNorte = delegaciones.find((d) => d.codigo === "DEL_NORTE")?.id ?? delegaciones[0]?.id;
+  const delSur = delegaciones.find((d) => d.codigo === "DEL_SUR")?.id ?? delegaciones[0]?.id;
+  const delCosta = delegaciones.find((d) => d.codigo === "DEL_COSTA")?.id ?? delegaciones[0]?.id;
+  const delCalleCalle = delegaciones.find((d) => d.codigo === "DEL_CALLE_CALLE")?.id ?? delegaciones[0]?.id;
 
   // 2. Obtener tipos de incidentes
   const tipos = await db.selectFrom("tipo_incidente").selectAll().execute();
@@ -115,8 +115,8 @@ export async function sembrarEstadosIncidentes() {
     VALUES
       -- Cuadrilla 1: En misión
       (
-        'c1000000-0000-4000-8000-000000000001',
-        'Cuadrilla Aguas Lluvias Alfa',
+        'c1e10000-0000-4000-8000-000000000001',
+        'Cuadrilla EST Aguas Lluvias Alfa',
         'EN_MISION',
         ${delNorte},
         '00000000-0000-4000-8000-000000000005',
@@ -125,8 +125,8 @@ export async function sembrarEstadosIncidentes() {
       ),
       -- Cuadrilla 2: DISPONIBLE
       (
-        'c1000000-0000-4000-8000-000000000002',
-        'Cuadrilla Vías y Despeje Urbano',
+        'c1e10000-0000-4000-8000-000000000002',
+        'Cuadrilla EST Vías y Despeje Urbano',
         'DISPONIBLE',
         ${delNorte},
         '00000000-0000-4000-8000-000000000005',
@@ -135,8 +135,8 @@ export async function sembrarEstadosIncidentes() {
       ),
       -- Cuadrilla 3: DISPONIBLE
       (
-        'c1000000-0000-4000-8000-000000000003',
-        'Cuadrilla Operativa Sur - Despeje y Bombeo',
+        'c1e10000-0000-4000-8000-000000000003',
+        'Cuadrilla EST Operativa Sur - Despeje y Bombeo',
         'DISPONIBLE',
         ${delSur},
         '00000000-0000-4000-8000-000000000010',
@@ -145,8 +145,8 @@ export async function sembrarEstadosIncidentes() {
       ),
       -- Cuadrilla 4: DISPONIBLE
       (
-        'c1000000-0000-4000-8000-000000000004',
-        'Cuadrilla Cuenca y Ribera Calle Calle',
+        'c1e10000-0000-4000-8000-000000000004',
+        'Cuadrilla EST Cuenca y Ribera Calle Calle',
         'DISPONIBLE',
         ${delCalleCalle},
         '00000000-0000-4000-8000-000000000011',
@@ -155,8 +155,8 @@ export async function sembrarEstadosIncidentes() {
       ),
       -- Cuadrilla 5: DISPONIBLE
       (
-        'c1000000-0000-4000-8000-000000000005',
-        'Cuadrilla Mitigación Costera Niebla',
+        'c1e10000-0000-4000-8000-000000000005',
+        'Cuadrilla EST Mitigación Costera Niebla',
         'DISPONIBLE',
         ${delCosta},
         '00000000-0000-4000-8000-000000000006',
@@ -165,8 +165,8 @@ export async function sembrarEstadosIncidentes() {
       ),
       -- IDs de fallback compatibles con frontend
       (
-        '50000000-0000-4000-8000-000000000001',
-        'Cuadrilla Vías y Despeje Urbano Norte',
+        'c1e10000-0000-4000-8000-000000000006',
+        'Cuadrilla EST Vías y Despeje Urbano Norte',
         'DISPONIBLE',
         ${delNorte},
         '00000000-0000-4000-8000-000000000005',
@@ -174,8 +174,8 @@ export async function sembrarEstadosIncidentes() {
         CURRENT_TIMESTAMP - interval '3 days'
       ),
       (
-        '50000000-0000-4000-8000-000000000003',
-        'Cuadrilla Bombeo y Desagüe Calle Calle',
+        'c1e10000-0000-4000-8000-000000000007',
+        'Cuadrilla EST Bombeo y Desagüe Calle Calle',
         'DISPONIBLE',
         ${delCalleCalle},
         '00000000-0000-4000-8000-000000000011',
@@ -187,62 +187,98 @@ export async function sembrarEstadosIncidentes() {
       nombre = EXCLUDED.nombre,
       delegacion_id = EXCLUDED.delegacion_id,
       usuario_delegado_id = EXCLUDED.usuario_delegado_id,
-      eliminado_en = NULL;
+      actualizado_por_id = EXCLUDED.creado_por_id,
+      actualizado_en = CURRENT_TIMESTAMP,
+      eliminado_en = NULL,
+      activo = true;
   `.execute(db);
 
   // 8. Asegurar Patrullas Verificadoras
   await sql`
-    INSERT INTO patrulla_verificadora (id, nombre, estado, delegacion_id, creado_en)
+    INSERT INTO patrulla_verificadora (
+      id, codigo, nombre, estado, delegacion_id, vehiculo_id, activo,
+      eliminado_en, creado_en, actualizado_en
+    )
     VALUES
       (
         'f1000000-0000-4000-8000-000000000001',
+        'PV-COSTA-01',
         'Patrulla Rápida Costa-1',
         'EN_VERIFICACION',
         ${delCosta},
-        CURRENT_TIMESTAMP - interval '3 days'
+        (SELECT id FROM recurso WHERE id = 'b1000000-0000-4000-8000-000000000003'::uuid),
+        true,
+        NULL,
+        CURRENT_TIMESTAMP - interval '3 days',
+        CURRENT_TIMESTAMP
       ),
       (
         'f1000000-0000-4000-8000-000000000002',
+        'PV-CENTROSUR-01',
         'Patrulla Rápida Centro-Sur',
         'EN_VERIFICACION',
         ${delSur},
-        CURRENT_TIMESTAMP - interval '3 days'
+        (SELECT id FROM recurso WHERE id = 'b1000000-0000-4000-8000-000000000002'::uuid),
+        true,
+        NULL,
+        CURRENT_TIMESTAMP - interval '3 days',
+        CURRENT_TIMESTAMP
       ),
       (
         'f1000000-0000-4000-8000-000000000020',
+        'PV-EST-020',
         'Patrulla Rápida Angachilla',
         'DISPONIBLE',
         ${delSur},
-        CURRENT_TIMESTAMP - interval '3 days'
+        NULL,
+        true,
+        NULL,
+        CURRENT_TIMESTAMP - interval '3 days',
+        CURRENT_TIMESTAMP
       ),
       (
         'f1000000-0000-4000-8000-000000000030',
+        'PV-EST-030',
         'Patrulla Rápida Niebla-Costa',
         'DISPONIBLE',
         ${delCosta},
-        CURRENT_TIMESTAMP - interval '3 days'
+        NULL,
+        true,
+        NULL,
+        CURRENT_TIMESTAMP - interval '3 days',
+        CURRENT_TIMESTAMP
       ),
       (
         'f1000000-0000-4000-8000-000000000050',
+        'PV-EST-050',
         'Patrulla Central Urbana - Isla Teja',
         'DISPONIBLE',
         ${delNorte},
-        CURRENT_TIMESTAMP - interval '3 days'
+        NULL,
+        true,
+        NULL,
+        CURRENT_TIMESTAMP - interval '3 days',
+        CURRENT_TIMESTAMP
       )
     ON CONFLICT (id) DO UPDATE SET
+      codigo = COALESCE(patrulla_verificadora.codigo, EXCLUDED.codigo),
       estado = EXCLUDED.estado,
-      nombre = EXCLUDED.nombre;
+      nombre = EXCLUDED.nombre,
+      delegacion_id = EXCLUDED.delegacion_id,
+      activo = true,
+      eliminado_en = NULL,
+      actualizado_en = CURRENT_TIMESTAMP;
   `.execute(db);
 
   // 9. Limpiar misiones previas de los incidentes objetivo
   const incidentesIds = [
-    'a1000000-0000-4000-8000-000000000001',
-    'a1000000-0000-4000-8000-000000000002',
-    'a1000000-0000-4000-8000-000000000003',
-    'a1000000-0000-4000-8000-000000000013',
-    'a1000000-0000-4000-8000-000000000004',
-    'a1000000-0000-4000-8000-000000000006',
-    'a1000000-0000-4000-8000-000000000007',
+    'a1e10000-0000-4000-8000-000000000001',
+    'a1e10000-0000-4000-8000-000000000002',
+    'a1e10000-0000-4000-8000-000000000003',
+    'a1e10000-0000-4000-8000-000000000013',
+    'a1e10000-0000-4000-8000-000000000004',
+    'a1e10000-0000-4000-8000-000000000006',
+    'a1e10000-0000-4000-8000-000000000007',
   ];
 
   await sql`
@@ -272,10 +308,10 @@ export async function sembrarEstadosIncidentes() {
     VALUES
       -- 1. REPORTADO (Pendiente de Verificación, sin patrulla aún)
       (
-        'a1000000-0000-4000-8000-000000000001',
-        'INC-2026-0001',
-        '10000001',
-        'FOL-0001',
+        'a1e10000-0000-4000-8000-000000000001',
+        'INC-EST-0001',
+        '91000001',
+        'FOL-EST-0001',
         'b1000000-0000-4000-8000-000000000001',
         ${tipoInundacion},
         ${delSur},
@@ -297,10 +333,10 @@ export async function sembrarEstadosIncidentes() {
       ),
       -- 2. REPORTADO (Pendiente de Verificación, sin patrulla aún)
       (
-        'a1000000-0000-4000-8000-000000000002',
-        'INC-2026-0002',
-        '10000002',
-        'FOL-0002',
+        'a1e10000-0000-4000-8000-000000000002',
+        'INC-EST-0002',
+        '91000002',
+        'FOL-EST-0002',
         'b1000000-0000-4000-8000-000000000002',
         ${tipoArbol},
         ${delCosta},
@@ -322,10 +358,10 @@ export async function sembrarEstadosIncidentes() {
       ),
       -- 3. VERIFICANDO (SIN VERIFICAR AÚN / EN EVALUACIÓN DE TERRENO - Rechaza cuadrilla con 409)
       (
-        'a1000000-0000-4000-8000-000000000003',
-        'INC-2026-0003',
-        '10000003',
-        'FOL-0003',
+        'a1e10000-0000-4000-8000-000000000003',
+        'INC-EST-0003',
+        '91000003',
+        'FOL-EST-0003',
         'b1000000-0000-4000-8000-000000000003',
         ${tipoDeslizamiento},
         ${delCosta},
@@ -347,10 +383,10 @@ export async function sembrarEstadosIncidentes() {
       ),
       -- 4. VERIFICANDO (VERIFICADO / CON REPORTE DE TERRENO - Listo para asignación de Cuadrilla HU-21)
       (
-        'a1000000-0000-4000-8000-000000000013',
-        'INC-2026-0013',
-        '10000013',
-        'FOL-0013',
+        'a1e10000-0000-4000-8000-000000000013',
+        'INC-EST-0013',
+        '91000013',
+        'FOL-EST-0013',
         'b1000000-0000-4000-8000-000000000001',
         ${tipoAnegamiento},
         ${delSur},
@@ -372,10 +408,10 @@ export async function sembrarEstadosIncidentes() {
       ),
       -- 5. EN_ATENCION (Cuadrilla Despachada / Operando en Terreno)
       (
-        'a1000000-0000-4000-8000-000000000004',
-        'INC-2026-0004',
-        '10000004',
-        'FOL-0004',
+        'a1e10000-0000-4000-8000-000000000004',
+        'INC-EST-0004',
+        '91000004',
+        'FOL-EST-0004',
         'b1000000-0000-4000-8000-000000000004',
         ${tipoAnegamiento},
         ${delNorte},
@@ -397,10 +433,10 @@ export async function sembrarEstadosIncidentes() {
       ),
       -- 6. RESUELTO (Operación Cerrada Exitosamente)
       (
-        'a1000000-0000-4000-8000-000000000006',
-        'INC-2026-0006',
-        '10000006',
-        'FOL-0006',
+        'a1e10000-0000-4000-8000-000000000006',
+        'INC-EST-0006',
+        '91000006',
+        'FOL-EST-0006',
         'b1000000-0000-4000-8000-000000000001',
         ${tipoInundacion},
         ${delSur},
@@ -422,10 +458,10 @@ export async function sembrarEstadosIncidentes() {
       ),
       -- 7. NO_ABORDABLE (Fuera de Ámbito Municipal / Derivado a Empresa Eléctrica)
       (
-        'a1000000-0000-4000-8000-000000000007',
-        'INC-2026-0007',
-        '10000007',
-        'FOL-0007',
+        'a1e10000-0000-4000-8000-000000000007',
+        'INC-EST-0007',
+        '91000007',
+        'FOL-EST-0007',
         'b1000000-0000-4000-8000-000000000003',
         ${tipoOtro},
         ${delCosta},
@@ -458,7 +494,7 @@ export async function sembrarEstadosIncidentes() {
   `.execute(db);
 
   // 11. Misiones Tácticas
-  // Misión 1: Verificación en curso para INC-2026-0003 (SIN reporte_terreno)
+  // Misión 1: Verificación en curso para INC-EST-0003 (SIN reporte_terreno)
   await sql`
     INSERT INTO mision (
       id, codigo, titulo, descripcion, tipo_mision, estado, prioridad,
@@ -466,14 +502,14 @@ export async function sembrarEstadosIncidentes() {
       fecha_inicio, fecha_cierre, creado_en
     )
     VALUES (
-      'd1000000-0000-4000-8000-000000000001',
-      'MIS-2026-0001',
+      'd1e10000-0000-4000-8000-000000000001',
+      'MIS-EST-0001',
       'Evaluación preliminar de derrumbe en ruta T-350',
       'Acudir en patrulla rápida, delimitar perímetro con conos y evaluar estabilidad del terreno',
       'VERIFICACION',
       'EN_CURSO',
       'CRITICA',
-      'a1000000-0000-4000-8000-000000000003',
+      'a1e10000-0000-4000-8000-000000000003',
       'f1000000-0000-4000-8000-000000000001',
       NULL,
       ${encargadoId},
@@ -490,7 +526,7 @@ export async function sembrarEstadosIncidentes() {
     )
     VALUES (
       gen_random_uuid(),
-      'd1000000-0000-4000-8000-000000000001',
+      'd1e10000-0000-4000-8000-000000000001',
       'PATRULLA_EN_TRANSITO',
       'Patrulla Rápida Costa-1 en desplazamiento hacia el lugar de la contingencia',
       ${encargadoId},
@@ -500,7 +536,7 @@ export async function sembrarEstadosIncidentes() {
     );
   `.execute(db);
 
-  // Misión 2: Verificación para INC-2026-0013 (CON reporte_terreno emitido -> LISTO PARA CUADRILLA HU-21)
+  // Misión 2: Verificación para INC-EST-0013 (CON reporte_terreno emitido -> LISTO PARA CUADRILLA HU-21)
   await sql`
     INSERT INTO mision (
       id, codigo, titulo, descripcion, tipo_mision, estado, prioridad,
@@ -508,14 +544,14 @@ export async function sembrarEstadosIncidentes() {
       fecha_inicio, fecha_cierre, creado_en
     )
     VALUES (
-      'd1000000-0000-4000-8000-000000000005',
-      'MIS-2026-0005',
+      'd1e10000-0000-4000-8000-000000000005',
+      'MIS-EST-0005',
       'Verificación técnica de anegamiento en Av. Francia',
       'Evaluar cota de agua, sumideros y riesgo a viviendas aledañas',
       'VERIFICACION',
       'COMPLETADA',
       'ALTA',
-      'a1000000-0000-4000-8000-000000000013',
+      'a1e10000-0000-4000-8000-000000000013',
       'f1000000-0000-4000-8000-000000000002',
       NULL,
       ${encargadoId},
@@ -530,11 +566,13 @@ export async function sembrarEstadosIncidentes() {
     INSERT INTO reporte_terreno (
       id, mision_id, evaluador_id, resumen_tecnico, acciones_realizadas,
       requiere_apoyo_adicional, danos_estimados, observaciones, personas_afectadas,
-      estado_terreno, creado_en, actualizado_en
+      estado_terreno, version_reporte, es_rectificacion, prioridad_sugerida,
+      prioridad_asignada, justificacion_prioridad, detalles_evaluacion,
+      creado_en, actualizado_en
     )
     VALUES (
-      'e1000000-0000-4000-8000-000000000013',
-      'd1000000-0000-4000-8000-000000000005',
+      'e1e10000-0000-4000-8000-000000000013',
+      'd1e10000-0000-4000-8000-000000000005',
       ${encargadoId},
       'Evaluación técnica concluida: Anegamiento de 45 cm de altura sobre calzada por colapso de sumidero pluvial. Se constata riesgo inminente de anegamiento en tres viviendas particulares.',
       'Perímetro asegurado con conos y cinta reflectante. Tránsito peatonal desviado.',
@@ -543,6 +581,12 @@ export async function sembrarEstadosIncidentes() {
       'Se solicita despacho urgente de Cuadrilla con Motobomba de succión pesada.',
       8,
       'FINALIZADO',
+      1,
+      false,
+      'ALTA',
+      'ALTA',
+      NULL,
+      '{"nucleoFamiliarTotal": 8, "viviendasAfectadas": 3, "nivelCompromisoVivienda": "MODERADO", "requiereApoyoAdicional": true}'::jsonb,
       CURRENT_TIMESTAMP - interval '15 minutes',
       CURRENT_TIMESTAMP - interval '15 minutes'
     );
@@ -554,7 +598,7 @@ export async function sembrarEstadosIncidentes() {
     )
     VALUES (
       gen_random_uuid(),
-      'd1000000-0000-4000-8000-000000000005',
+      'd1e10000-0000-4000-8000-000000000005',
       'EVALUACION_COMPLETADA',
       'Reporte de terreno registrado. Patrulla confirma necesidad de escalamiento a cuadrilla operativa.',
       ${encargadoId},
@@ -564,7 +608,7 @@ export async function sembrarEstadosIncidentes() {
     );
   `.execute(db);
 
-  // Misión 3: Cuadrilla operando en INC-2026-0004 (EN_ATENCION)
+  // Misión 3: Cuadrilla operando en INC-EST-0004 (EN_ATENCION)
   await sql`
     INSERT INTO mision (
       id, codigo, titulo, descripcion, tipo_mision, estado, prioridad,
@@ -572,16 +616,16 @@ export async function sembrarEstadosIncidentes() {
       fecha_inicio, fecha_cierre, creado_en
     )
     VALUES (
-      'd1000000-0000-4000-8000-000000000002',
-      'MIS-2026-0002',
+      'd1e10000-0000-4000-8000-000000000002',
+      'MIS-EST-0002',
       'Desagüe y limpieza de sumideros en Av. Alemania',
       'Instalación de motobomba de 4 pulgadas y sacos de contención',
       'ATENCION_CUADRILLA',
       'EN_CURSO',
       'ALTA',
-      'a1000000-0000-4000-8000-000000000004',
+      'a1e10000-0000-4000-8000-000000000004',
       NULL,
-      'c1000000-0000-4000-8000-000000000001',
+      'c1e10000-0000-4000-8000-000000000001',
       ${encargadoId},
       ${adminId},
       CURRENT_TIMESTAMP - interval '1 hour',
@@ -590,7 +634,7 @@ export async function sembrarEstadosIncidentes() {
     );
   `.execute(db);
 
-  // Misión 4: Misión completada para INC-2026-0006 (RESUELTO)
+  // Misión 4: Misión completada para INC-EST-0006 (RESUELTO)
   await sql`
     INSERT INTO mision (
       id, codigo, titulo, descripcion, tipo_mision, estado, prioridad,
@@ -598,16 +642,16 @@ export async function sembrarEstadosIncidentes() {
       fecha_inicio, fecha_cierre, creado_en
     )
     VALUES (
-      'd1000000-0000-4000-8000-000000000004',
-      'MIS-2026-0004',
+      'd1e10000-0000-4000-8000-000000000004',
+      'MIS-EST-0004',
       'Mitigación y succión en Av. Pedro Montt',
       'Trabajos finalizados con éxito, escurrimiento normalizado',
       'ATENCION_CUADRILLA',
       'COMPLETADA',
       'MEDIA',
-      'a1000000-0000-4000-8000-000000000006',
+      'a1e10000-0000-4000-8000-000000000006',
       NULL,
-      'c1000000-0000-4000-8000-000000000001',
+      'c1e10000-0000-4000-8000-000000000001',
       ${encargadoId},
       ${adminId},
       CURRENT_TIMESTAMP - interval '4 hours',

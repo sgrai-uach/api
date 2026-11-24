@@ -14,9 +14,18 @@ export async function sembrarPuntosCriticos() {
   const delCosta = delegaciones.find((d) => d.codigo === "DEL_COSTA")?.id || "30000000-0000-4000-8000-000000000003";
   const delCalleCalle = delegaciones.find((d) => d.codigo === "DEL_CALLE_CALLE")?.id || "30000000-0000-4000-8000-000000000004";
 
-  // 2. Obtener un usuario creador (Admin o Encargado)
-  const usuario = await db.selectFrom("usuario").selectAll().executeTakeFirst();
-  const usuarioId = usuario?.id || "00000000-0000-4000-8000-000000000001";
+  // 2. Obtener un usuario creador institucional (Admin o Encargado)
+  const admin = await db
+    .selectFrom("usuario")
+    .select(["id"])
+    .where("email", "=", "admin@valdivia.cl")
+    .executeTakeFirst();
+  const encargado = await db
+    .selectFrom("usuario")
+    .select(["id"])
+    .where("email", "=", "encargado@valdivia.cl")
+    .executeTakeFirst();
+  const usuarioId = admin?.id ?? encargado?.id ?? "00000000-0000-4000-8000-000000000001";
 
   // 3. Puntos Críticos de prueba
   const puntosCriticos = [
@@ -98,7 +107,8 @@ export async function sembrarPuntosCriticos() {
     await sql`
       INSERT INTO prevencion (
         id, codigo, nombre, descripcion, tipo_riesgo, prioridad,
-        latitud, longitud, ubicacion, delegacion_id, activo, creado_en
+        latitud, longitud, ubicacion, delegacion_id, activo, creado_por_id,
+        creado_en, actualizado_en
       )
       VALUES (
         ${pc.id},
@@ -112,6 +122,8 @@ export async function sembrarPuntosCriticos() {
         ST_SetSRID(ST_MakePoint(${pc.longitud}, ${pc.latitud}), 4326),
         ${pc.delegacion_id},
         ${pc.activo},
+        ${usuarioId},
+        CURRENT_TIMESTAMP,
         CURRENT_TIMESTAMP
       )
       ON CONFLICT (codigo) DO UPDATE SET
@@ -125,7 +137,8 @@ export async function sembrarPuntosCriticos() {
         delegacion_id = EXCLUDED.delegacion_id,
         activo = true,
         eliminado_en = NULL,
-        eliminado_por_id = NULL;
+        eliminado_por_id = NULL,
+        actualizado_en = CURRENT_TIMESTAMP;
     `.execute(db);
   }
 
@@ -166,8 +179,6 @@ export async function sembrarPuntosCriticos() {
   console.log("   - PC-GUA-06 (Sector Guacamayo)");
   console.log("\n2. Punto con misión activa para probar bloqueo (409 Conflict):");
   console.log("   - PC-COL-02 (Sector Collico - Borde Río Calle Calle): tiene la misión MIS-PREV-2026-001 en curso.");
-
-  await db.destroy();
 }
 
 if (process.argv[1]?.includes("seed-puntos-criticos")) {

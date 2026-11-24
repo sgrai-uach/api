@@ -19,8 +19,13 @@ export async function sembrarEventosRecuperacion() {
   const delSur = delegaciones.find((d) => d.codigo === "DEL_SUR")?.id || delegaciones[1]?.id || null;
   const delCalleCalle = delegaciones.find((d) => d.codigo === "DEL_CALLE_CALLE")?.id || delegaciones[3]?.id || null;
 
-  // 3. Obtener o asegurar patrullas verificadoras
-  const patrullas = await db.selectFrom("patrulla_verificadora").selectAll().execute();
+  // 3. Obtener o asegurar patrullas verificadoras activas
+  const patrullas = await db
+    .selectFrom("patrulla_verificadora")
+    .selectAll()
+    .where("activo", "=", true)
+    .where("eliminado_en", "is", null)
+    .execute();
   let patrullaNorte = patrullas.find((p) => p.delegacion_id === delNorte) || patrullas[0];
   const patrullaSur = patrullas.find((p) => p.delegacion_id === delSur) || patrullas[1] || patrullas[0];
   const patrullaCalle = patrullas.find((p) => p.delegacion_id === delCalleCalle) || patrullas[2] || patrullas[0];
@@ -289,6 +294,7 @@ export async function sembrarEventosRecuperacion() {
         .values({
           recuperacion_id: recId,
           recurso_id: r.recurso_id,
+          mision_id: misId,
           cantidad_asignada: r.cantidad,
           creado_en: new Date(),
         })
