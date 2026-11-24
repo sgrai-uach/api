@@ -135,6 +135,7 @@ export interface MisionApoyoSolicitadoPayload {
     evaluadorId: string;
     evaluadorNombre: string | null;
     requiereApoyoAdicional: true;
+    requiereCuadrillaAdicional: boolean;
     detalleApoyoRequerido: string;
     prioridadAlerta: "ALTA";
     solicitadoEn: string;
@@ -163,6 +164,7 @@ export interface MisionRechazadaPayload {
     patrullaNombre?: string | null;
     incidenteId: string | null;
     incidenteCodigo?: string | null;
+    incidenteEstado?: string | null;
     rechazadoPorId?: string | null;
     rechazadoEn: string;
 }

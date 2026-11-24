@@ -70,6 +70,9 @@ export async function listarIncidentesKanbanService(
     reclasificadoEnTerreno: Boolean(fila.verificado || fila.reclasificado_en_terreno),
     justificacionReclasificacion: fila.justificacion_reclasificacion ?? null,
     apoyoSolicitado: Boolean(fila.apoyo_solicitado),
+    requiereCuadrillaAdicional: Boolean(
+      fila.apoyo_solicitado && fila.requiere_cuadrilla_adicional
+    ),
     detalleApoyoRequerido: fila.detalle_apoyo_requerido ?? null,
     creadoEn:
       typeof fila.creado_en === "string"
@@ -239,6 +242,7 @@ export async function obtenerDetalleIncidenteService(
         observaciones: rep.observaciones ?? null,
         personasAfectadas: Number(rep.personas_afectadas ?? 0),
         requiereApoyoAdicional: Boolean(rep.requiere_apoyo_adicional),
+        requiereCuadrillaAdicional: Boolean(rep.requiere_cuadrilla_adicional),
         detalleApoyoRequerido: rep.detalle_apoyo_requerido ?? null,
         ...(esReporteCuadrilla && rep.horas_hombre !== undefined
           ? {
@@ -451,6 +455,9 @@ export async function obtenerDetalleIncidenteService(
         ? { horasHombre: topReporteTerreno.horasHombre }
         : {}),
       requiereApoyoAdicional: topReporteTerreno.requiereApoyoAdicional,
+      requiereCuadrillaAdicional: Boolean(
+        topReporteTerreno.requiereCuadrillaAdicional
+      ),
       detalleApoyoRequerido: topReporteTerreno.detalleApoyoRequerido ?? null,
       ...(topReporteTerreno.tipoReporte === "REPORTE_CUADRILLA" &&
       topReporteTerreno.materialesConsumidos !== undefined
@@ -510,6 +517,13 @@ export async function obtenerDetalleIncidenteService(
     : undefined;
 
   const misionesPorId = new Map(misiones.map((m) => [m.id, m]));
+  const misionesCuadrillaValidas = misiones.filter(
+    (m) =>
+      Boolean(m.cuadrilla_id) &&
+      m.tipo_mision !== "VERIFICACION" &&
+      m.estado !== "RECHAZADA" &&
+      m.estado !== "CANCELADA"
+  );
   const reportesConApoyo = [...reportesMapeados]
     .filter((r) => {
       if (!r.requiereApoyoAdicional) return false;
@@ -518,16 +532,27 @@ export async function obtenerDetalleIncidenteService(
       }
       const misionAsociada = misionesPorId.get(r.misionId);
       if (misionAsociada) {
-        return (
-          Boolean(misionAsociada.cuadrilla_id) &&
-          misionAsociada.tipo_mision !== "VERIFICACION"
-        );
+        if (
+          !misionAsociada.cuadrilla_id ||
+          misionAsociada.tipo_mision === "VERIFICACION"
+        ) {
+          return false;
+        }
       }
-      return true;
+      const tsReporte = new Date(r.creadoEn).getTime();
+      const tieneCuadrillaPosterior = misionesCuadrillaValidas.some(
+        (m2) => new Date(m2.creado_en).getTime() > tsReporte
+      );
+      return !tieneCuadrillaPosterior;
     })
     .sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime());
   const apoyoSolicitado = reportesConApoyo.length > 0;
-  const detalleApoyoRequerido = reportesConApoyo[0]?.detalleApoyoRequerido ?? null;
+  const requiereCuadrillaAdicional = apoyoSolicitado
+    ? Boolean(reportesConApoyo[0]?.requiereCuadrillaAdicional)
+    : false;
+  const detalleApoyoRequerido = apoyoSolicitado
+    ? (reportesConApoyo[0]?.detalleApoyoRequerido ?? null)
+    : null;
 
   return {
     id: incidente.id,
@@ -597,6 +622,7 @@ export async function obtenerDetalleIncidenteService(
     reclasificadoEnTerreno: esVerificado,
     justificacionReclasificacion: justificacionReclasificacion ?? null,
     apoyoSolicitado,
+    requiereCuadrillaAdicional,
     detalleApoyoRequerido,
     reclasificacionTipologia,
     ultimoReporte,

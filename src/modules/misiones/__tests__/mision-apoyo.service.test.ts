@@ -45,6 +45,7 @@ describe("Mision Service - solicitarApoyoMisionService (HU-44)", () => {
         prioridad: "ALTA",
       },
       requiereApoyoAdicional: true,
+      requiereCuadrillaAdicional: true,
       detalleApoyoRequerido: "Se solicita motoniveladora y cuadrilla adicional de despeje",
       hito: {
         id: "80000000-0000-4000-8000-000000000001",
@@ -65,6 +66,7 @@ describe("Mision Service - solicitarApoyoMisionService (HU-44)", () => {
       false,
       {
         requiereApoyoAdicional: true,
+        requiereCuadrillaAdicional: true,
         detalleApoyoRequerido: "Se solicita motoniveladora y cuadrilla adicional de despeje",
         observaciones: null,
       }
@@ -75,13 +77,24 @@ describe("Mision Service - solicitarApoyoMisionService (HU-44)", () => {
       expect.objectContaining({
         misionId: "60000000-0000-4000-8000-000000000001",
         requiereApoyoAdicional: true,
+        requiereCuadrillaAdicional: true,
         detalleApoyoRequerido:
           "Se solicita motoniveladora y cuadrilla adicional de despeje",
         prioridadAlerta: "ALTA",
       })
     );
     expect(socketModule.notificarIncidenteActualizado).toHaveBeenCalledTimes(1);
+    expect(socketModule.notificarIncidenteActualizado).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "50000000-0000-4000-8000-000000000001",
+        apoyoSolicitado: true,
+        requiereCuadrillaAdicional: true,
+        detalleApoyoRequerido:
+          "Se solicita motoniveladora y cuadrilla adicional de despeje",
+      })
+    );
     expect(respuesta.data.alertaEmitida).toBe(true);
+    expect(respuesta.data.requiereCuadrillaAdicional).toBe(true);
   });
 
   it("no debe emitir alerta de apoyo cuando requiereApoyoAdicional es false", async () => {
@@ -95,6 +108,7 @@ describe("Mision Service - solicitarApoyoMisionService (HU-44)", () => {
       evaluadorNombre: "Carlos Delegado",
       incidente: null,
       requiereApoyoAdicional: false,
+      requiereCuadrillaAdicional: false,
       detalleApoyoRequerido: null,
       hito: null,
       creadoEn: "2026-11-23T20:30:00.000Z",
@@ -106,6 +120,7 @@ describe("Mision Service - solicitarApoyoMisionService (HU-44)", () => {
       false,
       {
         requiereApoyoAdicional: false,
+        requiereCuadrillaAdicional: false,
         detalleApoyoRequerido: null,
         observaciones: null,
       }
@@ -114,6 +129,7 @@ describe("Mision Service - solicitarApoyoMisionService (HU-44)", () => {
     expect(socketModule.notificarApoyoSolicitado).not.toHaveBeenCalled();
     expect(socketModule.notificarIncidenteActualizado).not.toHaveBeenCalled();
     expect(respuesta.data.alertaEmitida).toBe(false);
+    expect(respuesta.data.requiereCuadrillaAdicional).toBe(false);
     expect(respuesta.data.detalleApoyoRequerido).toBeNull();
   });
 });

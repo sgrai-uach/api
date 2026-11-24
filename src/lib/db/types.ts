@@ -604,6 +604,7 @@ export interface ReporteTerrenoTable {
   resumen_tecnico: string;
   acciones_realizadas: string | null;
   requiere_apoyo_adicional: ColumnType<boolean, boolean | undefined, boolean>;
+  requiere_cuadrilla_adicional?: ColumnType<boolean, boolean | undefined, boolean>;
   detalle_apoyo_requerido?: ColumnType<
     string | null,
     string | null | undefined,

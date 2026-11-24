@@ -124,6 +124,7 @@ export const IncidenteResumenSchema = z.object({
   reclasificadoEnTerreno: z.boolean().optional().openapi({ description: "Indica si el incidente fue verificado o reclasificado en terreno" }),
   justificacionReclasificacion: z.string().nullable().optional().openapi({ description: "Motivo o justificación técnica de la evaluación en terreno" }),
   apoyoSolicitado: z.boolean().default(false).optional().openapi({ description: "Indica si una unidad en terreno solicitó apoyo adicional de recursos materiales o humanos (HU-44)" }),
+  requiereCuadrillaAdicional: z.boolean().default(false).optional().openapi({ description: "Indica si la solicitud de apoyo activa requiere despachar una cuadrilla adicional (HU-44)" }),
   detalleApoyoRequerido: z.string().nullable().optional().openapi({ description: "Detalle del último apoyo adicional solicitado desde terreno (HU-44)" }),
   creadoEn: z.string().openapi({ description: "Fecha y hora de registro en formato ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Última fecha y hora de actualización en formato ISO 8601" }),
@@ -276,6 +277,7 @@ export const IncidenteDetalleSchema = z.object({
         observaciones: z.string().nullable(),
         personasAfectadas: z.number(),
         requiereApoyoAdicional: z.boolean(),
+        requiereCuadrillaAdicional: z.boolean().optional(),
         detalleApoyoRequerido: z.string().nullable().optional(),
         horasHombre: z.number().nullable().optional(),
         materialesConsumidos: z.array(MaterialConsumidoDetalleSchema).optional(),
@@ -330,6 +332,7 @@ export const IncidenteDetalleSchema = z.object({
   reclasificadoEnTerreno: z.boolean().default(false).openapi({ description: "Indica si fue verificado o reclasificado en terreno" }),
   justificacionReclasificacion: z.string().nullable().optional().openapi({ description: "Justificación técnica en terreno" }),
   apoyoSolicitado: z.boolean().default(false).optional().openapi({ description: "Indica si una unidad en terreno solicitó apoyo adicional (HU-44)" }),
+  requiereCuadrillaAdicional: z.boolean().default(false).optional().openapi({ description: "Indica si la solicitud de apoyo activa requiere despachar una cuadrilla adicional (HU-44)" }),
   detalleApoyoRequerido: z.string().nullable().optional().openapi({ description: "Detalle del último apoyo adicional solicitado desde terreno (HU-44)" }),
   reclasificacionTipologia: z
     .object({
@@ -364,6 +367,7 @@ export const IncidenteDetalleSchema = z.object({
       etiquetaReporte: z.string().nullable().optional(),
       horasHombre: z.number().nullable().optional(),
       requiereApoyoAdicional: z.boolean().optional(),
+      requiereCuadrillaAdicional: z.boolean().optional(),
       detalleApoyoRequerido: z.string().nullable().optional(),
       materialesConsumidos: z.array(MaterialConsumidoDetalleSchema).nullable().optional(),
       versionReporte: z.number().int().nullable(),

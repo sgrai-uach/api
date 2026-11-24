@@ -46,6 +46,7 @@ export interface FilaIncidenteResumen {
   reclasificado_en_terreno?: boolean | number;
   justificacion_reclasificacion?: string | null;
   apoyo_solicitado?: boolean | number;
+  requiere_cuadrilla_adicional?: boolean | number;
   detalle_apoyo_requerido?: string | null;
   creado_en: Date | string;
   actualizado_en: Date | string;
@@ -358,8 +359,38 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
               AND m.tipo_mision <> 'VERIFICACION'
               AND rt.requiere_apoyo_adicional = true
               AND rt.tipo_reporte IN ('SOLICITUD_APOYO', 'REPORTE_CUADRILLA')
+              AND NOT EXISTS (
+                SELECT 1
+                FROM mision m2
+                WHERE m2.incidente_id = incidente.id
+                  AND m2.cuadrilla_id IS NOT NULL
+                  AND m2.tipo_mision <> 'VERIFICACION'
+                  AND m2.estado NOT IN ('RECHAZADA', 'CANCELADA')
+                  AND m2.creado_en > rt.creado_en
+              )
           )
         )`.as("apoyo_solicitado"),
+        sql<boolean>`COALESCE((
+          SELECT rt.requiere_cuadrilla_adicional
+          FROM reporte_terreno rt
+          INNER JOIN mision m ON m.id = rt.mision_id
+          WHERE m.incidente_id = incidente.id
+            AND m.cuadrilla_id IS NOT NULL
+            AND m.tipo_mision <> 'VERIFICACION'
+            AND rt.requiere_apoyo_adicional = true
+            AND rt.tipo_reporte IN ('SOLICITUD_APOYO', 'REPORTE_CUADRILLA')
+            AND NOT EXISTS (
+              SELECT 1
+              FROM mision m2
+              WHERE m2.incidente_id = incidente.id
+                AND m2.cuadrilla_id IS NOT NULL
+                AND m2.tipo_mision <> 'VERIFICACION'
+                AND m2.estado NOT IN ('RECHAZADA', 'CANCELADA')
+                AND m2.creado_en > rt.creado_en
+            )
+          ORDER BY rt.creado_en DESC
+          LIMIT 1
+        ), false)`.as("requiere_cuadrilla_adicional"),
         sql<string | null>`(
           SELECT rt.detalle_apoyo_requerido
           FROM reporte_terreno rt
@@ -369,6 +400,15 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
             AND m.tipo_mision <> 'VERIFICACION'
             AND rt.requiere_apoyo_adicional = true
             AND rt.tipo_reporte IN ('SOLICITUD_APOYO', 'REPORTE_CUADRILLA')
+            AND NOT EXISTS (
+              SELECT 1
+              FROM mision m2
+              WHERE m2.incidente_id = incidente.id
+                AND m2.cuadrilla_id IS NOT NULL
+                AND m2.tipo_mision <> 'VERIFICACION'
+                AND m2.estado NOT IN ('RECHAZADA', 'CANCELADA')
+                AND m2.creado_en > rt.creado_en
+            )
           ORDER BY rt.creado_en DESC
           LIMIT 1
         )`.as("detalle_apoyo_requerido"),
@@ -524,9 +564,13 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     .execute();
 
   // Consultar recursos asignados a las cuadrillas de dichas misiones
-  const cuadrillaIds = misiones
-    .map((m) => m.cuadrilla_id)
-    .filter((cId): cId is string => Boolean(cId));
+  const cuadrillaIds = Array.from(
+    new Set(
+      misiones
+        .map((m) => m.cuadrilla_id)
+        .filter((cId): cId is string => Boolean(cId))
+    )
+  );
 
   let recursosAsociados: Array<{
     recursoId: string;
@@ -551,6 +595,9 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
         "cuadrilla.nombre as cuadrilla_nombre",
       ])
       .where("cuadrilla_recurso.cuadrilla_id", "in", cuadrillaIds)
+      .where("cuadrilla_recurso.activo", "=", true)
+      .where("cuadrilla_recurso.desvinculado_en", "is", null)
+      .where("recurso.eliminado_en", "is", null)
       .execute();
 
     recursosAsociados = filasRecursos.map((r) => ({
@@ -635,6 +682,7 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     observaciones: string | null;
     personas_afectadas: number;
     requiere_apoyo_adicional: boolean;
+    requiere_cuadrilla_adicional?: boolean | null;
     detalle_apoyo_requerido?: string | null;
     detalles_evaluacion?: Record<string, unknown> | string | null;
     horas_hombre?: number | string | null;
@@ -680,6 +728,7 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
             "reporte_terreno.observaciones",
             "reporte_terreno.personas_afectadas",
             "reporte_terreno.requiere_apoyo_adicional",
+            "reporte_terreno.requiere_cuadrilla_adicional",
             "reporte_terreno.detalle_apoyo_requerido",
             "reporte_terreno.detalles_evaluacion",
             "reporte_terreno.horas_hombre",

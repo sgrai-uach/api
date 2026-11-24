@@ -288,6 +288,7 @@ export async function obtenerDetalleMisionService(
       resumenTecnico: rep.resumen_tecnico,
       accionesRealizadas: rep.acciones_realizadas ?? null,
       requiereApoyoAdicional: Boolean(rep.requiere_apoyo_adicional),
+      requiereCuadrillaAdicional: Boolean(rep.requiere_cuadrilla_adicional),
       detalleApoyoRequerido: rep.detalle_apoyo_requerido ?? null,
       danosEstimados: rep.danos_estimados ?? null,
       observaciones: rep.observaciones ?? null,
@@ -596,6 +597,16 @@ export async function asignarCuadrillaMisionService(
       delegacionId: resultado.cuadrilla.delegacionId,
     });
 
+    for (const rec of resultado.recursosAdicionalesAsignados ?? []) {
+      emitirRecursoActualizado({
+        id: rec.id,
+        nombre: rec.nombre,
+        cantidadEnUso: rec.cantidadEnUsoActual,
+        estado: rec.estado,
+        actualizadoEn: resultado.mision.creadoEn,
+      });
+    }
+
     // b) Si existía patrulla verificadora previa, notificar su liberación
     if (resultado.patrullaLiberada) {
       notificarPatrullaLiberada({
@@ -620,12 +631,18 @@ export async function asignarCuadrillaMisionService(
     }
 
     // c) Notificar actualización de estado del incidente al Centro de Mando
+    const estadoIncidente = resultado.estadoOperativoIncidente;
     notificarIncidenteActualizado({
       id: resultado.incidente.id,
       codigo: resultado.incidente.codigo,
       nuevoEstado: "EN_ATENCION",
       prioridad: resultado.incidente.prioridad,
-      cuadrillaAceptada: false,
+      cuadrillaAceptada: estadoIncidente?.cuadrillaAceptada ?? false,
+      tieneMisionEnCurso: estadoIncidente?.tieneMisionEnCurso ?? false,
+      faenasCuadrillaCompletadas: estadoIncidente?.faenasCuadrillaCompletadas ?? false,
+      apoyoSolicitado: estadoIncidente?.apoyoSolicitado ?? false,
+      requiereCuadrillaAdicional: estadoIncidente?.requiereCuadrillaAdicional ?? false,
+      detalleApoyoRequerido: estadoIncidente?.detalleApoyoRequerido ?? null,
       actualizadoEn: new Date().toISOString(),
     });
   } catch (error) {
@@ -646,6 +663,9 @@ export async function asignarCuadrillaMisionService(
       patrullaLiberada: resultado.patrullaLiberada,
       hitoCuadrilla: resultado.hitoCuadrilla,
       hitoPatrulla: resultado.hitoPatrulla,
+      ...(resultado.recursosAdicionalesAsignados
+        ? { recursosAdicionalesAsignados: resultado.recursosAdicionalesAsignados }
+        : {}),
     },
   };
 }
@@ -931,6 +951,7 @@ async function rechazarMisionPatrullaFlow(
       patrullaNombre: resultado.patrulla.nombre,
       incidenteId: resultado.incidente.id || null,
       incidenteCodigo: resultado.incidente.codigo,
+      incidenteEstado: resultado.incidente.estado || null,
       rechazadoPorId: usuarioId,
       rechazadoEn: resultado.mision.actualizadoEn,
     });
@@ -1003,16 +1024,28 @@ async function rechazarMisionCuadrillaFlow(
       patrullaNombre: null,
       incidenteId: resultado.incidente?.id ?? null,
       incidenteCodigo: resultado.incidente?.codigo ?? null,
+      incidenteEstado: resultado.incidente?.estado ?? null,
       rechazadoPorId: usuarioId,
       rechazadoEn: resultado.mision.actualizadoEn,
     });
 
     if (resultado.incidente) {
+      const estadoOperativo = resultado.estadoOperativoIncidente;
       notificarIncidenteActualizado({
         id: resultado.incidente.id,
         codigo: resultado.incidente.codigo,
         nuevoEstado: resultado.incidente.estado,
         prioridad: resultado.incidente.prioridad,
+        ...(estadoOperativo
+          ? {
+              cuadrillaAceptada: estadoOperativo.cuadrillaAceptada,
+              tieneMisionEnCurso: estadoOperativo.tieneMisionEnCurso,
+              faenasCuadrillaCompletadas: estadoOperativo.faenasCuadrillaCompletadas,
+              apoyoSolicitado: estadoOperativo.apoyoSolicitado,
+              requiereCuadrillaAdicional: estadoOperativo.requiereCuadrillaAdicional,
+              detalleApoyoRequerido: estadoOperativo.detalleApoyoRequerido,
+            }
+          : {}),
         actualizadoEn: resultado.mision.actualizadoEn,
       });
     }
@@ -1028,9 +1061,13 @@ async function rechazarMisionCuadrillaFlow(
   }
 
   const estadoIncidente = resultado.incidente?.estado ?? "REPORTADO";
+  const mensaje =
+    estadoIncidente === "EN_ATENCION"
+      ? "Misión rechazada exitosamente. La cuadrilla ha vuelto a estado DISPONIBLE y el incidente se mantiene en EN_ATENCION para reasignación del apoyo."
+      : `Misión rechazada exitosamente. La cuadrilla ha vuelto a estado DISPONIBLE y el incidente ha retornado a ${estadoIncidente} para su reasignación.`;
 
   return {
-    message: `Misión rechazada exitosamente. La cuadrilla ha vuelto a estado DISPONIBLE y el incidente ha retornado a ${estadoIncidente} para su reasignación.`,
+    message: mensaje,
     data: {
       mision: resultado.mision,
       cuadrilla: resultado.cuadrilla,
@@ -1241,12 +1278,23 @@ export async function cerrarMisionCuadrillaService(
     });
 
     if (resultado.incidente) {
+      const estadoOperativo = resultado.estadoOperativoIncidente;
       notificarIncidenteActualizado({
         id: resultado.incidente.id,
         codigo: resultado.incidente.codigo,
         nuevoEstado: resultado.incidente.estado,
         prioridad: resultado.incidente.prioridad,
         requiereAsistenciaSocial: resultado.incidente.requiereAsistenciaSocial,
+        cuadrillaAceptada: estadoOperativo?.cuadrillaAceptada ?? true,
+        tieneMisionEnCurso: estadoOperativo?.tieneMisionEnCurso ?? false,
+        faenasCuadrillaCompletadas: estadoOperativo?.faenasCuadrillaCompletadas ?? true,
+        ...(estadoOperativo
+          ? {
+              apoyoSolicitado: estadoOperativo.apoyoSolicitado,
+              requiereCuadrillaAdicional: estadoOperativo.requiereCuadrillaAdicional,
+              detalleApoyoRequerido: estadoOperativo.detalleApoyoRequerido,
+            }
+          : {}),
         reporteTerreno: reporteTerrenoDto as unknown as Record<string, unknown>,
         actualizadoEn: resultado.mision.actualizadoEn,
       });
@@ -1337,6 +1385,7 @@ export async function solicitarApoyoMisionService(
         evaluadorId: resultado.evaluadorId,
         evaluadorNombre: resultado.evaluadorNombre,
         requiereApoyoAdicional: true,
+        requiereCuadrillaAdicional: resultado.requiereCuadrillaAdicional,
         detalleApoyoRequerido: resultado.detalleApoyoRequerido,
         prioridadAlerta: "ALTA",
         solicitadoEn: resultado.creadoEn,
@@ -1348,6 +1397,9 @@ export async function solicitarApoyoMisionService(
           codigo: resultado.incidente.codigo,
           nuevoEstado: resultado.incidente.estado,
           prioridad: resultado.incidente.prioridad,
+          apoyoSolicitado: true,
+          requiereCuadrillaAdicional: resultado.requiereCuadrillaAdicional,
+          detalleApoyoRequerido: resultado.detalleApoyoRequerido,
           actualizadoEn: resultado.creadoEn,
         });
       }
@@ -1370,6 +1422,7 @@ export async function solicitarApoyoMisionService(
       misionCodigo: resultado.misionCodigo,
       incidenteId: resultado.incidente?.id ?? null,
       requiereApoyoAdicional: resultado.requiereApoyoAdicional,
+      requiereCuadrillaAdicional: resultado.requiereCuadrillaAdicional,
       detalleApoyoRequerido: resultado.detalleApoyoRequerido,
       hito: resultado.hito,
       alertaEmitida,

@@ -43,6 +43,11 @@ export interface IncidenteActualizadoPayload {
   requiereAsistenciaSocial?: boolean;
   verificado?: boolean;
   cuadrillaAceptada?: boolean;
+  tieneMisionEnCurso?: boolean;
+  faenasCuadrillaCompletadas?: boolean;
+  apoyoSolicitado?: boolean;
+  requiereCuadrillaAdicional?: boolean;
+  detalleApoyoRequerido?: string | null;
   actualizadoEn: string;
   tipoIncidenteId?: string | null;
   tipoAfectacion?: string;

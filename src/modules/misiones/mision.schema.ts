@@ -153,6 +153,10 @@ export const ReporteTerrenoDetalleSchema = z.object({
   resumenTecnico: z.string().openapi({ description: "Diagnóstico técnico consolidado de la intervención" }),
   accionesRealizadas: z.string().nullable().openapi({ description: "Labores y maniobras ejecutadas en terreno" }),
   requiereApoyoAdicional: z.boolean().openapi({ description: "Indica si se requiere escalamiento logístico o relevo" }),
+  requiereCuadrillaAdicional: z.boolean().optional().openapi({
+    description: "Indica si el apoyo adicional solicitado requiere despachar una cuadrilla adicional con una misión distinta (HU-44)",
+    example: true,
+  }),
   detalleApoyoRequerido: z.string().nullable().optional().openapi({
     description: "Detalle de los recursos materiales o humanos adicionales solicitados desde terreno (HU-44)",
     example: "Se solicita motoniveladora y cuadrilla adicional de despeje",
@@ -562,6 +566,31 @@ export type AceptarMisionResponse = z.infer<typeof AceptarMisionResponseSchema>;
 // HU-21: Asignar Cuadrilla a Incidente y Liberar Patrulla
 // ==========================================
 
+export const RecursoAdicionalDespachoInputSchema = z
+  .object({
+    recursoId: z
+      .string({ message: "El identificador del recurso adicional es obligatorio." })
+      .uuid("El identificador del recurso adicional debe ser un UUID válido.")
+      .openapi({
+        description: "UUID del recurso logístico adicional a incorporar en la cuadrilla",
+        example: "b0000000-0000-4000-8000-000000000010",
+      }),
+    cantidad: z
+      .number({ message: "La cantidad del recurso adicional debe ser un número entero." })
+      .int("La cantidad del recurso adicional debe ser un número entero.")
+      .min(1, "La cantidad del recurso adicional debe ser al menos 1.")
+      .default(1)
+      .openapi({
+        description: "Cantidad física adicional a asignar a la cuadrilla",
+        example: 1,
+      }),
+  })
+  .openapi("RecursoAdicionalDespachoInput");
+
+export type RecursoAdicionalDespachoInput = z.infer<
+  typeof RecursoAdicionalDespachoInputSchema
+>;
+
 export const AsignarCuadrillaMisionInputSchema = z
   .object({
     tipoMision: z
@@ -574,7 +603,7 @@ export const AsignarCuadrillaMisionInputSchema = z
       .string()
       .uuid("El identificador del incidente debe ser un UUID válido.")
       .openapi({
-        description: "UUID del incidente en estado REPORTADO o VERIFICANDO a atender",
+        description: "UUID del incidente en estado REPORTADO, VERIFICANDO o EN_ATENCION a atender",
         example: "30000000-0000-4000-8000-000000000001",
       }),
     cuadrillaId: z
@@ -606,6 +635,32 @@ export const AsignarCuadrillaMisionInputSchema = z
         "Nivel de prioridad. Si se omite, se hereda de la misión de verificación activa de la patrulla o del incidente.",
       example: "ALTA",
     }),
+    recursosAdicionales: z
+      .array(RecursoAdicionalDespachoInputSchema)
+      .max(50, "No se pueden asignar más de 50 recursos adicionales en un mismo despacho.")
+      .optional()
+      .openapi({
+        description:
+          "Recursos logísticos adicionales a incorporar permanentemente en la dotación activa de la cuadrilla al momento del despacho",
+      }),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.recursosAdicionales || data.recursosAdicionales.length === 0) {
+      return;
+    }
+    const vistos = new Set<string>();
+    data.recursosAdicionales.forEach((item, idx) => {
+      if (vistos.has(item.recursoId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["recursosAdicionales", idx, "recursoId"],
+          message:
+            "No se permiten recursos duplicados en el listado de recursos adicionales.",
+        });
+      } else {
+        vistos.add(item.recursoId);
+      }
+    });
   })
   .openapi("AsignarCuadrillaMisionInput");
 
@@ -660,6 +715,17 @@ export const AsignarCuadrillaMisionResponseSchema = z
           creadoEn: z.string(),
         })
         .nullable()
+        .optional(),
+      recursosAdicionalesAsignados: z
+        .array(
+          z.object({
+            id: z.string().uuid(),
+            nombre: z.string(),
+            cantidadAsignada: z.number().int().min(1),
+            cantidadEnUsoActual: z.number().int().nonnegative(),
+            estado: z.string(),
+          })
+        )
         .optional(),
     }),
   })
@@ -1480,6 +1546,12 @@ export const SolicitarApoyoMisionBodySchema = z
   .object({
     requiereApoyoAdicional: z.boolean().optional(),
     requiere_apoyo_adicional: z.boolean().optional(),
+    requiereCuadrillaAdicional: z.boolean().optional().openapi({
+      description:
+        "Indica si el apoyo adicional solicitado requiere despachar una cuadrilla adicional con una misión distinta a la original (HU-44)",
+      example: true,
+    }),
+    requiere_cuadrilla_adicional: z.boolean().optional(),
     detalleApoyoRequerido: z.string().nullable().optional(),
     detalle_apoyo_requerido: z.string().nullable().optional(),
     resumenTecnico: z.string().optional(),
@@ -1493,6 +1565,13 @@ export const SolicitarApoyoMisionInputSchema = z
     requiereApoyoAdicional: z.boolean({
       message: "Debe indicar si requiere apoyo adicional (requiereApoyoAdicional).",
     }),
+    requiereCuadrillaAdicional: z
+      .boolean({
+        message:
+          "El campo requiereCuadrillaAdicional debe ser un valor booleano.",
+      })
+      .optional()
+      .default(false),
     detalleApoyoRequerido: z
       .string()
       .trim()
@@ -1529,6 +1608,9 @@ export const SolicitarApoyoMisionInputSchema = z
   })
   .transform((data) => ({
     requiereApoyoAdicional: data.requiereApoyoAdicional,
+    requiereCuadrillaAdicional: data.requiereApoyoAdicional
+      ? Boolean(data.requiereCuadrillaAdicional)
+      : false,
     detalleApoyoRequerido: data.requiereApoyoAdicional
       ? (data.detalleApoyoRequerido ?? "").trim()
       : null,
@@ -1547,6 +1629,10 @@ export const SolicitarApoyoMisionInputNormalizedSchema = z.preprocess((raw) => {
     obj.requiereApoyoAdicional !== undefined
       ? obj.requiereApoyoAdicional
       : obj.requiere_apoyo_adicional;
+  const reqCuadrilla =
+    obj.requiereCuadrillaAdicional !== undefined
+      ? obj.requiereCuadrillaAdicional
+      : obj.requiere_cuadrilla_adicional;
   const detApoyo =
     obj.detalleApoyoRequerido !== undefined
       ? obj.detalleApoyoRequerido
@@ -1556,6 +1642,7 @@ export const SolicitarApoyoMisionInputNormalizedSchema = z.preprocess((raw) => {
 
   return {
     requiereApoyoAdicional: reqApoyo,
+    ...(reqCuadrilla !== undefined ? { requiereCuadrillaAdicional: reqCuadrilla } : {}),
     detalleApoyoRequerido: detApoyo,
     ...(resTec !== undefined ? { resumenTecnico: resTec } : {}),
     ...(obj.observaciones !== undefined ? { observaciones: obj.observaciones } : {}),
@@ -1578,6 +1665,7 @@ export const SolicitarApoyoMisionResponseSchema = z
       misionCodigo: z.string(),
       incidenteId: z.string().uuid().nullable(),
       requiereApoyoAdicional: z.boolean(),
+      requiereCuadrillaAdicional: z.boolean(),
       detalleApoyoRequerido: z.string().nullable(),
       hito: MisionHitoRegistradoSchema.nullable(),
       alertaEmitida: z.boolean(),

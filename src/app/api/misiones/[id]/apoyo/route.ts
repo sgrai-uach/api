@@ -29,8 +29,8 @@ interface RouteContext {
  * Reglas de negocio y transacción atómica:
  * 1. Requiere autenticación válida y el permiso RBAC `reportes:crear`.
  * 2. Exige que la misión esté en estado `EN_CURSO` y pertenezca a la unidad asignada (salvo Administrador).
- * 3. Validación condicional: si `requiereApoyoAdicional === true`, exige `detalleApoyoRequerido` (>= 5 caracteres).
- * 4. Persiste en `reporte_terreno` (`requiere_apoyo_adicional` y `detalle_apoyo_requerido`) y registra
+ * 3. Validación condicional: si `requiereApoyoAdicional === true`, exige `detalleApoyoRequerido` (>= 5 caracteres) y admite `requiereCuadrillaAdicional` (default false).
+ * 4. Persiste en `reporte_terreno` (`requiere_apoyo_adicional`, `requiere_cuadrilla_adicional` y `detalle_apoyo_requerido`) y registra
  *    el hito `APOYO_SOLICITADO` en `mision_hito`.
  * 5. Emite alerta prioritaria `"mision:apoyo_solicitado"` hacia la sala `encargado` y actualiza el Kanban.
  */

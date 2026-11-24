@@ -273,4 +273,52 @@ describe("HU-41: Servicio de Negocio rechazarMisionService (Cuadrilla)", () => {
 
     expect(respuesta.data.mision.estado).toBe("RECHAZADA");
   });
+
+  it("debe preservar EN_ATENCION y propagar reactivación A3 cuando el incidente aún tiene otra cuadrilla activa", async () => {
+    vi.mocked(misionRepository.rechazarMisionCuadrillaRepo).mockResolvedValueOnce({
+      ...repoResultMock,
+      incidente: {
+        id: incidenteId,
+        codigo: "INC-2026-0001",
+        estado: "EN_ATENCION",
+        prioridad: "ALTA",
+      },
+      estadoOperativoIncidente: {
+        cuadrillaAceptada: true,
+        tieneMisionEnCurso: true,
+        faenasCuadrillaCompletadas: false,
+        apoyoSolicitado: true,
+        requiereCuadrillaAdicional: true,
+        detalleApoyoRequerido: "Se requiere segunda cuadrilla",
+      },
+    });
+
+    const respuesta = await rechazarMisionService(
+      misionId,
+      usuarioId,
+      false,
+      { justificacionRechazo: "Falla hidráulica en camión tolva" },
+      "CUADRILLA"
+    );
+
+    expect(respuesta.message).toContain("EN_ATENCION");
+    expect(socketModule.notificarMisionRechazada).toHaveBeenCalledWith(
+      expect.objectContaining({
+        misionId,
+        incidenteId,
+        incidenteEstado: "EN_ATENCION",
+      })
+    );
+    expect(socketModule.notificarIncidenteActualizado).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: incidenteId,
+        nuevoEstado: "EN_ATENCION",
+        cuadrillaAceptada: true,
+        tieneMisionEnCurso: true,
+        apoyoSolicitado: true,
+        requiereCuadrillaAdicional: true,
+        detalleApoyoRequerido: "Se requiere segunda cuadrilla",
+      })
+    );
+  });
 });

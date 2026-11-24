@@ -112,6 +112,7 @@ describe("Mision Repository - registrarSolicitudApoyoMisionRepo (HU-44)", () => 
 
     const resultado = await registrarSolicitudApoyoMisionRepo(misionId, usuarioId, false, {
       requiereApoyoAdicional: true,
+      requiereCuadrillaAdicional: true,
       detalleApoyoRequerido: "Se solicita motoniveladora y cuadrilla adicional de despeje",
       observaciones: null,
     });
@@ -123,12 +124,14 @@ describe("Mision Repository - registrarSolicitudApoyoMisionRepo (HU-44)", () => 
       evaluador_id: usuarioId,
       tipo_reporte: "SOLICITUD_APOYO",
       requiere_apoyo_adicional: true,
+      requiere_cuadrilla_adicional: true,
       detalle_apoyo_requerido: "Se solicita motoniveladora y cuadrilla adicional de despeje",
     });
     expect(insertCalls[1].table).toBe("mision_hito");
     expect(insertCalls[1].payload.hito).toBe("APOYO_SOLICITADO");
     expect(updateCalls).toContain("incidente");
     expect(resultado.hito?.hito).toBe("APOYO_SOLICITADO");
+    expect(resultado.requiereCuadrillaAdicional).toBe(true);
   });
 
   it("debe lanzar NotFoundError si la misión no existe", async () => {
@@ -136,6 +139,7 @@ describe("Mision Repository - registrarSolicitudApoyoMisionRepo (HU-44)", () => 
     await expect(
       registrarSolicitudApoyoMisionRepo(misionId, usuarioId, false, {
         requiereApoyoAdicional: true,
+        requiereCuadrillaAdicional: false,
         detalleApoyoRequerido: "Se requiere refuerzo",
         observaciones: null,
       })
@@ -159,6 +163,7 @@ describe("Mision Repository - registrarSolicitudApoyoMisionRepo (HU-44)", () => 
     await expect(
       registrarSolicitudApoyoMisionRepo(misionId, usuarioId, false, {
         requiereApoyoAdicional: true,
+        requiereCuadrillaAdicional: false,
         detalleApoyoRequerido: "Se requiere refuerzo",
         observaciones: null,
       })
@@ -182,6 +187,7 @@ describe("Mision Repository - registrarSolicitudApoyoMisionRepo (HU-44)", () => 
     await expect(
       registrarSolicitudApoyoMisionRepo(misionId, usuarioId, false, {
         requiereApoyoAdicional: true,
+        requiereCuadrillaAdicional: false,
         detalleApoyoRequerido: "Se requiere refuerzo",
         observaciones: null,
       })
@@ -205,6 +211,7 @@ describe("Mision Repository - registrarSolicitudApoyoMisionRepo (HU-44)", () => 
     await expect(
       registrarSolicitudApoyoMisionRepo(misionId, usuarioId, false, {
         requiereApoyoAdicional: true,
+        requiereCuadrillaAdicional: false,
         detalleApoyoRequerido: "Se requiere refuerzo",
         observaciones: null,
       })

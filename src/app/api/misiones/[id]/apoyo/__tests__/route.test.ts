@@ -211,6 +211,7 @@ describe("Route Handler POST /api/misiones/[id]/apoyo (HU-44)", () => {
         misionCodigo: "MIS-2026-0044",
         incidenteId: "50000000-0000-4000-8000-000000000001",
         requiereApoyoAdicional: true,
+        requiereCuadrillaAdicional: false,
         detalleApoyoRequerido: "Se solicita motoniveladora y cuadrilla adicional de despeje",
         hito: {
           id: "80000000-0000-4000-8000-000000000001",
@@ -253,7 +254,62 @@ describe("Route Handler POST /api/misiones/[id]/apoyo (HU-44)", () => {
       false,
       {
         requiereApoyoAdicional: true,
+        requiereCuadrillaAdicional: false,
         detalleApoyoRequerido: "Se solicita motoniveladora y cuadrilla adicional de despeje",
+        observaciones: null,
+      }
+    );
+  });
+
+  it("propaga requiereCuadrillaAdicional=true y alias requiere_cuadrilla_adicional", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(delegadoUserId);
+    vi.mocked(authService.verificarPermiso).mockResolvedValueOnce({
+      id: delegadoUserId,
+      nombre: "Delegado Cuadrilla",
+      rol: "Delegado de Cuadrilla",
+    });
+
+    vi.mocked(misionService.solicitarApoyoMisionService).mockResolvedValueOnce({
+      message: "Solicitud de apoyo adicional registrada",
+      data: {
+        reporteId: "55555555-5555-4555-8555-555555555555",
+        misionId,
+        misionCodigo: "MIS-2026-0044",
+        incidenteId: "22222222-2222-4222-8222-222222222222",
+        requiereApoyoAdicional: true,
+        requiereCuadrillaAdicional: true,
+        detalleApoyoRequerido: "Se requiere segunda cuadrilla electrica",
+        hito: null,
+        alertaEmitida: true,
+        creadoEn: "2026-04-20T12:00:00.000Z",
+      },
+    });
+
+    const res = await POST(
+      new NextRequest(`http://localhost:3000/api/misiones/${misionId}/apoyo`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: "Bearer token",
+        },
+        body: JSON.stringify({
+          requiereApoyoAdicional: true,
+          requiere_cuadrilla_adicional: true,
+          detalleApoyoRequerido: "Se requiere segunda cuadrilla electrica",
+        }),
+      }),
+      { params: Promise.resolve({ id: misionId }) }
+    );
+
+    expect(res.status).toBe(201);
+    expect(misionService.solicitarApoyoMisionService).toHaveBeenCalledWith(
+      misionId,
+      delegadoUserId,
+      false,
+      {
+        requiereApoyoAdicional: true,
+        requiereCuadrillaAdicional: true,
+        detalleApoyoRequerido: "Se requiere segunda cuadrilla electrica",
         observaciones: null,
       }
     );

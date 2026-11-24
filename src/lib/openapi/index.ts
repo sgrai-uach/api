@@ -1411,7 +1411,7 @@ registry.registerPath({
   path: "/api/misiones",
   summary: "Despachar misión operativa a patrulla verificadora (HU-20) o cuadrilla operativa (HU-21)",
   description:
-    "Crea y despacha una misión en estado DESPACHADA. Si recibe `patrullaId` (HU-20), despacha una patrulla verificadora disponible sobre un incidente REPORTADO (cambiando el incidente a VERIFICANDO y la patrulla a EN_VERIFICACION). Si recibe `cuadrillaId` o `tipoMision: 'ATENCION_CUADRILLA'` (HU-21), despacha una cuadrilla disponible cambiando el incidente a EN_ATENCION y aplicando la Regla §3.2 ICS para concluir la verificación previa y liberar la patrulla a DISPONIBLE.",
+    "Crea y despacha una misión en estado DESPACHADA. Si recibe `patrullaId` (HU-20), despacha una patrulla verificadora disponible sobre un incidente REPORTADO (cambiando el incidente a VERIFICANDO y la patrulla a EN_VERIFICACION). Si recibe `cuadrillaId` o `tipoMision: 'ATENCION_CUADRILLA'` (HU-21 / HU-44), despacha una cuadrilla disponible sobre un incidente en REPORTADO, VERIFICANDO o EN_ATENCION (apoyo adicional con misión distinta), opcionalmente incorpora `recursosAdicionales` permanentes a la dotación activa de la cuadrilla en `cuadrilla_recurso`, desactiva alertas previas de apoyo satisfechas (regla A3) y aplica la Regla §3.2 ICS para relevar la patrulla verificadora previa si aún no estaba liberada.",
   tags: ["Misiones"],
   security: [{ BearerAuth: [] }],
   request: {
@@ -3194,7 +3194,7 @@ registry.registerPath({
   path: "/api/misiones/{id}/apoyo",
   summary: "Solicitar apoyo adicional de recursos materiales o humanos en terreno (HU-44)",
   description:
-    "Permite al Delegado de Cuadrilla (o unidad asignada en terreno) indicar en su reporte si requiere apoyo adicional de recursos materiales o humanos sin interrumpir la faena en curso. Si `requiereApoyoAdicional` es true, exige `detalleApoyoRequerido` (>= 5 caracteres). Persiste en `reporte_terreno` (`tipo_reporte = 'SOLICITUD_APOYO'`), registra el hito `APOYO_SOLICITADO` en `mision_hito`, emite la alerta visual prioritaria `'mision:apoyo_solicitado'` hacia la sala `encargado` del Centro de Mando y actualiza el tablero Kanban (`apoyoSolicitado`). Requiere permiso RBAC `'reportes:crear'`.",
+    "Permite al Delegado de Cuadrilla (o unidad asignada en terreno) indicar en su reporte si requiere apoyo adicional de recursos materiales o humanos sin interrumpir la faena en curso, incluyendo si se requiere despachar una cuadrilla adicional con misión distinta (`requiereCuadrillaAdicional`, default false). Si `requiereApoyoAdicional` es true, exige `detalleApoyoRequerido` (>= 5 caracteres). Persiste en `reporte_terreno` (`tipo_reporte = 'SOLICITUD_APOYO'`), registra el hito `APOYO_SOLICITADO` en `mision_hito`, emite la alerta visual prioritaria `'mision:apoyo_solicitado'` hacia la sala `encargado` del Centro de Mando y actualiza el tablero Kanban (`apoyoSolicitado`, `requiereCuadrillaAdicional`). Requiere permiso RBAC `'reportes:crear'`.",
   tags: ["Misiones", "Incidentes"],
   security: [{ BearerAuth: [] }],
   request: {

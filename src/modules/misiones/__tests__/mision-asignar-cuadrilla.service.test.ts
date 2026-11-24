@@ -20,6 +20,7 @@ vi.mock("@/lib/socket", async (importOriginal) => {
     notificarPatrullaLiberada: vi.fn(),
     notificarPatrullaActualizada: vi.fn(),
     notificarIncidenteActualizado: vi.fn(),
+    emitirRecursoActualizado: vi.fn(),
   };
 });
 
@@ -266,6 +267,95 @@ describe("Servicio: asignarCuadrillaMisionService (HU-21 / Regla ICS §3.2)", ()
         usuarioId
       )
     ).rejects.toThrow(ConflictError);
+  });
+
+  it("debe emitir recurso:actualizado y estadoOperativoIncidente A3 al despachar cuadrilla adicional con recursos adicionales", async () => {
+    const recursoId = "b0000000-0000-4000-8000-000000000011";
+    vi.mocked(misionRepository.asignarCuadrillaIncidenteRepo).mockResolvedValueOnce({
+      mision: {
+        id: nuevaMisionId,
+        codigo: "MIS-2026-0099",
+        titulo: "Apoyo táctico - Incidente INC-2026-0001",
+        descripcion: "Segunda cuadrilla",
+        tipoMision: "ATENCION_CUADRILLA",
+        estado: "DESPACHADA",
+        prioridad: "ALTA",
+        incidenteId,
+        cuadrillaId,
+        encargadoId: usuarioId,
+        creadoPorId: usuarioId,
+        fechaInicio: null,
+        creadoEn: "2026-10-04T13:00:00.000Z",
+      },
+      cuadrilla: {
+        id: cuadrillaId,
+        nombre: "Cuadrilla Sur 2",
+        estado: "EN_MISION",
+      },
+      incidente: {
+        id: incidenteId,
+        codigo: "INC-2026-0001",
+        estado: "EN_ATENCION",
+        prioridad: "ALTA",
+      },
+      patrullaLiberada: null,
+      recursosAdicionalesAsignados: [
+        {
+          id: recursoId,
+          nombre: "Motobomba Honda",
+          cantidadAsignada: 1,
+          cantidadEnUsoActual: 2,
+          estado: "DISPONIBLE",
+        },
+      ],
+      estadoOperativoIncidente: {
+        cuadrillaAceptada: true,
+        tieneMisionEnCurso: true,
+        faenasCuadrillaCompletadas: false,
+        apoyoSolicitado: false,
+        requiereCuadrillaAdicional: false,
+        detalleApoyoRequerido: null,
+      },
+      hitoCuadrilla: {
+        id: "80000000-0000-4000-8000-000000000099",
+        misionId: nuevaMisionId,
+        hito: "CUADRILLA_DESPACHADA",
+        descripcion: "Cuadrilla adicional despachada",
+        creadoEn: "2026-10-04T13:00:00.000Z",
+      },
+      hitoPatrulla: null,
+    });
+
+    const respuesta = await asignarCuadrillaMisionService(
+      {
+        tipoMision: "ATENCION_CUADRILLA",
+        incidenteId,
+        cuadrillaId,
+        recursosAdicionales: [{ recursoId, cantidad: 1 }],
+      },
+      usuarioId
+    );
+
+    expect(socketModule.emitirRecursoActualizado).toHaveBeenCalledWith({
+      id: recursoId,
+      nombre: "Motobomba Honda",
+      estado: "DISPONIBLE",
+      cantidadEnUso: 2,
+      actualizadoEn: "2026-10-04T13:00:00.000Z",
+    });
+    expect(socketModule.notificarIncidenteActualizado).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: incidenteId,
+        nuevoEstado: "EN_ATENCION",
+        apoyoSolicitado: false,
+        requiereCuadrillaAdicional: false,
+        detalleApoyoRequerido: null,
+        cuadrillaAceptada: true,
+        tieneMisionEnCurso: true,
+        faenasCuadrillaCompletadas: false,
+      })
+    );
+    expect(respuesta.data.recursosAdicionalesAsignados).toHaveLength(1);
   });
 });
 

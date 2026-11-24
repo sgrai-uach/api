@@ -46,7 +46,7 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 | `POST` | `/api/misiones` | `misiones:asignar` | Despacho y asignación de misión operativa a terreno: verificación primaria con patrulla (HU-20) o atención técnica con cuadrilla liberando la patrulla previa (HU-21 / Regla ICS §3.2). |
 | `POST` | `/api/misiones/{id}/aceptar` | `misiones:terreno:ejecutar` / `misiones:terreno:verificar` | Confirmar y aceptar misión asignada desde terreno (PWA), transicionando de `DESPACHADA` a `EN_CURSO`, registrando `fecha_inicio` y el hito `'Asignación Aceptada por Cuadrilla'` (HU-40, pasando cuadrilla a `EN_MISION` e incidente a `EN_ATENCION`) o `'Misión Aceptada por Patrulla'` (HU-36) en `mision_hito`. |
 | `POST` | `/api/misiones/{id}/llegada` | `misiones:terreno:ejecutar` | Reportar arribo a terreno de la brigada operativa, registrar hito `LLEGADA_TERRENO`, actualizar ubicación de miembros y habilitar cálculo de tiempos de respuesta (HU-42). |
-| `POST` | `/api/misiones/{id}/apoyo` | `reportes:crear` | Indicar en el reporte de terreno de una misión con cuadrilla operativa asignada (`EN_CURSO`) si se requiere apoyo adicional de recursos materiales o humanos (mín. 5 caracteres en `detalleApoyoRequerido` si aplica), registrando el hito `APOYO_SOLICITADO` y emitiendo alerta prioritaria `mision:apoyo_solicitado` hacia la sala `encargado` (HU-44). No aplica a misiones de `VERIFICACION`. |
+| `POST` | `/api/misiones/{id}/apoyo` | `reportes:crear` | Indicar en el reporte de terreno de una misión con cuadrilla operativa asignada (`EN_CURSO`) si se requiere apoyo adicional de recursos materiales o humanos (mín. 5 caracteres en `detalleApoyoRequerido` si aplica) y si requiere despachar una cuadrilla adicional con una misión distinta (`requiereCuadrillaAdicional`, default `false`), registrando el hito `APOYO_SOLICITADO` y emitiendo alerta prioritaria `mision:apoyo_solicitado` hacia la sala `encargado` (HU-44). No aplica a misiones de `VERIFICACION`. |
 | `POST` | `/api/misiones/{id}/rechazar` | `misiones:terreno:ejecutar` / `misiones:terreno:verificar` | Rechazar asignación de misión por Delegado de Cuadrilla (HU-41) o Patrulla Verificadora (HU-69) con justificación técnica obligatoria (≥ 5 caracteres, Regla §3.3), devolviendo la unidad a `DISPONIBLE` y el incidente a `VERIFICANDO` o `REPORTADO`. |
 | `POST` | `/api/misiones/{id}/cerrar` | `misiones:terreno:ejecutar` | Enviar informe técnico final de resolución de emergencia por Delegado de Cuadrilla, descontar materiales consumidos, cerrar la misión (`COMPLETADA`) y devolver la cuadrilla a `DISPONIBLE` (HU-68). |
 | `POST` | `/api/incidentes/{id}/prioridad/calcular` | `misiones:terreno:verificar` | Calcular la `prioridad_sugerida` y factores gatillantes en base al formulario de evaluación técnica en terreno de la patrulla verificadora (HU-38). |
@@ -487,10 +487,12 @@ Permite al **Encargado de Operaciones** (o Administrador) desplegar una cuadrill
 
 #### Reglas de Negocio Críticas Aplicadas
 1. **Validación de Estados de Entrada y Evaluación Previa en Terreno (Regla ICS):**
-   - El incidente debe existir y encontrarse en estado canónico `REPORTADO` o `VERIFICANDO`. Si ya se encuentra en `EN_ATENCION`, `RESUELTO` o `NO_ABORDABLE`, la API responde con `409 Conflict`.
+   - El incidente debe existir y encontrarse en estado canónico `REPORTADO`, `VERIFICANDO` o `EN_ATENCION` (despacho adicional o de relevo para apoyo en terreno). Si se encuentra en `RESUELTO` o `NO_ABORDABLE`, la API responde con `409 Conflict`.
    - **Evaluación técnica obligatoria antes del relevo:** Si el incidente está en `VERIFICANDO` y cuenta con una patrulla verificadora asignada, la patrulla **debe haber emitido previamente su informe técnico en terreno (`reporte_terreno`)** o registrado el hito de evaluación. Si aún se encuentra en traslado o sin emitir dicho informe, el despacho es bloqueado con `409 Conflict` y código de negocio `'VERIFICACION_EN_CURSO'`.
-   - Si el incidente se encuentra en `REPORTADO` (despacho directo sin patrullaje previo), esta validación no aplica y se permite la asignación directa de cuadrilla.
+   - Si el incidente se encuentra en `REPORTADO` (despacho directo sin patrullaje previo) o en `EN_ATENCION` (despacho de cuadrilla adicional), esta validación no aplica y se permite la asignación de cuadrilla generando una misión nueva (`Apoyo táctico - Incidente [CODIGO]` como título fallback en `EN_ATENCION`).
    - La cuadrilla seleccionada debe encontrarse en estado `DISPONIBLE` y activa (`activo = true`, `eliminado_en IS NULL`). Si está en `EN_MISION` o `NO_DISPONIBLE`, se rechaza con `409 Conflict`.
+   - **Recursos adicionales permanentes (`recursosAdicionales`):** Admite opcionalmente un arreglo `{ recursoId, cantidad }` (sin duplicados) que se vincula de forma permanente en `cuadrilla_recurso` (`activo = true`, `desvinculado_en = null`), validando estado operable, stock disponible y unicidad para recursos individuales (`es_individual = true`), actualizando `recurso.cantidad_en_uso` y `recurso.estado`, y emitiendo `recurso:actualizado`.
+   - **Apagado de alertas previas de apoyo (Regla A3):** Al despacharse la nueva misión de cuadrilla, las solicitudes de apoyo anteriores pasan a considerarse atendidas a nivel de incidente (`apoyoSolicitado: false`, `requiereCuadrillaAdicional: false`), preservando el registro histórico en `reporte_terreno`. Si esa misión es rechazada posteriormente, la alerta previa se reactiva automáticamente.
 2. **Transacción Atómica Kysely:**
    - Adquiere bloqueo pesimista (`FOR UPDATE`) sobre el incidente y la cuadrilla.
    - Serializa la generación de correlativo mediante `pg_advisory_xact_lock(hashtext('mision_codigo_seq'))`.
@@ -529,11 +531,12 @@ Permite al **Encargado de Operaciones** (o Administrador) desplegar una cuadrill
 | Campo | Tipo | Requerido | Descripción |
 |---|---|---|---|
 | `tipoMision` | `string` | **Sí** | Literal `"ATENCION_CUADRILLA"`. |
-| `incidenteId` | `UUID` | **Sí** | Identificador único del incidente a atender (`REPORTADO` o `VERIFICANDO`). |
+| `incidenteId` | `UUID` | **Sí** | Identificador único del incidente a atender (`REPORTADO`, `VERIFICANDO` o `EN_ATENCION`). |
 | `cuadrillaId` | `UUID` | **Sí** | Identificador único de la cuadrilla operativa disponible a despachar. |
 | `titulo` | `string` | No | Título descriptivo (3 a 150 caracteres). Si se omite, se genera automáticamente. |
 | `descripcion` | `string` | No | Instrucciones tácticas de intervención para la cuadrilla (máx. 1000 caracteres). |
 | `prioridad` | `string` | No | Prioridad táctica (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). Heredada si se omite. |
+| `recursosAdicionales` | `Array<{ recursoId: UUID, cantidad: number }>` | No | Recursos adicionales a incorporar permanentemente en la dotación activa de la cuadrilla. |
 
 #### Ejemplo de Respuesta Exitosa (`HTTP 201 Created`)
 
@@ -1078,7 +1081,8 @@ Permite al Centro de Mando (`sgrai-web`) consultar de forma instantánea el snap
       }
       ```
     2. **Unidad no disponible concurrentemente:** La patrulla o cuadrilla seleccionada no se encuentra en estado `DISPONIBLE` (ej. asignada concurrentemente a otra misión).
-    3. **Incidente no en estado apto:** Para verificación con patrulla, el incidente no está en `REPORTADO`. Para despacho de cuadrilla, el incidente no está en `REPORTADO` ni `VERIFICANDO` (ej. ya en `EN_ATENCION` o `RESUELTO`).
+    3. **Incidente no en estado apto:** Para verificación con patrulla, el incidente no está en `REPORTADO`. Para despacho de cuadrilla, el incidente no está en `REPORTADO`, `VERIFICANDO` ni `EN_ATENCION` (ej. `RESUELTO` o `NO_ABORDABLE`).
+    4. **Recurso adicional no disponible o sin stock:** En `POST /api/misiones` con `recursosAdicionales`, algún recurso está en mantención/no disponible, carece de stock suficiente, o un recurso individual ya pertenece a una cuadrilla activa.
   - En `POST /api/misiones/{id}/aceptar`:
     1. La misión no se encuentra en estado `DESPACHADA` (ej. ya está `EN_CURSO` o `COMPLETADA`) o no tiene una unidad (cuadrilla o patrulla) asignada.
     2. La unidad asignada (cuadrilla o patrulla verificadora) fue desactivada o está en estado incompatible (`NO_DISPONIBLE`, o patrulla no `EN_VERIFICACION`), o el incidente asociado está en estado terminal (`RESUELTO`, `NO_ABORDABLE`) o distinto de `VERIFICANDO` para verificación.
@@ -1138,8 +1142,8 @@ Al confirmarse la asignación y operación de misiones mediante los endpoints de
     - **Propósito:** Actualizar en tiempo real el stock (`cantidadInventario`, `cantidadEnUso`) y el estado operativo del recurso material tras descontar insumos consumidos en terreno.
 11. **`mision:apoyo_solicitado` (HU-44)**:
     - **Salas destino:** `encargado`, `sala:encargados` y `supervisor`.
-    - **Payload:** `{ reporteId, misionId, misionCodigo, incidenteId, incidenteCodigo, cuadrillaId, cuadrillaNombre, evaluadorId, evaluadorNombre, requiereApoyoAdicional: true, detalleApoyoRequerido, prioridadAlerta: "ALTA", solicitadoEn }`.
-    - **Propósito:** Emitir alerta visual prioritaria inmediata hacia el Centro de Mando cuando una cuadrilla u unidad en terreno solicita apoyo adicional material o humano, sin interrumpir la faena en curso.
+    - **Payload:** `{ reporteId, misionId, misionCodigo, incidenteId, incidenteCodigo, cuadrillaId, cuadrillaNombre, evaluadorId, evaluadorNombre, requiereApoyoAdicional: true, requiereCuadrillaAdicional, detalleApoyoRequerido, prioridadAlerta: "ALTA", solicitadoEn }`.
+    - **Propósito:** Emitir alerta visual prioritaria inmediata hacia el Centro de Mando cuando una cuadrilla u unidad en terreno solicita apoyo adicional material o humano, indicando si requiere despachar una cuadrilla adicional sin interrumpir la faena en curso.
 12. **`telemetria:posicion` (HU-70: Transmisión y Retransmisión GPS en Terreno)**:
     - **Evento de Entrada (Client-to-Server):** Emitido periódicamente (cada 30 a 60 segundos) por la app PWA móvil de patrullas y delegados de cuadrilla cuando se encuentran en misión activa (`EN_CURSO`).
       - **Payload:**

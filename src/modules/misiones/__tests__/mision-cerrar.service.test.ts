@@ -376,4 +376,112 @@ describe("Mision Service - cerrarMisionCuadrillaService (HU-68)", () => {
       "2026-11-18T19:00:00.000Z"
     );
   });
+
+  it("debe emitir estado multi-cuadrilla real cuando otra cuadrilla sigue activa en el incidente", async () => {
+    const fechaCierre = "2026-11-18T19:30:00.000Z";
+    vi.mocked(misionRepo.cerrarMisionCuadrillaRepo).mockResolvedValueOnce({
+      reporteTerreno: {
+        id: "rep-003",
+        misionId,
+        tipoReporte: "REPORTE_CUADRILLA",
+        dictamen: null,
+        motivoNoAbordable: null,
+        requiereAsistenciaSocial: false,
+        versionReporte: 1,
+        esRectificacion: false,
+        etiquetaReporte: "Informe Técnico Final de Cuadrilla (Cierre de Misión)",
+        prioridadSugerida: null,
+        prioridadAsignada: "ALTA",
+        justificacionPrioridad: null,
+        detallesEvaluacion: {},
+        evaluador: {
+          id: usuarioId,
+          nombre: "Carlos Gómez",
+          email: "carlos@valdivia.cl",
+          rut: null,
+        },
+        resumenTecnico: "Faena de apoyo finalizada.",
+        accionesRealizadas: "Faena de apoyo finalizada.",
+        requiereApoyoAdicional: false,
+        danosEstimados: null,
+        observaciones: null,
+        personasAfectadas: 0,
+        estadoTerreno: "CONTROLADO",
+        horasHombre: 4,
+        materialesConsumidos: [],
+        adjuntos: [],
+        creadoEn: fechaCierre,
+        actualizadoEn: fechaCierre,
+      },
+      mision: {
+        id: misionId,
+        codigo: "MIS-2026-0007",
+        titulo: "Apoyo táctico",
+        tipoMision: "ATENCION_CUADRILLA",
+        estado: "COMPLETADA",
+        prioridad: "ALTA",
+        incidenteId,
+        cuadrillaId,
+        fechaInicio: "2026-11-18T15:00:00.000Z",
+        fechaCierre,
+        actualizadoEn: fechaCierre,
+      },
+      cuadrilla: {
+        id: cuadrillaId,
+        nombre: "Cuadrilla Norte",
+        estado: "DISPONIBLE",
+        delegacionId: null,
+      },
+      incidente: {
+        id: incidenteId,
+        codigo: "INC-2026-0001",
+        estado: "EN_ATENCION",
+        prioridad: "ALTA",
+        requiereAsistenciaSocial: false,
+      },
+      estadoOperativoIncidente: {
+        cuadrillaAceptada: true,
+        tieneMisionEnCurso: true,
+        faenasCuadrillaCompletadas: false,
+        apoyoSolicitado: false,
+        requiereCuadrillaAdicional: false,
+        detalleApoyoRequerido: null,
+      },
+      recursosActualizados: [],
+      hito: {
+        id: "hito-003",
+        misionId,
+        hito: "MISION_COMPLETADA",
+        descripcion: "Cierre de apoyo.",
+        registradoPorId: usuarioId,
+        latitud: null,
+        longitud: null,
+        metadatos: null,
+        creadoEn: fechaCierre,
+      },
+    });
+
+    await cerrarMisionCuadrillaService(misionId, usuarioId, false, {
+      resumenFaenas: "Faena de apoyo finalizada.",
+      materialesConsumidos: [],
+      horasHombre: 4,
+      estadoTerreno: "CONTROLADO",
+      observaciones: null,
+      danosEstimados: null,
+      requiereApoyoAdicional: false,
+      requiereAsistenciaSocial: false,
+      adjuntoIds: [],
+      adjuntos: [],
+    });
+
+    expect(socketLib.notificarIncidenteActualizado).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: incidenteId,
+        nuevoEstado: "EN_ATENCION",
+        cuadrillaAceptada: true,
+        tieneMisionEnCurso: true,
+        faenasCuadrillaCompletadas: false,
+      })
+    );
+  });
 });

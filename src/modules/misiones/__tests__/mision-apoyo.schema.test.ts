@@ -56,15 +56,39 @@ describe("Mision Schema - SolicitarApoyoMisionInputNormalizedSchema (HU-44)", ()
     }
   });
 
-  it("debe permitir requiereApoyoAdicional = false sin detalle y normalizar detalleApoyoRequerido a null", () => {
+  it("debe permitir requiereApoyoAdicional = false sin detalle y normalizar detalleApoyoRequerido a null y requiereCuadrillaAdicional a false", () => {
     const res = SolicitarApoyoMisionInputNormalizedSchema.safeParse({
       requiereApoyoAdicional: false,
+      requiereCuadrillaAdicional: true,
       detalleApoyoRequerido: "Texto residual que debe descartarse",
     });
     expect(res.success).toBe(true);
     if (res.success) {
       expect(res.data.requiereApoyoAdicional).toBe(false);
+      expect(res.data.requiereCuadrillaAdicional).toBe(false);
       expect(res.data.detalleApoyoRequerido).toBeNull();
+    }
+  });
+
+  it("debe aceptar requiereCuadrillaAdicional en camelCase y snake_case cuando requiereApoyoAdicional es true", () => {
+    const resCamel = SolicitarApoyoMisionInputNormalizedSchema.safeParse({
+      requiereApoyoAdicional: true,
+      requiereCuadrillaAdicional: true,
+      detalleApoyoRequerido: "Se requiere segunda cuadrilla electrica",
+    });
+    expect(resCamel.success).toBe(true);
+    if (resCamel.success) {
+      expect(resCamel.data.requiereCuadrillaAdicional).toBe(true);
+    }
+
+    const resSnake = SolicitarApoyoMisionInputNormalizedSchema.safeParse({
+      requiere_apoyo_adicional: true,
+      requiere_cuadrilla_adicional: true,
+      detalle_apoyo_requerido: "Se requiere cuadrilla forestal adicional",
+    });
+    expect(resSnake.success).toBe(true);
+    if (resSnake.success) {
+      expect(resSnake.data.requiereCuadrillaAdicional).toBe(true);
     }
   });
 });

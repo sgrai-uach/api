@@ -13,6 +13,7 @@ const mockTrx: any = {
   innerJoin: vi.fn(),
   select: vi.fn(),
   where: vi.fn(),
+  orderBy: vi.fn(),
   forUpdate: vi.fn(),
   updateTable: vi.fn(),
   set: vi.fn(),
@@ -46,6 +47,7 @@ describe("HU-69: mision.repository - rechazarMisionPatrullaRepo", () => {
     mockTrx.innerJoin.mockReturnValue(mockTrx);
     mockTrx.select.mockReturnValue(mockTrx);
     mockTrx.where.mockReturnValue(mockTrx);
+    mockTrx.orderBy.mockReturnValue(mockTrx);
     mockTrx.forUpdate.mockReturnValue(mockTrx);
     mockTrx.updateTable.mockReturnValue(mockTrx);
     mockTrx.set.mockReturnValue(mockTrx);
@@ -303,6 +305,7 @@ describe("HU-41: mision.repository - rechazarMisionCuadrillaRepo", () => {
     mockTrx.innerJoin.mockReturnValue(mockTrx);
     mockTrx.select.mockReturnValue(mockTrx);
     mockTrx.where.mockReturnValue(mockTrx);
+    mockTrx.orderBy.mockReturnValue(mockTrx);
     mockTrx.forUpdate.mockReturnValue(mockTrx);
     mockTrx.updateTable.mockReturnValue(mockTrx);
     mockTrx.set.mockReturnValue(mockTrx);
@@ -529,5 +532,132 @@ describe("HU-41: mision.repository - rechazarMisionCuadrillaRepo", () => {
 
     expect(resultado.incidente?.estado).toBe("REPORTADO");
     expect(resultado.cuadrilla.estado).toBe("DISPONIBLE");
+  });
+
+  it("debe mantener el incidente en EN_ATENCION y reactivar apoyo A3 cuando aún existe otra misión de cuadrilla en el incidente", async () => {
+    const ahora = new Date("2026-11-16T23:30:00.000Z");
+
+    mockTrx.executeTakeFirst
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0006",
+        estado: "DESPACHADA",
+        tipo_mision: "ATENCION_CUADRILLA",
+        cuadrilla_id: cuadrillaId,
+        incidente_id: incidenteId,
+        cuadrilla_nombre: "Cuadrilla Refuerzo 2",
+        cuadrilla_estado: "EN_MISION",
+        cuadrilla_activo: true,
+        cuadrilla_eliminado_en: null,
+        cuadrilla_delegacion_id: delegacionId,
+        cuadrilla_delegado_id: delegadoId,
+        incidente_codigo: "INC-2026-0001",
+        incidente_estado: "EN_ATENCION",
+        incidente_prioridad: "ALTA",
+      })
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0006",
+        tipo_mision: "ATENCION_CUADRILLA",
+        estado: "RECHAZADA",
+        justificacion_rechazo: "Camión con falla en ruta",
+        fecha_cierre: ahora,
+        actualizado_en: ahora,
+      })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        id: cuadrillaId,
+        nombre: "Cuadrilla Refuerzo 2",
+        estado: "DISPONIBLE",
+        delegacion_id: delegacionId,
+        usuario_delegado_id: delegadoId,
+      })
+      .mockResolvedValueOnce({
+        id: incidenteId,
+        codigo: "INC-2026-0001",
+        estado: "EN_ATENCION",
+        prioridad: "ALTA",
+      });
+
+    let lastTable = "";
+    mockTrx.selectFrom.mockImplementation((table: string) => {
+      lastTable = table;
+      return mockTrx;
+    });
+    mockTrx.updateTable.mockImplementation((table: string) => {
+      lastTable = table;
+      return mockTrx;
+    });
+
+    let misionSelectCount = 0;
+    mockTrx.execute.mockImplementation(async () => {
+      if (lastTable === "mision") {
+        misionSelectCount += 1;
+        if (misionSelectCount === 1) {
+          return [
+            {
+              id: "60000000-0000-4000-8000-000000000099",
+              estado: "EN_CURSO",
+            },
+          ];
+        }
+        return [
+          {
+            id: "60000000-0000-4000-8000-000000000099",
+            tipo_mision: "ATENCION_CUADRILLA",
+            estado: "EN_CURSO",
+            cuadrilla_id: "50000000-0000-4000-8000-000000000099",
+            creado_en: new Date("2026-11-16T21:00:00.000Z"),
+          },
+          {
+            id: misionId,
+            tipo_mision: "ATENCION_CUADRILLA",
+            estado: "RECHAZADA",
+            cuadrilla_id: cuadrillaId,
+            creado_en: new Date("2026-11-16T22:30:00.000Z"),
+          },
+        ];
+      }
+      if (lastTable === "reporte_terreno") {
+        return [
+          {
+            id: "rep-apoyo-1",
+            requiere_apoyo_adicional: true,
+            requiere_cuadrilla_adicional: true,
+            detalle_apoyo_requerido: "Se requiere segunda cuadrilla electrica",
+            creado_en: new Date("2026-11-16T22:00:00.000Z"),
+          },
+        ];
+      }
+      return [];
+    });
+
+    mockTrx.executeTakeFirstOrThrow.mockResolvedValueOnce({
+      id: "80000000-0000-4000-8000-000000000101",
+      mision_id: misionId,
+      hito: "RECHAZADA",
+      descripcion: "Misión rechazada por cuadrilla: Camión con falla en ruta",
+      registrado_por_id: delegadoId,
+      latitud: null,
+      longitud: null,
+      creado_en: ahora,
+    });
+
+    const resultado = await rechazarMisionCuadrillaRepo(
+      misionId,
+      delegadoId,
+      "Camión con falla en ruta",
+      false
+    );
+
+    expect(resultado.incidente?.estado).toBe("EN_ATENCION");
+    expect(resultado.estadoOperativoIncidente).toEqual({
+      cuadrillaAceptada: true,
+      tieneMisionEnCurso: true,
+      faenasCuadrillaCompletadas: false,
+      apoyoSolicitado: true,
+      requiereCuadrillaAdicional: true,
+      detalleApoyoRequerido: "Se requiere segunda cuadrilla electrica",
+    });
   });
 });

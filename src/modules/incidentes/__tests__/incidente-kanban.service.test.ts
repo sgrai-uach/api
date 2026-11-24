@@ -900,7 +900,177 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
       );
       expect(detalle?.dictamenTerreno).toBe("REQUIERE_CUADRILLA");
       expect(detalle?.apoyoSolicitado).toBe(false);
+      expect(detalle?.requiereCuadrillaAdicional).toBe(false);
       expect(detalle?.detalleApoyoRequerido).toBeNull();
+    });
+
+    it("debe apagar apoyoSolicitado y requiereCuadrillaAdicional (A3) cuando existe una misión posterior no rechazada, y reactivarlo si esa misión es rechazada", async () => {
+      const baseIncidente = {
+        id: "a0000000-0000-4000-8000-000000000101",
+        codigo: "INC-466106-999",
+        codigo_seguimiento: "46610699",
+        tipo_afectacion: "Anegamiento",
+        descripcion: "Anegamiento severo",
+        direccion_texto: "Av. Alemania 1200",
+        latitud: -39.82,
+        longitud: -73.23,
+        estado: "EN_ATENCION" as const,
+        prioridad: "ALTA" as const,
+        requiere_asistencia_social: false,
+        fuente_origen: "FUNCIONARIO_TERRENO" as const,
+        asterisk_call_id: null,
+        asterisk_caller_phone: null,
+        creado_en: new Date("2026-11-23T20:00:00Z"),
+        actualizado_en: new Date("2026-11-23T21:00:00Z"),
+        informante_id: null,
+        informante_rut: null,
+        informante_nombre: null,
+        informante_telefono: null,
+        delegacion_id: null,
+        delegacion_nombre: null,
+        delegacion_descripcion: null,
+        creador_id: null,
+        creador_nombre: null,
+        creador_email: null,
+        encargado_id: null,
+        encargado_nombre: null,
+        encargado_email: null,
+      };
+
+      const reporteApoyo = {
+        id: "rep-apoyo-1",
+        mision_id: "60000000-0000-4000-8000-000000000020",
+        evaluador_id: "00000000-0000-4000-8000-000000000005",
+        tipo_reporte: "SOLICITUD_APOYO",
+        estado_terreno: "CRITICO",
+        version_reporte: 1,
+        es_rectificacion: false,
+        resumen_tecnico: "Se requiere segunda cuadrilla.",
+        acciones_realizadas: null,
+        danos_estimados: null,
+        observaciones: null,
+        personas_afectadas: 0,
+        requiere_apoyo_adicional: true,
+        requiere_cuadrilla_adicional: true,
+        detalle_apoyo_requerido: "Se requiere segunda cuadrilla con bomba.",
+        evaluador_nombre: "Delegado 1",
+        evaluador_email: "delegado1@valdivia.cl",
+        evaluador_rut: null,
+        creado_en: new Date("2026-11-23T20:30:00Z"),
+      };
+
+      // Caso 1: Misión adicional DESPACHADA posterior -> apaga A3
+      vi.mocked(repo.obtenerIncidenteDetallePorIdRepo).mockResolvedValueOnce({
+        incidente: baseIncidente,
+        misiones: [
+          {
+            id: "60000000-0000-4000-8000-000000000020",
+            codigo: "MIS-2026-0020",
+            titulo: "Atención inicial",
+            descripcion: null,
+            tipo_mision: "ATENCION_CUADRILLA",
+            estado: "EN_CURSO",
+            prioridad: "ALTA",
+            justificacion_rechazo: null,
+            trazabilidad_notificacion: null,
+            fecha_inicio: new Date("2026-11-23T20:10:00Z"),
+            fecha_cierre: null,
+            creado_en: new Date("2026-11-23T20:05:00Z"),
+            patrulla_id: null,
+            patrulla_nombre: null,
+            patrulla_estado: null,
+            cuadrilla_id: "c1",
+            cuadrilla_nombre: "Cuadrilla 1",
+            cuadrilla_estado: "EN_MISION",
+          },
+          {
+            id: "60000000-0000-4000-8000-000000000021",
+            codigo: "MIS-2026-0021",
+            titulo: "Apoyo táctico",
+            descripcion: null,
+            tipo_mision: "ATENCION_CUADRILLA",
+            estado: "DESPACHADA",
+            prioridad: "ALTA",
+            justificacion_rechazo: null,
+            trazabilidad_notificacion: null,
+            fecha_inicio: null,
+            fecha_cierre: null,
+            creado_en: new Date("2026-11-23T20:40:00Z"),
+            patrulla_id: null,
+            patrulla_nombre: null,
+            patrulla_estado: null,
+            cuadrilla_id: "c2",
+            cuadrilla_nombre: "Cuadrilla 2",
+            cuadrilla_estado: "EN_MISION",
+          },
+        ],
+        recursosAsociados: [],
+        reportesEvaluacionTerreno: [reporteApoyo],
+        justificacionReclasificacion: null,
+      });
+
+      const detalleApagado = await obtenerDetalleIncidenteService(baseIncidente.id);
+      expect(detalleApagado?.apoyoSolicitado).toBe(false);
+      expect(detalleApagado?.requiereCuadrillaAdicional).toBe(false);
+      expect(detalleApagado?.detalleApoyoRequerido).toBeNull();
+      expect(detalleApagado?.reportesEvaluacionTerreno?.[0].requiereCuadrillaAdicional).toBe(true);
+
+      // Caso 2: Misión adicional RECHAZADA -> reactiva A3
+      vi.mocked(repo.obtenerIncidenteDetallePorIdRepo).mockResolvedValueOnce({
+        incidente: baseIncidente,
+        misiones: [
+          {
+            id: "60000000-0000-4000-8000-000000000020",
+            codigo: "MIS-2026-0020",
+            titulo: "Atención inicial",
+            descripcion: null,
+            tipo_mision: "ATENCION_CUADRILLA",
+            estado: "EN_CURSO",
+            prioridad: "ALTA",
+            justificacion_rechazo: null,
+            trazabilidad_notificacion: null,
+            fecha_inicio: new Date("2026-11-23T20:10:00Z"),
+            fecha_cierre: null,
+            creado_en: new Date("2026-11-23T20:05:00Z"),
+            patrulla_id: null,
+            patrulla_nombre: null,
+            patrulla_estado: null,
+            cuadrilla_id: "c1",
+            cuadrilla_nombre: "Cuadrilla 1",
+            cuadrilla_estado: "EN_MISION",
+          },
+          {
+            id: "60000000-0000-4000-8000-000000000021",
+            codigo: "MIS-2026-0021",
+            titulo: "Apoyo táctico",
+            descripcion: null,
+            tipo_mision: "ATENCION_CUADRILLA",
+            estado: "RECHAZADA",
+            prioridad: "ALTA",
+            justificacion_rechazo: "Sin disponibilidad",
+            trazabilidad_notificacion: null,
+            fecha_inicio: null,
+            fecha_cierre: new Date("2026-11-23T20:45:00Z"),
+            creado_en: new Date("2026-11-23T20:40:00Z"),
+            patrulla_id: null,
+            patrulla_nombre: null,
+            patrulla_estado: null,
+            cuadrilla_id: "c2",
+            cuadrilla_nombre: "Cuadrilla 2",
+            cuadrilla_estado: "DISPONIBLE",
+          },
+        ],
+        recursosAsociados: [],
+        reportesEvaluacionTerreno: [reporteApoyo],
+        justificacionReclasificacion: null,
+      });
+
+      const detalleReactivado = await obtenerDetalleIncidenteService(baseIncidente.id);
+      expect(detalleReactivado?.apoyoSolicitado).toBe(true);
+      expect(detalleReactivado?.requiereCuadrillaAdicional).toBe(true);
+      expect(detalleReactivado?.detalleApoyoRequerido).toBe(
+        "Se requiere segunda cuadrilla con bomba."
+      );
     });
   });
 });

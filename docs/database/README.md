@@ -97,7 +97,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | *(Dotación de Integrantes)* | `cuadrilla_personal` (vista `cuadrilla_integrante`) | Migración 031 / 032 / 042 | Operaciones | Asignación N:M de funcionarios a cuadrillas con índice de unicidad activa y auditoría. |
 | **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 / 012 / 015 / 016 | Eventos ATP | Puntos críticos, factores de riesgo, edición (HU-55) y borrado lógico (HU-56). |
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
-| **Reporte Terreno** | `reporte_terreno` | Migración 011 / 053 / 056 / 059 / 085 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
+| **Reporte Terreno** | `reporte_terreno` | Migración 011 / 053 / 056 / 059 / 085 / 086 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
 | **Recuperación** | `recuperacion` | Migración 017 | Eventos ATP / Recuperación | Eventos e intervenciones territoriales de recuperación y entrega de recursos (HU-29). |
 | **Asistencia Social** | `evento_asistencia_social` | Migración 022 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social y requerimientos para levantamiento de ficha FIBE (HU-28). |
 | **Disponibilidad (enum)** | `estado_operativo` | Migración 002 / 025 | Operaciones | Enum de disponibilidad del funcionario (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`), normalizado a `usuario.estado_operativo` (H11). |
@@ -564,6 +564,7 @@ Informes técnicos y diagnósticos estructurados levantados por patrullas verifi
 | `resumen_tecnico` | `TEXT` | NO | — | Diagnóstico y detalle técnico consolidado de la intervención. |
 | `acciones_realizadas` | `TEXT` | SÍ | `NULL` | Maniobras operativas ejecutadas en terreno. |
 | `requiere_apoyo_adicional` | `BOOLEAN` | NO | `false` | Indicador de necesidad de escalamiento de recursos. |
+| `requiere_cuadrilla_adicional` | `BOOLEAN` | NO | `false` | Indica si el apoyo solicitado desde terreno requiere despachar una cuadrilla adicional con misión distinta (HU-44 / Migración 086). |
 | `detalle_apoyo_requerido` | `TEXT` | SÍ | `NULL` | Detalle específico de recursos materiales o humanos adicionales solicitados desde terreno (HU-44 / Migración 085). |
 | `danos_estimados` | `TEXT` | SÍ | `NULL` | Estimación descriptiva o cuantitativa de daños. |
 | `observaciones` | `TEXT` | SÍ | `NULL` | Condiciones climáticas o notas de seguridad. |
