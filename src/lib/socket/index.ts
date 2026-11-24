@@ -36,6 +36,9 @@ export interface IncidenteActualizadoPayload {
   nuevoEstado: string;
   prioridad: string;
   actualizadoEn: string;
+  tipoIncidenteId?: string | null;
+  tipoAfectacion?: string;
+  justificacion?: string | null;
 }
 
 export type TypedSocketServer = SocketIOServer<
@@ -181,8 +184,6 @@ export function notificarIncidenteActualizado(datos: IncidenteActualizadoPayload
       (ioInstance.to("encargado") as any).emit("incidente:actualizado", payload);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (ioInstance.to("mapa") as any).emit("incidente:actualizado", payload);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance as any).emit("incidente:actualizado", payload);
       return true;
     } catch (error) {
       console.error("Error al emitir actualización de incidente vía Socket.io:", error);

@@ -37,6 +37,8 @@ export async function listarIncidentesKanbanService(
     informanteNombre: fila.informante_nombre,
     delegacionNombre: fila.delegacion_nombre,
     totalMisiones: Number(fila.total_misiones ?? 0),
+    tieneMisionDespachada: Boolean(fila.tiene_mision_despachada),
+    tieneMisionEnCurso: Boolean(fila.tiene_mision_en_curso),
     ...(fila.trazabilidad_notificacion
       ? {
           trazabilidadNotificacion:
@@ -44,7 +46,8 @@ export async function listarIncidentesKanbanService(
         }
       : {}),
     verificado: Boolean(fila.verificado),
-    tieneMisionDespachada: Boolean(fila.tiene_mision_despachada),
+    reclasificadoEnTerreno: Boolean(fila.reclasificado_en_terreno),
+    justificacionReclasificacion: fila.justificacion_reclasificacion ?? null,
     creadoEn:
       typeof fila.creado_en === "string"
         ? fila.creado_en
@@ -81,7 +84,12 @@ export async function obtenerDetalleIncidenteService(
     return null;
   }
 
-  const { incidente, misiones, recursosAsociados } = resultado;
+  const { incidente, misiones, recursosAsociados, justificacionReclasificacion } = resultado;
+
+  const tieneVerificacionCompletada = misiones.some(
+    (m) => m.tipo_mision === "VERIFICACION" && m.estado === "COMPLETADA"
+  );
+  const esReclasificado = Boolean(justificacionReclasificacion);
 
   const misionesMapeadas: MisionDetalle[] = misiones.map((m) => ({
     id: m.id,
@@ -166,6 +174,9 @@ export async function obtenerDetalleIncidenteService(
       : null,
     misiones: misionesMapeadas,
     recursosAsociados,
+    verificado: tieneVerificacionCompletada,
+    reclasificadoEnTerreno: esReclasificado,
+    justificacionReclasificacion: justificacionReclasificacion ?? null,
     creadoEn:
       typeof incidente.creado_en === "string"
         ? incidente.creado_en

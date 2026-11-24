@@ -21,7 +21,7 @@ const sqlEjecutado: string[] = [];
 vi.mock("kysely", async (importOriginal) => {
   const original = await importOriginal<typeof import("kysely")>();
 
-  const sqlMock = (strings: TemplateStringsArray, ...valores: unknown[]) => ({
+  const sqlMock = (strings: TemplateStringsArray) => ({
     execute: async () => {
       const texto = strings.join(" ");
       sqlEjecutado.push(texto);
