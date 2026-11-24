@@ -90,7 +90,7 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
   - En `PATCH /api/incidentes/{id}/tipologia`: Justificación ausente o menor a 5 caracteres, o tipo de incidente inactivo en base de datos.
   - En `PATCH /api/incidentes/{id}/prioridad`: La prioridad seleccionada difiere de la `prioridad_sugerida` calculada autoritativamente (incluyendo evaluación vía `familias` o `riesgosActivos`) sin `justificacion_prioridad` de al menos 5 caracteres.
 - **`401 Unauthorized`:**
-  - Cabecera `Authorization: Bearer <token>` o `X-User-Id` ausente o no registrada en el sistema.
+  - Cabecera `X-User-Id` ausente o no registrada en el sistema.
 - **`403 Forbidden`:**
   - El usuario no posee el rol ni permiso necesario para la operación solicitada (`misiones:terreno:verificar`).
   - En `PATCH /api/incidentes/{id}/tipologia`, `POST /api/incidentes/{id}/prioridad/calcular` y `PATCH /api/incidentes/{id}/prioridad`: El funcionario autenticado no forma parte de la patrulla verificadora asignada a la misión.

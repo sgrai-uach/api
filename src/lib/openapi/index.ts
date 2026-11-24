@@ -72,6 +72,8 @@ import {
 import {
   CrearMisionVerificacionSchema,
   CrearMisionResponseSchema,
+  RechazarMisionBodySchema,
+  RechazarMisionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -163,7 +165,12 @@ import {
 import {
   CrearEventoRecuperacionInputSchema,
   CrearEventoRecuperacionResponseSchema,
+  ListarEventosRecuperacionResponseSchema,
   EventoRecuperacionResponseSchema,
+  AsignarRecursosRecuperacionInputSchema,
+  AsignarRecursosRecuperacionResponseSchema,
+  RecuperacionDetalleResponseSchema,
+  RecuperacionIdParamSchema,
 } from "@/modules/eventos-atp/recuperacion.schema";
 
 import {
@@ -187,6 +194,12 @@ import {
   CrearEventoPrevencionInputSchema,
   CrearEventoPrevencionResponseSchema,
 } from "@/modules/eventos-atp/evento-prevencion.schema";
+
+import {
+  CrearEventoAtpInputSchema,
+  CrearEventoAtpResponseSchema,
+  EventoAtpResponseSchema,
+} from "@/modules/eventos-atp/evento-atp.schema";
 
 extendZodWithOpenApi(z);
 
@@ -281,6 +294,9 @@ registry.register("EliminarPuntoCriticoResponse", EliminarPuntoCriticoResponseSc
 registry.register("CrearEventoAsistenciaSocialInput", CrearEventoAsistenciaSocialInputSchema);
 registry.register("EventoAsistenciaSocialResponse", EventoAsistenciaSocialResponseSchema);
 registry.register("ListarEventosAsistenciaSocialResponse", ListarEventosAsistenciaSocialResponseSchema);
+registry.register("CrearEventoAtpInput", CrearEventoAtpInputSchema);
+registry.register("EventoAtpResponse", EventoAtpResponseSchema);
+registry.register("CrearEventoAtpResponse", CrearEventoAtpResponseSchema);
 
 // Registrar esquemas de Misiones (HU-20 / HU-21)
 registry.register("CrearMisionVerificacionInput", CrearMisionVerificacionSchema);
@@ -905,25 +921,44 @@ registry.registerPath({
 });
 
 // 13. GET /api/incidentes/tipos
+registry.register("TipoIncidenteCatalogoItem", TipoIncidenteCatalogoItemSchema);
+registry.register("ListarTiposIncidenteResponse", ListarTiposIncidenteResponseSchema);
+
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/tipos",
   description:
-    "Retorna el listado de opciones de afectación válidas para poblar los botones de respuesta rápida en el chatbot.",
+    "Retorna el listado de opciones de afectación válidas para poblar los botones de respuesta rápida en el chatbot, o el catálogo detallado de la tabla tipo_incidente si se envía ?catalogo=true o ?detallado=true.",
   summary: "Obtener catálogo de tipos de afectación",
   tags: ["Incidentes"],
+  request: {
+    query: z.object({
+      catalogo: z
+        .enum(["true", "false"])
+        .optional()
+        .describe("Si es 'true', retorna los registros completos de la tabla tipo_incidente"),
+      detallado: z
+        .enum(["true", "false"])
+        .optional()
+        .describe("Alias de catalogo=true; retorna los registros completos de tipo_incidente"),
+    }),
+  },
   responses: {
     200: {
-      description: "Listado de tipos de afectación",
+      description: "Listado de tipos de afectación o catálogo detallado de tipos de incidente",
       content: {
         "application/json": {
-          schema: z.object({
-            message: z.string(),
-            data: z.array(z.string()),
-          }),
+          schema: z.union([
+            z.object({
+              message: z.string(),
+              data: z.array(z.string()),
+            }),
+            ListarTiposIncidenteResponseSchema,
+          ]),
         },
       },
     },
+    500: { description: "Error interno del servidor" },
   },
 });
 
@@ -987,8 +1022,6 @@ registry.registerPath({
 });
 
 // 15b. PATCH /api/incidentes/{id}/tipologia (HU-37: Reclasificación tipológica en terreno)
-registry.register("TipoIncidenteCatalogoItem", TipoIncidenteCatalogoItemSchema);
-registry.register("ListarTiposIncidenteResponse", ListarTiposIncidenteResponseSchema);
 registry.register("ReclasificarTipologiaInput", ReclasificarTipologiaInputSchema);
 registry.register("IncidenteReclasificadoResumen", IncidenteReclasificadoResumenSchema);
 registry.register("MisionHitoTipologia", MisionHitoTipologiaSchema);
@@ -1003,10 +1036,6 @@ registry.registerPath({
   tags: ["Incidentes"],
   security: [{ BearerAuth: [] }],
   request: {
-    headers: z.object({
-      authorization: z.string().optional().describe("Token Bearer JWT de la patrulla verificadora"),
-      "x-user-id": z.string().uuid().optional().describe("ID de usuario para entornos de prueba"),
-    }),
     params: z.object({
       id: z.string().uuid().describe("Identificador UUID del incidente"),
     }),
@@ -1479,6 +1508,8 @@ registry.registerPath({
 });
 
 // 22. GET /api/misiones/{id} (HU-17: Detalle Completo de Misión)
+registry.register("RechazarMisionBody", RechazarMisionBodySchema);
+registry.register("RechazarMisionResponse", RechazarMisionResponseSchema);
 registry.register("AceptarMisionInput", AceptarMisionInputSchema);
 registry.register("MisionHitoRegistrado", MisionHitoRegistradoSchema);
 registry.register("AceptarMisionResponse", AceptarMisionResponseSchema);
@@ -1873,6 +1904,43 @@ registry.registerPath({
 registry.register("CrearEventoRecuperacionInput", CrearEventoRecuperacionInputSchema);
 registry.register("EventoRecuperacion", EventoRecuperacionResponseSchema);
 registry.register("CrearEventoRecuperacionResponse", CrearEventoRecuperacionResponseSchema);
+registry.register("ListarEventosRecuperacionResponse", ListarEventosRecuperacionResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion",
+  summary: "Listar eventos de recuperación territorial para el mapa operativo",
+  description:
+    "Consulta todos los eventos de recuperación comunales registrados con sus misiones tácticas desplegadas, patrullas asignadas y recursos para su renderizado táctico georreferenciado en el mapa operativo.",
+  tags: ["Eventos ATP / Recuperación"],
+  request: {
+    headers: z.object({
+      authorization: z.string().openapi({
+        description: "Token JWT en formato 'Bearer <token>'",
+        example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Listado de eventos de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarEventosRecuperacionResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:leer', 'recuperacion:crear' o 'misiones:asignar'",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
 
 registry.registerPath({
   method: "post",
@@ -1924,6 +1992,78 @@ registry.registerPath({
     500: {
       description: "Error interno del servidor",
     },
+  },
+});
+
+// 27. GET /api/eventos-atp/recuperacion/{id} (HU-32)
+registry.register("RecuperacionDetalleResponse", RecuperacionDetalleResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion/{id}",
+  summary: "Obtener detalle completo de un evento de recuperación comunal (HU-32)",
+  description:
+    "Permite consultar la información integral de un evento de recuperación territorial, incluyendo su localización, misiones tácticas desplegadas y el listado de insumos y recursos asignados.",
+  tags: ["Eventos ATP / Recuperación"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: RecuperacionIdParamSchema,
+  },
+  responses: {
+    200: {
+      description: "Detalle del evento de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: RecuperacionDetalleResponseSchema,
+        },
+      },
+    },
+    400: { description: "Identificador de evento inválido" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado" },
+    404: { description: "Evento de recuperación no encontrado" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 28. POST /api/eventos-atp/recuperacion/{id}/asignar (HU-32)
+registry.register("AsignarRecursosRecuperacionInput", AsignarRecursosRecuperacionInputSchema);
+registry.register("AsignarRecursosRecuperacionResponse", AsignarRecursosRecuperacionResponseSchema);
+
+registry.registerPath({
+  method: "post",
+  path: "/api/eventos-atp/recuperacion/{id}/asignar",
+  summary: "Asignar patrulla y recursos logísticos a evento de recuperación (HU-32)",
+  description:
+    "Permite al Encargado asignar una patrulla verificadora disponible y recursos de bodega con control transaccional estricto FOR UPDATE (§3.6), creando una misión táctica de recuperación y transicionando la patrulla a EN_RECUPERACION.",
+  tags: ["Eventos ATP / Recuperación"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: RecuperacionIdParamSchema,
+    body: {
+      description: "Patrulla verificadora a despachar y listado de recursos logísticos solicitados",
+      content: {
+        "application/json": {
+          schema: AsignarRecursosRecuperacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Patrulla y recursos logísticos asignados exitosamente al evento de recuperación",
+      content: {
+        "application/json": {
+          schema: AsignarRecursosRecuperacionResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada inválidos o activo individual con cantidad distinta de 1" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Se requiere permiso 'misiones:asignar'" },
+    404: { description: "Evento de recuperación, patrulla o recurso no encontrado" },
+    409: { description: "Conflicto operativo: Patrulla no disponible, activo individual en mantención/asignado, o sobregiro de stock a granel" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
@@ -2710,6 +2850,108 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor al consultar misiones pendientes",
+    },
+  },
+});
+
+// POST /api/misiones/{id}/rechazar (HU-69: Rechazo de misión por patrulla verificadora)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/rechazar",
+  summary: "Rechazar misión de verificación por patrulla en terreno (HU-69)",
+  description:
+    "Permite a una patrulla verificadora rechazar una misión asignada ingresando una justificación obligatoria (mínimo 5 caracteres según Regla Crítica §3.3). Ejecuta una transacción atómica que: (1) actualiza la misión a estado RECHAZADA y persiste la justificación, (2) transiciona la patrulla a DISPONIBLE, (3) revierte el incidente a REPORTADO para su inmediata reasignación, y (4) registra el hito en mision_hito. Emite la notificación WebSocket mision:rechazada hacia la sala encargado.",
+  tags: ["Misiones"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: RechazarMisionBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Misión rechazada exitosamente y devuelta a estado REPORTADO para reasignación",
+      content: {
+        "application/json": {
+          schema: RechazarMisionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos de entrada inválidos, justificación menor a 5 caracteres o coordenadas geográficas fuera de rango WGS84",
+    },
+    401: {
+      description: "No autenticado, token ausente o usuario inactivo",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere pertenecer a la patrulla asignada o rol Administrador",
+    },
+    404: {
+      description: "Misión no encontrada",
+    },
+    409: {
+      description:
+        "Conflicto: la misión ya fue rechazada, no se encuentra en estado DESPACHADA, o no es de tipo VERIFICACION / no tiene patrulla asignada",
+    },
+    500: {
+      description: "Error interno del servidor al procesar el rechazo de la misión",
+    },
+  },
+});
+
+// 28. POST /api/eventos-atp (H61)
+registry.registerPath({
+  method: "post",
+  path: "/api/eventos-atp",
+  summary: "Crear Evento de Alerta Temprana Preventiva (ATP)",
+  description:
+    "Registra el marco oficial de un Evento ATP, persiste su alcance territorial en evento_atp_delegacion dentro de una sola transacción PostgreSQL y emite el evento WebSocket evento_atp:creado a las salas administrativas, operativas y del mapa. Requiere rol Administrador o el permiso eventos_atp:crear.",
+  tags: ["Eventos ATP"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      description: "Datos requeridos para crear el Evento ATP",
+      required: true,
+      content: {
+        "application/json": {
+          schema: CrearEventoAtpInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Evento ATP creado exitosamente",
+      content: {
+        "application/json": {
+          schema: CrearEventoAtpResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos inválidos, fechas inconsistentes o delegaciones inexistentes",
+    },
+    401: {
+      description: "No autenticado. Se requiere cabecera Authorization válida",
+    },
+    403: {
+      description:
+        "Acceso denegado. Se requiere rol Administrador o permiso eventos_atp:crear",
+    },
+    409: {
+      description: "Conflicto por código de Evento ATP duplicado",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la solicitud",
     },
   },
 });

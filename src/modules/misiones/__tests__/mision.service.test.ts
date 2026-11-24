@@ -247,13 +247,14 @@ describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
       hitos: [
         {
           id: "hito-1",
+          mision_id: "60000000-0000-4000-8000-000000000003",
           hito: "TIPOLOGIA_RECLASIFICADA",
           descripcion:
             "Tipología reclasificada en terreno a: Corte de agua potable. Justificación: Se constata matriz rota y sin suministro de agua en el sector.",
+          registrado_por_id: "00000000-0000-4000-8000-000000000004",
           latitud: -39.82,
           longitud: -73.24,
           creado_en: new Date("2026-11-10T05:15:00Z"),
-          registrador_nombre: "Cristóbal Felipe Veas Huequemán",
         },
       ],
     });
@@ -314,7 +315,6 @@ describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
           latitud: null,
           longitud: null,
           creado_en: new Date("2026-10-27T17:00:00Z"),
-          registrador_nombre: null,
         },
       ],
     });

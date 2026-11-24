@@ -35,28 +35,6 @@ export interface FilaIncidenteResumen {
  * Consulta la lista paginada de incidentes con filtros opcionales para el tablero Kanban.
  */
 export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQuery) {
-  // Sincronización defensiva: garantizar consistencia operacional si un incidente
-  // posee una misión aceptada en terreno (EN_CURSO) pero persistía en REPORTADO
-  try {
-    await db
-      .updateTable("incidente")
-      .set({
-        estado: "VERIFICANDO",
-        actualizado_en: sql`CURRENT_TIMESTAMP`,
-      })
-      .where("estado", "=", "REPORTADO")
-      .where("id", "in", (eb) =>
-        eb
-          .selectFrom("mision")
-          .select("mision.incidente_id")
-          .where("mision.estado", "=", "EN_CURSO")
-          .where("mision.incidente_id", "is not", null)
-      )
-      .execute();
-  } catch {
-    // Si la base de datos o el mock no implementa updateTable en tests unitarios aislados, ignorar
-  }
-
   let consultaBase = db
     .selectFrom("incidente")
     .leftJoin("informante", "informante.id", "incidente.informante_id")
