@@ -108,6 +108,9 @@ describe("PrioridadService (HU-38)", () => {
         justificacionPrioridad:
           "Riesgo inminente por colapso de muro contiguo a habitación de adulto mayor.",
         verificado: true,
+        apoyoSolicitado: false,
+        requiereCuadrillaAdicional: false,
+        detalleApoyoRequerido: null,
       })
     );
     expect(socketModule.notificarMisionActualizada).toHaveBeenCalledTimes(1);

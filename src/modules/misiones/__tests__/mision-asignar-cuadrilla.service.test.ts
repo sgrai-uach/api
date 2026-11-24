@@ -373,5 +373,97 @@ describe("Servicio: asignarCuadrillaMisionService (HU-21 / Regla ICS §3.2)", ()
     );
     expect(respuesta.data.recursosAdicionalesAsignados).toHaveLength(1);
   });
+
+  it("debe emitir trazabilidad PENDIENTE_ENVIO si la cuadrilla está desconectada y ENVIADA si está en sala", async () => {
+    const notifModule = await import("../notificacion-mision.repository");
+    const notifId = "90000000-0000-4000-8000-000000000077";
+    const repoBase: misionRepository.AsignarCuadrillaResult = {
+      mision: {
+        id: nuevaMisionId,
+        codigo: "MIS-2026-0099",
+        titulo: "Despacho cuadrilla",
+        descripcion: null,
+        tipoMision: "ATENCION_CUADRILLA",
+        estado: "DESPACHADA",
+        prioridad: "ALTA",
+        incidenteId,
+        cuadrillaId,
+        encargadoId: usuarioId,
+        creadoPorId: usuarioId,
+        fechaInicio: null,
+        creadoEn: "2026-10-04T13:10:00.000Z",
+      },
+      cuadrilla: { id: cuadrillaId, nombre: "Cuadrilla Sur 1", estado: "EN_MISION" },
+      incidente: { id: incidenteId, codigo: "INC-2026-0001", estado: "EN_ATENCION", prioridad: "ALTA" },
+      patrullaLiberada: null,
+      notificacion: {
+        id: notifId,
+        misionId: nuevaMisionId,
+        patrullaId: null,
+        cuadrillaId,
+        estado: "PENDIENTE_ENVIO",
+        intentosEnvio: 0,
+        creadaAt: "2026-10-04T13:10:00.000Z",
+        enviadaAt: null,
+        recibidaAt: null,
+        leidaAt: null,
+      },
+      hitoCuadrilla: {
+        id: "80000000-0000-4000-8000-000000000099",
+        misionId: nuevaMisionId,
+        hito: "CUADRILLA_DESPACHADA",
+        descripcion: "Cuadrilla despachada",
+        creadoEn: "2026-10-04T13:10:00.000Z",
+      },
+      hitoPatrulla: null,
+    };
+
+    // Caso 1: Cuadrilla offline -> debe emitir PENDIENTE_ENVIO
+    vi.mocked(socketModule.tieneConexionEnSala).mockResolvedValueOnce(false);
+    vi.mocked(misionRepository.asignarCuadrillaIncidenteRepo).mockResolvedValueOnce(repoBase);
+
+    await asignarCuadrillaMisionService(
+      { tipoMision: "ATENCION_CUADRILLA", incidenteId, cuadrillaId },
+      usuarioId
+    );
+
+    expect(notifModule.marcarNotificacionEnviadaRepo).not.toHaveBeenCalled();
+    expect(socketModule.notificarTrazabilidadActualizada).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notificacionId: notifId,
+        misionId: nuevaMisionId,
+        cuadrillaId,
+        tipoUnidad: "CUADRILLA",
+        estado: "PENDIENTE_ENVIO",
+      })
+    );
+
+    // Caso 2: Cuadrilla conectada -> marca ENVIADA y emite ENVIADA
+    vi.clearAllMocks();
+    vi.mocked(socketModule.tieneConexionEnSala).mockResolvedValueOnce(true);
+    vi.mocked(misionRepository.asignarCuadrillaIncidenteRepo).mockResolvedValueOnce(repoBase);
+    vi.mocked(notifModule.marcarNotificacionEnviadaRepo).mockResolvedValueOnce({
+      ...repoBase.notificacion!,
+      estado: "ENVIADA",
+      intentosEnvio: 1,
+      enviadaAt: "2026-10-04T13:10:01.000Z",
+    });
+
+    await asignarCuadrillaMisionService(
+      { tipoMision: "ATENCION_CUADRILLA", incidenteId, cuadrillaId },
+      usuarioId
+    );
+
+    expect(notifModule.marcarNotificacionEnviadaRepo).toHaveBeenCalledWith(notifId);
+    expect(socketModule.notificarTrazabilidadActualizada).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notificacionId: notifId,
+        misionId: nuevaMisionId,
+        cuadrillaId,
+        tipoUnidad: "CUADRILLA",
+        estado: "ENVIADA",
+      })
+    );
+  });
 });
 

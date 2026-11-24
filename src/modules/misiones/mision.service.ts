@@ -610,7 +610,7 @@ export async function asignarCuadrillaMisionService(
       asignadoEn: resultado.mision.creadoEn,
     });
 
-    if (notificacionActualizada && cuadrillaConectada) {
+    if (notificacionActualizada) {
       notificarTrazabilidadActualizada({
         notificacionId: notificacionActualizada.id,
         misionId: resultado.mision.id,
@@ -756,7 +756,7 @@ export async function asignarPatrullaVerificacionService(
       asignadoEn: resultado.mision.creadoEn,
     });
 
-    if (patrullaConectada) {
+    if (notificacionActualizada) {
       notificarTrazabilidadActualizada({
         notificacionId: notificacionActualizada.id,
         misionId: resultado.mision.id,
@@ -1194,6 +1194,13 @@ export async function enviarReporteVerificacionService(
         prioridad: resultado.incidente.prioridad,
         requiereAsistenciaSocial: resultado.incidente.requiereAsistenciaSocial,
         verificado: true,
+        ...(resultado.incidente.estado !== "EN_ATENCION"
+          ? {
+              apoyoSolicitado: false,
+              requiereCuadrillaAdicional: false,
+              detalleApoyoRequerido: null,
+            }
+          : {}),
         motivoNoAbordable: resultado.incidente.motivoNoAbordable,
         fechaCierre: resultado.incidente.fechaCierre,
         dictamen: reporteTerrenoDto.dictamen ?? null,

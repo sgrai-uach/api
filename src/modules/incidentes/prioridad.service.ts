@@ -64,6 +64,13 @@ export class PrioridadService {
         justificacionPrioridad: resultado.incidente.justificacionPrioridad,
         requiereAsistenciaSocial: resultado.incidente.requiereAsistenciaSocial,
         verificado: true,
+        ...(resultado.incidente.estado !== "EN_ATENCION"
+          ? {
+              apoyoSolicitado: false,
+              requiereCuadrillaAdicional: false,
+              detalleApoyoRequerido: null,
+            }
+          : {}),
         tipoIncidenteId: resultado.incidente.tipoIncidenteId,
         tipoAfectacion: resultado.incidente.tipoAfectacion ?? undefined,
         justificacion: resultado.incidente.justificacionPrioridad,

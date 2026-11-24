@@ -252,6 +252,7 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
           FROM notificaciones_mision nm
           INNER JOIN mision m ON m.id = nm.mision_id
           WHERE m.incidente_id = incidente.id
+            AND m.estado IN ('PLANIFICADA', 'DESPACHADA', 'EN_CURSO')
           ORDER BY nm.creada_at DESC
           LIMIT 1
         )`.as("trazabilidad_notificacion"),
@@ -260,6 +261,7 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
           FROM notificaciones_mision nm
           INNER JOIN mision m ON m.id = nm.mision_id
           WHERE m.incidente_id = incidente.id
+            AND m.estado IN ('PLANIFICADA', 'DESPACHADA', 'EN_CURSO')
           ORDER BY nm.creada_at DESC
           LIMIT 1
         )`.as("trazabilidad_mision_id"),
@@ -268,6 +270,7 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
           FROM notificaciones_mision nm
           INNER JOIN mision m ON m.id = nm.mision_id
           WHERE m.incidente_id = incidente.id
+            AND m.estado IN ('PLANIFICADA', 'DESPACHADA', 'EN_CURSO')
           ORDER BY nm.creada_at DESC
           LIMIT 1
         )`.as("trazabilidad_tipo_unidad"),

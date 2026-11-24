@@ -244,4 +244,110 @@ describe("Mision Service - enviarReporteVerificacionService y detalle de evaluac
     expect(detalle?.evaluaciones?.reporteVerificacionEnviado).toBe(false);
     expect(detalle?.evaluaciones?.dictamenVerificacion).toBeNull();
   });
+
+  it("debe emitir apoyoSolicitado=false explícito al cerrar verificación con dictamen REQUIERE_CUADRILLA y requiereApoyoAdicional=true (HU-39/HU-44)", async () => {
+    const fechaCierre = "2026-11-24T15:00:00.000Z";
+
+    vi.mocked(
+      misionRepo.crearReporteVerificacionYCerrarMisionRepo
+    ).mockResolvedValueOnce({
+      reporteTerreno: {
+        id: "e0000000-0000-4000-8000-000000000011",
+        misionId,
+        tipoReporte: "VERIFICACION_CIERRE",
+        dictamen: "REQUIERE_CUADRILLA",
+        motivoNoAbordable: null,
+        requiereAsistenciaSocial: false,
+        versionReporte: 2,
+        esRectificacion: false,
+        etiquetaReporte:
+          "Informe Técnico de Verificación (Cierre — Requiere Cuadrilla)",
+        prioridadSugerida: "ALTA",
+        prioridadAsignada: "ALTA",
+        justificacionPrioridad: null,
+        detallesEvaluacion: {
+          dictamen: "REQUIERE_CUADRILLA",
+          personasAfectadasPrevias: 3,
+          personasAfectadas: 3,
+        },
+        evaluador: {
+          id: usuarioId,
+          nombre: "Patrullero Jefe",
+          email: "patrulla@valdivia.cl",
+          rut: "15.111.222-3",
+        },
+        resumenTecnico:
+          "Se requiere cuadrilla hidráulica para despeje de sumidero.",
+        accionesRealizadas: null,
+        requiereApoyoAdicional: true,
+        danosEstimados: null,
+        observaciones: null,
+        personasAfectadas: 3,
+        estadoTerreno: "CRITICO",
+        adjuntos: [],
+        creadoEn: fechaCierre,
+        actualizadoEn: fechaCierre,
+      },
+      mision: {
+        id: misionId,
+        codigo: "MIS-2026-0001",
+        titulo: "Verificación de Incidente INC-2026-0001",
+        tipoMision: "VERIFICACION",
+        estado: "COMPLETADA",
+        prioridad: "ALTA",
+        incidenteId,
+        patrullaId,
+        fechaInicio: "2026-11-24T14:30:00.000Z",
+        fechaCierre,
+        actualizadoEn: fechaCierre,
+      },
+      patrulla: {
+        id: patrullaId,
+        nombre: "Patrulla Costa-1",
+        estado: "DISPONIBLE",
+        delegacionId: "30000000-0000-4000-8000-000000000003",
+        usuarioLiderId: usuarioId,
+      },
+      incidente: {
+        id: incidenteId,
+        codigo: "INC-2026-0001",
+        estado: "VERIFICANDO",
+        prioridad: "ALTA",
+        requiereAsistenciaSocial: false,
+        fechaCierre: null,
+        motivoNoAbordable: null,
+      },
+      hito: {
+        id: "70000000-0000-4000-8000-000000000011",
+        misionId,
+        hito: "VERIFICACION_COMPLETADA",
+        descripcion:
+          "Informe técnico enviado y misión cerrada. Dictamen: REQUIERE_CUADRILLA.",
+        registradoPorId: usuarioId,
+        latitud: null,
+        longitud: null,
+        metadatos: { dictamen: "REQUIERE_CUADRILLA" },
+        creadoEn: fechaCierre,
+      },
+    });
+
+    await enviarReporteVerificacionService(misionId, usuarioId, false, {
+      dictamen: "REQUIERE_CUADRILLA",
+      resumenTecnico:
+        "Se requiere cuadrilla hidráulica para despeje de sumidero.",
+      personasAfectadas: 3,
+    });
+
+    expect(socketLib.notificarIncidenteActualizado).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: incidenteId,
+        nuevoEstado: "VERIFICANDO",
+        dictamen: "REQUIERE_CUADRILLA",
+        verificado: true,
+        apoyoSolicitado: false,
+        requiereCuadrillaAdicional: false,
+        detalleApoyoRequerido: null,
+      })
+    );
+  });
 });
