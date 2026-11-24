@@ -35,6 +35,8 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
           delegacion_nombre: "Norte",
           total_misiones: 1,
           trazabilidad_notificacion: "RECIBIDA",
+          trazabilidad_mision_id: "c0000000-0000-4000-8000-000000000001",
+          trazabilidad_tipo_unidad: "CUADRILLA",
           creado_en: new Date("2026-09-22T10:00:00Z"),
           actualizado_en: new Date("2026-09-22T10:00:00Z"),
         },
@@ -71,6 +73,8 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
       expect(resultado.data[0].id).toBe("a0000000-0000-4000-8000-000000000001");
       expect(resultado.data[0].totalMisiones).toBe(1);
       expect(resultado.data[0].trazabilidadNotificacion).toBe("RECIBIDA");
+      expect(resultado.data[0].trazabilidadMisionId).toBe("c0000000-0000-4000-8000-000000000001");
+      expect(resultado.data[0].trazabilidadTipoUnidad).toBe("CUADRILLA");
     });
 
     it("debe manejar correctamente página final sin siguiente", async () => {
@@ -231,6 +235,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
             prioridad: "CRITICA",
             justificacion_rechazo: null,
             trazabilidad_notificacion: "LEIDA",
+            notificacion_id: "d0000000-0000-4000-8000-000000000009",
             fecha_inicio: new Date("2026-09-22T10:10:00Z"),
             fecha_cierre: new Date("2026-09-22T10:30:00Z"),
             creado_en: new Date("2026-09-22T10:05:00Z"),
@@ -266,6 +271,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
       expect(detalle?.misiones).toHaveLength(1);
       expect(detalle?.misiones[0].patrulla?.nombre).toBe("Patrulla Teja-1");
       expect(detalle?.misiones[0].trazabilidadNotificacion).toBe("LEIDA");
+      expect(detalle?.misiones[0].notificacionId).toBe("d0000000-0000-4000-8000-000000000009");
       expect(detalle?.recursosAsociados).toHaveLength(1);
       expect(detalle?.recursosAsociados[0].nombre).toBe("Camioneta 4x4");
     });
@@ -323,6 +329,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
             cuadrilla_nombre: null,
             cuadrilla_estado: null,
             trazabilidad_notificacion: null,
+            notificacion_id: null,
           },
         ],
         recursosAsociados: [],
@@ -461,6 +468,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
             cuadrilla_nombre: "Cuadrilla Aguas Lluvias Alfa",
             cuadrilla_estado: "DISPONIBLE",
             trazabilidad_notificacion: null,
+            notificacion_id: null,
           },
         ],
         recursosAsociados: [],
@@ -566,6 +574,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
             cuadrilla_nombre: null,
             cuadrilla_estado: null,
             trazabilidad_notificacion: "LEIDA",
+            notificacion_id: null,
           },
         ],
         recursosAsociados: [],
@@ -839,6 +848,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
             prioridad: "ALTA",
             justificacion_rechazo: null,
             trazabilidad_notificacion: null,
+            notificacion_id: null,
             fecha_inicio: new Date("2026-11-23T20:05:00Z"),
             fecha_cierre: new Date("2026-11-23T20:30:00Z"),
             creado_en: new Date("2026-11-23T20:00:00Z"),
@@ -973,6 +983,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
             prioridad: "ALTA",
             justificacion_rechazo: null,
             trazabilidad_notificacion: null,
+            notificacion_id: null,
             fecha_inicio: new Date("2026-11-23T20:10:00Z"),
             fecha_cierre: null,
             creado_en: new Date("2026-11-23T20:05:00Z"),
@@ -993,6 +1004,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
             prioridad: "ALTA",
             justificacion_rechazo: null,
             trazabilidad_notificacion: null,
+            notificacion_id: null,
             fecha_inicio: null,
             fecha_cierre: null,
             creado_en: new Date("2026-11-23T20:40:00Z"),
@@ -1029,6 +1041,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
             prioridad: "ALTA",
             justificacion_rechazo: null,
             trazabilidad_notificacion: null,
+            notificacion_id: null,
             fecha_inicio: new Date("2026-11-23T20:10:00Z"),
             fecha_cierre: null,
             creado_en: new Date("2026-11-23T20:05:00Z"),
@@ -1049,6 +1062,7 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
             prioridad: "ALTA",
             justificacion_rechazo: "Sin disponibilidad",
             trazabilidad_notificacion: null,
+            notificacion_id: null,
             fecha_inicio: null,
             fecha_cierre: new Date("2026-11-23T20:45:00Z"),
             creado_en: new Date("2026-11-23T20:40:00Z"),

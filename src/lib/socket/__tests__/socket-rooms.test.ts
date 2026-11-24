@@ -2,9 +2,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   setSocketServer,
+  notificarMisionAsignada,
   notificarMisionActualizada,
   notificarIncidenteActualizado,
   emitirCuadrillaActualizada,
+  notificarTrazabilidadActualizada,
 } from "../index";
 
 describe("Socket.io Salas Destino - mision:actualizada, incidente:actualizado y cuadrilla:actualizada (HU-68)", () => {
@@ -182,6 +184,64 @@ describe("Socket.io Salas Destino - mision:actualizada, incidente:actualizado y 
         cuadrillaNombre: "Cuadrilla Vías y Canales 1",
         incidenteCodigo: "INC-2026-0001",
         prioridad: "ALTA",
+      })
+    );
+  });
+
+  it("no debe emitir broadcast global io.emit en notificarMisionAsignada y debe incluir incidenteId/tipoUnidad en trazabilidad", () => {
+    const roomsEmitidos: string[] = [];
+    const emitSalaMock = vi.fn();
+    const emitGlobalMock = vi.fn();
+
+    const ioMock: any = {
+      to: vi.fn((room: string) => {
+        roomsEmitidos.push(room);
+        return { emit: emitSalaMock };
+      }),
+      emit: emitGlobalMock,
+    };
+
+    setSocketServer(ioMock);
+
+    notificarMisionAsignada({
+      notificacionId: "80000000-0000-4000-8000-000000000011",
+      misionId: "70000000-0000-4000-8000-000000000011",
+      codigo: "MIS-2026-0011",
+      tipoMision: "ATENCION_CUADRILLA",
+      tipoUnidad: "CUADRILLA",
+      patrullaId: null,
+      cuadrillaId: "50000000-0000-4000-8000-000000000001",
+      incidenteId: "30000000-0000-4000-8000-000000000001",
+      asignadoEn: "2026-11-24T12:00:00.000Z",
+    });
+
+    expect(emitGlobalMock).not.toHaveBeenCalled();
+    expect(roomsEmitidos).toContain("cuadrilla:50000000-0000-4000-8000-000000000001");
+    expect(roomsEmitidos).toContain("encargado");
+
+    notificarTrazabilidadActualizada({
+      notificacionId: "80000000-0000-4000-8000-000000000011",
+      misionId: "70000000-0000-4000-8000-000000000011",
+      incidenteId: "30000000-0000-4000-8000-000000000001",
+      patrullaId: null,
+      cuadrillaId: "50000000-0000-4000-8000-000000000001",
+      tipoUnidad: "CUADRILLA",
+      estado: "LEIDA",
+      intentosEnvio: 1,
+      creadaAt: "2026-11-24T12:00:00.000Z",
+      enviadaAt: "2026-11-24T12:00:01.000Z",
+      recibidaAt: "2026-11-24T12:00:02.000Z",
+      leidaAt: "2026-11-24T12:00:03.000Z",
+      actualizadoEn: "2026-11-24T12:00:03.000Z",
+    });
+
+    expect(emitSalaMock).toHaveBeenCalledWith(
+      "notificacion:trazabilidad_actualizada",
+      expect.objectContaining({
+        incidenteId: "30000000-0000-4000-8000-000000000001",
+        cuadrillaId: "50000000-0000-4000-8000-000000000001",
+        tipoUnidad: "CUADRILLA",
+        estado: "LEIDA",
       })
     );
   });

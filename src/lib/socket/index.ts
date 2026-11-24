@@ -826,6 +826,7 @@ export function notificarMisionAsignada(payload: {
   misionId: string;
   codigo: string;
   tipoMision: string;
+  tipoUnidad?: "PATRULLA" | "CUADRILLA";
   patrullaId?: string | null;
   cuadrillaId?: string | null;
   incidenteId?: string | null;
@@ -850,8 +851,6 @@ export function notificarMisionAsignada(payload: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (io.to(room) as any).emit("mision:asignada", payload);
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (io as any).emit("mision:asignada", payload);
     return;
   }
 
@@ -943,7 +942,10 @@ export function notificarMisionActualizada(payload: MisionActualizadaPayload): v
 export function notificarTrazabilidadActualizada(payload: {
   notificacionId: string;
   misionId: string;
-  patrullaId: string;
+  incidenteId?: string | null;
+  patrullaId: string | null;
+  cuadrillaId?: string | null;
+  tipoUnidad?: "PATRULLA" | "CUADRILLA";
   estado: "PENDIENTE_ENVIO" | "ENVIADA" | "RECIBIDA" | "LEIDA";
   intentosEnvio: number;
   creadaAt: string;

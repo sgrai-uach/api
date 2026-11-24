@@ -585,23 +585,27 @@ Informes técnicos y diagnósticos estructurados levantados por patrullas verifi
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de emisión del informe. |
 | `actualizado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Última modificación del informe. |
 
-#### Tabla: `notificaciones_mision` (Trazabilidad y ACKs de Terreno - HU-35 / Migración 061)
-Almacena el ciclo de vida auditable de las notificaciones de despacho táctico emitidas a patrullas verificadoras, gestionando los acuses de recibo técnicos automáticos y los acuses de lectura operativa para garantizar la trazabilidad ante situaciones de pérdida de cobertura (Offline-First).
+#### Tabla: `notificaciones_mision` (Trazabilidad y ACKs de Terreno - HU-35 / Migraciones 061 y 087)
+Almacena el ciclo de vida auditable de las notificaciones de despacho táctico emitidas tanto a patrullas verificadoras (`patrulla_id`) como a cuadrillas operativas (`cuadrilla_id`), gestionando los acuses de recibo técnicos automáticos (`RECIBIDA`) y los acuses de lectura operativa (`LEIDA`) para garantizar la trazabilidad ante situaciones de pérdida de cobertura (Offline-First).
 
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Restricciones |
 |---|---|---|---|---|
 | `id` | `UUID` | NO | `gen_random_uuid()` | Clave primaria única de la notificación. |
 | `mision_id` | `UUID` | NO | — | FK a `mision.id` (ON DELETE CASCADE). Misión despachada. |
-| `patrulla_id` | `UUID` | NO | — | FK a `patrulla_verificadora.id` (ON DELETE CASCADE). Patrulla destinataria. |
+| `patrulla_id` | `UUID` | SÍ | `NULL` | FK a `patrulla_verificadora.id` (ON DELETE CASCADE). Patrulla destinataria (excluyente con `cuadrilla_id`). |
+| `cuadrilla_id` | `UUID` | SÍ | `NULL` | FK a `cuadrilla.id` (ON DELETE CASCADE). Cuadrilla destinataria (Migración 087; excluyente con `patrulla_id`). |
 | `estado` | `VARCHAR(30)` | NO | `'PENDIENTE_ENVIO'` | Estado del ciclo de vida (`PENDIENTE_ENVIO`, `ENVIADA`, `RECIBIDA`, `LEIDA`). |
-| `intentos_envio` | `INTEGER` | NO | `0` | Contador acumulado de emisiones hacia la patrulla. |
+| `intentos_envio` | `INTEGER` | NO | `0` | Contador acumulado de emisiones hacia la unidad en terreno. |
 | `creada_at` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Marca temporal UTC de registro en base de datos. |
-| `enviada_at` | `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal UTC de emisión hacia la sala Socket de la patrulla. |
+| `enviada_at` | `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal UTC de emisión hacia la sala Socket de la unidad. |
 | `recibida_at` | `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal UTC del acuse de recibo técnico automático (ACK). |
 | `leida_at` | `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal UTC de apertura o interacción con la notificación. |
 
+*Restricción `CHECK`:* `chk_notificaciones_mision_destinatario` exige `(patrulla_id IS NOT NULL AND cuadrilla_id IS NULL) OR (patrulla_id IS NULL AND cuadrilla_id IS NOT NULL)`.
+
 *Índices:*
-- `idx_notificaciones_mision_patrulla_estado`: `(patrulla_id, estado)` para acelerar consultas de reconciliación offline.
+- `idx_notificaciones_mision_patrulla_estado`: `(patrulla_id, estado)` para acelerar consultas de reconciliación offline de patrullas.
+- `idx_notificaciones_mision_cuadrilla_estado`: `(cuadrilla_id, estado)` parcial (`WHERE cuadrilla_id IS NOT NULL`) para acelerar consultas de reconciliación offline de cuadrillas (Migración 087).
 - `idx_notificaciones_mision_mision_id`: `(mision_id)` para trazabilidad directa desde el detalle de la misión.
 
 ---

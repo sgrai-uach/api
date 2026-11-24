@@ -38,6 +38,8 @@ export interface FilaIncidenteResumen {
   cuadrilla_aceptada?: boolean | number;
   cuadrilla_en_terreno?: boolean | number;
   trazabilidad_notificacion?: string | null;
+  trazabilidad_mision_id?: string | null;
+  trazabilidad_tipo_unidad?: string | null;
   verificado?: boolean | number;
   faenas_cuadrilla_completadas?: boolean | number;
   estado_terreno_final?: string | null;
@@ -253,6 +255,22 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
           ORDER BY nm.creada_at DESC
           LIMIT 1
         )`.as("trazabilidad_notificacion"),
+        sql<string | null>`(
+          SELECT nm.mision_id
+          FROM notificaciones_mision nm
+          INNER JOIN mision m ON m.id = nm.mision_id
+          WHERE m.incidente_id = incidente.id
+          ORDER BY nm.creada_at DESC
+          LIMIT 1
+        )`.as("trazabilidad_mision_id"),
+        sql<string | null>`(
+          SELECT CASE WHEN nm.cuadrilla_id IS NOT NULL THEN 'CUADRILLA' ELSE 'PATRULLA' END
+          FROM notificaciones_mision nm
+          INNER JOIN mision m ON m.id = nm.mision_id
+          WHERE m.incidente_id = incidente.id
+          ORDER BY nm.creada_at DESC
+          LIMIT 1
+        )`.as("trazabilidad_tipo_unidad"),
         (eb) =>
           eb
             .selectFrom("mision")
@@ -558,6 +576,13 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
         ORDER BY nm.creada_at DESC
         LIMIT 1
       )`.as("trazabilidad_notificacion"),
+      sql<string | null>`(
+        SELECT nm.id
+        FROM notificaciones_mision nm
+        WHERE nm.mision_id = mision.id
+        ORDER BY nm.creada_at DESC
+        LIMIT 1
+      )`.as("notificacion_id"),
     ])
     .where("mision.incidente_id", "=", id)
     .orderBy("mision.creado_en", "asc")

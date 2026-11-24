@@ -48,6 +48,7 @@ export interface MisionDetalleQueryResult {
     estado: string;
     prioridad: string;
     justificacion_rechazo: string | null;
+    notificacion_id?: string | null;
     trazabilidad_notificacion?: string | null;
     incidente_id: string | null;
     prevencion_id: string | null;
@@ -214,6 +215,13 @@ export async function obtenerMisionDetallePorIdRepo(
         "mision.estado",
         "mision.prioridad",
         "mision.justificacion_rechazo",
+        sql<string | null>`(
+          SELECT nm.id
+          FROM notificaciones_mision nm
+          WHERE nm.mision_id = mision.id
+          ORDER BY nm.creada_at DESC
+          LIMIT 1
+        )`.as("notificacion_id"),
         sql<string | null>`(
           SELECT nm.estado
           FROM notificaciones_mision nm
@@ -983,9 +991,13 @@ export interface AsignarCuadrillaResult {
   incidente: {
     id: string;
     codigo: string;
+    folio?: string | null;
+    tipoAfectacion?: string | null;
+    direccion?: string | null;
     estado: "EN_ATENCION";
     prioridad: string;
   };
+  notificacion?: NotificacionMisionDetalle;
   patrullaLiberada: {
     id: string;
     nombre: string;
@@ -1079,7 +1091,16 @@ export async function asignarCuadrillaIncidenteRepo(
     // 1. Bloqueo pesimista en lecturas iniciales (BUG-H21-API-01)
     const incidente = await trx
       .selectFrom("incidente")
-      .select(["id", "codigo", "estado", "prioridad", "delegacion_id", "tipo_afectacion"])
+      .select([
+        "id",
+        "codigo",
+        "folio",
+        "estado",
+        "prioridad",
+        "delegacion_id",
+        "tipo_afectacion",
+        "direccion_texto",
+      ])
       .where("id", "=", input.incidenteId)
       .forUpdate()
       .executeTakeFirst();
@@ -1446,6 +1467,13 @@ export async function asignarCuadrillaIncidenteRepo(
       .returningAll()
       .executeTakeFirstOrThrow();
 
+    // 9.1. Crear registro inicial de notificación para trazabilidad unificada de cuadrilla (HU-35 / HU-40)
+    const notificacionInicial = await crearNotificacionMisionRepo(
+      nuevaMision.id,
+      { cuadrillaId: input.cuadrillaId },
+      trx
+    );
+
     // 10. Regla §3.2 ICS: Liberar patrulla verificadora y completar su misión si existía (BUG-H21-API-03)
     // Evitar re-liberar la patrulla si su misión de verificación ya estaba COMPLETADA y la patrulla DISPONIBLE
     let patrullaLiberada: AsignarCuadrillaResult["patrullaLiberada"] = null;
@@ -1556,9 +1584,14 @@ export async function asignarCuadrillaIncidenteRepo(
       incidente: {
         id: incidenteActualizado.id,
         codigo: incidenteActualizado.codigo,
+        folio: (incidente as { folio?: string | null }).folio ?? null,
+        tipoAfectacion: incidente.tipo_afectacion ?? null,
+        direccion:
+          (incidente as { direccion_texto?: string | null }).direccion_texto ?? null,
         estado: "EN_ATENCION",
         prioridad: incidenteActualizado.prioridad,
       },
+      notificacion: notificacionInicial,
       patrullaLiberada,
       hitoCuadrilla: {
         id: hitoCuadrillaRow.id,

@@ -17,10 +17,20 @@ vi.mock("@/lib/socket", async (importOriginal) => {
   return {
     ...original,
     notificarMisionAsignada: vi.fn(),
+    notificarTrazabilidadActualizada: vi.fn(),
+    tieneConexionEnSala: vi.fn().mockResolvedValue(true),
     notificarPatrullaLiberada: vi.fn(),
     notificarPatrullaActualizada: vi.fn(),
     notificarIncidenteActualizado: vi.fn(),
     emitirRecursoActualizado: vi.fn(),
+  };
+});
+
+vi.mock("../notificacion-mision.repository", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../notificacion-mision.repository")>();
+  return {
+    ...original,
+    marcarNotificacionEnviadaRepo: vi.fn(),
   };
 });
 
@@ -109,14 +119,20 @@ describe("Servicio: asignarCuadrillaMisionService (HU-21 / Regla ICS §3.2)", ()
     expect(respuesta.message).toContain("La patrulla verificadora previa ha sido liberada a estado DISPONIBLE");
 
     // Verificación de llamadas WebSocket
-    expect(socketModule.notificarMisionAsignada).toHaveBeenCalledWith({
-      misionId: nuevaMisionId,
-      codigo: "MIS-2026-0005",
-      tipoMision: "ATENCION_CUADRILLA",
-      cuadrillaId,
-      incidenteId,
-      asignadoEn: "2026-10-04T12:30:00.000Z",
-    });
+    expect(socketModule.notificarMisionAsignada).toHaveBeenCalledWith(
+      expect.objectContaining({
+        misionId: nuevaMisionId,
+        codigo: "MIS-2026-0005",
+        tipoMision: "ATENCION_CUADRILLA",
+        tipoUnidad: "CUADRILLA",
+        patrullaId: null,
+        cuadrillaId,
+        incidenteId,
+        incidenteCodigo: "INC-2026-0001",
+        prioridad: "CRITICA",
+        asignadoEn: "2026-10-04T12:30:00.000Z",
+      })
+    );
 
     expect(socketModule.notificarPatrullaLiberada).toHaveBeenCalledWith(
       expect.objectContaining({

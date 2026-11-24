@@ -52,8 +52,8 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 | `POST` | `/api/incidentes/{id}/prioridad/calcular` | `misiones:terreno:verificar` | Calcular la `prioridad_sugerida` y factores gatillantes en base al formulario de evaluación técnica en terreno de la patrulla verificadora (HU-38). |
 | `PATCH` | `/api/incidentes/{id}/prioridad` | `misiones:terreno:verificar` | Confirmar o modificar la prioridad del incidente y enviar el reporte de evaluación en terreno versionado (`versionReporte: 1, 2...`) al Centro de Mando, registrando el hito `PRIORIDAD_ASIGNADA` o `PRIORIDAD_RECTIFICADA` en `mision_hito` (HU-38). |
 | `POST` | `/api/misiones/{id}/reporte` | `reportes:crear` | Enviar el informe técnico consolidado de verificación en terreno (`VERIFICACION_CIERRE`), cerrar la misión (`COMPLETADA`), liberar la patrulla (`DISPONIBLE`), gestionar la solicitud de Ficha FIBE (`requiere_asistencia_social`) y ejecutar el descarte fundado (`NO_ABORDABLE`) si corresponde (HU-39). |
-| `PATCH` | `/api/terreno/notificaciones/{id}/estado` | `misiones:terreno:verificar` | Confirmar de forma idempotente acuse de recibo técnico ('RECIBIDA') o lectura operativa ('LEIDA') desde terreno (HU-35). |
-| `GET` | `/api/terreno/misiones/pendientes` | `misiones:terreno:verificar` | Consultar misiones asignadas con notificaciones en PENDIENTE_ENVIO o ENVIADA para reconciliación offline (HU-35). |
+| `PATCH` | `/api/terreno/notificaciones/{id}/estado` | `misiones:terreno:verificar` o `misiones:terreno:ejecutar` | Confirmar de forma idempotente acuse de recibo técnico ('RECIBIDA') o lectura operativa ('LEIDA') desde terreno para patrullas y cuadrillas (HU-35). |
+| `GET` | `/api/terreno/misiones/pendientes` | `misiones:terreno:verificar` o `misiones:terreno:ejecutar` | Consultar misiones asignadas (patrulla o cuadrilla) con notificaciones en PENDIENTE_ENVIO o ENVIADA para reconciliación offline (HU-35). |
 | `GET` | `/api/geolocalizacion/posiciones` | Sesión válida | Consultar snapshot de últimas posiciones GPS activas de unidades en terreno desde caché Redis (HU-70). |
 
 ---
@@ -675,11 +675,11 @@ Permite al **Delegado de Cuadrilla (HU-40)** o a la **Patrulla Verificadora (HU-
 
 ### 3.7. `PATCH /api/terreno/notificaciones/{id}/estado` (HU-35: Acuse de Recibo y Lectura)
 
-Permite al cliente de terreno (`sgrai-pwa`) emitir de forma inmediata y transparente el acuse de recibo técnico (`RECIBIDA`) apenas ingresa el payload al dispositivo, o el acuse de lectura operativo (`LEIDA`) cuando el usuario toca la alerta o abre el detalle de la misión.
+Permite al cliente de terreno (`sgrai-pwa`, tanto patrullas verificadoras como cuadrillas operativas) emitir de forma inmediata y transparente el acuse de recibo técnico (`RECIBIDA`) apenas ingresa el payload al dispositivo, o el acuse de lectura operativo (`LEIDA`) automáticamente cuando el usuario abre la misión pendiente.
 
 - **Autenticación requerida:** `Authorization: Bearer <token_jwt>`
-- **Permiso RBAC requerido:** `misiones:terreno:verificar` (asignado a `PATRULLA_VERIFICADORA` y `ADMIN`).
-- **Control de Acceso por Propiedad:** Valida que la notificación pertenezca a la patrulla asignada (el usuario debe ser el líder o integrante en `patrulla_personal`, salvo perfil `ADMIN`).
+- **Permiso RBAC requerido:** `misiones:terreno:verificar` o `misiones:terreno:ejecutar` (asignados a `PATRULLA_VERIFICADORA`, `DELEGADO_CUADRILLA` y `ADMIN`).
+- **Control de Acceso por Propiedad:** Valida que la notificación pertenezca a la patrulla asignada (`patrulla_personal`) o a la cuadrilla asignada (`cuadrilla.lider_id` o `cuadrilla_personal`), salvo perfil `ADMIN`.
 
 #### Parámetros de Ruta (Path Parameters)
 | Parámetro | Tipo | Requerido | Descripción |
@@ -709,7 +709,10 @@ Permite al cliente de terreno (`sgrai-pwa`) emitir de forma inmediata y transpar
   "data": {
     "id": "80000000-0000-4000-8000-000000000001",
     "misionId": "60000000-0000-4000-8000-000000000050",
+    "incidenteId": "50000000-0000-4000-8000-000000000001",
     "patrullaId": "f1000000-0000-4000-8000-000000000001",
+    "cuadrillaId": null,
+    "tipoUnidad": "PATRULLA",
     "estado": "RECIBIDA",
     "intentosEnvio": 1,
     "creadaAt": "2026-10-27T17:00:00.000Z",
@@ -724,10 +727,10 @@ Permite al cliente de terreno (`sgrai-pwa`) emitir de forma inmediata y transpar
 
 ### 3.8. `GET /api/terreno/misiones/pendientes` (HU-35: Reconciliación Offline)
 
-Permite al cliente móvil (`sgrai-pwa`) consultar las misiones asignadas cuyas notificaciones se encuentran en `PENDIENTE_ENVIO` o `ENVIADA` (no confirmadas) al momento de recuperar la cobertura de red tras operar en modo avión o fuera de señal.
+Permite al cliente móvil (`sgrai-pwa`) consultar las misiones asignadas (patrulla verificadora o cuadrilla operativa) cuyas notificaciones se encuentran en `PENDIENTE_ENVIO` o `ENVIADA` (no confirmadas) al momento de recuperar la cobertura de red tras operar en modo avión o fuera de señal. Soporta filtro opcional `?patrullaId=` o `?cuadrillaId=`.
 
 - **Autenticación requerida:** `Authorization: Bearer <token_jwt>`
-- **Permiso RBAC requerido:** `misiones:terreno:verificar`
+- **Permiso RBAC requerido:** `misiones:terreno:verificar` o `misiones:terreno:ejecutar`
 
 #### Ejemplo de Respuesta Exitosa (`HTTP 200 OK`)
 ```json
@@ -1105,13 +1108,13 @@ Permite al Centro de Mando (`sgrai-web`) consultar de forma instantánea el snap
 Al confirmarse la asignación y operación de misiones mediante los endpoints del módulo, el backend emite los siguientes eventos:
 
 1. **`mision:asignada`**:
-   - **Salas destino:** `patrulla:{patrullaId}` (app PWA del líder de patrulla en terreno) o `cuadrilla:{cuadrillaId}`, `sala:encargados`, `encargado`, `supervisor` y `mapa`.
-   - **Payload:** `{ notificacionId, misionId, codigo, tipoMision, patrullaId, cuadrillaId, incidenteId, incidenteCodigo, incidenteFolio, tipoAfectacion, direccion, prioridad, asignadoEn }`.
+   - **Salas destino:** `patrulla:{patrullaId}` (app PWA de la patrulla verificadora en terreno) o `cuadrilla:{cuadrillaId}` (app PWA del delegado/integrantes de cuadrilla), `sala:encargados`, `encargado`, `supervisor` y `mapa`. Se emite exclusivamente a salas autorizadas (sin broadcast global `io.emit`).
+   - **Payload:** `{ notificacionId, misionId, codigo, tipoMision, tipoUnidad, patrullaId, cuadrillaId, incidenteId, incidenteCodigo, incidenteFolio, tipoAfectacion, direccion, prioridad, asignadoEn }`.
    - **Propósito:** Notificar en tiempo real a la unidad en terreno su orden táctica con georreferenciación e instrucciones.
 2. **`notificacion:trazabilidad_actualizada`**:
    - **Salas destino:** `sala:encargados`, `encargado`, `supervisor`.
-   - **Payload:** `{ notificacionId, misionId, patrullaId, estado, intentosEnvio, creadaAt, enviadaAt, recibidaAt, leidaAt, actualizadoEn }`.
-   - **Propósito:** Informa a la Central de Operaciones si el dispositivo de terreno cuenta con señal (`RECIBIDA`), si fue leída por el operador (`LEIDA`), o si permanece fuera de cobertura (`PENDIENTE_ENVIO`).
+   - **Payload:** `{ notificacionId, misionId, incidenteId, patrullaId, cuadrillaId, tipoUnidad, estado, intentosEnvio, creadaAt, enviadaAt, recibidaAt, leidaAt, actualizadoEn }`.
+   - **Propósito:** Informa a la Central de Operaciones si el dispositivo de terreno (patrulla o cuadrilla) cuenta con señal (`RECIBIDA`), si fue leída automáticamente al abrir la misión (`LEIDA`), o si permanece fuera de cobertura (`PENDIENTE_ENVIO`).
 3. **`notificacion:ack` (Client to Server)**:
    - **Emitido por:** Cliente `sgrai-pwa` conectado al WebSocket hacia el servidor.
    - **Payload:** `{ notificacionId, estado: "RECIBIDA" | "LEIDA" }`.

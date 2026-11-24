@@ -466,6 +466,7 @@ export async function obtenerDetalleMisionService(
     estado: mision.estado as MisionDetalleCompleto["estado"],
     prioridad: mision.prioridad as MisionDetalleCompleto["prioridad"],
     justificacionRechazo: mision.justificacion_rechazo,
+    ...(mision.notificacion_id ? { notificacionId: mision.notificacion_id } : {}),
     ...(mision.trazabilidad_notificacion
       ? {
           trazabilidadNotificacion:
@@ -577,17 +578,55 @@ export async function asignarCuadrillaMisionService(
   // 1. Ejecutar transacción atómica en repositorio
   const resultado = await asignarCuadrillaIncidenteRepo(input, usuarioId);
 
+  let notificacionActualizada = resultado.notificacion;
+  let cuadrillaConectada = false;
+  if (resultado.notificacion?.id) {
+    cuadrillaConectada = await tieneConexionEnSala(`cuadrilla:${resultado.cuadrilla.id}`);
+    if (cuadrillaConectada) {
+      const enviada = await marcarNotificacionEnviadaRepo(resultado.notificacion.id);
+      if (enviada) {
+        notificacionActualizada = enviada;
+      }
+    }
+  }
+
   // 2. Notificaciones WebSocket reactivas
   try {
     // a) Misión asignada a la cuadrilla y al Centro de Mando
     notificarMisionAsignada({
+      ...(notificacionActualizada?.id ? { notificacionId: notificacionActualizada.id } : {}),
       misionId: resultado.mision.id,
       codigo: resultado.mision.codigo,
       tipoMision: resultado.mision.tipoMision,
+      tipoUnidad: "CUADRILLA",
+      patrullaId: null,
       cuadrillaId: resultado.cuadrilla.id,
       incidenteId: resultado.incidente.id,
+      incidenteCodigo: resultado.incidente.codigo,
+      incidenteFolio: resultado.incidente.folio ?? null,
+      tipoAfectacion: resultado.incidente.tipoAfectacion ?? null,
+      direccion: resultado.incidente.direccion ?? null,
+      prioridad: resultado.mision.prioridad,
       asignadoEn: resultado.mision.creadoEn,
     });
+
+    if (notificacionActualizada && cuadrillaConectada) {
+      notificarTrazabilidadActualizada({
+        notificacionId: notificacionActualizada.id,
+        misionId: resultado.mision.id,
+        incidenteId: resultado.incidente.id,
+        patrullaId: null,
+        cuadrillaId: resultado.cuadrilla.id,
+        tipoUnidad: "CUADRILLA",
+        estado: notificacionActualizada.estado,
+        intentosEnvio: notificacionActualizada.intentosEnvio,
+        creadaAt: notificacionActualizada.creadaAt,
+        enviadaAt: notificacionActualizada.enviadaAt,
+        recibidaAt: notificacionActualizada.recibidaAt,
+        leidaAt: notificacionActualizada.leidaAt,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
 
     // BUG-H21-API-05: Emisión de cuadrilla actualizada a estado EN_MISION
     emitirCuadrillaActualizada({
@@ -663,6 +702,7 @@ export async function asignarCuadrillaMisionService(
       patrullaLiberada: resultado.patrullaLiberada,
       hitoCuadrilla: resultado.hitoCuadrilla,
       hitoPatrulla: resultado.hitoPatrulla,
+      ...(notificacionActualizada ? { notificacion: notificacionActualizada } : {}),
       ...(resultado.recursosAdicionalesAsignados
         ? { recursosAdicionalesAsignados: resultado.recursosAdicionalesAsignados }
         : {}),
@@ -704,7 +744,9 @@ export async function asignarPatrullaVerificacionService(
       misionId: resultado.mision.id,
       codigo: resultado.mision.codigo,
       tipoMision: resultado.mision.tipoMision,
+      tipoUnidad: "PATRULLA",
       patrullaId: resultado.patrulla.id,
+      cuadrillaId: null,
       incidenteId: resultado.incidente.id,
       incidenteCodigo: resultado.incidente.codigo,
       incidenteFolio: resultado.incidente.folio ?? null,
@@ -718,7 +760,10 @@ export async function asignarPatrullaVerificacionService(
       notificarTrazabilidadActualizada({
         notificacionId: notificacionActualizada.id,
         misionId: resultado.mision.id,
+        incidenteId: resultado.incidente.id,
         patrullaId: resultado.patrulla.id,
+        cuadrillaId: null,
+        tipoUnidad: "PATRULLA",
         estado: notificacionActualizada.estado,
         intentosEnvio: notificacionActualizada.intentosEnvio,
         creadaAt: notificacionActualizada.creadaAt,

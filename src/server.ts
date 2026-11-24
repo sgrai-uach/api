@@ -140,7 +140,7 @@ async function bootstrap() {
           esAdmin
         );
 
-        callback?.({ ok: true, message: resultado.message });
+        callback?.({ ok: true, message: resultado.message, data: resultado.data });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Error al procesar acuse de notificación.";
         callback?.({ ok: false, error: msg });

@@ -11,6 +11,7 @@ vi.mock("../notificacion-mision.repository", () => ({
   actualizarEstadoNotificacionIdempotenteRepo: vi.fn(),
   listarMisionesPendientesTerrenoRepo: vi.fn(),
   obtenerPatrullaDeUsuarioRepo: vi.fn(),
+  obtenerCuadrillaDeUsuarioRepo: vi.fn(),
 }));
 
 vi.mock("@/lib/socket", () => ({
@@ -133,12 +134,30 @@ describe("Notificacion Mision Service (HU-35)", () => {
       expect(res.data[0].estadoNotificacion).toBe("PENDIENTE_ENVIO");
     });
 
-    it("debe lanzar ForbiddenError si el usuario no pertenece a ninguna patrulla activa", async () => {
+    it("debe lanzar ForbiddenError si el usuario no pertenece a ninguna patrulla ni cuadrilla activa", async () => {
       vi.mocked(notifRepo.obtenerPatrullaDeUsuarioRepo).mockResolvedValueOnce(null);
+      vi.mocked(notifRepo.obtenerCuadrillaDeUsuarioRepo).mockResolvedValueOnce(null);
 
       await expect(
         listarMisionesPendientesTerrenoService("00000000-0000-4000-8000-000000000099", false)
       ).rejects.toThrow(ForbiddenError);
+    });
+
+    it("debe consultar misiones pendientes para un delegado de cuadrilla activa", async () => {
+      const cuadrillaId = "50000000-0000-4000-8000-000000000001";
+      vi.mocked(notifRepo.obtenerPatrullaDeUsuarioRepo).mockResolvedValueOnce(null);
+      vi.mocked(notifRepo.obtenerCuadrillaDeUsuarioRepo).mockResolvedValueOnce({
+        id: cuadrillaId,
+        nombre: "Cuadrilla Sur 1",
+      });
+      vi.mocked(notifRepo.listarMisionesPendientesTerrenoRepo).mockResolvedValueOnce([]);
+
+      const res = await listarMisionesPendientesTerrenoService("00000000-0000-4000-8000-000000000022", false);
+
+      expect(notifRepo.listarMisionesPendientesTerrenoRepo).toHaveBeenCalledWith({
+        cuadrillaId,
+      });
+      expect(res.total).toBe(0);
     });
 
     it("debe permitir a Administrador filtrar por patrullaIdQuery", async () => {

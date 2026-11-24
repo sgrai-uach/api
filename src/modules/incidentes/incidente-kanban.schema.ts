@@ -116,6 +116,12 @@ export const IncidenteResumenSchema = z.object({
   trazabilidadNotificacion: EstadoNotificacionMisionEnum.optional().openapi({
     description: "Último estado de trazabilidad de notificación de misión asociado al incidente (HU-35)",
   }),
+  trazabilidadMisionId: z.string().uuid().nullable().optional().openapi({
+    description: "ID de la misión correspondiente a la última trazabilidad de notificación del incidente",
+  }),
+  trazabilidadTipoUnidad: z.enum(["PATRULLA", "CUADRILLA"]).nullable().optional().openapi({
+    description: "Tipo de unidad (PATRULLA o CUADRILLA) destinataria de la última notificación de misión del incidente",
+  }),
   verificado: z.boolean().default(false).openapi({ description: "Indica si la patrulla verificadora completó el diagnóstico técnico en terreno" }),
   faenasCuadrillaCompletadas: z.boolean().optional().openapi({ description: "Indica si la cuadrilla operativa finalizó sus faenas y envió el informe técnico final (HU-68)" }),
   estadoTerrenoFinal: z.string().nullable().optional().openapi({ description: "Estado final del terreno informado por la cuadrilla al cierre (HU-68)" }),
@@ -156,6 +162,9 @@ export const MisionDetalleSchema = z.object({
   justificacionRechazo: z.string().nullable().openapi({ description: "Justificación en caso de rechazo por la cuadrilla" }),
   trazabilidadNotificacion: EstadoNotificacionMisionEnum.optional().openapi({
     description: "Estado actual de entrega y lectura de la notificación de esta misión (HU-35)",
+  }),
+  notificacionId: z.string().uuid().nullable().optional().openapi({
+    description: "ID de la notificación de misión más reciente asociada a esta misión",
   }),
   patrulla: z
     .object({

@@ -27,15 +27,17 @@ export async function GET(request: NextRequest) {
 
     const esAdmin = usuarioAutenticado.rolNombre === "Administrador";
 
-    // 2. Parámetro opcional para filtrado administrativo
+    // 2. Parámetros opcionales para filtrado administrativo
     const searchParams = request.nextUrl.searchParams;
     const patrullaIdQuery = searchParams.get("patrullaId");
+    const cuadrillaIdQuery = searchParams.get("cuadrillaId");
 
     // 3. Ejecutar servicio
     const resultado = await listarMisionesPendientesTerrenoService(
       usuarioAutenticado.id,
       esAdmin,
-      patrullaIdQuery
+      patrullaIdQuery,
+      cuadrillaIdQuery
     );
 
     return NextResponse.json(resultado, { status: 200 });

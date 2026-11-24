@@ -445,7 +445,8 @@ export type EstadoNotificacionMision =
 export interface NotificacionesMisionTable {
   id: Generated<string>;
   mision_id: string;
-  patrulla_id: string;
+  patrulla_id: string | null;
+  cuadrilla_id?: string | null;
   estado: ColumnType<
     EstadoNotificacionMision,
     EstadoNotificacionMision | undefined,

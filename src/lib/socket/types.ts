@@ -56,6 +56,7 @@ export interface ServerToClientEvents {
         misionId: string;
         codigo: string;
         tipoMision: string;
+        tipoUnidad?: "PATRULLA" | "CUADRILLA";
         patrullaId?: string | null;
         cuadrillaId?: string | null;
         incidenteId?: string | null;
@@ -110,7 +111,10 @@ export interface ServerToClientEvents {
     "notificacion:trazabilidad_actualizada": (payload: {
         notificacionId: string;
         misionId: string;
-        patrullaId: string;
+        incidenteId?: string | null;
+        patrullaId: string | null;
+        cuadrillaId?: string | null;
+        tipoUnidad?: "PATRULLA" | "CUADRILLA";
         estado: "PENDIENTE_ENVIO" | "ENVIADA" | "RECIBIDA" | "LEIDA";
         intentosEnvio: number;
         creadaAt: string;
@@ -176,7 +180,7 @@ export interface ClientToServerEvents {
     salir: (room: string) => void;
     "notificacion:ack": (
         payload: { notificacionId: string; estado: "RECIBIDA" | "LEIDA" },
-        callback?: (response: { ok: boolean; message?: string; error?: string }) => void
+        callback?: (response: { ok: boolean; message?: string; error?: string; data?: unknown }) => void
     ) => void;
     "telemetria:posicion": (payload: TelemetriaPosicionDTO) => void;
 }

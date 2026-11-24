@@ -197,6 +197,19 @@ describe("HU-44: mision.repository - asignarCuadrillaIncidenteRepo", () => {
         hito: "CUADRILLA_DESPACHADA",
         descripcion: "Cuadrilla adicional despachada a terreno para apoyo táctico del incidente",
         creado_en: ahora,
+      })
+      // 10. notificaciones_mision (HU-35 cuadrilla)
+      .mockResolvedValueOnce({
+        id: "90000000-0000-4000-8000-000000000011",
+        mision_id: "70000000-0000-4000-8000-000000000011",
+        patrulla_id: null,
+        cuadrilla_id: cuadrillaId,
+        estado: "PENDIENTE_ENVIO",
+        intentos_envio: 0,
+        creada_at: ahora,
+        enviada_at: null,
+        recibida_at: null,
+        leida_at: null,
       });
 
     mockTrx.execute.mockImplementation(async () => {

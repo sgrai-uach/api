@@ -56,6 +56,12 @@ export async function listarIncidentesKanbanService(
             fila.trazabilidad_notificacion as EstadoNotificacionMision,
         }
       : {}),
+    trazabilidadMisionId: fila.trazabilidad_mision_id ?? null,
+    trazabilidadTipoUnidad:
+      fila.trazabilidad_tipo_unidad === "CUADRILLA" ||
+      fila.trazabilidad_tipo_unidad === "PATRULLA"
+        ? fila.trazabilidad_tipo_unidad
+        : null,
     verificado: Boolean(fila.verificado),
     faenasCuadrillaCompletadas: Boolean(fila.faenas_cuadrilla_completadas),
     estadoTerrenoFinal: fila.estado_terreno_final ?? null,
@@ -286,6 +292,7 @@ export async function obtenerDetalleIncidenteService(
             m.trazabilidad_notificacion as EstadoNotificacionMision,
         }
       : {}),
+    notificacionId: m.notificacion_id ?? null,
     patrulla: m.patrulla_id
       ? {
           id: m.patrulla_id,

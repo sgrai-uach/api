@@ -12,6 +12,9 @@ export const EstadoNotificacionMisionEnum = z.enum([
 
 export type EstadoNotificacionMision = z.infer<typeof EstadoNotificacionMisionEnum>;
 
+export const TipoUnidadNotificacionEnum = z.enum(["PATRULLA", "CUADRILLA"]);
+export type TipoUnidadNotificacion = z.infer<typeof TipoUnidadNotificacionEnum>;
+
 // Schema para el parámetro de ruta :id de notificación
 export const NotificacionIdParamSchema = z.string().uuid({
   message: "El identificador de la notificación debe ser un UUID válido.",
@@ -41,7 +44,10 @@ export type ActualizarEstadoNotificacionInput = z.infer<
 export const NotificacionMisionDetalleSchema = z.object({
   id: z.string().uuid().openapi({ description: "Identificador único de la notificación" }),
   misionId: z.string().uuid().openapi({ description: "Identificador de la misión asociada" }),
-  patrullaId: z.string().uuid().openapi({ description: "Identificador de la patrulla destinataria" }),
+  incidenteId: z.string().uuid().nullable().optional().openapi({ description: "Identificador del incidente asociado si aplica" }),
+  patrullaId: z.string().uuid().nullable().openapi({ description: "Identificador de la patrulla destinataria (null si corresponde a cuadrilla)" }),
+  cuadrillaId: z.string().uuid().nullable().optional().openapi({ description: "Identificador de la cuadrilla destinataria (null si corresponde a patrulla)" }),
+  tipoUnidad: TipoUnidadNotificacionEnum.optional().openapi({ description: "Tipo de unidad operativa destinataria (PATRULLA o CUADRILLA)" }),
   estado: EstadoNotificacionMisionEnum.openapi({ description: "Estado actual del ciclo de vida de la notificación" }),
   intentosEnvio: z.number().int().openapi({ description: "Contador de emisiones hacia la patrulla", example: 1 }),
   creadaAt: z.string().openapi({ description: "Marca temporal UTC de registro en base de datos" }),
@@ -78,7 +84,9 @@ export const MisionPendienteTerrenoSchema = z.object({
   prioridad: z.string().openapi({ description: "Prioridad operativa (BAJA, MEDIA, ALTA, CRITICA)", example: "ALTA" }),
   estadoMision: z.string().openapi({ description: "Estado actual de la misión en el sistema", example: "DESPACHADA" }),
   estadoNotificacion: EstadoNotificacionMisionEnum.openapi({ description: "Estado de entrega de la notificación", example: "PENDIENTE_ENVIO" }),
-  patrullaId: z.string().uuid().openapi({ description: "Identificador de la patrulla asignada" }),
+  patrullaId: z.string().uuid().nullable().openapi({ description: "Identificador de la patrulla asignada (si aplica)" }),
+  cuadrillaId: z.string().uuid().nullable().optional().openapi({ description: "Identificador de la cuadrilla asignada (si aplica)" }),
+  tipoUnidad: TipoUnidadNotificacionEnum.optional().openapi({ description: "Tipo de unidad operativa asignada (PATRULLA o CUADRILLA)" }),
   incidenteId: z.string().uuid().nullable().openapi({ description: "Identificador del incidente asociado si aplica" }),
   incidenteCodigo: z.string().nullable().openapi({ description: "Código del incidente atendido", example: "INC-2026-8869" }),
   incidenteFolio: z.string().nullable().openapi({ description: "Folio correlativo institucional", example: "FOL-8869" }),

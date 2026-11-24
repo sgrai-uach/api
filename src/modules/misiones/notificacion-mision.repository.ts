@@ -5,7 +5,46 @@ import type {
   EstadoNotificacionMision,
   NotificacionMisionDetalle,
   MisionPendienteTerreno,
+  TipoUnidadNotificacion,
 } from "./notificacion-mision.schema";
+
+function mapearDetalleNotificacion(
+  fila: {
+    id: string;
+    mision_id: string;
+    patrulla_id: string | null;
+    cuadrilla_id?: string | null;
+    mision_incidente_id?: string | null;
+    estado: string;
+    intentos_envio: number | string;
+    creada_at: Date | string;
+    enviada_at: Date | string | null;
+    recibida_at: Date | string | null;
+    leida_at: Date | string | null;
+  },
+  incidenteIdFallback?: string | null
+): NotificacionMisionDetalle {
+  const patrullaId = fila.patrulla_id ?? null;
+  const cuadrillaId = fila.cuadrilla_id ?? null;
+  const tipoUnidad: TipoUnidadNotificacion = cuadrillaId ? "CUADRILLA" : "PATRULLA";
+
+  return {
+    id: fila.id,
+    misionId: fila.mision_id,
+    ...(fila.mision_incidente_id !== undefined || incidenteIdFallback !== undefined
+      ? { incidenteId: fila.mision_incidente_id ?? incidenteIdFallback ?? null }
+      : {}),
+    patrullaId,
+    cuadrillaId,
+    tipoUnidad,
+    estado: fila.estado as EstadoNotificacionMision,
+    intentosEnvio: Number(fila.intentos_envio),
+    creadaAt: formatearIso(fila.creada_at) || new Date().toISOString(),
+    enviadaAt: formatearIso(fila.enviada_at),
+    recibidaAt: formatearIso(fila.recibida_at),
+    leidaAt: formatearIso(fila.leida_at),
+  };
+}
 
 const PRIORIDAD_ESTADO: Record<EstadoNotificacionMision, number> = {
   PENDIENTE_ENVIO: 0,
@@ -53,21 +92,60 @@ export async function obtenerPatrullaDeUsuarioRepo(
 }
 
 /**
- * Inserta el registro inicial de notificación en estado PENDIENTE_ENVIO.
+ * Consulta la cuadrilla operativa activa a la que pertenece un usuario (como delegado o integrante).
+ */
+export async function obtenerCuadrillaDeUsuarioRepo(
+  usuarioId: string
+): Promise<{ id: string; nombre: string } | null> {
+  // 1. Verificar si es delegado titular de la cuadrilla
+  const delegado = await db
+    .selectFrom("cuadrilla")
+    .select(["id", "nombre"])
+    .where("usuario_delegado_id", "=", usuarioId)
+    .where("eliminado_en", "is", null)
+    .where("activo", "=", true)
+    .executeTakeFirst();
+
+  if (delegado) {
+    return delegado;
+  }
+
+  // 2. Verificar si es integrante activo en cuadrilla_personal
+  const integrante = await db
+    .selectFrom("cuadrilla_personal")
+    .innerJoin("cuadrilla", "cuadrilla.id", "cuadrilla_personal.cuadrilla_id")
+    .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+    .select(["cuadrilla.id", "cuadrilla.nombre"])
+    .where("personal.usuario_id", "=", usuarioId)
+    .where("cuadrilla_personal.activo", "=", true)
+    .where("cuadrilla_personal.desvinculado_en", "is", null)
+    .where("cuadrilla.eliminado_en", "is", null)
+    .where("cuadrilla.activo", "=", true)
+    .executeTakeFirst();
+
+  return integrante ?? null;
+}
+
+/**
+ * Inserta el registro inicial de notificación en estado PENDIENTE_ENVIO
+ * para una patrulla verificadora o una cuadrilla operativa.
  */
 export async function crearNotificacionMisionRepo(
   misionId: string,
-  patrullaId: string,
+  destino: string | { patrullaId?: string | null; cuadrillaId?: string | null },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   trx?: any
 ): Promise<NotificacionMisionDetalle> {
   const executor = trx || db;
+  const patrullaId = typeof destino === "string" ? destino : destino.patrullaId ?? null;
+  const cuadrillaId = typeof destino === "string" ? null : destino.cuadrillaId ?? null;
 
   const fila = await executor
     .insertInto("notificaciones_mision")
     .values({
       mision_id: misionId,
       patrulla_id: patrullaId,
+      ...(cuadrillaId ? { cuadrilla_id: cuadrillaId } : {}),
       estado: "PENDIENTE_ENVIO",
       intentos_envio: 0,
       creada_at: sql`CURRENT_TIMESTAMP`,
@@ -75,17 +153,7 @@ export async function crearNotificacionMisionRepo(
     .returningAll()
     .executeTakeFirstOrThrow();
 
-  return {
-    id: fila.id,
-    misionId: fila.mision_id,
-    patrullaId: fila.patrulla_id,
-    estado: fila.estado as EstadoNotificacionMision,
-    intentosEnvio: Number(fila.intentos_envio),
-    creadaAt: formatearIso(fila.creada_at) || new Date().toISOString(),
-    enviadaAt: formatearIso(fila.enviada_at),
-    recibidaAt: formatearIso(fila.recibida_at),
-    leidaAt: formatearIso(fila.leida_at),
-  };
+  return mapearDetalleNotificacion(fila);
 }
 
 /**
@@ -119,35 +187,15 @@ export async function marcarNotificacionEnviadaRepo(
 
     if (!actual) return null;
 
-    return {
-      id: actual.id,
-      misionId: actual.mision_id,
-      patrullaId: actual.patrulla_id,
-      estado: actual.estado as EstadoNotificacionMision,
-      intentosEnvio: Number(actual.intentos_envio),
-      creadaAt: formatearIso(actual.creada_at) || new Date().toISOString(),
-      enviadaAt: formatearIso(actual.enviada_at),
-      recibidaAt: formatearIso(actual.recibida_at),
-      leidaAt: formatearIso(actual.leida_at),
-    };
+    return mapearDetalleNotificacion(actual);
   }
 
-  return {
-    id: fila.id,
-    misionId: fila.mision_id,
-    patrullaId: fila.patrulla_id,
-    estado: fila.estado as EstadoNotificacionMision,
-    intentosEnvio: Number(fila.intentos_envio),
-    creadaAt: formatearIso(fila.creada_at) || new Date().toISOString(),
-    enviadaAt: formatearIso(fila.enviada_at),
-    recibidaAt: formatearIso(fila.recibida_at),
-    leidaAt: formatearIso(fila.leida_at),
-  };
+  return mapearDetalleNotificacion(fila);
 }
 
 /**
  * Actualiza de forma idempotente el estado de la notificación (RECIBIDA o LEIDA)
- * validando que pertenezca a la patrulla del usuario autenticado.
+ * validando que pertenezca a la patrulla o cuadrilla del usuario autenticado.
  */
 export async function actualizarEstadoNotificacionIdempotenteRepo(
   notificacionId: string,
@@ -156,11 +204,13 @@ export async function actualizarEstadoNotificacionIdempotenteRepo(
   esAdmin = false
 ): Promise<NotificacionMisionDetalle> {
   return await db.transaction().execute(async (trx) => {
-    // 1. Obtener la notificación existente
+    // 1. Obtener la notificación existente junto al incidenteId asociado (en una única lectura)
     const notificacion = await trx
       .selectFrom("notificaciones_mision")
-      .selectAll()
-      .where("id", "=", notificacionId)
+      .leftJoin("mision", "mision.id", "notificaciones_mision.mision_id")
+      .selectAll("notificaciones_mision")
+      .select("mision.incidente_id as mision_incidente_id")
+      .where("notificaciones_mision.id", "=", notificacionId)
       .executeTakeFirst();
 
     if (!notificacion) {
@@ -169,33 +219,67 @@ export async function actualizarEstadoNotificacionIdempotenteRepo(
       );
     }
 
-    // 2. Validar pertenencia a la patrulla si no es Administrador
+    const incidenteId =
+      (notificacion as { mision_incidente_id?: string | null }).mision_incidente_id ?? null;
+
+    // 2. Validar pertenencia a la patrulla o cuadrilla destinataria si no es Administrador
     if (!esAdmin) {
-      const patrulla = await trx
-        .selectFrom("patrulla_verificadora")
-        .select(["id", "usuario_lider_id"])
-        .where("id", "=", notificacion.patrulla_id)
-        .executeTakeFirst();
-
-      const esLider = patrulla?.usuario_lider_id === usuarioId;
-
-      let esIntegrante = false;
-      if (!esLider) {
-        const integrante = await trx
-          .selectFrom("patrulla_personal")
-          .innerJoin("personal", "personal.id", "patrulla_personal.personal_id")
-          .select("patrulla_personal.id")
-          .where("patrulla_personal.patrulla_id", "=", notificacion.patrulla_id)
-          .where("personal.usuario_id", "=", usuarioId)
+      if (notificacion.cuadrilla_id) {
+        const cuadrilla = await trx
+          .selectFrom("cuadrilla")
+          .select(["id", "usuario_delegado_id"])
+          .where("id", "=", notificacion.cuadrilla_id)
           .executeTakeFirst();
 
-        esIntegrante = Boolean(integrante);
-      }
+        const esDelegado = cuadrilla?.usuario_delegado_id === usuarioId;
 
-      if (!esLider && !esIntegrante) {
-        throw new ForbiddenError(
-          "No está autorizado para confirmar notificaciones asignadas a otra patrulla verificadora."
-        );
+        let esIntegrante = false;
+        if (!esDelegado) {
+          const integrante = await trx
+            .selectFrom("cuadrilla_personal")
+            .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+            .select("cuadrilla_personal.id")
+            .where("cuadrilla_personal.cuadrilla_id", "=", notificacion.cuadrilla_id)
+            .where("cuadrilla_personal.activo", "=", true)
+            .where("cuadrilla_personal.desvinculado_en", "is", null)
+            .where("personal.usuario_id", "=", usuarioId)
+            .executeTakeFirst();
+
+          esIntegrante = Boolean(integrante);
+        }
+
+        if (!esDelegado && !esIntegrante) {
+          throw new ForbiddenError(
+            "No está autorizado para confirmar notificaciones asignadas a otra cuadrilla operativa."
+          );
+        }
+      } else if (notificacion.patrulla_id) {
+        const patrulla = await trx
+          .selectFrom("patrulla_verificadora")
+          .select(["id", "usuario_lider_id"])
+          .where("id", "=", notificacion.patrulla_id)
+          .executeTakeFirst();
+
+        const esLider = patrulla?.usuario_lider_id === usuarioId;
+
+        let esIntegrante = false;
+        if (!esLider) {
+          const integrante = await trx
+            .selectFrom("patrulla_personal")
+            .innerJoin("personal", "personal.id", "patrulla_personal.personal_id")
+            .select("patrulla_personal.id")
+            .where("patrulla_personal.patrulla_id", "=", notificacion.patrulla_id)
+            .where("personal.usuario_id", "=", usuarioId)
+            .executeTakeFirst();
+
+          esIntegrante = Boolean(integrante);
+        }
+
+        if (!esLider && !esIntegrante) {
+          throw new ForbiddenError(
+            "No está autorizado para confirmar notificaciones asignadas a otra patrulla verificadora."
+          );
+        }
       }
     }
 
@@ -204,17 +288,7 @@ export async function actualizarEstadoNotificacionIdempotenteRepo(
     // 3. Regla de Idempotencia y Anti-retroceso:
     // Si el nuevo estado es igual o menor en jerarquía al actual, no alteramos timestamps ni estado.
     if (PRIORIDAD_ESTADO[nuevoEstado] <= PRIORIDAD_ESTADO[estadoActual]) {
-      return {
-        id: notificacion.id,
-        misionId: notificacion.mision_id,
-        patrullaId: notificacion.patrulla_id,
-        estado: estadoActual,
-        intentosEnvio: Number(notificacion.intentos_envio),
-        creadaAt: formatearIso(notificacion.creada_at) || new Date().toISOString(),
-        enviadaAt: formatearIso(notificacion.enviada_at),
-        recibidaAt: formatearIso(notificacion.recibida_at),
-        leidaAt: formatearIso(notificacion.leida_at),
-      };
+      return mapearDetalleNotificacion(notificacion, incidenteId);
     }
 
     // 4. Aplicar transición progresiva
@@ -237,17 +311,7 @@ export async function actualizarEstadoNotificacionIdempotenteRepo(
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    return {
-      id: actualizada.id,
-      misionId: actualizada.mision_id,
-      patrullaId: actualizada.patrulla_id,
-      estado: actualizada.estado as EstadoNotificacionMision,
-      intentosEnvio: Number(actualizada.intentos_envio),
-      creadaAt: formatearIso(actualizada.creada_at) || new Date().toISOString(),
-      enviadaAt: formatearIso(actualizada.enviada_at),
-      recibidaAt: formatearIso(actualizada.recibida_at),
-      leidaAt: formatearIso(actualizada.leida_at),
-    };
+    return mapearDetalleNotificacion(actualizada, incidenteId);
   });
 }
 
@@ -255,9 +319,12 @@ export async function actualizarEstadoNotificacionIdempotenteRepo(
  * Consulta las misiones pendientes con notificaciones en PENDIENTE_ENVIO o ENVIADA para reconciliación offline.
  */
 export async function listarMisionesPendientesTerrenoRepo(
-  patrullaId: string
+  destino: string | { patrullaId?: string; cuadrillaId?: string }
 ): Promise<MisionPendienteTerreno[]> {
-  const filas = await db
+  const patrullaId = typeof destino === "string" ? destino : destino.patrullaId;
+  const cuadrillaId = typeof destino === "string" ? undefined : destino.cuadrillaId;
+
+  let consulta = db
     .selectFrom("notificaciones_mision")
     .innerJoin("mision", "mision.id", "notificaciones_mision.mision_id")
     .leftJoin("incidente", "incidente.id", "mision.incidente_id")
@@ -265,6 +332,7 @@ export async function listarMisionesPendientesTerrenoRepo(
       "notificaciones_mision.id as notificacion_id",
       "notificaciones_mision.estado as notificacion_estado",
       "notificaciones_mision.patrulla_id",
+      "notificaciones_mision.cuadrilla_id",
       "notificaciones_mision.creada_at",
       "notificaciones_mision.enviada_at",
       "mision.id as mision_id",
@@ -282,9 +350,16 @@ export async function listarMisionesPendientesTerrenoRepo(
       "incidente.latitud as incidente_latitud",
       "incidente.longitud as incidente_longitud",
     ])
-    .where("notificaciones_mision.patrulla_id", "=", patrullaId)
     .where("notificaciones_mision.estado", "in", ["PENDIENTE_ENVIO", "ENVIADA"])
-    .where("mision.estado", "=", "DESPACHADA")
+    .where("mision.estado", "=", "DESPACHADA");
+
+  if (cuadrillaId) {
+    consulta = consulta.where("notificaciones_mision.cuadrilla_id", "=", cuadrillaId);
+  } else if (patrullaId) {
+    consulta = consulta.where("notificaciones_mision.patrulla_id", "=", patrullaId);
+  }
+
+  const filas = await consulta
     .orderBy("notificaciones_mision.creada_at", "asc")
     .execute();
 
@@ -298,7 +373,9 @@ export async function listarMisionesPendientesTerrenoRepo(
     prioridad: f.mision_prioridad,
     estadoMision: f.mision_estado,
     estadoNotificacion: f.notificacion_estado as EstadoNotificacionMision,
-    patrullaId: f.patrulla_id,
+    patrullaId: f.patrulla_id ?? null,
+    cuadrillaId: (f as { cuadrilla_id?: string | null }).cuadrilla_id ?? null,
+    tipoUnidad: (f as { cuadrilla_id?: string | null }).cuadrilla_id ? "CUADRILLA" : "PATRULLA",
     incidenteId: f.incidente_id ?? null,
     incidenteCodigo: f.incidente_codigo ?? null,
     incidenteFolio: f.incidente_folio ?? null,

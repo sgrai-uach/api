@@ -290,6 +290,9 @@ export const MisionDetalleCompletoSchema = z.object({
   estado: EstadoMisionEnum.openapi({ description: "Estado de ejecución actual de la misión" }),
   prioridad: PrioridadMisionEnum.openapi({ description: "Nivel de prioridad o urgencia" }),
   justificacionRechazo: z.string().nullable().openapi({ description: "Motivo documentado en caso de rechazo por la cuadrilla" }),
+  notificacionId: z.string().uuid().nullable().optional().openapi({
+    description: "UUID de la última notificación emitida para esta misión (HU-35)",
+  }),
   trazabilidadNotificacion: EstadoNotificacionMisionEnum.optional().openapi({
     description: "Estado actual de entrega y lectura de la notificación de esta misión (HU-35)",
   }),
@@ -716,6 +719,9 @@ export const AsignarCuadrillaMisionResponseSchema = z
         })
         .nullable()
         .optional(),
+      notificacion: NotificacionMisionDetalleSchema.optional().openapi({
+        description: "Registro inicial de trazabilidad de notificación para la cuadrilla destinataria (HU-35 / HU-40)",
+      }),
       recursosAdicionalesAsignados: z
         .array(
           z.object({

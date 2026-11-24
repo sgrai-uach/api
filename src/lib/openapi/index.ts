@@ -2733,7 +2733,7 @@ registry.registerPath({
   path: "/api/terreno/notificaciones/{id}/estado",
   summary: "Confirmar acuse de recibo o lectura de notificación de misión (HU-35)",
   description:
-    "Registra de forma idempotente la confirmación técnica automática ('RECIBIDA') o la interacción operativa ('LEIDA') emitida por sgrai-pwa. Emite el evento WebSocket 'notificacion:trazabilidad_actualizada' hacia la Central de Operaciones. Requiere permiso 'misiones:terreno:verificar' y pertenencia a la patrulla destinataria (salvo rol Administrador).",
+    "Registra de forma idempotente la confirmación técnica automática ('RECIBIDA') o la interacción operativa ('LEIDA') emitida por sgrai-pwa (patrullas verificadoras y cuadrillas operativas). Emite el evento WebSocket 'notificacion:trazabilidad_actualizada' hacia la Central de Operaciones. Requiere permiso 'misiones:terreno:verificar' o 'misiones:terreno:ejecutar' y pertenencia a la patrulla o cuadrilla destinataria (salvo rol Administrador).",
   tags: ["Misiones"],
   security: [{ BearerAuth: [] }],
   request: {
@@ -2764,7 +2764,7 @@ registry.registerPath({
       description: "No autenticado o token ausente",
     },
     403: {
-      description: "Acceso denegado. Se requiere permiso 'misiones:terreno:verificar' y pertenecer a la patrulla asignada",
+      description: "Acceso denegado. Se requiere permiso 'misiones:terreno:verificar' o 'misiones:terreno:ejecutar' y pertenecer a la patrulla o cuadrilla asignada",
     },
     404: {
       description: "Notificación no encontrada",
@@ -2781,12 +2781,13 @@ registry.registerPath({
   path: "/api/terreno/misiones/pendientes",
   summary: "Consultar órdenes de misión pendientes de acuse para terreno (HU-35)",
   description:
-    "Consulta las misiones asignadas a la patrulla del usuario autenticado cuyas notificaciones se encuentran en 'PENDIENTE_ENVIO' o 'ENVIADA'. Utilizado por sgrai-pwa al recuperar conectividad tras operar fuera de cobertura (Arquitectura Offline-First). Requiere permiso 'misiones:terreno:verificar'.",
+    "Consulta las misiones asignadas a la patrulla o cuadrilla del usuario autenticado cuyas notificaciones se encuentran en 'PENDIENTE_ENVIO' o 'ENVIADA'. Utilizado por sgrai-pwa al recuperar conectividad tras operar fuera de cobertura (Arquitectura Offline-First). Requiere permiso 'misiones:terreno:verificar' o 'misiones:terreno:ejecutar'.",
   tags: ["Misiones"],
   security: [{ BearerAuth: [] }],
   request: {
     query: z.object({
       patrullaId: z.string().uuid().optional(),
+      cuadrillaId: z.string().uuid().optional(),
     }),
   },
   responses: {
@@ -2802,7 +2803,7 @@ registry.registerPath({
       description: "No autenticado o token ausente",
     },
     403: {
-      description: "Acceso denegado. Se requiere permiso 'misiones:terreno:verificar' y pertenecer a una patrulla activa",
+      description: "Acceso denegado. Se requiere permiso 'misiones:terreno:verificar' o 'misiones:terreno:ejecutar' y pertenecer a una patrulla o cuadrilla activa",
     },
     500: {
       description: "Error interno del servidor al consultar misiones pendientes",
