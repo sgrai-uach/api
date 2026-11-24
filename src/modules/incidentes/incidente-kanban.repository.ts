@@ -35,6 +35,7 @@ export interface FilaIncidenteResumen {
   total_misiones: number | string;
   tiene_mision_despachada?: boolean;
   tiene_mision_en_curso?: boolean;
+  cuadrilla_aceptada?: boolean | number;
   cuadrilla_en_terreno?: boolean | number;
   trazabilidad_notificacion?: string | null;
   verificado?: boolean | number;
@@ -273,6 +274,16 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
             .whereRef("mision.incidente_id", "=", "incidente.id")
             .where("mision.estado", "=", "EN_CURSO")
             .as("tiene_mision_en_curso"),
+        sql<boolean>`(
+          EXISTS (
+            SELECT 1
+            FROM mision m
+            WHERE m.incidente_id = incidente.id
+              AND m.cuadrilla_id IS NOT NULL
+              AND m.tipo_mision <> 'VERIFICACION'
+              AND m.estado IN ('EN_CURSO', 'COMPLETADA')
+          )
+        )`.as("cuadrilla_aceptada"),
         (eb) =>
           eb
             .selectFrom("mision")

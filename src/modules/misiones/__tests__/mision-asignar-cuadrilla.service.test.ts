@@ -139,6 +139,7 @@ describe("Servicio: asignarCuadrillaMisionService (HU-21 / Regla ICS §3.2)", ()
         id: incidenteId,
         codigo: "INC-2026-0001",
         nuevoEstado: "EN_ATENCION",
+        cuadrillaAceptada: false,
       })
     );
   });

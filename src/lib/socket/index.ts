@@ -42,6 +42,7 @@ export interface IncidenteActualizadoPayload {
   justificacionPrioridad?: string | null;
   requiereAsistenciaSocial?: boolean;
   verificado?: boolean;
+  cuadrillaAceptada?: boolean;
   actualizadoEn: string;
   tipoIncidenteId?: string | null;
   tipoAfectacion?: string;

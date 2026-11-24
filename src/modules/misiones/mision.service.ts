@@ -625,6 +625,7 @@ export async function asignarCuadrillaMisionService(
       codigo: resultado.incidente.codigo,
       nuevoEstado: "EN_ATENCION",
       prioridad: resultado.incidente.prioridad,
+      cuadrillaAceptada: false,
       actualizadoEn: new Date().toISOString(),
     });
   } catch (error) {
@@ -804,6 +805,7 @@ export async function aceptarMisionService(
           codigo: resultado.incidente.codigo,
           nuevoEstado: resultado.incidente.estado || "EN_ATENCION",
           prioridad: resultado.incidente.prioridad ?? resultado.mision.prioridad,
+          cuadrillaAceptada: true,
           actualizadoEn: resultado.mision.actualizadoEn,
         });
       }

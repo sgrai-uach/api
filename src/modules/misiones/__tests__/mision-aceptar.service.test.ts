@@ -243,6 +243,7 @@ describe("Mision Service - aceptarMisionService para Cuadrilla (HU-40)", () => {
       codigo: "INC-2026-0001",
       nuevoEstado: "EN_ATENCION",
       prioridad: "ALTA",
+      cuadrillaAceptada: true,
       actualizadoEn: "2026-11-22T14:00:00.000Z",
     });
 
