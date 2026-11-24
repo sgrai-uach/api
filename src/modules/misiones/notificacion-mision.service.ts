@@ -63,37 +63,67 @@ export async function listarMisionesPendientesTerrenoService(
   usuarioId: string,
   esAdmin = false,
   patrullaIdQuery?: string | null,
-  cuadrillaIdQuery?: string | null
+  cuadrillaIdQuery?: string | null,
+  rolUsuario?: string | null
 ): Promise<ListarMisionesPendientesResponse> {
   let destino: { patrullaId?: string; cuadrillaId?: string } | null = null;
+  const rolNormalizado = rolUsuario?.toUpperCase() ?? "";
+  const priorizarCuadrilla =
+    rolNormalizado === "DELEGADO_CUADRILLA" ||
+    rolNormalizado.includes("CUADRILLA") ||
+    Boolean(cuadrillaIdQuery && !patrullaIdQuery);
 
   if (esAdmin && patrullaIdQuery) {
     destino = { patrullaId: patrullaIdQuery };
   } else if (esAdmin && cuadrillaIdQuery) {
     destino = { cuadrillaId: cuadrillaIdQuery };
+  } else if (priorizarCuadrilla) {
+    const cuadrilla =
+      typeof obtenerCuadrillaDeUsuarioRepo === "function"
+        ? cuadrillaIdQuery
+          ? await obtenerCuadrillaDeUsuarioRepo(usuarioId, cuadrillaIdQuery)
+          : await obtenerCuadrillaDeUsuarioRepo(usuarioId)
+        : null;
+    if (cuadrilla) {
+      destino = { cuadrillaId: cuadrilla.id };
+    } else {
+      const patrulla = patrullaIdQuery
+        ? await obtenerPatrullaDeUsuarioRepo(usuarioId, patrullaIdQuery)
+        : await obtenerPatrullaDeUsuarioRepo(usuarioId);
+      if (patrulla) {
+        destino = { patrullaId: patrulla.id };
+      }
+    }
   } else {
-    const patrulla = await obtenerPatrullaDeUsuarioRepo(usuarioId);
+    const patrulla = patrullaIdQuery
+      ? await obtenerPatrullaDeUsuarioRepo(usuarioId, patrullaIdQuery)
+      : await obtenerPatrullaDeUsuarioRepo(usuarioId);
     if (patrulla) {
       destino = { patrullaId: patrulla.id };
     } else {
       const cuadrilla =
         typeof obtenerCuadrillaDeUsuarioRepo === "function"
-          ? await obtenerCuadrillaDeUsuarioRepo(usuarioId)
+          ? cuadrillaIdQuery
+            ? await obtenerCuadrillaDeUsuarioRepo(usuarioId, cuadrillaIdQuery)
+            : await obtenerCuadrillaDeUsuarioRepo(usuarioId)
           : null;
       if (cuadrilla) {
         destino = { cuadrillaId: cuadrilla.id };
-      } else if (esAdmin) {
-        return {
-          message: "Misiones pendientes obtenidas exitosamente.",
-          data: [],
-          total: 0,
-        };
-      } else {
-        throw new ForbiddenError(
-          "El usuario autenticado no está asignado a ninguna patrulla verificadora o cuadrilla operativa activa."
-        );
       }
     }
+  }
+
+  if (!destino) {
+    if (esAdmin) {
+      return {
+        message: "Misiones pendientes obtenidas exitosamente.",
+        data: [],
+        total: 0,
+      };
+    }
+    throw new ForbiddenError(
+      "El usuario autenticado no está asignado a ninguna patrulla verificadora o cuadrilla operativa activa."
+    );
   }
 
   const pendientes = await listarMisionesPendientesTerrenoRepo(

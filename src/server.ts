@@ -3,7 +3,14 @@ import next from "next";
 import { Server as SocketIOServer } from "socket.io";
 import Redis from "ioredis";
 import { loadEnvConfig } from "@next/env";
-import { setSocketServer, REDIS_SOCKET_CHANNEL } from "./lib/socket";
+import {
+  setSocketServer,
+  REDIS_SOCKET_CHANNEL,
+  registrarSocketEnSala,
+  removerSocketDeSala,
+  limpiarPresenciaSocket,
+  limpiarPresenciaSalasRedis,
+} from "./lib/socket";
 import { actualizarEstadoNotificacionService } from "./modules/misiones/notificacion-mision.service";
 import { verificarTokenJwt } from "./modules/seguridad/jwt";
 import { TelemetriaPosicionPayloadSchema } from "./modules/geolocalizacion/telemetria.schema";
@@ -67,6 +74,7 @@ async function bootstrap() {
 
       await redisSubscriber.connect();
       await redisSubscriber.subscribe(REDIS_SOCKET_CHANNEL);
+      void limpiarPresenciaSalasRedis();
 
       redisSubscriber.on("message", (channel, message) => {
         if (channel === REDIS_SOCKET_CHANNEL) {
@@ -109,18 +117,26 @@ async function bootstrap() {
   io.on("connection", (socket) => {
     socket.on("join", (room: string) => {
       socket.join(room);
+      void registrarSocketEnSala(room, socket.id);
     });
 
     socket.on("unirse", (room: string) => {
       socket.join(room);
+      void registrarSocketEnSala(room, socket.id);
     });
 
     socket.on("leave", (room: string) => {
       socket.leave(room);
+      void removerSocketDeSala(room, socket.id);
     });
 
     socket.on("salir", (room: string) => {
       socket.leave(room);
+      void removerSocketDeSala(room, socket.id);
+    });
+
+    socket.on("disconnecting", () => {
+      void limpiarPresenciaSocket(socket.rooms, socket.id);
     });
 
     socket.on("notificacion:ack", async (payload, callback) => {

@@ -2,11 +2,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   setSocketServer,
+  setRedisPublisherForTest,
   notificarMisionAsignada,
   notificarMisionActualizada,
   notificarIncidenteActualizado,
   emitirCuadrillaActualizada,
   notificarTrazabilidadActualizada,
+  tieneConexionEnSala,
+  registrarSocketEnSala,
+  removerSocketDeSala,
+  REDIS_SOCKET_ROOM_PREFIX,
 } from "../index";
 
 describe("Socket.io Salas Destino - mision:actualizada, incidente:actualizado y cuadrilla:actualizada (HU-68)", () => {
@@ -244,5 +249,35 @@ describe("Socket.io Salas Destino - mision:actualizada, incidente:actualizado y 
         estado: "LEIDA",
       })
     );
+  });
+
+  it("usa Redis como fallback en tieneConexionEnSala cuando getSocketServer() es null (Route Handlers aislados)", async () => {
+    setSocketServer(null as any);
+    const redisMock = {
+      sadd: vi.fn().mockResolvedValue(1),
+      expire: vi.fn().mockResolvedValue(1),
+      srem: vi.fn().mockResolvedValue(1),
+      scard: vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(0),
+    };
+    setRedisPublisherForTest(redisMock as any);
+
+    try {
+      const room = "cuadrilla:50000000-0000-4000-8000-000000000099";
+      await registrarSocketEnSala(room, "sock-cuad-1");
+      expect(redisMock.sadd).toHaveBeenCalledWith(
+        `${REDIS_SOCKET_ROOM_PREFIX}${room}`,
+        "sock-cuad-1"
+      );
+
+      expect(await tieneConexionEnSala(room)).toBe(true);
+      await removerSocketDeSala(room, "sock-cuad-1");
+      expect(redisMock.srem).toHaveBeenCalledWith(
+        `${REDIS_SOCKET_ROOM_PREFIX}${room}`,
+        "sock-cuad-1"
+      );
+      expect(await tieneConexionEnSala(room)).toBe(false);
+    } finally {
+      setRedisPublisherForTest(null);
+    }
   });
 });

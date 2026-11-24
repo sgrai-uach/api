@@ -62,8 +62,39 @@ function formatearIso(fecha: Date | string | null | undefined): string | null {
  * Consulta la patrulla verificadora activa a la que pertenece un usuario (como líder o integrante).
  */
 export async function obtenerPatrullaDeUsuarioRepo(
-  usuarioId: string
+  usuarioId: string,
+  patrullaPreferidaId?: string | null
 ): Promise<{ id: string; nombre: string } | null> {
+  if (patrullaPreferidaId) {
+    const liderPreferida = await db
+      .selectFrom("patrulla_verificadora")
+      .select(["id", "nombre"])
+      .where("id", "=", patrullaPreferidaId)
+      .where("usuario_lider_id", "=", usuarioId)
+      .where("eliminado_en", "is", null)
+      .where("activo", "=", true)
+      .executeTakeFirst();
+
+    if (liderPreferida) {
+      return liderPreferida;
+    }
+
+    const integrantePreferida = await db
+      .selectFrom("patrulla_personal")
+      .innerJoin("patrulla_verificadora", "patrulla_verificadora.id", "patrulla_personal.patrulla_id")
+      .innerJoin("personal", "personal.id", "patrulla_personal.personal_id")
+      .select(["patrulla_verificadora.id", "patrulla_verificadora.nombre"])
+      .where("patrulla_verificadora.id", "=", patrullaPreferidaId)
+      .where("personal.usuario_id", "=", usuarioId)
+      .where("patrulla_verificadora.eliminado_en", "is", null)
+      .where("patrulla_verificadora.activo", "=", true)
+      .executeTakeFirst();
+
+    if (integrantePreferida) {
+      return integrantePreferida;
+    }
+  }
+
   // 1. Verificar si es líder directo
   const lider = await db
     .selectFrom("patrulla_verificadora")
@@ -71,6 +102,7 @@ export async function obtenerPatrullaDeUsuarioRepo(
     .where("usuario_lider_id", "=", usuarioId)
     .where("eliminado_en", "is", null)
     .where("activo", "=", true)
+    .orderBy("creado_en", "desc")
     .executeTakeFirst();
 
   if (lider) {
@@ -86,6 +118,7 @@ export async function obtenerPatrullaDeUsuarioRepo(
     .where("personal.usuario_id", "=", usuarioId)
     .where("patrulla_verificadora.eliminado_en", "is", null)
     .where("patrulla_verificadora.activo", "=", true)
+    .orderBy("patrulla_personal.asignado_en", "desc")
     .executeTakeFirst();
 
   return integrante ?? null;
@@ -95,8 +128,41 @@ export async function obtenerPatrullaDeUsuarioRepo(
  * Consulta la cuadrilla operativa activa a la que pertenece un usuario (como delegado o integrante).
  */
 export async function obtenerCuadrillaDeUsuarioRepo(
-  usuarioId: string
+  usuarioId: string,
+  cuadrillaPreferidaId?: string | null
 ): Promise<{ id: string; nombre: string } | null> {
+  if (cuadrillaPreferidaId) {
+    const delegadoPreferida = await db
+      .selectFrom("cuadrilla")
+      .select(["id", "nombre"])
+      .where("id", "=", cuadrillaPreferidaId)
+      .where("usuario_delegado_id", "=", usuarioId)
+      .where("eliminado_en", "is", null)
+      .where("activo", "=", true)
+      .executeTakeFirst();
+
+    if (delegadoPreferida) {
+      return delegadoPreferida;
+    }
+
+    const integrantePreferida = await db
+      .selectFrom("cuadrilla_personal")
+      .innerJoin("cuadrilla", "cuadrilla.id", "cuadrilla_personal.cuadrilla_id")
+      .innerJoin("personal", "personal.id", "cuadrilla_personal.personal_id")
+      .select(["cuadrilla.id", "cuadrilla.nombre"])
+      .where("cuadrilla.id", "=", cuadrillaPreferidaId)
+      .where("personal.usuario_id", "=", usuarioId)
+      .where("cuadrilla_personal.activo", "=", true)
+      .where("cuadrilla_personal.desvinculado_en", "is", null)
+      .where("cuadrilla.eliminado_en", "is", null)
+      .where("cuadrilla.activo", "=", true)
+      .executeTakeFirst();
+
+    if (integrantePreferida) {
+      return integrantePreferida;
+    }
+  }
+
   // 1. Verificar si es delegado titular de la cuadrilla
   const delegado = await db
     .selectFrom("cuadrilla")
@@ -104,6 +170,7 @@ export async function obtenerCuadrillaDeUsuarioRepo(
     .where("usuario_delegado_id", "=", usuarioId)
     .where("eliminado_en", "is", null)
     .where("activo", "=", true)
+    .orderBy("creado_en", "desc")
     .executeTakeFirst();
 
   if (delegado) {
@@ -121,6 +188,7 @@ export async function obtenerCuadrillaDeUsuarioRepo(
     .where("cuadrilla_personal.desvinculado_en", "is", null)
     .where("cuadrilla.eliminado_en", "is", null)
     .where("cuadrilla.activo", "=", true)
+    .orderBy("cuadrilla_personal.asignado_en", "desc")
     .executeTakeFirst();
 
   return integrante ?? null;

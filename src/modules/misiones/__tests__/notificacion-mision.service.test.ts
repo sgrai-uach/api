@@ -160,6 +160,58 @@ describe("Notificacion Mision Service (HU-35)", () => {
       expect(res.total).toBe(0);
     });
 
+    it("debe priorizar cuadrilla cuando rolCodigo es DELEGADO_CUADRILLA incluso si tiene registro previo de patrulla", async () => {
+      const cuadrillaId = "50000000-0000-4000-8000-000000000009";
+      vi.mocked(notifRepo.obtenerCuadrillaDeUsuarioRepo).mockResolvedValueOnce({
+        id: cuadrillaId,
+        nombre: "Cuadrilla Norte 2",
+      });
+      vi.mocked(notifRepo.listarMisionesPendientesTerrenoRepo).mockResolvedValueOnce([]);
+
+      const res = await listarMisionesPendientesTerrenoService(
+        "00000000-0000-4000-8000-000000000023",
+        false,
+        null,
+        null,
+        "DELEGADO_CUADRILLA"
+      );
+
+      expect(notifRepo.obtenerCuadrillaDeUsuarioRepo).toHaveBeenCalledWith(
+        "00000000-0000-4000-8000-000000000023"
+      );
+      expect(notifRepo.obtenerPatrullaDeUsuarioRepo).not.toHaveBeenCalled();
+      expect(notifRepo.listarMisionesPendientesTerrenoRepo).toHaveBeenCalledWith({
+        cuadrillaId,
+      });
+      expect(res.total).toBe(0);
+    });
+
+    it("debe pasar cuadrillaIdQuery como unidad preferida cuando el delegado consulta con filtro de cuadrilla", async () => {
+      const cuadrillaId = "50000000-0000-4000-8000-000000000012";
+      vi.mocked(notifRepo.obtenerCuadrillaDeUsuarioRepo).mockResolvedValueOnce({
+        id: cuadrillaId,
+        nombre: "Cuadrilla Despeje Sur",
+      });
+      vi.mocked(notifRepo.listarMisionesPendientesTerrenoRepo).mockResolvedValueOnce([]);
+
+      const res = await listarMisionesPendientesTerrenoService(
+        "00000000-0000-4000-8000-000000000024",
+        false,
+        null,
+        cuadrillaId,
+        "Delegado de Cuadrilla"
+      );
+
+      expect(notifRepo.obtenerCuadrillaDeUsuarioRepo).toHaveBeenCalledWith(
+        "00000000-0000-4000-8000-000000000024",
+        cuadrillaId
+      );
+      expect(notifRepo.listarMisionesPendientesTerrenoRepo).toHaveBeenCalledWith({
+        cuadrillaId,
+      });
+      expect(res.total).toBe(0);
+    });
+
     it("debe permitir a Administrador filtrar por patrullaIdQuery", async () => {
       const patrullaTarget = "f2000000-0000-4000-8000-000000000002";
       vi.mocked(notifRepo.listarMisionesPendientesTerrenoRepo).mockResolvedValueOnce([]);

@@ -73,6 +73,11 @@ let ioInstance: TypedSocketServer | SocketIOServer | null = null;
 let redisPublisher: Redis | null = null;
 
 export const REDIS_SOCKET_CHANNEL = "sgrai:socket-events";
+export const REDIS_SOCKET_ROOM_PREFIX = "sgrai:socket-room:";
+
+export function esSalaOperativaPresencia(room: string): boolean {
+  return room.startsWith("cuadrilla:") || room.startsWith("patrulla:");
+}
 
 export function setSocketServer(
   server: TypedSocketServer | SocketIOServer | null
@@ -83,6 +88,10 @@ export function setSocketServer(
 
 export function getSocketServer(): TypedSocketServer | SocketIOServer | null {
   return ioInstance ?? globalForSocket.__sgraiSocketIo ?? null;
+}
+
+export function setRedisPublisherForTest(client: Redis | null): void {
+  redisPublisher = client;
 }
 
 function getRedisPublisher(): Redis | null {
@@ -799,6 +808,67 @@ export function notificarPatrullaCreada(payload: {
   }
 }
 
+export async function registrarSocketEnSala(
+  room: string,
+  socketId: string
+): Promise<void> {
+  if (!esSalaOperativaPresencia(room) || !socketId) return;
+  const publisher = getRedisPublisher();
+  if (!publisher) return;
+  try {
+    const key = `${REDIS_SOCKET_ROOM_PREFIX}${room}`;
+    await publisher.sadd(key, socketId);
+    await publisher.expire(key, 86400);
+  } catch {
+    // No bloquear ciclo Socket.IO si Redis falla temporalmente
+  }
+}
+
+export async function removerSocketDeSala(
+  room: string,
+  socketId: string
+): Promise<void> {
+  if (!esSalaOperativaPresencia(room) || !socketId) return;
+  const publisher = getRedisPublisher();
+  if (!publisher) return;
+  try {
+    await publisher.srem(`${REDIS_SOCKET_ROOM_PREFIX}${room}`, socketId);
+  } catch {
+    // Silenciar errores transitorios de Redis
+  }
+}
+
+export async function limpiarPresenciaSocket(
+  rooms: Iterable<string>,
+  socketId: string
+): Promise<void> {
+  if (!socketId) return;
+  const publisher = getRedisPublisher();
+  if (!publisher) return;
+  const ops: Promise<void>[] = [];
+  for (const room of rooms) {
+    if (esSalaOperativaPresencia(room)) {
+      ops.push(removerSocketDeSala(room, socketId));
+    }
+  }
+  if (ops.length > 0) {
+    await Promise.all(ops);
+  }
+}
+
+export async function limpiarPresenciaSalasRedis(): Promise<void> {
+  const publisher = getRedisPublisher();
+  if (!publisher) return;
+  try {
+    const keys = await publisher.keys(`${REDIS_SOCKET_ROOM_PREFIX}*`);
+    if (keys.length > 0) {
+      await publisher.del(...keys);
+    }
+  } catch {
+    // Silenciar fallo al limpiar presencia residual
+  }
+}
+
 /**
  * Verifica si existen sockets activos conectados a una sala específica.
  */
@@ -807,14 +877,29 @@ export async function tieneConexionEnSala(room: string): Promise<boolean> {
   if (io) {
     try {
       const sockets = await io.in(room).fetchSockets();
-      return sockets.length > 0;
+      if (sockets.length > 0) {
+        return true;
+      }
     } catch {
       // Fallback a adapter local
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const roomSet = (io as any).sockets?.adapter?.rooms?.get(room);
-      return (roomSet && roomSet.size > 0) || false;
+      if (roomSet && roomSet.size > 0) {
+        return true;
+      }
     }
   }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    try {
+      const count = await publisher.scard(`${REDIS_SOCKET_ROOM_PREFIX}${room}`);
+      return Number(count) > 0;
+    } catch {
+      return false;
+    }
+  }
+
   return false;
 }
 

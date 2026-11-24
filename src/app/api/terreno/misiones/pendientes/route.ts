@@ -37,7 +37,8 @@ export async function GET(request: NextRequest) {
       usuarioAutenticado.id,
       esAdmin,
       patrullaIdQuery,
-      cuadrillaIdQuery
+      cuadrillaIdQuery,
+      usuarioAutenticado.rolNombre
     );
 
     return NextResponse.json(resultado, { status: 200 });
