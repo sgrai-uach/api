@@ -386,7 +386,9 @@ Registro formal de incidente de emergencia gestionado bajo la metodología del S
 | `ubicacion` | `GEOMETRY` | NO | — | Geometría PostGIS `Point(lng, lat)`, SRID 4326. Indexada con GiST. |
 | `estado` | `VARCHAR(50)` | NO | `'REPORTADO'` | Estado canónico ICS (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, `NO_ABORDABLE`, `RESUELTO`). |
 | `prioridad` | `VARCHAR(20)` | NO | `'MEDIA'` | Severidad ICS (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
-| `requiere_asistencia_social`| `BOOLEAN` | NO | `false` | Indica si requiere derivación a DIDECO para Ficha FIBE. |
+| `prioridad_sugerida` | `VARCHAR(20)` | SÍ | `NULL` | Prioridad sugerida preliminarmente por el sistema según evaluación de terreno (`BAJA`, `MEDIA`, `ALTA`, `CRITICA` - HU-38 / Migración 053). |
+| `justificacion_prioridad` | `TEXT` | SÍ | `NULL` | Justificación técnica obligatoria cuando la patrulla modifica la prioridad sugerida en terreno (HU-38 / Migración 053). |
+| `requiere_asistencia_social`| `BOOLEAN` | NO | `false` | Indica si requiere derivación a Asistente Social DGRD para Ficha FIBE. |
 | `fuente_origen` | `VARCHAR(50)` | NO | `'CHATBOT'` | Canal original (`CHATBOT`, `LLAMADA_TELEFONICA`, `FUNCIONARIO_TERRENO`, `SENAPRED`). |
 | `asterisk_call_id`| `VARCHAR(100)`| SÍ | `NULL` | Identificador de llamada telefónica IVR si aplica. |
 | `asterisk_caller_phone`| `VARCHAR(30)`| SÍ | `NULL` | Número de teléfono entrante de la llamada IVR. |
@@ -546,6 +548,7 @@ Registro cronológico de hitos tácticos de la misión (despacho, aceptación po
 | `registrado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` (ON DELETE SET NULL). Funcionario o líder de patrulla en sesión. |
 | `latitud` | `DECIMAL(10, 7)` | SÍ | `NULL` | Coordenada Y opcional reportada desde terreno. |
 | `longitud` | `DECIMAL(10, 7)` | SÍ | `NULL` | Coordenada X opcional reportada desde terreno. |
+| `metadatos` | `JSONB` | SÍ | `NULL` | Metadatos estructurados del hito (ej. `{ tipoAnterior, tipoAnteriorId, tipoNuevo, tipoNuevoId, justificacion }` en `TIPOLOGIA_RECLASIFICADA`, Migración 055). |
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Marca temporal del hito. |
 
 #### Tabla: `reporte_terreno` (Reporte Técnico de Terreno - HU-17 / Migración 011)
@@ -562,7 +565,13 @@ Informes técnicos y diagnósticos estructurados levantados por patrullas verifi
 | `danos_estimados` | `TEXT` | SÍ | `NULL` | Estimación descriptiva o cuantitativa de daños. |
 | `observaciones` | `TEXT` | SÍ | `NULL` | Condiciones climáticas o notas de seguridad. |
 | `personas_afectadas` | `INTEGER` | NO | `0` | Cantidad estimada de damnificados en el punto. |
-| `estado_terreno` | `VARCHAR(50)` | NO | `'FINALIZADO'` | Estado operativo del reporte (`PRELIMINAR`, `EN_PROCESO`, `FINALIZADO`). |
+| `estado_terreno` | `VARCHAR(50)` | NO | `'FINALIZADO'` | Estado operativo del reporte (`PRELIMINAR`, `EN_VERIFICACION`, `EN_PROCESO`, `FINALIZADO`). |
+| `version_reporte` | `INTEGER` | NO | `1` | Número correlativo de envío del reporte en la misión (`1` inicial, `2+` rectificaciones - HU-38 / Migración 053). |
+| `es_rectificacion` | `BOOLEAN` | NO | `false` | `true` cuando el reporte es una modificación/reenvío posterior al primer reporte de evaluación (HU-38 / Migración 053). |
+| `prioridad_sugerida` | `VARCHAR(20)` | SÍ | `NULL` | Prioridad sugerida por el sistema en el momento del envío de este reporte (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
+| `prioridad_asignada` | `VARCHAR(20)` | SÍ | `NULL` | Prioridad confirmada o ajustada por la patrulla en este reporte (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
+| `justificacion_prioridad` | `TEXT` | SÍ | `NULL` | Justificación técnica registrada en este reporte ante discrepancia con la prioridad sugerida. |
+| `detalles_evaluacion` | `JSONB` | NO | `'{}'` | Desglose estructurado del formulario de evaluación en terreno (núcleo familiar, niños, adultos mayores, discapacitados, electrodependientes, mascotas, compromiso de vivienda, riesgos activos y puntaje). |
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de emisión del informe. |
 | `actualizado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Última modificación del informe. |
 
@@ -749,11 +758,30 @@ npm run db:migrate
 ```
 El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `071_indices_listado_cuadrillas.ts`; los correlativos intermedios pueden estar reservados por otras historias del equipo).
 
-### 7.2 Sembrar Datos para Tablero Kanban
+### 7.2 Sembrar Datos de Desarrollo y QA
 ```bash
-npm run db:seed
+npm run seed
 ```
-Ejecuta el script `src/lib/db/seed-kanban.ts` insertando incidentes, patrullas, cuadrillas y misiones para pruebas de desarrollo local.
+Ejecuta el orquestador `scripts/seed/index.ts`, que siembra de forma idempotente:
+- usuarios PATRULLA, personal, vehículos y patrullas verificadoras;
+- incidentes, misiones, cuadrillas y recursos del tablero Kanban;
+- incidentes y misiones adicionales en todos los estados operativos;
+- puntos críticos de prevención y misión preventiva;
+- eventos de recuperación, misiones e insumos asociados;
+- fixtures QA de HU-21 (cuadrillas) y HU-38 (prioridad en terreno).
+
+Opciones útiles:
+```bash
+npm run seed -- --only=h38          # solo fixture HU-38
+npm run seed -- --only=h21,h38      # fixtures QA
+npm run seed -- --skip=estados      # omitir un módulo
+npm run seed -- --clean             # limpiar y recrear fixtures QA
+```
+
+Para el sembrador REST aleatorio (requiere la API levantada):
+```bash
+npx tsx scripts/seed.ts 5 --promover
+```
 
 ### 7.3 Reglas para Nuevas Migraciones
 1. Crear un archivo numerado correlativamente en `src/lib/db/migrations/XXX_nombre_descriptivo.ts`.

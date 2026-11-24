@@ -187,6 +187,7 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Recuperación (HU-32)"
           latitud: null,
           longitud: null,
           registrado_por_id: usuarioId,
+          metadatos: null,
           creado_en: new Date(),
         });
 

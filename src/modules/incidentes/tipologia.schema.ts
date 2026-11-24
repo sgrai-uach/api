@@ -133,6 +133,19 @@ export const MisionHitoTipologiaSchema = z
     registradoPorId: z.string().uuid().nullable().openapi({
       description: "UUID del evaluador en sesión que ejecutó la reclasificación",
     }),
+    metadatos: z
+      .object({
+        tipoAnterior: z.string().nullable().optional(),
+        tipoAnteriorId: z.string().uuid().nullable().optional(),
+        tipoNuevo: z.string(),
+        tipoNuevoId: z.string().uuid(),
+        justificacion: z.string(),
+      })
+      .nullable()
+      .optional()
+      .openapi({
+        description: "Metadatos estructurados del cambio de tipología (antes y después)",
+      }),
     creadoEn: z.string().openapi({ description: "Fecha y hora de registro del hito (ISO 8601)" }),
   })
   .openapi("MisionHitoTipologia");
