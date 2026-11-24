@@ -790,5 +790,113 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
         "Se solicita motoniveladora y cuadrilla adicional de despeje"
       );
     });
+
+    it("no debe marcar apoyoSolicitado cuando solo existen reportes VERIFICACION_CIERRE o EVALUACION_PRIORIDAD sin cuadrilla asignada", async () => {
+      vi.mocked(repo.obtenerIncidenteDetallePorIdRepo).mockResolvedValueOnce({
+        incidente: {
+          id: "a0000000-0000-4000-8000-000000000100",
+          codigo: "INC-466106-503",
+          codigo_seguimiento: "46610650",
+          tipo_afectacion: "Anegamiento",
+          descripcion: "Anegamiento en vía pública",
+          direccion_texto: "Vicente Pérez Rosales 774, Villa Coltauco",
+          latitud: -39.82,
+          longitud: -73.23,
+          estado: "VERIFICANDO",
+          prioridad: "ALTA",
+          requiere_asistencia_social: false,
+          fuente_origen: "FUNCIONARIO_TERRENO",
+          asterisk_call_id: null,
+          asterisk_caller_phone: null,
+          creado_en: new Date("2026-11-23T20:00:00Z"),
+          actualizado_en: new Date("2026-11-23T20:30:00Z"),
+          informante_id: null,
+          informante_rut: null,
+          informante_nombre: null,
+          informante_telefono: null,
+          delegacion_id: null,
+          delegacion_nombre: null,
+          delegacion_descripcion: null,
+          creador_id: null,
+          creador_nombre: null,
+          creador_email: null,
+          encargado_id: null,
+          encargado_nombre: null,
+          encargado_email: null,
+        },
+        misiones: [
+          {
+            id: "60000000-0000-4000-8000-000000000010",
+            codigo: "MIS-2026-0010",
+            titulo: "Verificación en terreno",
+            descripcion: null,
+            tipo_mision: "VERIFICACION",
+            estado: "COMPLETADA",
+            prioridad: "ALTA",
+            justificacion_rechazo: null,
+            trazabilidad_notificacion: null,
+            fecha_inicio: new Date("2026-11-23T20:05:00Z"),
+            fecha_cierre: new Date("2026-11-23T20:30:00Z"),
+            creado_en: new Date("2026-11-23T20:00:00Z"),
+            patrulla_id: "f1000000-0000-4000-8000-000000000001",
+            patrulla_nombre: "Patrulla Costa 1",
+            patrulla_estado: "DISPONIBLE",
+            cuadrilla_id: null,
+            cuadrilla_nombre: null,
+            cuadrilla_estado: null,
+          },
+        ],
+        recursosAsociados: [],
+        reportesEvaluacionTerreno: [
+          {
+            id: "rep-eval-1",
+            mision_id: "60000000-0000-4000-8000-000000000010",
+            evaluador_id: "00000000-0000-4000-8000-000000000004",
+            tipo_reporte: "EVALUACION_PRIORIDAD",
+            estado_terreno: "EN_VERIFICACION",
+            version_reporte: 1,
+            es_rectificacion: false,
+            resumen_tecnico: "Evaluación de prioridad inicial.",
+            acciones_realizadas: null,
+            danos_estimados: null,
+            observaciones: null,
+            personas_afectadas: 3,
+            requiere_apoyo_adicional: true,
+            evaluador_nombre: "Patrullero",
+            evaluador_email: "patrulla@valdivia.cl",
+            evaluador_rut: "11.111.111-1",
+            creado_en: new Date("2026-11-23T20:15:00Z"),
+          },
+          {
+            id: "rep-verif-1",
+            mision_id: "60000000-0000-4000-8000-000000000010",
+            evaluador_id: "00000000-0000-4000-8000-000000000004",
+            tipo_reporte: "VERIFICACION_CIERRE",
+            dictamen: "REQUIERE_CUADRILLA",
+            estado_terreno: "FINALIZADO",
+            version_reporte: 2,
+            es_rectificacion: false,
+            resumen_tecnico: "Se verifica anegamiento, se requiere despacho de cuadrilla.",
+            acciones_realizadas: null,
+            danos_estimados: null,
+            observaciones: null,
+            personas_afectadas: 3,
+            requiere_apoyo_adicional: true,
+            evaluador_nombre: "Patrullero",
+            evaluador_email: "patrulla@valdivia.cl",
+            evaluador_rut: "11.111.111-1",
+            creado_en: new Date("2026-11-23T20:30:00Z"),
+          },
+        ],
+        justificacionReclasificacion: null,
+      });
+
+      const detalle = await obtenerDetalleIncidenteService(
+        "a0000000-0000-4000-8000-000000000100"
+      );
+      expect(detalle?.dictamenTerreno).toBe("REQUIERE_CUADRILLA");
+      expect(detalle?.apoyoSolicitado).toBe(false);
+      expect(detalle?.detalleApoyoRequerido).toBeNull();
+    });
   });
 });

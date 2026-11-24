@@ -343,7 +343,10 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
             FROM reporte_terreno rt
             INNER JOIN mision m ON m.id = rt.mision_id
             WHERE m.incidente_id = incidente.id
+              AND m.cuadrilla_id IS NOT NULL
+              AND m.tipo_mision <> 'VERIFICACION'
               AND rt.requiere_apoyo_adicional = true
+              AND rt.tipo_reporte IN ('SOLICITUD_APOYO', 'REPORTE_CUADRILLA')
           )
         )`.as("apoyo_solicitado"),
         sql<string | null>`(
@@ -351,7 +354,10 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
           FROM reporte_terreno rt
           INNER JOIN mision m ON m.id = rt.mision_id
           WHERE m.incidente_id = incidente.id
+            AND m.cuadrilla_id IS NOT NULL
+            AND m.tipo_mision <> 'VERIFICACION'
             AND rt.requiere_apoyo_adicional = true
+            AND rt.tipo_reporte IN ('SOLICITUD_APOYO', 'REPORTE_CUADRILLA')
           ORDER BY rt.creado_en DESC
           LIMIT 1
         )`.as("detalle_apoyo_requerido"),

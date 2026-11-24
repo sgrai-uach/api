@@ -508,8 +508,22 @@ export async function obtenerDetalleIncidenteService(
       })
     : undefined;
 
+  const misionesPorId = new Map(misiones.map((m) => [m.id, m]));
   const reportesConApoyo = [...reportesMapeados]
-    .filter((r) => r.requiereApoyoAdicional)
+    .filter((r) => {
+      if (!r.requiereApoyoAdicional) return false;
+      if (r.tipoReporte !== "SOLICITUD_APOYO" && r.tipoReporte !== "REPORTE_CUADRILLA") {
+        return false;
+      }
+      const misionAsociada = misionesPorId.get(r.misionId);
+      if (misionAsociada) {
+        return (
+          Boolean(misionAsociada.cuadrilla_id) &&
+          misionAsociada.tipo_mision !== "VERIFICACION"
+        );
+      }
+      return true;
+    })
     .sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime());
   const apoyoSolicitado = reportesConApoyo.length > 0;
   const detalleApoyoRequerido = reportesConApoyo[0]?.detalleApoyoRequerido ?? null;

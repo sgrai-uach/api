@@ -4110,6 +4110,7 @@ export async function registrarSolicitudApoyoMisionRepo(
         "mision.id",
         "mision.codigo",
         "mision.estado",
+        "mision.tipo_mision",
         "mision.cuadrilla_id",
         "mision.patrulla_id",
         "mision.incidente_id",
@@ -4130,13 +4131,16 @@ export async function registrarSolicitudApoyoMisionRepo(
       );
     }
 
-    if (!esAdmin) {
-      const esDelegadoCuadrilla =
-        Boolean(mision.cuadrilla_id) && mision.cuadrilla_delegado_id === usuarioId;
-      const esLiderPatrulla =
-        Boolean(mision.patrulla_id) && mision.patrulla_lider_id === usuarioId;
+    if (!mision.cuadrilla_id || mision.tipo_mision === "VERIFICACION") {
+      throw new ConflictError(
+        "Solo es posible solicitar apoyo adicional en terreno para misiones que cuenten con una cuadrilla operativa asignada."
+      );
+    }
 
-      if (!esDelegadoCuadrilla && !esLiderPatrulla) {
+    if (!esAdmin) {
+      const esDelegadoCuadrilla = mision.cuadrilla_delegado_id === usuarioId;
+
+      if (!esDelegadoCuadrilla) {
         throw new ForbiddenError(
           "No tiene autorización para registrar solicitudes de apoyo sobre una misión asignada a otra unidad operativa."
         );

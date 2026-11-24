@@ -85,6 +85,7 @@ describe("Mision Repository - registrarSolicitudApoyoMisionRepo (HU-44)", () => 
         id: misionId,
         codigo: "MIS-2026-0044",
         estado: "EN_CURSO",
+        tipo_mision: "ATENCION_CUADRILLA",
         cuadrilla_id: cuadrillaId,
         patrulla_id: null,
         incidente_id: "50000000-0000-4000-8000-000000000001",
@@ -147,6 +148,7 @@ describe("Mision Repository - registrarSolicitudApoyoMisionRepo (HU-44)", () => 
         id: misionId,
         codigo: "MIS-2026-0044",
         estado: "EN_CURSO",
+        tipo_mision: "ATENCION_CUADRILLA",
         cuadrilla_id: cuadrillaId,
         patrulla_id: null,
         incidente_id: null,
@@ -163,12 +165,36 @@ describe("Mision Repository - registrarSolicitudApoyoMisionRepo (HU-44)", () => 
     ).rejects.toBeInstanceOf(ForbiddenError);
   });
 
+  it("debe lanzar ConflictError si la misión es de VERIFICACION o no tiene cuadrilla asignada", async () => {
+    crearMockTrx({
+      mision: {
+        id: misionId,
+        codigo: "MIS-2026-0010",
+        estado: "EN_CURSO",
+        tipo_mision: "VERIFICACION",
+        cuadrilla_id: null,
+        patrulla_id: "f1000000-0000-4000-8000-000000000001",
+        incidente_id: null,
+        cuadrilla_delegado_id: null,
+        patrulla_lider_id: usuarioId,
+      },
+    });
+    await expect(
+      registrarSolicitudApoyoMisionRepo(misionId, usuarioId, false, {
+        requiereApoyoAdicional: true,
+        detalleApoyoRequerido: "Se requiere refuerzo",
+        observaciones: null,
+      })
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
   it("debe lanzar ConflictError si la misión no está en estado EN_CURSO", async () => {
     crearMockTrx({
       mision: {
         id: misionId,
         codigo: "MIS-2026-0044",
         estado: "DESPACHADA",
+        tipo_mision: "ATENCION_CUADRILLA",
         cuadrilla_id: cuadrillaId,
         patrulla_id: null,
         incidente_id: null,
