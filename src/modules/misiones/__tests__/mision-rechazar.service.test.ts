@@ -154,6 +154,51 @@ describe("HU-41 / HU-69: Servicio de Negocio rechazarMisionService", () => {
 
       expect(respuesta.data.mision.estado).toBe("RECHAZADA");
     });
+
+    it("debe construir message dinámico y no emitir incidente:actualizado si la cuadrilla sigue EN_MISION o el incidente mantiene otra misión activa (BUG-H41-API-03)", async () => {
+      vi.mocked(misionRepository.rechazarMisionRepo).mockResolvedValueOnce({
+        ...repoResultCuadrillaMock,
+        cuadrilla: {
+          ...repoResultCuadrillaMock.cuadrilla,
+          estado: "EN_MISION",
+        },
+        incidente: {
+          ...repoResultCuadrillaMock.incidente!,
+          estado: "EN_ATENCION",
+        },
+        incidenteActualizado: false,
+      });
+
+      const respuesta = await rechazarMisionService(misionId, usuarioId, false, {
+        justificacionRechazo: "Falla hidráulica en camión tolva",
+      });
+
+      expect(socketModule.notificarIncidenteActualizado).not.toHaveBeenCalled();
+      expect(respuesta.message).toContain("permanece en estado EN_MISION");
+      expect(respuesta.message).toContain("mantiene su estado EN_ATENCION");
+      expect(respuesta.message).not.toContain("vuelto a estado DISPONIBLE");
+    });
+
+    it("debe construir message dinámico cuando la misión de cuadrilla no tiene incidente asociado (BUG-H41-API-03)", async () => {
+      vi.mocked(misionRepository.rechazarMisionRepo).mockResolvedValueOnce({
+        ...repoResultCuadrillaMock,
+        cuadrilla: {
+          ...repoResultCuadrillaMock.cuadrilla,
+          estado: "NO_DISPONIBLE",
+        },
+        incidente: null,
+        incidenteActualizado: false,
+      });
+
+      const respuesta = await rechazarMisionService(misionId, usuarioId, false, {
+        justificacionRechazo: "Unidad desactivada en base",
+      });
+
+      expect(socketModule.notificarIncidenteActualizado).not.toHaveBeenCalled();
+      expect(respuesta.message).toBe(
+        "Misión rechazada exitosamente. La cuadrilla permanece en estado NO_DISPONIBLE."
+      );
+    });
   });
 
   describe("Rechazo por Patrulla Verificadora (HU-69)", () => {

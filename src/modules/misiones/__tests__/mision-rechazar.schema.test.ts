@@ -168,6 +168,24 @@ describe("HU-41 / HU-69: Esquemas Zod para Rechazo de Misión en Terreno", () =>
       });
       expect(resultado.success).toBe(false);
     });
+
+    it("debe rechazar si solo se envía latitud sin longitud en OpenAPI body (BUG-H41-API-04)", () => {
+      const resultado = RechazarMisionBodySchema.safeParse({
+        justificacion_rechazo: "Corte de puente de acceso al sector",
+        latitud: -39.82,
+      });
+      expect(resultado.success).toBe(false);
+    });
+
+    it("debe rechazar una justificación que exceda los 1000 caracteres (BUG-H41-API-04)", () => {
+      const textoLargo = "a".repeat(1001);
+      expect(
+        RechazarMisionBodySchema.safeParse({ justificacion_rechazo: textoLargo }).success
+      ).toBe(false);
+      expect(
+        RechazarMisionInputSchema.safeParse({ justificacion_rechazo: textoLargo }).success
+      ).toBe(false);
+    });
   });
 
   describe("RechazarMisionResponseSchema", () => {

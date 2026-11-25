@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "../route";
 import * as authGuard from "@/modules/seguridad/auth.guard";
@@ -56,6 +56,10 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 / HU-69)", () =>
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("debe responder 401 Unauthorized si no hay token de autenticación", async () => {
@@ -351,5 +355,87 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 / HU-69)", () =>
     expect(body.data.mision.estado).toBe("RECHAZADA");
     expect(body.data.patrulla.estado).toBe("DISPONIBLE");
     expect(body.data.incidente.estado).toBe("REPORTADO");
+  });
+
+  it("debe responder 400 Bad Request con mensaje en español cuando el body JSON está vacío (BUG-H41-API-04)", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(delegadoIdValido);
+    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(delegadoUsuarioMock);
+
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdCuadrilla}/rechazar`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "",
+    });
+
+    const res = await POST(req, contextCuadrilla);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("Datos de entrada inválidos");
+    expect(body.errors[0].campo).toBe("justificacion_rechazo");
+    expect(body.errors[0].mensaje).toContain("obligatorio");
+    expect(body.errors[0].mensaje).not.toContain("Invalid input");
+  });
+
+  it("debe responder 400 Bad Request si solo se envía latitud sin longitud en el body (BUG-H41-API-04)", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(delegadoIdValido);
+    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(delegadoUsuarioMock);
+
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdCuadrilla}/rechazar`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        justificacion_rechazo: "Falla mecánica grave en camión",
+        latitud: -39.81422,
+      }),
+    });
+
+    const res = await POST(req, contextCuadrilla);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.errors[0].campo).toBe("longitud");
+    expect(body.errors[0].mensaje).toContain("latitud como longitud");
+  });
+
+  it("debe responder 403 Forbidden si rechazarMisionService lanza ForbiddenError por unidad ajena (BUG-H41-API-05)", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(delegadoIdValido);
+    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(delegadoUsuarioMock);
+    vi.mocked(misionService.rechazarMisionService).mockRejectedValueOnce(
+      new ForbiddenError("No está autorizado para rechazar una misión asignada a otra cuadrilla operativa.")
+    );
+
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdCuadrilla}/rechazar`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ justificacion_rechazo: "Falla hidráulica en ruta" }),
+    });
+
+    const res = await POST(req, contextCuadrilla);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.message).toContain("otra cuadrilla operativa");
+  });
+
+  it("debe ignorar la cabecera x-user-id cuando NODE_ENV es production (BUG-H41-API-05)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(null);
+    vi.mocked(authService.verificarAlgunPermiso).mockRejectedValueOnce(
+      new UnauthorizedError("Se requiere cabecera de autenticación Authorization: Bearer <token>.")
+    );
+
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdCuadrilla}/rechazar`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-user-id": delegadoIdValido,
+      },
+      body: JSON.stringify({ justificacion_rechazo: "Intento con x-user-id en prod" }),
+    });
+
+    const res = await POST(req, contextCuadrilla);
+    expect(res.status).toBe(401);
+    expect(authService.verificarAlgunPermiso).toHaveBeenCalledWith(null, [
+      PERMISO_EJECUTAR_MISION_TERRENO,
+      PERMISO_VERIFICAR_MISION_TERRENO,
+    ]);
   });
 });
