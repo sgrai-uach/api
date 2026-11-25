@@ -64,6 +64,7 @@ const IDS = {
   },
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function limpiarFixtureH73(executor: any = db) {
   console.log("Limpiando fixture H73 (operativos de recuperación de prueba)...");
 

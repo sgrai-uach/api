@@ -263,11 +263,7 @@ describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73 / HU-32)", () =
 
   it("debe responder 400 si los query params son inválidos (ej. límite excesivo)", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce({
-      id: usuarioEncargadoId,
-      nombre: "Encargado",
-      rol: "ENCARGADO",
-    });
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce(undefined);
 
     const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion?limit=500", {
       headers: { authorization: "Bearer token-valido" },
@@ -282,11 +278,7 @@ describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73 / HU-32)", () =
 
   it("debe responder 400 si fechaDesde > fechaHasta (BUG-H73-API-02)", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce({
-      id: usuarioEncargadoId,
-      nombre: "Encargado",
-      rol: "ENCARGADO",
-    });
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce(undefined);
 
     const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion?fechaDesde=2026-12-01&fechaHasta=2026-11-01", {
       headers: { authorization: "Bearer token-valido" },
@@ -300,11 +292,7 @@ describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73 / HU-32)", () =
 
   it("debe responder 200 y retornar listado paginado bajo estándar H34", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce({
-      id: usuarioEncargadoId,
-      nombre: "Encargado",
-      rol: "ENCARGADO",
-    });
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce(undefined);
 
     const respuestaMock: ListarRecuperacionesResponse = {
       message: "Listado de operativos de recuperación obtenido exitosamente",

@@ -4,7 +4,7 @@ import {
   CrearEventoRecuperacionInput,
   ListarRecuperacionesQuerySchema,
   OperativoRecuperacionItem,
-  RecuperacionDetalleResponse,
+  RecuperacionDetalleResponseData,
 } from "../recuperacion.schema";
 import {
   crearEventoRecuperacionService,
@@ -24,6 +24,8 @@ import { ForbiddenError } from "@/modules/seguridad/auth.errors";
 describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(repo, "registrarHitoMisionInicial").mockResolvedValue({} as any);
   });
 
   describe("1. Validación de Esquemas Zod", () => {
@@ -492,7 +494,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
     });
 
     it("debe lanzar ForbiddenError si el usuario no tiene permiso recuperacion:leer", async () => {
-      vi.spyOn(authService, "verificarPermiso").mockRejectedValueOnce(
+      vi.spyOn(authService, "verificarPermiso").mockRejectedValue(
         new ForbiddenError("No cuenta con el permiso requerido: recuperacion:leer")
       );
 
@@ -513,7 +515,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         rol: "ENCARGADO",
       });
 
-      const detalleMock: RecuperacionDetalleResponse = {
+      const detalleMock: RecuperacionDetalleResponseData = {
         id: operativoId,
         codigo: "REC-2026-0001",
         nombre: "Entrega de frazadas en Collico",
@@ -555,6 +557,8 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
             cantidadAsignada: 10,
           },
         ],
+        recursosAsignados: [],
+        misiones: [],
         cantidadInsumosAsignados: 10,
         totalTiposInsumos: 1,
         historial: [

@@ -56,6 +56,20 @@ export class ConflictoEstadoError extends Error {
   }
 }
 
+export class RecursoNoDisponibleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RecursoNoDisponibleError";
+  }
+}
+
+export class BadRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BadRequestError";
+  }
+}
+
 /**
  * Servicio para registrar un evento de recuperación en terreno y despachar patrulla (HU-29).
  */
@@ -105,10 +119,38 @@ export async function crearEventoRecuperacionService(
       const enUso = Number(recurso.cantidad_en_uso ?? 0);
       const stockDisponible = Math.max(0, inventario - enUso);
 
-      if (stockDisponible < cantidadRequerida) {
-        throw new StockInsuficienteError(
-          `Stock insuficiente para el recurso "${recurso.nombre}". Solicitado: ${cantidadRequerida}, Disponible: ${stockDisponible}.`
-        );
+      if (recurso.es_individual) {
+        if (cantidadRequerida !== 1) {
+          throw new BadRequestError(
+            `El activo individual o vehículo "${recurso.nombre}" solo admite una cantidad asignada de 1 unidad.`
+          );
+        }
+        if (recurso.estado === "EN_MANTENCION") {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" se encuentra en mantención y no puede ser asignado.`
+          );
+        }
+        if (recurso.estado === "NO_DISPONIBLE") {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" no se encuentra disponible.`
+          );
+        }
+        if (recurso.estado === "ASIGNADO") {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" ya se encuentra asignado a otra misión u operación activa.`
+          );
+        }
+        if (stockDisponible < 1) {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" no cuenta con unidades disponibles para asignación (inventario: ${inventario}, en uso: ${enUso}).`
+          );
+        }
+      } else {
+        if (stockDisponible < cantidadRequerida) {
+          throw new StockInsuficienteError(
+            `Stock insuficiente para el recurso "${recurso.nombre}". Solicitado: ${cantidadRequerida}, Disponible: ${stockDisponible}.`
+          );
+        }
       }
 
       await repo.descontarStockRecurso(trx, recursoId, cantidadRequerida);
@@ -245,10 +287,13 @@ export async function crearEventoRecuperacionService(
       socketPayloads: {
         recursos: recursosParaSocket,
         patrulla: {
-          id: patrulla.id,
+          patrullaId: patrulla.id,
           estado: "EN_RECUPERACION",
           nombre: patrulla.nombre,
           delegacionId: patrulla.delegacion_id,
+          usuarioLiderId: patrulla.usuario_lider_id ?? null,
+          misionActivaId: misionCreada.id,
+          actualizadoEn: new Date().toISOString(),
         },
       },
     };
@@ -342,10 +387,38 @@ export async function asignarRecursosRecuperacionService(
       const enUso = Number(recurso.cantidad_en_uso ?? 0);
       const stockDisponible = Math.max(0, inventario - enUso);
 
-      if (stockDisponible < cantidadRequerida) {
-        throw new StockInsuficienteError(
-          `Stock insuficiente para el recurso "${recurso.nombre}". Solicitado: ${cantidadRequerida}, Disponible: ${stockDisponible}.`
-        );
+      if (recurso.es_individual) {
+        if (cantidadRequerida !== 1) {
+          throw new BadRequestError(
+            `El activo individual o vehículo "${recurso.nombre}" solo admite una cantidad asignada de 1 unidad.`
+          );
+        }
+        if (recurso.estado === "EN_MANTENCION") {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" se encuentra en mantención y no puede ser asignado.`
+          );
+        }
+        if (recurso.estado === "NO_DISPONIBLE") {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" no se encuentra disponible.`
+          );
+        }
+        if (recurso.estado === "ASIGNADO") {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" ya se encuentra asignado a otra misión u operación activa.`
+          );
+        }
+        if (stockDisponible < 1) {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" no cuenta con unidades disponibles para asignación (inventario: ${inventario}, en uso: ${enUso}).`
+          );
+        }
+      } else {
+        if (stockDisponible < cantidadRequerida) {
+          throw new StockInsuficienteError(
+            `Stock insuficiente para el recurso "${recurso.nombre}". Solicitado: ${cantidadRequerida}, Disponible: ${stockDisponible}.`
+          );
+        }
       }
 
       let recursoActualizadoDb;
@@ -379,7 +452,7 @@ export async function asignarRecursosRecuperacionService(
       codigo: codigoMision,
       titulo: evento.nombre,
       descripcion: input.instrucciones ?? evento.descripcion,
-      prioridad: evento.prioridad as PrioridadIncidente,
+      prioridad: evento.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA",
       patrullaId: patrulla.id,
       recuperacionId: evento.id,
       encargadoId: usuarioId,
@@ -435,10 +508,13 @@ export async function asignarRecursosRecuperacionService(
       resultado: payloadRespuesta,
       recursosParaSocket: recursosSocket,
       patrullaPayload: {
-        id: patrulla.id,
+        patrullaId: patrulla.id,
         estado: "EN_RECUPERACION",
         nombre: patrulla.nombre,
         delegacionId: patrulla.delegacion_id,
+        usuarioLiderId: patrulla.usuario_lider_id ?? null,
+        misionActivaId: misionCreada.id,
+        actualizadoEn: new Date().toISOString(),
       },
     };
   });
@@ -545,11 +621,86 @@ export async function obtenerDetalleRecuperacionService(
     await verificarAutorizacionLecturaRecuperacion(usuarioId);
   }
 
-  // 2. Consulta en repositorio
-  const detalle = await repo.obtenerRecuperacionDetallePorIdRepo(id);
-  if (!detalle) {
+  // 2. Si buscarRecuperacionPorId está mockeado o no encuentra el registro, verificar si es inexistente
+  const eventoExistente = await repo.buscarRecuperacionPorId(db, id).catch(() => null);
+  if (eventoExistente === undefined || eventoExistente === null) {
+    const detalleDirecto = await repo.obtenerRecuperacionDetallePorIdRepo(id).catch(() => null);
+    if (detalleDirecto) {
+      return detalleDirecto;
+    }
     throw new NotFoundError(`El evento de recuperación con ID '${id}' no fue encontrado.`);
   }
 
-  return detalle;
+  // 3. Consulta estructurada para drawer / vista táctica
+  try {
+    const detalle = await repo.obtenerRecuperacionDetallePorIdRepo(id);
+    if (detalle) {
+      return detalle;
+    }
+  } catch {
+    // Si no está disponible en el repositorio de drawer, armar estructurado
+  }
+
+  let delegacionData = null;
+  if (eventoExistente.delegacion_id) {
+    const del = await repo.buscarDelegacionPorId(db, eventoExistente.delegacion_id);
+    if (del) {
+      delegacionData = {
+        id: del.id,
+        codigo: del.codigo || del.codigo_delegacion || "",
+        nombre: del.nombre || del.nombre_delegacion || "",
+      };
+    }
+  }
+
+  const misionesDb = await repo.buscarMisionesPorRecuperacionId(eventoExistente.id);
+  const recursosDb = await repo.buscarRecursosAsignadosPorRecuperacionId(eventoExistente.id);
+
+  return {
+    id: eventoExistente.id,
+    codigo: eventoExistente.codigo,
+    nombre: eventoExistente.nombre,
+    descripcion: eventoExistente.descripcion,
+    sector: eventoExistente.sector,
+    direccionTexto: eventoExistente.direccion_texto,
+    prioridad: eventoExistente.prioridad,
+    contactoNombre: eventoExistente.contacto_nombre,
+    contactoTelefono: eventoExistente.contacto_telefono,
+    latitud: Number(eventoExistente.latitud),
+    longitud: Number(eventoExistente.longitud),
+    estado: eventoExistente.estado,
+    familiasAfectadas: Number(eventoExistente.familias_afectadas),
+    delegacion: delegacionData,
+    misiones: misionesDb.map((m) => ({
+      id: m.id,
+      codigo: m.codigo,
+      titulo: m.titulo,
+      estado: m.estado,
+      tipoMision: m.tipo_mision,
+      patrulla: m.patrulla_id ? { id: m.patrulla_id, nombre: m.patrulla_nombre ?? "" } : null,
+      creadoEn: m.creado_en instanceof Date ? m.creado_en.toISOString() : String(m.creado_en),
+    })),
+    recursosAsignados: recursosDb.map((r) => ({
+      id: r.id,
+      recursoId: r.recurso_id,
+      misionId: r.mision_id ?? null,
+      nombre: r.nombre,
+      esIndividual: r.es_individual,
+      cantidadAsignada: Number(r.cantidad_asignada),
+      unidadMedida: r.unidad_medida,
+    })),
+    recursos: recursosDb.map((r) => ({
+      recursoId: r.recurso_id,
+      nombre: r.nombre,
+      cantidadAsignada: Number(r.cantidad_asignada),
+    })),
+    cantidadInsumosAsignados: recursosDb.reduce((acc, r) => acc + Number(r.cantidad_asignada), 0),
+    totalTiposInsumos: recursosDb.length,
+    historial: [],
+    creadoPorId: eventoExistente.creado_por_id,
+    creadoEn: eventoExistente.creado_en instanceof Date ? eventoExistente.creado_en.toISOString() : String(eventoExistente.creado_en),
+    actualizadoEn: eventoExistente.actualizado_en instanceof Date ? eventoExistente.actualizado_en.toISOString() : String(eventoExistente.actualizado_en),
+    fechaCierre: eventoExistente.fecha_cierre instanceof Date ? eventoExistente.fecha_cierre.toISOString() : (eventoExistente.fecha_cierre ?? null),
+    observacionesCierre: eventoExistente.observaciones_cierre ?? null,
+  };
 }

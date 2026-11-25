@@ -22,16 +22,13 @@ export async function GET(req: NextRequest, context: RouteContext) {
     // 1. Extraer usuario autenticado mediante JWT Bearer obligatorio (BUG-H73-API-01: sin bypass)
     const usuarioId = await extraerUsuarioId(req);
 
-    // 2. Verificar autorización RBAC
-    await verificarAutorizacionLecturaRecuperacion(usuarioId);
-
-    // 3. Extraer y validar parámetro de ruta UUID
+    // 2. Extraer y validar parámetro de ruta UUID
     const { id } = await context.params;
     const validacionId = RecuperacionIdParamSchema.safeParse({ id });
     if (!validacionId.success) {
       return NextResponse.json(
         {
-          message: "Identificador de evento de recuperación inválido.",
+          message: "El identificador del operativo debe ser un UUID válido.",
           errors: validacionId.error.issues.map((issue) => ({
             campo: issue.path.join("."),
             mensaje: issue.message,
@@ -40,6 +37,9 @@ export async function GET(req: NextRequest, context: RouteContext) {
         { status: 400 }
       );
     }
+
+    // 3. Verificar autorización RBAC
+    await verificarAutorizacionLecturaRecuperacion(usuarioId);
 
     // 4. Ejecutar servicio de detalle
     const detalle = await obtenerDetalleRecuperacionService(validacionId.data.id, usuarioId);

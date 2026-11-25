@@ -60,11 +60,7 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-32 / HU-73 - 
 
   it("debe responder 404 si el operativo no existe", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce({
-      id: usuarioEncargadoId,
-      nombre: "Encargado",
-      rol: "ENCARGADO",
-    });
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce(undefined);
     vi.spyOn(recuperacionService, "obtenerDetalleRecuperacionService").mockRejectedValueOnce(
       new NotFoundError("Operativo no encontrado")
     );
@@ -81,11 +77,7 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-32 / HU-73 - 
 
   it("debe responder 200 y retornar el detalle completo para el drawer", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce({
-      id: usuarioEncargadoId,
-      nombre: "Encargado",
-      rol: "ENCARGADO",
-    });
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce(undefined);
 
     const detalleMock: RecuperacionDetalleResponse["data"] = {
       id: operativoValidoId,

@@ -323,7 +323,12 @@ export const ListarRecuperacionesQuerySchema = z
       message: "fechaDesde debe ser menor o igual a fechaHasta.",
       path: ["fechaDesde"],
     }
-  );
+  )
+  .transform((data) => ({
+    ...data,
+    page: data.page ?? data.pagina ?? 1,
+    limit: data.limit ?? data.limite ?? 20,
+  }));
 
 export type ListarRecuperacionesQuery = z.infer<typeof ListarRecuperacionesQuerySchema>;
 export type ListarRecuperacionesInput = z.input<typeof ListarRecuperacionesQuerySchema>;
