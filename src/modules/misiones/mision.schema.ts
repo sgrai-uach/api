@@ -140,8 +140,6 @@ export const IncidenteMisionResumenSchema = z.object({
   longitud: z.number().openapi({ description: "Longitud WGS84" }),
   estado: z.string().openapi({ description: "Estado actual del incidente (REPORTADO, VERIFICANDO, EN_ATENCION, RESUELTO)" }),
   prioridad: z.string().openapi({ description: "Prioridad del incidente (BAJA, MEDIA, ALTA, CRITICA)" }),
-  prioridadSugerida: z.string().nullable().optional().openapi({ description: "Prioridad sugerida preliminarmente por el sistema (HU-38)" }),
-  justificacionPrioridad: z.string().nullable().optional().openapi({ description: "Justificación técnica del ajuste de prioridad en terreno (HU-38)" }),
   requiereAsistenciaSocial: z.boolean().openapi({ description: "Requiere derivación social / ficha FIBE" }),
   fechaCierre: z.string().nullable().optional().openapi({ description: "Fecha y hora de cierre del incidente si fue cerrado o declarado NO_ABORDABLE" }),
   motivoNoAbordable: z.string().nullable().optional().openapi({ description: "Motivo fundado registrado si el incidente fue declarado NO_ABORDABLE" }),
@@ -574,7 +572,7 @@ export const AsignarCuadrillaMisionResponseSchema = z
 export type AsignarCuadrillaMisionResponse = z.infer<typeof AsignarCuadrillaMisionResponseSchema>;
 
 // ==========================================
-// HU-41: Rechazo de Asignación de Misión por Cuadrilla (Regla §3.3)
+// HU-69 / HU-41: Rechazo de Misión en Terreno (Patrulla Verificadora y Delegado de Cuadrilla - Regla §3.3)
 // ==========================================
 
 export const RechazarMisionBodySchema = z
@@ -595,7 +593,7 @@ export const RechazarMisionBodySchema = z
       .max(90, "La latitud debe estar entre -90 y 90.")
       .optional()
       .openapi({
-        description: "Latitud WGS84 opcional de la cuadrilla al momento del rechazo (-90 a 90)",
+        description: "Latitud WGS84 opcional de la unidad al momento del rechazo (-90 a 90)",
         example: -39.81422,
       }),
     longitud: z
@@ -605,7 +603,7 @@ export const RechazarMisionBodySchema = z
       .max(180, "La longitud debe estar entre -180 y 180.")
       .optional()
       .openapi({
-        description: "Longitud WGS84 opcional de la cuadrilla al momento del rechazo (-180 a 180)",
+        description: "Longitud WGS84 opcional de la unidad al momento del rechazo (-180 a 180)",
         example: -73.24589,
       }),
   })
@@ -661,34 +659,54 @@ export const RechazarMisionResponseSchema = z
   .object({
     message: z.string().openapi({
       example:
-        "Misión rechazada exitosamente. La cuadrilla ha vuelto a estado DISPONIBLE y el incidente ha retornado a VERIFICANDO para su reasignación.",
+        "Misión rechazada exitosamente. La unidad ha vuelto a estado DISPONIBLE y el incidente ha retornado para su reasignación.",
     }),
     data: z.object({
       mision: z.object({
         id: z.string().uuid(),
         codigo: z.string(),
-        tipoMision: TipoMisionEnum,
+        tipoMision: TipoMisionEnum.optional(),
         estado: EstadoMisionEnum.openapi({ example: "RECHAZADA" }),
         justificacionRechazo: z.string(),
-        fechaCierre: z.string(),
+        fechaCierre: z.string().optional(),
         actualizadoEn: z.string(),
       }),
-      cuadrilla: z.object({
-        id: z.string().uuid(),
-        nombre: z.string(),
-        estado: z.string().openapi({ example: "DISPONIBLE" }),
-        delegacionId: z.string().uuid().nullable().optional(),
-        usuarioDelegadoId: z.string().uuid().nullable().optional(),
-      }),
+      patrulla: z
+        .object({
+          id: z.string().uuid(),
+          nombre: z.string(),
+          estado: z.string().openapi({ example: "DISPONIBLE" }),
+          delegacionId: z.string().uuid().nullable().optional(),
+          usuarioLiderId: z.string().uuid().nullable().optional(),
+        })
+        .optional(),
+      cuadrilla: z
+        .object({
+          id: z.string().uuid(),
+          nombre: z.string(),
+          estado: z.string().openapi({ example: "DISPONIBLE" }),
+          delegacionId: z.string().uuid().nullable().optional(),
+          usuarioDelegadoId: z.string().uuid().nullable().optional(),
+        })
+        .optional(),
       incidente: z
         .object({
           id: z.string().uuid(),
           codigo: z.string(),
-          estado: z.string().openapi({ example: "VERIFICANDO" }),
-          prioridad: z.string(),
+          estado: z.string().openapi({ example: "REPORTADO" }),
+          prioridad: z.string().optional(),
         })
         .nullable(),
-      hito: MisionHitoRegistradoSchema,
+      hito: z.object({
+        id: z.string().uuid(),
+        misionId: z.string().uuid().optional(),
+        hito: z.string(),
+        descripcion: z.string(),
+        registradoPorId: z.string().uuid().nullable().optional(),
+        latitud: z.number().nullable().optional(),
+        longitud: z.number().nullable().optional(),
+        creadoEn: z.string(),
+      }),
     }),
   })
   .openapi("RechazarMisionResponse");

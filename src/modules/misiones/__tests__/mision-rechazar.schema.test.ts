@@ -5,9 +5,9 @@ import {
   RechazarMisionResponseSchema,
 } from "../mision.schema";
 
-describe("HU-41: Esquemas Zod para Rechazo de Misión por Delegado de Cuadrilla", () => {
+describe("HU-41 / HU-69: Esquemas Zod para Rechazo de Misión en Terreno", () => {
   describe("RechazarMisionInputSchema", () => {
-    it("debe fallar con 400 si no se proporciona justificación", () => {
+    it("debe fallar si no se proporciona ningún motivo de rechazo", () => {
       const resultado = RechazarMisionInputSchema.safeParse({});
       expect(resultado.success).toBe(false);
       if (!resultado.success) {
@@ -51,9 +51,7 @@ describe("HU-41: Esquemas Zod para Rechazo de Misión por Delegado de Cuadrilla"
       });
       expect(resultado.success).toBe(true);
       if (resultado.success) {
-        expect(resultado.data.justificacionRechazo).toBe(
-          "Falla hidráulica en camión tolva"
-        );
+        expect(resultado.data.justificacionRechazo).toBe("Falla hidráulica en camión tolva");
       }
     });
 
@@ -63,9 +61,7 @@ describe("HU-41: Esquemas Zod para Rechazo de Misión por Delegado de Cuadrilla"
       });
       expect(resultado.success).toBe(true);
       if (resultado.success) {
-        expect(resultado.data.justificacionRechazo).toBe(
-          "Acceso bloqueado por deslizamiento"
-        );
+        expect(resultado.data.justificacionRechazo).toBe("Acceso bloqueado por deslizamiento");
       }
     });
 
@@ -97,40 +93,81 @@ describe("HU-41: Esquemas Zod para Rechazo de Misión por Delegado de Cuadrilla"
     });
 
     it("debe fallar si las coordenadas están fuera de rango WGS84", () => {
-      const latInvalida = RechazarMisionInputSchema.safeParse({
+      const latInf = RechazarMisionInputSchema.safeParse({
         justificacion_rechazo: "Motivo válido de rechazo",
-        latitud: -95,
+        latitud: -90.1,
         longitud: -73.245,
       });
-      expect(latInvalida.success).toBe(false);
+      expect(latInf.success).toBe(false);
 
-      const lngInvalida = RechazarMisionInputSchema.safeParse({
+      const latSup = RechazarMisionInputSchema.safeParse({
+        justificacion_rechazo: "Motivo válido de rechazo",
+        latitud: 90.1,
+        longitud: -73.245,
+      });
+      expect(latSup.success).toBe(false);
+
+      const lngInf = RechazarMisionInputSchema.safeParse({
         justificacion_rechazo: "Motivo válido de rechazo",
         latitud: -39.814,
-        longitud: 185,
+        longitud: -180.1,
       });
-      expect(lngInvalida.success).toBe(false);
+      expect(lngInf.success).toBe(false);
+
+      const lngSup = RechazarMisionInputSchema.safeParse({
+        justificacion_rechazo: "Motivo válido de rechazo",
+        latitud: -39.814,
+        longitud: 180.1,
+      });
+      expect(lngSup.success).toBe(false);
+    });
+
+    it("debe rechazar coordenadas con valores no finitos (Infinity, NaN)", () => {
+      const resInf = RechazarMisionInputSchema.safeParse({
+        justificacion_rechazo: "Motivo válido de rechazo",
+        latitud: Infinity,
+        longitud: -73.245,
+      });
+      expect(resInf.success).toBe(false);
+
+      const resNaN = RechazarMisionInputSchema.safeParse({
+        justificacion_rechazo: "Motivo válido de rechazo",
+        latitud: -39.814,
+        longitud: NaN,
+      });
+      expect(resNaN.success).toBe(false);
     });
   });
 
   describe("RechazarMisionBodySchema (OpenAPI)", () => {
+    it("debe validar un payload formal para OpenAPI", () => {
+      const resultado = RechazarMisionBodySchema.safeParse({
+        justificacion_rechazo: "Corte de puente de acceso al sector",
+        latitud: -39.82,
+        longitud: -73.24,
+      });
+      expect(resultado.success).toBe(true);
+    });
+
+    it("debe rechazar si coordenadas en body OpenAPI están fuera de cotas WGS84", () => {
+      const resultado = RechazarMisionBodySchema.safeParse({
+        justificacion_rechazo: "Corte de puente de acceso al sector",
+        latitud: 1000,
+        longitud: -200,
+      });
+      expect(resultado.success).toBe(false);
+    });
+
     it("debe rechazar menos de 5 caracteres", () => {
       const resultado = RechazarMisionBodySchema.safeParse({
         justificacion_rechazo: "1234",
       });
       expect(resultado.success).toBe(false);
     });
-
-    it("debe validar cuerpo correcto", () => {
-      const resultado = RechazarMisionBodySchema.safeParse({
-        justificacion_rechazo: "Falla mecánica grave",
-      });
-      expect(resultado.success).toBe(true);
-    });
   });
 
   describe("RechazarMisionResponseSchema", () => {
-    it("debe validar el contrato de respuesta exitoso", () => {
+    it("debe validar el contrato de respuesta exitoso para cuadrilla (HU-41)", () => {
       const respuesta = {
         message:
           "Misión rechazada exitosamente. La cuadrilla ha vuelto a estado DISPONIBLE y el incidente ha retornado a VERIFICANDO para su reasignación.",
@@ -166,6 +203,43 @@ describe("HU-41: Esquemas Zod para Rechazo de Misión por Delegado de Cuadrilla"
             latitud: -39.81422,
             longitud: -73.24589,
             creadoEn: "2026-11-16T23:15:00.000Z",
+          },
+        },
+      };
+
+      const resultado = RechazarMisionResponseSchema.safeParse(respuesta);
+      expect(resultado.success).toBe(true);
+    });
+
+    it("debe validar la estructura de respuesta exitosa para patrulla (HU-69)", () => {
+      const respuesta = {
+        message:
+          "Misión rechazada exitosamente. El incidente ha vuelto a estado REPORTADO para su reasignación.",
+        data: {
+          mision: {
+            id: "60000000-0000-4000-8000-000000000050",
+            codigo: "MIS-2026-8341",
+            estado: "RECHAZADA",
+            justificacionRechazo: "Desperfecto mecánico en el neumático delantero.",
+            actualizadoEn: "2026-11-03T18:45:00.000Z",
+          },
+          patrulla: {
+            id: "f1000000-0000-4000-8000-000000000001",
+            nombre: "Patrulla Ánimas Norte 1",
+            estado: "DISPONIBLE",
+          },
+          incidente: {
+            id: "50000000-0000-4000-8000-000000000001",
+            codigo: "INC-2026-1042",
+            estado: "REPORTADO",
+            prioridad: "ALTA",
+          },
+          hito: {
+            id: "70000000-0000-4000-8000-000000000002",
+            hito: "RECHAZADA",
+            descripcion:
+              "Misión rechazada por patrulla: Desperfecto mecánico en el neumático delantero.",
+            creadoEn: "2026-11-03T18:45:00.000Z",
           },
         },
       };

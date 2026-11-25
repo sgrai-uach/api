@@ -107,5 +107,41 @@ describe("Motor de Cálculo de Prioridad Sugerida en Terreno (HU-38)", () => {
     const resumenV2 = generarResumenTecnicoEvaluacion(2, ev, "ALTA", "CRITICA");
     expect(resumenV2).toContain("Evaluación en Terreno #2 (Rectificación)");
   });
+
+  it("debe conservar alias snake_case en riesgosActivos y validar autoritativamente prioridadSugerida en schema (BUG-H38-API-01)", async () => {
+    const { CalcularPrioridadInputSchema, ActualizarPrioridadIncidenteInputSchema } = await import(
+      "../prioridad.schema"
+    );
+
+    const parsedCalc = CalcularPrioridadInputSchema.parse({
+      riesgosActivos: {
+        riesgo_electrico: true,
+        riesgo_estructural: true,
+        aislamiento_vial: true,
+      },
+    });
+    const calc = calcularPrioridadSugerida(parsedCalc as unknown as Record<string, unknown>);
+    expect(calc.prioridadSugerida).toBe("CRITICA");
+    expect(calc.puntajeTotal).toBeGreaterThanOrEqual(60);
+
+    // Rechazar bypass cuando cliente envía prioridadSugerida: "BAJA" junto a evaluación crítica sin justificación
+    const resBypass = ActualizarPrioridadIncidenteInputSchema.safeParse({
+      prioridad: "BAJA",
+      prioridadSugerida: "BAJA",
+      evaluacion: {
+        personasElectrodependientes: 2,
+        nivelCompromisoVivienda: "GRAVE_INHABITABLE",
+        requiereEvacuacion: true,
+      },
+    });
+    expect(resBypass.success).toBe(false);
+
+    // Rechazar familias en raíz sin justificacion_prioridad
+    const resFamilias = ActualizarPrioridadIncidenteInputSchema.safeParse({
+      prioridad: "BAJA",
+      familias: [{ nucleoFamiliarTotal: 3, personasElectrodependientes: 1 }],
+    });
+    expect(resFamilias.success).toBe(false);
+  });
 });
 

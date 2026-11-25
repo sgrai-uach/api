@@ -764,11 +764,30 @@ npm run db:migrate
 ```
 El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `071_indices_listado_cuadrillas.ts`; los correlativos intermedios pueden estar reservados por otras historias del equipo).
 
-### 7.2 Sembrar Datos para Tablero Kanban
+### 7.2 Sembrar Datos de Desarrollo y QA
 ```bash
-npm run db:seed
+npm run seed
 ```
-Ejecuta el script `src/lib/db/seed-kanban.ts` insertando incidentes, patrullas, cuadrillas y misiones para pruebas de desarrollo local.
+Ejecuta el orquestador `scripts/seed/index.ts`, que siembra de forma idempotente:
+- usuarios PATRULLA, personal, vehículos y patrullas verificadoras;
+- incidentes, misiones, cuadrillas y recursos del tablero Kanban;
+- incidentes y misiones adicionales en todos los estados operativos;
+- puntos críticos de prevención y misión preventiva;
+- eventos de recuperación, misiones e insumos asociados;
+- fixtures QA de HU-21 (cuadrillas) y HU-38 (prioridad en terreno).
+
+Opciones útiles:
+```bash
+npm run seed -- --only=h38          # solo fixture HU-38
+npm run seed -- --only=h21,h38      # fixtures QA
+npm run seed -- --skip=estados      # omitir un módulo
+npm run seed -- --clean             # limpiar y recrear fixtures QA
+```
+
+Para el sembrador REST aleatorio (requiere la API levantada):
+```bash
+npx tsx scripts/seed.ts 5 --promover
+```
 
 ### 7.3 Reglas para Nuevas Migraciones
 1. Crear un archivo numerado correlativamente en `src/lib/db/migrations/XXX_nombre_descriptivo.ts`.

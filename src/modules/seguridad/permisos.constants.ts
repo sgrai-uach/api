@@ -26,3 +26,4 @@ export const PERMISO_VERIFICAR_MISION_TERRENO = "misiones:terreno:verificar";
 export const PERMISO_EJECUTAR_MISION_TERRENO = "misiones:terreno:ejecutar";
 export const PERMISO_CREAR_REPORTES = "reportes:crear";
 export const PERMISO_CREAR_REPORTE = PERMISO_CREAR_REPORTES;
+export const PERMISO_CREAR_EVENTO_ATP = "eventos_atp:crear";

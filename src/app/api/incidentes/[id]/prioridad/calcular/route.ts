@@ -9,6 +9,7 @@ import {
   UnauthorizedError,
   ForbiddenError,
   NotFoundError,
+  ConflictError,
   BadRequestError,
 } from "@/modules/seguridad/errors";
 
@@ -35,7 +36,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const headerUserId = request.headers.get("x-user-id");
     const usuarioId = tokenUserId || headerUserId;
 
-    await verificarPermiso(usuarioId, PERMISO_VERIFICAR_MISION_TERRENO);
+    const usuarioAutenticado = await verificarPermiso(
+      usuarioId,
+      PERMISO_VERIFICAR_MISION_TERRENO
+    );
 
     const { id } = await context.params;
     const validacionId = IncidenteIdParamSchema.safeParse(id);
@@ -78,13 +82,21 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
+    const esAdmin =
+      usuarioAutenticado.rol === "Administrador" || usuarioAutenticado.rol === "ADMIN";
+
     const resultado = await prioridadService.calcularPrioridadSugerida(
       validacionId.data,
-      validacionBody.data
+      validacionBody.data,
+      usuarioAutenticado.id,
+      esAdmin
     );
 
     return NextResponse.json(resultado, { status: 200 });
   } catch (error: unknown) {
+    if (error instanceof ConflictError) {
+      return NextResponse.json({ message: error.message }, { status: 409 });
+    }
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ message: error.message }, { status: 401 });
     }
