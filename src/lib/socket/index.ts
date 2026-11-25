@@ -35,7 +35,15 @@ export interface IncidenteActualizadoPayload {
   codigo: string;
   nuevoEstado: string;
   prioridad: string;
+  prioridadSugerida?: string | null;
+  justificacionPrioridad?: string | null;
+  requiereAsistenciaSocial?: boolean;
+  verificado?: boolean;
   actualizadoEn: string;
+  tipoIncidenteId?: string | null;
+  tipoAfectacion?: string;
+  justificacion?: string | null;
+  reporteTerreno?: Record<string, unknown> | null;
 }
 
 export type TypedSocketServer = SocketIOServer<
@@ -181,8 +189,6 @@ export function notificarIncidenteActualizado(datos: IncidenteActualizadoPayload
       (ioInstance.to("encargado") as any).emit("incidente:actualizado", payload);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (ioInstance.to("mapa") as any).emit("incidente:actualizado", payload);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance as any).emit("incidente:actualizado", payload);
       return true;
     } catch (error) {
       console.error("Error al emitir actualización de incidente vía Socket.io:", error);
@@ -271,16 +277,18 @@ export function emitirRecursoActualizado(recurso: Record<string, unknown>): void
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    publisher
-      .publish(
-        REDIS_SOCKET_CHANNEL,
-        JSON.stringify({
-          room: "encargado",
-          event: "recurso:actualizado",
-          payload: recurso,
-        })
-      )
-      .catch(() => {});
+    for (const room of ["encargado", "supervisor"]) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "recurso:actualizado",
+            payload: recurso,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 
@@ -351,6 +359,45 @@ export function emitirPuntoCriticoCreado(payload: Record<string, unknown>): void
 }
 
 /**
+ * Emite la notificación de nuevo Evento ATP creado a las salas operativas,
+ * administrativas y al mapa interactivo (H61).
+ */
+export function emitirEventoAtpCreado(payload: unknown): void {
+  const salas = [
+    "sala:encargados",
+    "encargado",
+    "supervisor",
+    "mapa",
+    "admin",
+    "administrador",
+  ];
+
+  if (ioInstance) {
+    // Una sola emisión multi-sala: Socket.io deduplica los sockets que
+    // pertenecen a más de una sala y no se realiza broadcast global.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to(salas) as any).emit("evento_atp:creado", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    for (const sala of salas) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room: sala,
+            event: "evento_atp:creado",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
+  }
+}
+
+/**
  * Emite la notificación de nuevo evento de recuperación creado a las vistas de Encargado y al mapa interactivo.
  */
 export function emitirRecuperacionCreada(payload: unknown): void {
@@ -378,6 +425,40 @@ export function emitirRecuperacionCreada(payload: unknown): void {
         })
       )
       .catch(() => {});
+  }
+}
+
+/**
+ * Emite la notificación de evento de recuperación actualizado (asignación de patrullas/recursos)
+ * a las vistas de Encargado y al mapa interactivo (HU-32).
+ */
+export function emitirRecuperacionActualizada(payload: unknown): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("sala:encargados") as any).emit("recuperacion:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("encargado") as any).emit("recuperacion:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to("mapa") as any).emit("recuperacion:actualizada", payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance as any).emit("recuperacion:actualizada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    for (const room of ["sala:encargados", "encargado", "mapa"]) {
+      publisher
+        .publish(
+          REDIS_SOCKET_CHANNEL,
+          JSON.stringify({
+            room,
+            event: "recuperacion:actualizada",
+            payload,
+          })
+        )
+        .catch(() => {});
+    }
   }
 }
 
@@ -617,6 +698,8 @@ export function notificarPatrullaActualizada(payload: {
     }
   }
 }
+
+export const emitirPatrullaActualizada = notificarPatrullaActualizada;
 
 /**
  * Emite una notificación en tiempo real a las salas de 'encargado', 'supervisor', 'mapa' y 'administrador'
@@ -927,7 +1010,7 @@ export function notificarPatrullaLiberada(payload: {
 
 /**
  * Emite una alerta prioritaria en tiempo real hacia la sala 'encargado' del Centro de Mando
- * cuando una cuadrilla operativa (HU-41) o patrulla verificadora rechaza una misión asignada.
+ * cuando una cuadrilla operativa (HU-41) o patrulla verificadora (HU-69) rechaza una misión asignada.
  */
 export function notificarMisionRechazada(payload: MisionRechazadaPayload): void {
   const rooms = ["encargado", "sala:encargados", "supervisor"];
