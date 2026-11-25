@@ -1,20 +1,19 @@
 import { sql, type Kysely } from "kysely";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
-  // 1. Ampliar tabla recuperacion con columnas para enlace ATP, cierre y borrado lógico
+  // 1. Ampliar tabla recuperacion con columnas para cierre y borrado lógico (H73)
+  // Nota: evento_atp_id es gestionado en la migración 072_evento_atp_base (H61)
   await sql`
     ALTER TABLE recuperacion
-    ADD COLUMN IF NOT EXISTS evento_atp_id UUID,
     ADD COLUMN IF NOT EXISTS fecha_cierre TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS observaciones_cierre TEXT,
     ADD COLUMN IF NOT EXISTS eliminado_en TIMESTAMPTZ;
   `.execute(db);
 
-  // 2. Índices de optimización para listado, ordenamiento y filtros
+  // 2. Índices de optimización para listado, ordenamiento y filtros (H73)
   await sql`CREATE INDEX IF NOT EXISTS idx_recuperacion_creado_en ON recuperacion (creado_en DESC);`.execute(db);
   await sql`CREATE INDEX IF NOT EXISTS idx_recuperacion_delegacion_estado ON recuperacion (delegacion_id, estado);`.execute(db);
   await sql`CREATE INDEX IF NOT EXISTS idx_recuperacion_eliminado_en ON recuperacion (eliminado_en);`.execute(db);
-  await sql`CREATE INDEX IF NOT EXISTS idx_recuperacion_evento_atp_id ON recuperacion (evento_atp_id);`.execute(db);
 
   // 3. Registrar permiso RBAC 'recuperacion:leer' y asignarlo a ADMIN, ENCARGADO y SUPERVISOR
   await sql`
@@ -52,23 +51,27 @@ export async function up(db: Kysely<unknown>): Promise<void> {
         END IF;
       END IF;
 
-      SELECT id INTO v_admin_user_id FROM usuario WHERE id = '00000000-0000-4000-8000-000000000001';
+      SELECT id INTO v_admin_user_id FROM usuario WHERE rol_id = v_admin_rol_id LIMIT 1;
       IF v_admin_user_id IS NULL THEN
-        SELECT id INTO v_admin_user_id FROM usuario LIMIT 1;
+        v_admin_user_id := '00000000-0000-4000-8000-000000000001';
       END IF;
 
-      IF v_permiso_id IS NOT NULL THEN
-        -- Asignar a Administrador
+      -- Asignar permiso a rol ADMIN
+      IF EXISTS (SELECT 1 FROM rol WHERE id = v_admin_rol_id) THEN
         INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
         VALUES (v_admin_rol_id, v_permiso_id, v_admin_user_id)
         ON CONFLICT DO NOTHING;
+      END IF;
 
-        -- Asignar a Encargado
+      -- Asignar permiso a rol ENCARGADO
+      IF EXISTS (SELECT 1 FROM rol WHERE id = v_encargado_rol_id) THEN
         INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
         VALUES (v_encargado_rol_id, v_permiso_id, v_admin_user_id)
         ON CONFLICT DO NOTHING;
+      END IF;
 
-        -- Asignar a Supervisor Estratégico
+      -- Asignar permiso a rol SUPERVISOR
+      IF EXISTS (SELECT 1 FROM rol WHERE id = v_supervisor_rol_id) THEN
         INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
         VALUES (v_supervisor_rol_id, v_permiso_id, v_admin_user_id)
         ON CONFLICT DO NOTHING;
@@ -78,6 +81,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
+  // 1. Eliminar asignaciones de rol_permiso y permiso
   await sql`
     DELETE FROM rol_permiso
     WHERE permiso_id IN (SELECT id FROM permiso WHERE codigo = 'recuperacion:leer');
@@ -85,17 +89,16 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 
   await sql`DELETE FROM permiso WHERE codigo = 'recuperacion:leer';`.execute(db);
 
-  await sql`DROP INDEX IF EXISTS idx_recuperacion_evento_atp_id;`.execute(db);
+  // 2. Eliminar índices
   await sql`DROP INDEX IF EXISTS idx_recuperacion_eliminado_en;`.execute(db);
   await sql`DROP INDEX IF EXISTS idx_recuperacion_delegacion_estado;`.execute(db);
   await sql`DROP INDEX IF EXISTS idx_recuperacion_creado_en;`.execute(db);
 
+  // 3. Eliminar columnas añadidas
   await sql`
     ALTER TABLE recuperacion
-    DROP COLUMN IF EXISTS evento_atp_id,
     DROP COLUMN IF EXISTS fecha_cierre,
     DROP COLUMN IF EXISTS observaciones_cierre,
     DROP COLUMN IF EXISTS eliminado_en;
   `.execute(db);
 }
-
