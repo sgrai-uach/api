@@ -2862,7 +2862,7 @@ registry.registerPath({
   description:
     "Permite a una patrulla verificadora rechazar una misión asignada ingresando una justificación obligatoria (mínimo 5 caracteres según Regla Crítica §3.3). Ejecuta una transacción atómica que: (1) actualiza la misión a estado RECHAZADA y persiste la justificación, (2) transiciona la patrulla a DISPONIBLE, (3) revierte el incidente a REPORTADO para su inmediata reasignación, y (4) registra el hito en mision_hito. Emite la notificación WebSocket mision:rechazada hacia la sala encargado.",
   tags: ["Misiones"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: MisionIdParamSchema,
@@ -2915,7 +2915,7 @@ registry.registerPath({
   description:
     "Registra el marco oficial de un Evento ATP, persiste su alcance territorial en evento_atp_delegacion dentro de una sola transacción PostgreSQL y emite el evento WebSocket evento_atp:creado a las salas administrativas, operativas y del mapa. Requiere rol Administrador o el permiso eventos_atp:crear.",
   tags: ["Eventos ATP"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     body: {
       description: "Datos requeridos para crear el Evento ATP",

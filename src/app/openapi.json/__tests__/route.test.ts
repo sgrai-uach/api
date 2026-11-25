@@ -60,8 +60,25 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/eventos-atp"].post.responses["409"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp"].post.responses["500"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp"].post.security).toEqual([
-      { bearerAuth: [] },
+      { BearerAuth: [] },
     ]);
+    expect(spec.paths["/api/misiones/{id}/rechazar"]?.post?.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+
+    // Validar que todo esquema de seguridad referenciado exista en components.securitySchemes
+    const esquemasDefinidos = new Set(Object.keys(spec.components.securitySchemes));
+    for (const methods of Object.values(spec.paths) as Array<Record<string, { security?: Array<Record<string, unknown>> }>>) {
+      for (const op of Object.values(methods)) {
+        if (op?.security) {
+          for (const secObj of op.security) {
+            for (const schemeName of Object.keys(secObj)) {
+              expect(esquemasDefinidos.has(schemeName)).toBe(true);
+            }
+          }
+        }
+      }
+    }
 
     // Rutas de Recursos y Personal
     expect(spec.paths["/api/cuadrillas"]).toBeDefined();
