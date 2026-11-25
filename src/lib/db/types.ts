@@ -318,9 +318,15 @@ export interface EventoAsistenciaSocialTable {
     Record<string, unknown> | string | null | undefined,
     Record<string, unknown> | string | null
   >;
+  folio_fibe: string | null;
+  nivel_dano_vivienda: string | null;
+  observaciones_fibe: string | null;
+  fibe_registrada_en: Date | null;
+  fibe_registrada_por_id: string | null;
   creado_por_id: string;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
+  actualizado_por_id: string | null;
   eliminado_en: Date | null;
   eliminado_por_id: string | null;
 }

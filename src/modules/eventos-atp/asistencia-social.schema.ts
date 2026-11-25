@@ -349,6 +349,46 @@ export const EventoAsistenciaSocialResponseSchema = z.object({
   detallesEvaluacion: DetallesEvaluacionSocialSchema.nullable().openapi({
     description: "Desglose demográfico por familia y condición habitacional (null en modo aproximado)",
   }),
+  folioFibe: z
+    .string()
+    .nullable()
+    .optional()
+    .openapi({
+      description: "Folio oficial de la Ficha Básica de Emergencia (FIBE) registrado en terreno",
+      example: "FIBE-2026-0001",
+    }),
+  nivelDanoVivienda: NivelCompromisoViviendaSocialSchema.nullable()
+    .optional()
+    .openapi({
+      description: "Nivel de daño en vivienda confirmado en la evaluación FIBE",
+      example: "MODERADO",
+    }),
+  observacionesFibe: z
+    .string()
+    .nullable()
+    .optional()
+    .openapi({
+      description: "Observaciones sociales registradas durante el levantamiento FIBE",
+      example: "Grupo familiar con adulto mayor postrado; requiere reposición de enseres.",
+    }),
+  fibeRegistradaEn: z
+    .string()
+    .datetime()
+    .nullable()
+    .optional()
+    .openapi({
+      description: "Fecha y hora de registro oficial de la Ficha FIBE",
+      example: "2026-10-05T14:30:00.000Z",
+    }),
+  fibeRegistradaPorId: z
+    .string()
+    .uuid()
+    .nullable()
+    .optional()
+    .openapi({
+      description: "UUID del funcionario que registró la Ficha FIBE",
+      example: "00000000-0000-4000-8000-000000000019",
+    }),
   creadoPor: z
     .object({
       id: z.string().uuid().openapi({ example: "00000000-0000-4000-8000-000000000003" }),
@@ -535,3 +575,68 @@ export const DerivarAsistenciaSocialIncidenteResponseSchema = z
 export type DerivarAsistenciaSocialIncidenteResponse = z.infer<
   typeof DerivarAsistenciaSocialIncidenteResponseSchema
 >;
+
+/**
+ * Esquema de entrada para registrar o actualizar la Ficha Básica de Emergencia (FIBE)
+ * de un caso de asistencia social (HU-71).
+ */
+export const RegistrarFichaFibeInputSchema = z
+  .object({
+    folioFibe: z
+      .string()
+      .trim()
+      .min(1, "El folio oficial de Ficha FIBE es obligatorio")
+      .max(50, "El folio oficial de Ficha FIBE no puede superar los 50 caracteres")
+      .regex(
+        /^[A-Za-z0-9-]+$/,
+        "El folio oficial de Ficha FIBE debe ser alfanumérico (solo letras, números y guiones)"
+      )
+      .transform((valor) => valor.toUpperCase())
+      .openapi({
+        description:
+          "Folio oficial único de la Ficha Básica de Emergencia (FIBE) recopilada en terreno (alfanumérico y guiones)",
+        example: "FIBE-2026-0001",
+      }),
+    personasAfectadas: z.coerce
+      .number()
+      .int("La cantidad de integrantes familiares evaluados debe ser un número entero")
+      .min(0, "La cantidad de integrantes familiares evaluados no puede ser negativa")
+      .optional()
+      .openapi({
+        description:
+          "Cantidad oficial de integrantes familiares evaluados; si se omite, conserva el valor actual del evento social",
+        example: 4,
+      }),
+    nivelDanoVivienda: NivelCompromisoViviendaSocialSchema.optional().openapi({
+      description:
+        "Nivel de daño en vivienda confirmado en la Ficha FIBE; si se omite, reutiliza el valor preliminar del evento social si existe",
+      example: "MODERADO",
+    }),
+    observacionesSociales: z
+      .string()
+      .trim()
+      .max(2000, "Las observaciones sociales no pueden superar los 2000 caracteres")
+      .nullable()
+      .optional()
+      .openapi({
+        description: "Observaciones sociales de la emergencia recopiladas en terreno (opcional)",
+        example: "Vivienda con filtración severa en techumbre; se coordina entrega de kit básico.",
+      }),
+  })
+  .openapi("RegistrarFichaFibeInput");
+
+export type RegistrarFichaFibeInput = z.infer<typeof RegistrarFichaFibeInputSchema>;
+
+/**
+ * Esquema de respuesta canónica para PATCH /api/eventos-atp/asistencia-social/{id}/fibe (HU-71).
+ */
+export const RegistrarFichaFibeResponseSchema = z
+  .object({
+    message: z.string().openapi({
+      example: "Ficha FIBE registrada exitosamente en el expediente de asistencia social.",
+    }),
+    data: EventoAsistenciaSocialResponseSchema,
+  })
+  .openapi("RegistrarFichaFibeResponse");
+
+export type RegistrarFichaFibeResponse = z.infer<typeof RegistrarFichaFibeResponseSchema>;

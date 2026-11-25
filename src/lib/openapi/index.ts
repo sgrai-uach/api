@@ -203,6 +203,8 @@ import {
   DerivarAsistenciaSocialIncidenteInputSchema,
   HitoDerivacionSocialSchema,
   DerivarAsistenciaSocialIncidenteResponseSchema,
+  RegistrarFichaFibeInputSchema,
+  RegistrarFichaFibeResponseSchema,
 } from "@/modules/eventos-atp/asistencia-social.schema";
 
 import {
@@ -2115,6 +2117,59 @@ registry.registerPath({
     409: {
       description:
         "Conflicto de estado (evento no está en PENDIENTE) o el usuario seleccionado no tiene rol ASISTENTE_SOCIAL / no está disponible",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// PATCH /api/eventos-atp/asistencia-social/{id}/fibe (HU-71)
+registry.registerPath({
+  method: "patch",
+  path: "/api/eventos-atp/asistencia-social/{id}/fibe",
+  description:
+    "Registra o actualiza los datos oficiales recopilados en terreno de la Ficha Básica de Emergencia (FIBE) para un caso de asistencia social en estado ASIGNADO o EN_EVALUACION_FIBE, validando unicidad de folio_fibe, transicionando el estado a EN_EVALUACION_FIBE, registrando auditoría y emitiendo asistencia_social:actualizada vía WebSocket.",
+  summary: "Registrar Ficha Básica de Emergencia (FIBE) en caso social (HU-71)",
+  tags: ["Eventos ATP - Asistencia Social"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z
+        .string()
+        .optional()
+        .openapi({ description: "Token Bearer del usuario con permiso 'asistencia_social:fibe:gestionar'" }),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado (Asistente Social o Administrador)" }),
+    }),
+    params: EventoAsistenciaSocialIdParamSchema,
+    body: {
+      description:
+        "Folio oficial FIBE obligatorio y datos confirmados de integrantes evaluados, daño en vivienda y observaciones sociales",
+      content: {
+        "application/json": {
+          schema: RegistrarFichaFibeInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Ficha FIBE registrada exitosamente; evento actualizado a estado EN_EVALUACION_FIBE",
+      content: {
+        "application/json": {
+          schema: RegistrarFichaFibeResponseSchema,
+        },
+      },
+    },
+    400: { description: "Identificador o datos de la Ficha FIBE inválidos" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Se requiere permiso 'asistencia_social:fibe:gestionar'" },
+    404: { description: "Evento de asistencia social no encontrado" },
+    409: {
+      description:
+        "Conflicto de negocio: folio_fibe duplicado en el sistema o estado del evento inválido (debe estar en ASIGNADO o EN_EVALUACION_FIBE)",
     },
     500: { description: "Error interno del servidor" },
   },
