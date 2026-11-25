@@ -3,11 +3,12 @@ import Redis, { type RedisOptions } from "ioredis";
 let redisClient: Redis | null = null;
 
 const DEFAULT_REDIS_OPTIONS: RedisOptions = {
-  maxRetriesPerRequest: 3,
+  maxRetriesPerRequest: 2,
+  connectTimeout: 2000,
+  enableOfflineQueue: false,
   retryStrategy(times: number) {
     // Reintento exponencial con tope de 3 segundos
-    const delay = Math.min(times * 150, 3000);
-    return delay;
+    return Math.min(times * 150, 3000);
   },
   lazyConnect: true,
 };
@@ -20,6 +21,10 @@ export function getRedisClient(): Redis | null {
   const redisUrl = process.env.REDIS_URL;
   if (!redisUrl) {
     return null;
+  }
+
+  if (redisClient && redisClient.status === "end") {
+    redisClient = null;
   }
 
   if (!redisClient) {
@@ -67,6 +72,13 @@ export function createRedisClient(customOptions?: RedisOptions): Redis | null {
     console.warn("[Redis Dedicated Client Init Error]:", error);
     return null;
   }
+}
+
+/**
+ * Permite inyectar un cliente Redis (o null) en entornos de prueba unitaria.
+ */
+export function setRedisClientForTesting(client: Redis | null): void {
+  redisClient = client;
 }
 
 /**

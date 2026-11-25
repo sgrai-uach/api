@@ -1,22 +1,70 @@
 import { getRedisClient } from "@/lib/redis";
-import type { TelemetriaPosicionDTO, PosicionUnidadActivaDTO } from "./telemetria.schema";
+import type {
+  TelemetriaPosicionDTO,
+  PosicionUnidadActivaDTO,
+  TipoUnidadTelemetria,
+} from "./telemetria.schema";
 
-const TTL_SEGUNDOS_TELEMETRIA = 300; // 5 minutos de vigencia
-const REDIS_SET_UNIDADES_ACTIVAS = "telemetria:unidades_activas";
+export const TTL_SEGUNDOS_TELEMETRIA = 300; // 5 minutos de vigencia
+export const REDIS_SET_UNIDADES_ACTIVAS = "telemetria:unidades_activas";
 
 // Fallback en memoria si Redis no está disponible o durante pruebas locales
 const memoriaPosiciones = new Map<string, { data: PosicionUnidadActivaDTO; expiresAt: number }>();
+
+export interface GuardarPosicionResult {
+  actualizada: boolean;
+  posicion: PosicionUnidadActivaDTO;
+}
 
 function generarClaveUnidad(tipoUnidad: string, unidadId: string): string {
   return `telemetria:posicion:${tipoUnidad}:${unidadId}`;
 }
 
+async function asegurarConexionRedis(redis: NonNullable<ReturnType<typeof getRedisClient>>): Promise<void> {
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+}
+
+function guardarEnMemoria(identificadorUnidad: string, registro: PosicionUnidadActivaDTO): void {
+  memoriaPosiciones.set(identificadorUnidad, {
+    data: registro,
+    expiresAt: Date.now() + TTL_SEGUNDOS_TELEMETRIA * 1000,
+  });
+}
+
+function leerDeMemoria(identificadorUnidad: string): PosicionUnidadActivaDTO | null {
+  const enMemoria = memoriaPosiciones.get(identificadorUnidad);
+  if (!enMemoria) {
+    return null;
+  }
+  if (Date.now() < enMemoria.expiresAt) {
+    return enMemoria.data;
+  }
+  memoriaPosiciones.delete(identificadorUnidad);
+  return null;
+}
+
 /**
  * Guarda o actualiza la última posición conocida de una unidad en Redis con expiración automática.
+ * Protege contra paquetes GPS desordenados: si el timestamp entrante es más antiguo que el
+ * último almacenado para la misma unidad, no sobrescribe la posición vigente.
  */
 export async function guardarPosicionUnidad(
   posicion: TelemetriaPosicionDTO
-): Promise<PosicionUnidadActivaDTO> {
+): Promise<GuardarPosicionResult> {
+  const existente = await obtenerPosicionUnidad(posicion.tipoUnidad, posicion.unidadId);
+  if (existente) {
+    const tsEntrante = new Date(posicion.timestamp).getTime();
+    const tsExistente = new Date(existente.timestamp).getTime();
+    if (!Number.isNaN(tsEntrante) && !Number.isNaN(tsExistente) && tsEntrante < tsExistente) {
+      return {
+        actualizada: false,
+        posicion: existente,
+      };
+    }
+  }
+
   const recibidoEn = new Date().toISOString();
   const registro: PosicionUnidadActivaDTO = {
     ...posicion,
@@ -29,26 +77,31 @@ export async function guardarPosicionUnidad(
 
   if (redis) {
     try {
+      await asegurarConexionRedis(redis);
       const pipeline = redis.pipeline();
       pipeline.set(clave, JSON.stringify(registro), "EX", TTL_SEGUNDOS_TELEMETRIA);
       pipeline.sadd(REDIS_SET_UNIDADES_ACTIVAS, identificadorUnidad);
-      await pipeline.exec();
+      const resultados = await pipeline.exec();
+
+      const comandoFallido = !resultados || resultados.some(([err]) => err !== null);
+      if (comandoFallido) {
+        throw new Error("Uno o más comandos del pipeline de Redis devolvieron error.");
+      }
+
+      // Evitar divergencia entre memoria y Redis cuando Redis opera correctamente
+      memoriaPosiciones.delete(identificadorUnidad);
     } catch (err) {
       console.warn("[Telemetria Redis Error]: Error al persistir posición en Redis:", err);
-      // Fallback en memoria
-      memoriaPosiciones.set(identificadorUnidad, {
-        data: registro,
-        expiresAt: Date.now() + TTL_SEGUNDOS_TELEMETRIA * 1000,
-      });
+      guardarEnMemoria(identificadorUnidad, registro);
     }
   } else {
-    memoriaPosiciones.set(identificadorUnidad, {
-      data: registro,
-      expiresAt: Date.now() + TTL_SEGUNDOS_TELEMETRIA * 1000,
-    });
+    guardarEnMemoria(identificadorUnidad, registro);
   }
 
-  return registro;
+  return {
+    actualizada: true,
+    posicion: registro,
+  };
 }
 
 /**
@@ -64,84 +117,126 @@ export async function obtenerPosicionUnidad(
 
   if (redis) {
     try {
+      await asegurarConexionRedis(redis);
       const valor = await redis.get(clave);
       if (valor) {
         return JSON.parse(valor) as PosicionUnidadActivaDTO;
       }
-      return null;
+      // Si no está en Redis, verificar si quedó en fallback local tras corte transitorio
+      return leerDeMemoria(identificadorUnidad);
     } catch (err) {
       console.warn("[Telemetria Redis Error]: Error al consultar posición en Redis:", err);
     }
   }
 
-  // Fallback memoria
-  const enMemoria = memoriaPosiciones.get(identificadorUnidad);
-  if (enMemoria) {
-    if (Date.now() < enMemoria.expiresAt) {
-      return enMemoria.data;
-    }
-    memoriaPosiciones.delete(identificadorUnidad);
-  }
-
-  return null;
+  return leerDeMemoria(identificadorUnidad);
 }
 
 /**
- * Obtiene todas las posiciones activas vigentes registradas para hidratación del mapa.
+ * Elimina inmediatamente la última posición conocida de una unidad al finalizar su misión
+ * o volver a estado DISPONIBLE (CA-4), evitando marcadores fantasma en el mapa.
  */
-export async function obtenerTodasLasPosicionesActivas(): Promise<PosicionUnidadActivaDTO[]> {
+export async function eliminarPosicionUnidad(
+  tipoUnidad: string,
+  unidadId: string
+): Promise<boolean> {
+  const clave = generarClaveUnidad(tipoUnidad, unidadId);
+  const identificadorUnidad = `${tipoUnidad}:${unidadId}`;
+
+  let eliminada = memoriaPosiciones.delete(identificadorUnidad);
+
+  const redis = getRedisClient();
+  if (redis) {
+    try {
+      await asegurarConexionRedis(redis);
+      const pipeline = redis.pipeline();
+      pipeline.del(clave);
+      pipeline.srem(REDIS_SET_UNIDADES_ACTIVAS, identificadorUnidad);
+      const resultados = await pipeline.exec();
+      if (resultados && resultados[0] && !resultados[0][0] && Number(resultados[0][1]) > 0) {
+        eliminada = true;
+      }
+    } catch (err) {
+      console.warn("[Telemetria Redis Error]: Error al eliminar posición en Redis:", err);
+    }
+  }
+
+  return eliminada;
+}
+
+/**
+ * Obtiene todas las posiciones activas vigentes registradas para hidratación del mapa,
+ * ordenadas de más reciente a más antigua y con soporte de filtros opcionales.
+ */
+export async function obtenerTodasLasPosicionesActivas(filtros?: {
+  tipoUnidad?: TipoUnidadTelemetria;
+  unidadId?: string;
+}): Promise<PosicionUnidadActivaDTO[]> {
+  const mapaConsolidado = new Map<string, PosicionUnidadActivaDTO>();
   const redis = getRedisClient();
 
   if (redis) {
     try {
+      await asegurarConexionRedis(redis);
       const identificadores = await redis.smembers(REDIS_SET_UNIDADES_ACTIVAS);
-      if (!identificadores || identificadores.length === 0) {
-        return [];
-      }
+      if (identificadores && identificadores.length > 0) {
+        const claves = identificadores.map((id) => `telemetria:posicion:${id}`);
+        const valores = await redis.mget(...claves);
 
-      const claves = identificadores.map((id) => `telemetria:posicion:${id}`);
-      const valores = await redis.mget(...claves);
+        const expirados: string[] = [];
 
-      const posiciones: PosicionUnidadActivaDTO[] = [];
-      const expirados: string[] = [];
-
-      for (let i = 0; i < valores.length; i++) {
-        const val = valores[i];
-        if (val) {
-          try {
-            posiciones.push(JSON.parse(val) as PosicionUnidadActivaDTO);
-          } catch {
+        for (let i = 0; i < valores.length; i++) {
+          const val = valores[i];
+          if (val) {
+            try {
+              const parsed = JSON.parse(val) as PosicionUnidadActivaDTO;
+              mapaConsolidado.set(identificadores[i], parsed);
+            } catch {
+              expirados.push(identificadores[i]);
+            }
+          } else {
             expirados.push(identificadores[i]);
           }
-        } else {
-          // La clave expiró en Redis por TTL
-          expirados.push(identificadores[i]);
+        }
+
+        if (expirados.length > 0) {
+          redis.srem(REDIS_SET_UNIDADES_ACTIVAS, ...expirados).catch(() => {});
         }
       }
-
-      // Limpieza perezosa de IDs expirados del Set
-      if (expirados.length > 0) {
-        redis.srem(REDIS_SET_UNIDADES_ACTIVAS, ...expirados).catch(() => {});
-      }
-
-      return posiciones;
     } catch (err) {
-      console.warn("[Telemetria Redis Error]: Error al consultar todas las posiciones activas:", err);
+      console.warn(
+        "[Telemetria Redis Error]: Error al consultar todas las posiciones activas:",
+        err
+      );
     }
   }
 
-  // Fallback memoria
+  // Incorporar entradas vigentes del fallback en memoria si no están ya en Redis
   const ahora = Date.now();
-  const posicionesMemoria: PosicionUnidadActivaDTO[] = [];
   for (const [key, item] of memoriaPosiciones.entries()) {
     if (ahora < item.expiresAt) {
-      posicionesMemoria.push(item.data);
+      if (!mapaConsolidado.has(key)) {
+        mapaConsolidado.set(key, item.data);
+      }
     } else {
       memoriaPosiciones.delete(key);
     }
   }
 
-  return posicionesMemoria;
+  let posiciones = Array.from(mapaConsolidado.values());
+
+  if (filtros?.tipoUnidad) {
+    posiciones = posiciones.filter((p) => p.tipoUnidad === filtros.tipoUnidad);
+  }
+  if (filtros?.unidadId) {
+    posiciones = posiciones.filter((p) => p.unidadId === filtros.unidadId);
+  }
+
+  posiciones.sort(
+    (a, b) => new Date(b.recibidoEn).getTime() - new Date(a.recibidoEn).getTime()
+  );
+
+  return posiciones;
 }
 
 /**
@@ -152,14 +247,14 @@ export async function limpiarCacheTelemetria(): Promise<void> {
   const redis = getRedisClient();
   if (redis) {
     try {
+      await asegurarConexionRedis(redis);
       const identificadores = await redis.smembers(REDIS_SET_UNIDADES_ACTIVAS);
       if (identificadores && identificadores.length > 0) {
         const claves = identificadores.map((id) => `telemetria:posicion:${id}`);
         await redis.del(...claves, REDIS_SET_UNIDADES_ACTIVAS);
       }
     } catch {
-      // Ignorar en test
+      // Ignorar si Redis no está disponible durante pruebas aisladas
     }
   }
 }
-
