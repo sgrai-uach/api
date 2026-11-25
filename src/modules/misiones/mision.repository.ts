@@ -1277,6 +1277,7 @@ export async function crearReporteVerificacionYCerrarMisionRepo(
           "incidente.requiere_asistencia_social as incidente_requiere_asistencia_social",
         ])
         .where("mision.id", "=", misionId)
+        .forUpdate("mision")
         .executeTakeFirst();
 
       if (!misionExistente) {
@@ -1285,7 +1286,17 @@ export async function crearReporteVerificacionYCerrarMisionRepo(
         );
       }
 
-      // 2. Validar estado de la misión
+      // 2. Validar invariantes ICS de tipo de misión, patrulla e incidente asociado
+      if (
+        misionExistente.tipo_mision !== "VERIFICACION" ||
+        !misionExistente.patrulla_id
+      ) {
+        throw new ConflictError(
+          "La misión indicada no corresponde a una verificación con patrulla asignada."
+        );
+      }
+
+      // 2b. Validar estado de la misión
       if (misionExistente.estado !== "EN_CURSO") {
         if (misionExistente.estado === "DESPACHADA") {
           throw new ConflictError(
@@ -1302,8 +1313,28 @@ export async function crearReporteVerificacionYCerrarMisionRepo(
         );
       }
 
+      if (
+        misionExistente.patrulla_activo === false ||
+        misionExistente.patrulla_estado !== "EN_VERIFICACION"
+      ) {
+        throw new ConflictError(
+          "La patrulla verificadora asignada no se encuentra activa o en estado 'EN_VERIFICACION'."
+        );
+      }
+
+      if (
+        misionExistente.incidente_id &&
+        !["REPORTADO", "VERIFICANDO"].includes(
+          String(misionExistente.incidente_estado)
+        )
+      ) {
+        throw new ConflictError(
+          `El incidente asociado no puede cerrarse por verificación porque su estado actual es '${misionExistente.incidente_estado}'.`
+        );
+      }
+
       // 3. Validar pertenencia del usuario a la patrulla asignada (salvo Administrador)
-      if (!esAdmin && misionExistente.patrulla_id) {
+      if (!esAdmin) {
         const esLiderDirecto = misionExistente.patrulla_lider_id === usuarioId;
         if (!esLiderDirecto) {
           const integrante = await trx
@@ -1361,33 +1392,20 @@ export async function crearReporteVerificacionYCerrarMisionRepo(
       const requiereApoyoAdicionalFinal = dictamen === "REQUIERE_CUADRILLA";
 
       // 5. Consultar reportes previos de la misión para versionado y rescate de personas_afectadas (HU-38)
-      let reportesPrevios: Array<{
-        id: string;
-        tipo_reporte?: string | null;
-        personas_afectadas: number;
-        version_reporte?: number | null;
-        detalles_evaluacion?: unknown;
-        creado_en?: Date | string;
-      }> = [];
-
-      try {
-        reportesPrevios = await trx
-          .selectFrom("reporte_terreno")
-          .select([
-            "id",
-            "tipo_reporte",
-            "personas_afectadas",
-            "version_reporte",
-            "detalles_evaluacion",
-            "creado_en",
-          ])
-          .where("mision_id", "=", misionExistente.id)
-          .orderBy("version_reporte", "desc")
-          .orderBy("creado_en", "desc")
-          .execute();
-      } catch {
-        reportesPrevios = [];
-      }
+      const reportesPrevios = await trx
+        .selectFrom("reporte_terreno")
+        .select([
+          "id",
+          "tipo_reporte",
+          "personas_afectadas",
+          "version_reporte",
+          "detalles_evaluacion",
+          "creado_en",
+        ])
+        .where("mision_id", "=", misionExistente.id)
+        .orderBy("version_reporte", "desc")
+        .orderBy("creado_en", "desc")
+        .execute();
 
       const versionReporte = reportesPrevios.length + 1;
       const reportePrioridadPrevio =
@@ -1401,12 +1419,13 @@ export async function crearReporteVerificacionYCerrarMisionRepo(
 
       const personasAfectadasInput =
         input.personasAfectadas ?? input.personas_afectadas;
-      const personasAfectadasFinal =
-        personasAfectadasInput !== undefined
-          ? Number(personasAfectadasInput)
-          : personasAfectadasPrevias;
+      const tienePersonasAfectadasInput =
+        personasAfectadasInput !== undefined && personasAfectadasInput !== null;
+      const personasAfectadasFinal = tienePersonasAfectadasInput
+        ? Number(personasAfectadasInput)
+        : personasAfectadasPrevias;
       const personasAfectadasModificadas =
-        personasAfectadasInput !== undefined &&
+        tienePersonasAfectadasInput &&
         Number(personasAfectadasInput) !== personasAfectadasPrevias;
 
       const evaluacionPrioridadPreviaObj = reportePrioridadPrevio
@@ -1466,113 +1485,121 @@ export async function crearReporteVerificacionYCerrarMisionRepo(
       // 7. Sección preparada para integración de evidencia fotográfica (HU-43)
       const adjuntosMapeados: CrearReporteVerificacionResult["reporteTerreno"]["adjuntos"] =
         [];
-      const adjuntoIds = input.adjuntoIds ?? input.adjunto_ids ?? [];
-      if (adjuntoIds.length > 0) {
-        try {
-          const adjuntosVinculados = await trx
-            .updateTable("adjunto")
-            .set({
-              reporte_terreno_id: reporteInsertado.id,
-              ...(misionExistente.incidente_id
-                ? { incidente_id: misionExistente.incidente_id }
-                : {}),
-            })
-            .where("id", "in", adjuntoIds)
-            .returningAll()
-            .execute();
+      const adjuntoIdsDirectos = input.adjuntoIds ?? input.adjunto_ids ?? [];
+      const adjuntoIdsDesdeObjetos = (input.adjuntos ?? [])
+        .map((a) => a.id)
+        .filter((id): id is string => Boolean(id));
+      const todosLosAdjuntoIds = Array.from(
+        new Set([...adjuntoIdsDirectos, ...adjuntoIdsDesdeObjetos])
+      );
 
-          for (const adj of adjuntosVinculados) {
-            adjuntosMapeados.push({
-              id: adj.id,
-              nombreArchivo: adj.nombre_archivo,
-              url: adj.url,
-              tipoMime: adj.tipo_mime,
-              tamanoBytes: Number(adj.tamano_bytes),
-              creadoEn: adj.creado_en
-                ? new Date(adj.creado_en).toISOString()
-                : new Date().toISOString(),
-            });
+      if (todosLosAdjuntoIds.length > 0) {
+        const adjuntosExistentes = await trx
+          .selectFrom("adjunto")
+          .select(["id", "incidente_id", "reporte_terreno_id"])
+          .where("id", "in", todosLosAdjuntoIds)
+          .execute();
+
+        const mapaExistentes = new Map(
+          adjuntosExistentes.map((adj) => [adj.id, adj])
+        );
+
+        for (const reqId of todosLosAdjuntoIds) {
+          const existente = mapaExistentes.get(reqId);
+          if (!existente) {
+            throw new NotFoundError(
+              `El adjunto '${reqId}' no existe en el sistema.`
+            );
           }
-        } catch {
-          // Si la tabla adjunto no está mockeada en tests unitarios aislados, continuar
+          if (existente.reporte_terreno_id !== null) {
+            throw new ConflictError(
+              `El adjunto '${reqId}' ya se encuentra vinculado a otro reporte de terreno.`
+            );
+          }
+          if (
+            existente.incidente_id !== null &&
+            misionExistente.incidente_id &&
+            existente.incidente_id !== misionExistente.incidente_id
+          ) {
+            throw new ForbiddenError(
+              `El adjunto '${reqId}' pertenece a otro incidente y no puede vincularse a esta misión.`
+            );
+          }
+        }
+
+        const adjuntosVinculados = await trx
+          .updateTable("adjunto")
+          .set({
+            reporte_terreno_id: reporteInsertado.id,
+            ...(misionExistente.incidente_id
+              ? { incidente_id: misionExistente.incidente_id }
+              : {}),
+          })
+          .where("id", "in", todosLosAdjuntoIds)
+          .returningAll()
+          .execute();
+
+        for (const adj of adjuntosVinculados) {
+          adjuntosMapeados.push({
+            id: adj.id,
+            nombreArchivo: adj.nombre_archivo,
+            url: adj.url,
+            tipoMime: adj.tipo_mime,
+            tamanoBytes: Number(adj.tamano_bytes),
+            creadoEn: adj.creado_en
+              ? new Date(adj.creado_en).toISOString()
+              : new Date().toISOString(),
+          });
         }
       }
 
       if (input.adjuntos && input.adjuntos.length > 0) {
         for (const adjInput of input.adjuntos) {
-          const urlAdj = normalizarTextoOpcional(adjInput.url);
-          if (adjInput.id && !adjuntoIds.includes(adjInput.id)) {
-            try {
-              const adjVinc = await trx
-                .updateTable("adjunto")
-                .set({
-                  reporte_terreno_id: reporteInsertado.id,
-                  ...(misionExistente.incidente_id
-                    ? { incidente_id: misionExistente.incidente_id }
-                    : {}),
-                })
-                .where("id", "=", adjInput.id)
-                .returningAll()
-                .executeTakeFirst();
-
-              if (adjVinc) {
-                adjuntosMapeados.push({
-                  id: adjVinc.id,
-                  nombreArchivo: adjVinc.nombre_archivo,
-                  url: adjVinc.url,
-                  tipoMime: adjVinc.tipo_mime,
-                  tamanoBytes: Number(adjVinc.tamano_bytes),
-                  creadoEn: adjVinc.creado_en
-                    ? new Date(adjVinc.creado_en).toISOString()
-                    : new Date().toISOString(),
-                });
-              }
-            } catch {
-              // Ignorar en mocks parciales
-            }
-          } else if (!adjInput.id && urlAdj) {
-            try {
-              const nombreArchivo =
-                normalizarTextoOpcional(
-                  adjInput.nombreArchivo ?? adjInput.nombre_archivo
-                ) ?? "evidencia.jpg";
-              const tipoMime =
-                normalizarTextoOpcional(adjInput.tipoMime ?? adjInput.tipo_mime) ??
-                "image/jpeg";
-              const tamanoBytes = Number(
-                adjInput.tamanoBytes ?? adjInput.tamano_bytes ?? 0
-              );
-
-              const adjCreado = await trx
-                .insertInto("adjunto")
-                .values({
-                  nombre_archivo: nombreArchivo,
-                  url: urlAdj,
-                  tipo_mime: tipoMime,
-                  tamano_bytes: tamanoBytes,
-                  aviso_id: null,
-                  incidente_id: misionExistente.incidente_id ?? null,
-                  reporte_terreno_id: reporteInsertado.id,
-                })
-                .returningAll()
-                .executeTakeFirst();
-
-              if (adjCreado) {
-                adjuntosMapeados.push({
-                  id: adjCreado.id,
-                  nombreArchivo: adjCreado.nombre_archivo,
-                  url: adjCreado.url,
-                  tipoMime: adjCreado.tipo_mime,
-                  tamanoBytes: Number(adjCreado.tamano_bytes),
-                  creadoEn: adjCreado.creado_en
-                    ? new Date(adjCreado.creado_en).toISOString()
-                    : new Date().toISOString(),
-                });
-              }
-            } catch {
-              // Ignorar en mocks parciales
-            }
+          if (adjInput.id) {
+            continue;
           }
+          const urlAdj = normalizarTextoOpcional(adjInput.url);
+          if (!urlAdj) {
+            throw new BadRequestError(
+              "Cada adjunto nuevo debe incluir una URL válida."
+            );
+          }
+
+          const nombreArchivo =
+            normalizarTextoOpcional(
+              adjInput.nombreArchivo ?? adjInput.nombre_archivo
+            ) ?? "evidencia.jpg";
+          const tipoMime =
+            normalizarTextoOpcional(adjInput.tipoMime ?? adjInput.tipo_mime) ??
+            "image/jpeg";
+          const tamanoBytes = Number(
+            adjInput.tamanoBytes ?? adjInput.tamano_bytes ?? 0
+          );
+
+          const adjCreado = await trx
+            .insertInto("adjunto")
+            .values({
+              nombre_archivo: nombreArchivo,
+              url: urlAdj,
+              tipo_mime: tipoMime,
+              tamano_bytes: tamanoBytes,
+              aviso_id: null,
+              incidente_id: misionExistente.incidente_id ?? null,
+              reporte_terreno_id: reporteInsertado.id,
+            })
+            .returningAll()
+            .executeTakeFirstOrThrow();
+
+          adjuntosMapeados.push({
+            id: adjCreado.id,
+            nombreArchivo: adjCreado.nombre_archivo,
+            url: adjCreado.url,
+            tipoMime: adjCreado.tipo_mime,
+            tamanoBytes: Number(adjCreado.tamano_bytes),
+            creadoEn: adjCreado.creado_en
+              ? new Date(adjCreado.creado_en).toISOString()
+              : new Date().toISOString(),
+          });
         }
       }
 
@@ -1616,11 +1643,7 @@ export async function crearReporteVerificacionYCerrarMisionRepo(
           .where("estado", "in", ["DESPACHADA", "EN_CURSO"])
           .executeTakeFirst();
 
-        if (
-          !otraMisionActiva &&
-          misionExistente.patrulla_estado !== "NO_DISPONIBLE" &&
-          misionExistente.patrulla_activo !== false
-        ) {
+        if (!otraMisionActiva) {
           await trx
             .updateTable("patrulla_verificadora")
             .set({
@@ -1720,18 +1743,14 @@ export async function crearReporteVerificacionYCerrarMisionRepo(
       let evaluadorEmail = "patrulla@valdivia.cl";
       let evaluadorRut: string | null = null;
 
-      try {
-        const usr = await trx
-          .selectFrom("usuario")
-          .select(["nombre", "email", "rut"])
-          .where("id", "=", usuarioId)
-          .executeTakeFirst();
-        if (usr?.nombre) evaluadorNombre = usr.nombre;
-        if (usr?.email) evaluadorEmail = usr.email;
-        if (usr?.rut) evaluadorRut = usr.rut;
-      } catch {
-        // Ignorar si usuario no está mockeado en pruebas unitarias aisladas
-      }
+      const usr = await trx
+        .selectFrom("usuario")
+        .select(["nombre", "email", "rut"])
+        .where("id", "=", usuarioId)
+        .executeTakeFirst();
+      if (usr?.nombre) evaluadorNombre = usr.nombre;
+      if (usr?.email) evaluadorEmail = usr.email;
+      if (usr?.rut) evaluadorRut = usr.rut;
 
       const fechaCierreIso = misionActualizada.fecha_cierre
         ? new Date(misionActualizada.fecha_cierre).toISOString()

@@ -687,82 +687,11 @@ Permite al cliente móvil (`sgrai-pwa`) consultar las misiones asignadas cuyas n
 
 ---
 
-### 3.5. `POST /api/misiones/{id}/aceptar` (HU-36: Aceptación de Misión por Patrulla Verificadora en PWA)
-
-Permite a la patrulla verificadora en terreno confirmar desde su dispositivo móvil (`sgrai-pwa`) que ha tomado conocimiento de la misión asignada y se dirige al lugar para iniciar la evaluación primaria.
-
-- **Autenticación requerida:** `Authorization: Bearer <token_jwt>`
-- **Permiso RBAC requerido:** `misiones:terreno:verificar`
-
-#### Reglas de Negocio y Transición Atómica
-1. **Validación de Estado Inicial (`DESPACHADA`):** Solo se pueden aceptar misiones que se encuentren actualmente en estado `DESPACHADA`. Si la misión ya está `EN_CURSO` o en otro estado, responde `409 Conflict`.
-2. **Transición Atómica (Kysely Transaction):**
-   - Actualiza `mision.estado` de `DESPACHADA` a `EN_CURSO`.
-   - Fija `mision.fecha_inicio = CURRENT_TIMESTAMP` y `mision.actualizado_en = CURRENT_TIMESTAMP`.
-   - Inserta en la tabla `mision_hito` el registro con código `hito = 'MISION_ACEPTADA'`, glosa `descripcion = 'Misión Aceptada por Patrulla'`, `registrado_por_id` del funcionario en sesión y coordenadas GPS opcionales (`latitud`, `longitud`).
-3. **Invariantes del Sistema de Comando de Incidentes (ICS):**
-   - El estado de la patrulla verificadora se mantiene en `EN_VERIFICACION`.
-   - El estado del incidente permanece en `VERIFICANDO` (nunca se utiliza el estado ambiguo no canónico `'En camino'`).
-4. **Tiempo Real (Socket.io / Redis):**
-   - Emite el evento `mision:actualizada` hacia la sala `encargado` del Centro de Mando.
-
-#### Cuerpo de la Petición (Opcional)
-```json
-{
-  "latitud": -39.819588,
-  "longitud": -73.245209
-}
-```
-
-#### Ejemplo de Respuesta Exitosa (`HTTP 200 OK`)
-```json
-{
-  "message": "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
-  "data": {
-    "mision": {
-      "id": "60000000-0000-4000-8000-000000000001",
-      "codigo": "MIS-2026-0001",
-      "titulo": "Verificación de Incidente INC-2026-001",
-      "descripcion": "Evaluar caída de árbol y riesgo eléctrico",
-      "tipoMision": "VERIFICACION",
-      "estado": "EN_CURSO",
-      "prioridad": "ALTA",
-      "incidenteId": "a0000000-0000-4000-8000-000000000001",
-      "patrullaId": "f1000000-0000-4000-8000-000000000001",
-      "fechaInicio": "2026-11-01T21:00:00.000Z",
-      "actualizadoEn": "2026-11-01T21:00:00.000Z"
-    },
-    "patrulla": {
-      "id": "f1000000-0000-4000-8000-000000000001",
-      "nombre": "Patrulla Rápida Costa-1",
-      "estado": "EN_VERIFICACION"
-    },
-    "incidente": {
-      "id": "a0000000-0000-4000-8000-000000000001",
-      "codigo": "INC-2026-001",
-      "estado": "VERIFICANDO"
-    },
-    "hito": {
-      "id": "70000000-0000-4000-8000-000000000001",
-      "misionId": "60000000-0000-4000-8000-000000000001",
-      "hito": "MISION_ACEPTADA",
-      "descripcion": "Misión Aceptada por Patrulla",
-      "registradoPorId": "00000000-0000-4000-8000-000000000004",
-      "latitud": -39.819588,
-      "longitud": -73.245209,
-      "creadoEn": "2026-11-01T21:00:00.000Z"
-    }
-  }
-}
-```
-
----
-
-### 3.6. `POST /api/misiones/{id}/reporte` (HU-39 / HU-86: Enviar Informe Técnico de Verificación y Cerrar Misión)
+### 3.9. `POST /api/misiones/{id}/reporte` (HU-39 / HU-86: Enviar Informe Técnico de Verificación y Cerrar Misión)
 
 Permite a la patrulla verificadora enviar el informe técnico consolidado de verificación en terreno y cerrar su misión inicial de patrullaje. Absorbe la declaración fundada de no abordabilidad (fusión H39/H86).
 
-- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` en entorno interno/QA)
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>`
 - **Permiso RBAC requerido:** `reportes:crear`
 
 #### Reglas de Negocio y Transición Atómica

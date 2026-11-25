@@ -60,7 +60,7 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/eventos-atp"].post.responses["409"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp"].post.responses["500"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp"].post.security).toEqual([
-      { bearerAuth: [] },
+      { BearerAuth: [] },
     ]);
 
     // Rutas de Recursos y Personal
@@ -173,8 +173,18 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/misiones/{id}"].get.summary).toBe(
       "Consultar detalle completo de una misión operativa"
     );
+    expect(spec.paths["/api/misiones/{id}"].get.security).toEqual([{ BearerAuth: [] }]);
+    expect(spec.paths["/api/misiones/{id}"].get.responses["403"].description).toContain(
+      "misiones:terreno:verificar"
+    );
+    expect(spec.paths["/api/misiones/{id}"].get.responses["403"].description).toContain(
+      "reportes:crear"
+    );
     expect(spec.paths["/api/misiones/{id}/reporte"]).toBeDefined();
     expect(spec.paths["/api/misiones/{id}/reporte"].post).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.security).toEqual([
+      { BearerAuth: [] },
+    ]);
     expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["201"]).toBeDefined();
     expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["400"]).toBeDefined();
     expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["401"]).toBeDefined();

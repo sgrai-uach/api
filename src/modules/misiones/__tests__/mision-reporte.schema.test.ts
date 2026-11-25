@@ -117,6 +117,48 @@ describe("Esquemas Zod de Informe Técnico de Verificación en Terreno (HU-39 / 
     expect(resGeo.success).toBe(false);
   });
 
+  it("debe exigir paridad GPS (rechazar coordenada huérfana) y aceptar null en campos opcionales (BUG-H39-API-05)", () => {
+    const soloLat = CrearReporteVerificacionInputSchema.safeParse({
+      dictamen: "REQUIERE_CUADRILLA",
+      resumen_tecnico: "Prueba de coordenada huérfana solo con latitud.",
+      latitud: -39.819588,
+    });
+    expect(soloLat.success).toBe(false);
+
+    const soloLng = CrearReporteVerificacionInputSchema.safeParse({
+      dictamen: "REQUIERE_CUADRILLA",
+      resumen_tecnico: "Prueba de coordenada huérfana solo con longitud.",
+      longitud: -73.245209,
+    });
+    expect(soloLng.success).toBe(false);
+
+    const conNulls = CrearReporteVerificacionInputSchema.safeParse({
+      dictamen: "REQUIERE_CUADRILLA",
+      resumen_tecnico: "Prueba de campos opcionales nulos permitidos en el contrato.",
+      personas_afectadas: null,
+      estado_terreno: null,
+      latitud: null,
+      longitud: null,
+    });
+    expect(conNulls.success).toBe(true);
+  });
+
+  it("debe rechazar adjuntos sin id ni url o con URL de esquema inseguro (BUG-H39-API-04)", () => {
+    const sinIdNiUrl = CrearReporteVerificacionInputSchema.safeParse({
+      dictamen: "REQUIERE_CUADRILLA",
+      resumen_tecnico: "Verificación con adjunto incompleto sin URL.",
+      adjuntos: [{ nombreArchivo: "foto_sin_url.jpg" }],
+    });
+    expect(sinIdNiUrl.success).toBe(false);
+
+    const urlInsegura = CrearReporteVerificacionInputSchema.safeParse({
+      dictamen: "REQUIERE_CUADRILLA",
+      resumen_tecnico: "Verificación con adjunto de protocolo inválido.",
+      adjuntos: [{ nombreArchivo: "xss.jpg", url: "javascript:alert(1)" }],
+    });
+    expect(urlInsegura.success).toBe(false);
+  });
+
   it("debe validar el esquema de respuesta EnviarReporteVerificacionResponseSchema", () => {
     const payload = {
       message: "Informe técnico de verificación registrado y misión cerrada exitosamente.",

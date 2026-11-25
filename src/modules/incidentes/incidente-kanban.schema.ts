@@ -104,6 +104,13 @@ export const IncidenteResumenSchema = z.object({
   requiereAsistenciaSocial: z.boolean().openapi({ description: "Indica si se requiere derivación para ficha FIBE" }),
   fechaCierre: z.string().nullable().optional().openapi({ description: "Fecha y hora de cierre del incidente (si aplica)" }),
   motivoNoAbordable: z.string().nullable().optional().openapi({ description: "Motivo fundado cuando el incidente fue declarado NO_ABORDABLE" }),
+  dictamenTerreno: z
+    .enum(["REQUIERE_CUADRILLA", "NO_ABORDABLE"])
+    .nullable()
+    .optional()
+    .openapi({
+      description: "Último dictamen operativo emitido por la patrulla verificadora en terreno (HU-39)",
+    }),
   fuenteOrigen: z.string().openapi({ description: "Fuente de origen del reporte (CHATBOT, LLAMADA, TERRENO, SENAPRED)" }),
   informanteNombre: z.string().nullable().openapi({ description: "Nombre de pila del ciudadano informante o null si anónimo" }),
   delegacionNombre: z.string().nullable().openapi({ description: "Nombre de la delegación territorial correspondiente" }),

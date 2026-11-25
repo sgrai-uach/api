@@ -31,6 +31,7 @@ describe("Mision Repository - crearReporteVerificacionYCerrarMisionRepo (HU-39 /
     misionActualizada?: Record<string, unknown> | undefined;
     incidenteActualizado?: Record<string, unknown> | undefined;
     usuario?: Record<string, unknown> | undefined;
+    adjuntosExistentes?: Array<Record<string, unknown>>;
     adjuntosVinculados?: Array<Record<string, unknown>>;
   }) {
     let selectMisionCount = 0;
@@ -47,8 +48,24 @@ describe("Mision Repository - crearReporteVerificacionYCerrarMisionRepo (HU-39 /
           chain.leftJoin = vi.fn(() => chain);
           chain.select = vi.fn(() => chain);
           chain.where = vi.fn(() => chain);
+          chain.forUpdate = vi.fn(() => chain);
           chain.executeTakeFirst = vi.fn(async () =>
             currentCall === 1 ? config.misionExistente : config.otraMisionActiva
+          );
+          return chain;
+        }
+        if (table === "adjunto") {
+          const chain: Record<string, unknown> = {};
+          chain.select = vi.fn(() => chain);
+          chain.where = vi.fn(() => chain);
+          chain.execute = vi.fn(
+            async () =>
+              config.adjuntosExistentes ??
+              (config.adjuntosVinculados ?? []).map((a) => ({
+                id: a.id,
+                incidente_id: null,
+                reporte_terreno_id: null,
+              }))
           );
           return chain;
         }
@@ -161,8 +178,11 @@ describe("Mision Repository - crearReporteVerificacionYCerrarMisionRepo (HU-39 /
       misionExistente: {
         id: misionId,
         codigo: "MIS-2026-0001",
+        tipo_mision: "VERIFICACION",
         estado: "DESPACHADA",
         patrulla_id: patrullaId,
+        patrulla_activo: true,
+        patrulla_estado: "EN_VERIFICACION",
         patrulla_lider_id: liderId,
       },
     });
@@ -180,9 +200,14 @@ describe("Mision Repository - crearReporteVerificacionYCerrarMisionRepo (HU-39 /
       misionExistente: {
         id: misionId,
         codigo: "MIS-2026-0001",
+        tipo_mision: "VERIFICACION",
         estado: "EN_CURSO",
         patrulla_id: patrullaId,
+        patrulla_activo: true,
+        patrulla_estado: "EN_VERIFICACION",
         patrulla_lider_id: "00000000-0000-4000-8000-000000000099",
+        incidente_id: incidenteId,
+        incidente_estado: "VERIFICANDO",
       },
       integrante: undefined,
     });
@@ -193,6 +218,140 @@ describe("Mision Repository - crearReporteVerificacionYCerrarMisionRepo (HU-39 /
         resumenTecnico: "Resumen técnico válido con más de diez caracteres.",
       })
     ).rejects.toThrow(ForbiddenError);
+  });
+
+  it("debe lanzar ConflictError si tipo_mision !== VERIFICACION, patrulla_id es null, patrulla no está EN_VERIFICACION o incidente está EN_ATENCION (BUG-H39-API-01)", async () => {
+    crearMockTrx({
+      misionExistente: {
+        id: misionId,
+        codigo: "MIS-2026-0002",
+        tipo_mision: "ATENCION_CUADRILLA",
+        estado: "EN_CURSO",
+        patrulla_id: null,
+        incidente_id: incidenteId,
+        incidente_estado: "EN_ATENCION",
+      },
+    });
+
+    await expect(
+      crearReporteVerificacionYCerrarMisionRepo(misionId, liderId, false, {
+        dictamen: "NO_ABORDABLE",
+        motivoNoAbordable: "Motivo suficientemente largo para pasar validación inicial.",
+        resumenTecnico: "Resumen técnico válido con más de diez caracteres.",
+      })
+    ).rejects.toThrow(ConflictError);
+
+    crearMockTrx({
+      misionExistente: {
+        id: misionId,
+        codigo: "MIS-2026-0003",
+        tipo_mision: "VERIFICACION",
+        estado: "EN_CURSO",
+        patrulla_id: patrullaId,
+        patrulla_activo: false,
+        patrulla_estado: "NO_DISPONIBLE",
+        patrulla_lider_id: liderId,
+        incidente_id: incidenteId,
+        incidente_estado: "VERIFICANDO",
+      },
+    });
+
+    await expect(
+      crearReporteVerificacionYCerrarMisionRepo(misionId, liderId, false, {
+        dictamen: "REQUIERE_CUADRILLA",
+        resumenTecnico: "Resumen técnico válido con más de diez caracteres.",
+      })
+    ).rejects.toThrow(ConflictError);
+
+    crearMockTrx({
+      misionExistente: {
+        id: misionId,
+        codigo: "MIS-2026-0004",
+        tipo_mision: "VERIFICACION",
+        estado: "EN_CURSO",
+        patrulla_id: patrullaId,
+        patrulla_activo: true,
+        patrulla_estado: "EN_VERIFICACION",
+        patrulla_lider_id: liderId,
+        incidente_id: incidenteId,
+        incidente_estado: "EN_ATENCION",
+      },
+    });
+
+    await expect(
+      crearReporteVerificacionYCerrarMisionRepo(misionId, liderId, false, {
+        dictamen: "NO_ABORDABLE",
+        motivoNoAbordable: "Motivo suficientemente largo para pasar validación inicial.",
+        resumenTecnico: "Resumen técnico válido con más de diez caracteres.",
+      })
+    ).rejects.toThrow(ConflictError);
+  });
+
+  it("debe rechazar adjuntoIds inexistentes (404) o pertenecientes a otro incidente (403) / otro reporte (409) (BUG-H39-API-04)", async () => {
+    const baseMision = {
+      id: misionId,
+      codigo: "MIS-2026-0005",
+      tipo_mision: "VERIFICACION",
+      estado: "EN_CURSO",
+      prioridad: "ALTA",
+      incidente_id: incidenteId,
+      patrulla_id: patrullaId,
+      patrulla_activo: true,
+      patrulla_estado: "EN_VERIFICACION",
+      patrulla_lider_id: liderId,
+      incidente_estado: "VERIFICANDO",
+    };
+
+    crearMockTrx({
+      misionExistente: baseMision,
+      adjuntosExistentes: [],
+    });
+
+    await expect(
+      crearReporteVerificacionYCerrarMisionRepo(misionId, liderId, false, {
+        dictamen: "REQUIERE_CUADRILLA",
+        resumenTecnico: "Resumen técnico válido con más de diez caracteres.",
+        adjuntoIds: ["99999999-9999-4999-8999-999999999999"],
+      })
+    ).rejects.toThrow(NotFoundError);
+
+    crearMockTrx({
+      misionExistente: baseMision,
+      adjuntosExistentes: [
+        {
+          id: "d74b87ab-70cf-4e83-95f8-6866756c3eb8",
+          incidente_id: "a0000000-0000-4000-8000-000000009999",
+          reporte_terreno_id: null,
+        },
+      ],
+    });
+
+    await expect(
+      crearReporteVerificacionYCerrarMisionRepo(misionId, liderId, false, {
+        dictamen: "REQUIERE_CUADRILLA",
+        resumenTecnico: "Resumen técnico válido con más de diez caracteres.",
+        adjuntoIds: ["d74b87ab-70cf-4e83-95f8-6866756c3eb8"],
+      })
+    ).rejects.toThrow(ForbiddenError);
+
+    crearMockTrx({
+      misionExistente: baseMision,
+      adjuntosExistentes: [
+        {
+          id: "d74b87ab-70cf-4e83-95f8-6866756c3eb8",
+          incidente_id: incidenteId,
+          reporte_terreno_id: "e0000000-0000-4000-8000-000000000099",
+        },
+      ],
+    });
+
+    await expect(
+      crearReporteVerificacionYCerrarMisionRepo(misionId, liderId, false, {
+        dictamen: "REQUIERE_CUADRILLA",
+        resumenTecnico: "Resumen técnico válido con más de diez caracteres.",
+        adjuntoIds: ["d74b87ab-70cf-4e83-95f8-6866756c3eb8"],
+      })
+    ).rejects.toThrow(ConflictError);
   });
 
   it("debe rescatar personas_afectadas desde el reporte previo de prioridad (HU-38), persistir reporte FIBE, cerrar misión y liberar patrulla (REQUIERE_CUADRILLA)", async () => {

@@ -578,16 +578,30 @@ export type AsignarCuadrillaMisionResponse = z.infer<typeof AsignarCuadrillaMisi
 /**
  * Sección preparada para integración con subida de evidencia fotográfica (HU-43).
  */
+const URL_ADJUNTO_REGEX = /^(\/uploads\/[^\s]+|https?:\/\/[^\s]+)$/i;
+
 export const AdjuntoReporteInputSchema = z
   .object({
     id: z.string().uuid("El identificador del adjunto debe ser un UUID válido.").optional(),
     nombreArchivo: z.string().max(255).optional(),
     nombre_archivo: z.string().max(255).optional(),
-    url: z.string().max(500).optional(),
+    url: z
+      .string()
+      .trim()
+      .max(500)
+      .regex(
+        URL_ADJUNTO_REGEX,
+        "La URL del adjunto debe iniciar con '/uploads/' o 'http(s)://'."
+      )
+      .optional(),
     tipoMime: z.string().max(100).optional(),
     tipo_mime: z.string().max(100).optional(),
     tamanoBytes: z.number().int().nonnegative().optional(),
     tamano_bytes: z.number().int().nonnegative().optional(),
+  })
+  .refine((a) => Boolean(a.id || (a.url && a.url.trim().length > 0)), {
+    message: "Cada adjunto debe incluir un 'id' existente o una 'url' válida.",
+    path: ["url"],
   })
   .openapi("AdjuntoReporteInput");
 
@@ -630,31 +644,23 @@ export const CrearReporteVerificacionInputSchema = z
       .string()
       .max(2000, "El resumen técnico no puede exceder los 2000 caracteres.")
       .optional(),
-    estadoTerreno: z
-      .string()
-      .trim()
-      .min(1, "El estado del terreno no puede estar vacío.")
-      .max(50, "El estado del terreno no puede exceder los 50 caracteres.")
+    estadoTerreno: EstadoTerrenoVerificacionEnum.nullable()
       .optional()
       .openapi({
         description: "Estado operativo constatado del terreno (ej. CRITICO, ESTABLE, INACCESIBLE, CONTROLADO, FINALIZADO)",
         example: "CRITICO",
       }),
-    estado_terreno: z
-      .string()
-      .trim()
-      .min(1, "El estado del terreno no puede estar vacío.")
-      .max(50, "El estado del terreno no puede exceder los 50 caracteres.")
-      .optional(),
+    estado_terreno: EstadoTerrenoVerificacionEnum.nullable().optional(),
     personasAfectadas: z
       .number({ message: "La cantidad de personas afectadas debe ser un número entero." })
       .int("La cantidad de personas afectadas debe ser un número entero.")
       .min(0, "La cantidad de personas afectadas no puede ser negativa.")
       .max(5000, "La cantidad de personas afectadas excede el máximo permitido.")
+      .nullable()
       .optional()
       .openapi({
         description:
-          "Estimación de personas damnificadas. Si se omite, se rescata automáticamente del reporte de prioridad previo (HU-38); si se envía, permite confirmar o rectificar dicho conteo.",
+          "Estimación de personas damnificadas. Si se omite o es null, se rescata automáticamente del reporte de prioridad previo (HU-38); si se envía, permite confirmar o rectificar dicho conteo.",
         example: 4,
       }),
     personas_afectadas: z
@@ -662,6 +668,7 @@ export const CrearReporteVerificacionInputSchema = z
       .int("La cantidad de personas afectadas debe ser un número entero.")
       .min(0, "La cantidad de personas afectadas no puede ser negativa.")
       .max(5000, "La cantidad de personas afectadas excede el máximo permitido.")
+      .nullable()
       .optional(),
     danosEstimados: z
       .string()
@@ -731,6 +738,7 @@ export const CrearReporteVerificacionInputSchema = z
       .finite("La latitud debe ser un número finito válido.")
       .min(-90, "La latitud no puede ser menor a -90.")
       .max(90, "La latitud no puede ser mayor a 90.")
+      .nullable()
       .optional()
       .openapi({
         description: "Coordenada GPS opcional de latitud (WGS84) al cerrar la verificación",
@@ -741,6 +749,7 @@ export const CrearReporteVerificacionInputSchema = z
       .finite("La longitud debe ser un número finito válido.")
       .min(-180, "La longitud no puede ser menor a -180.")
       .max(180, "La longitud no puede ser mayor a 180.")
+      .nullable()
       .optional()
       .openapi({
         description: "Coordenada GPS opcional de longitud (WGS84) al cerrar la verificación",
@@ -748,6 +757,17 @@ export const CrearReporteVerificacionInputSchema = z
       }),
   })
   .superRefine((data, ctx) => {
+    const tieneLat = data.latitud !== undefined && data.latitud !== null;
+    const tieneLng = data.longitud !== undefined && data.longitud !== null;
+    if (tieneLat !== tieneLng) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: tieneLat ? ["longitud"] : ["latitud"],
+        message:
+          "Debe proporcionar tanto 'latitud' como 'longitud' en conjunto, o omitir ambas coordenadas GPS.",
+      });
+    }
+
     const dictamen =
       data.dictamen ?? data.dictamenAtencion ?? data.dictamen_atencion;
 

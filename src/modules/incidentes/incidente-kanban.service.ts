@@ -42,6 +42,8 @@ export async function listarIncidentesKanbanService(
         : new Date(fila.fecha_cierre).toISOString()
       : null,
     motivoNoAbordable: fila.motivo_no_abordable ?? null,
+    dictamenTerreno:
+      (fila.dictamen_terreno as IncidenteResumen["dictamenTerreno"]) ?? null,
     fuenteOrigen: fila.fuente_origen,
     informanteNombre: fila.informante_nombre,
     delegacionNombre: fila.delegacion_nombre,
