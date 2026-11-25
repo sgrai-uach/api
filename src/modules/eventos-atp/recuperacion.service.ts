@@ -677,21 +677,27 @@ export async function obtenerDetalleRecuperacionService(
       titulo: m.titulo,
       estado: m.estado,
       tipoMision: m.tipo_mision,
-      patrulla: m.patrulla_id ? { id: m.patrulla_id, nombre: m.patrulla_nombre ?? "" } : null,
+      patrulla: m.patrulla_id
+        ? {
+            id: m.patrulla_id,
+            nombre: m.patrulla_nombre ?? "",
+            estado: m.patrulla_estado ?? "EN_RECUPERACION",
+          }
+        : null,
       creadoEn: m.creado_en instanceof Date ? m.creado_en.toISOString() : String(m.creado_en),
     })),
     recursosAsignados: recursosDb.map((r) => ({
       id: r.id,
       recursoId: r.recurso_id,
       misionId: r.mision_id ?? null,
-      nombre: r.nombre,
-      esIndividual: r.es_individual,
+      nombre: r.recurso_nombre ?? "Insumo",
+      esIndividual: Boolean(r.recurso_es_individual),
       cantidadAsignada: Number(r.cantidad_asignada),
-      unidadMedida: r.unidad_medida,
+      creadoEn: r.creado_en instanceof Date ? r.creado_en.toISOString() : String(r.creado_en),
     })),
     recursos: recursosDb.map((r) => ({
       recursoId: r.recurso_id,
-      nombre: r.nombre,
+      nombre: r.recurso_nombre ?? "Insumo",
       cantidadAsignada: Number(r.cantidad_asignada),
     })),
     cantidadInsumosAsignados: recursosDb.reduce((acc, r) => acc + Number(r.cantidad_asignada), 0),
@@ -700,7 +706,11 @@ export async function obtenerDetalleRecuperacionService(
     creadoPorId: eventoExistente.creado_por_id,
     creadoEn: eventoExistente.creado_en instanceof Date ? eventoExistente.creado_en.toISOString() : String(eventoExistente.creado_en),
     actualizadoEn: eventoExistente.actualizado_en instanceof Date ? eventoExistente.actualizado_en.toISOString() : String(eventoExistente.actualizado_en),
-    fechaCierre: eventoExistente.fecha_cierre instanceof Date ? eventoExistente.fecha_cierre.toISOString() : (eventoExistente.fecha_cierre ?? null),
-    observacionesCierre: eventoExistente.observaciones_cierre ?? null,
+    fechaCierre: (eventoExistente as any).fecha_cierre
+      ? ((eventoExistente as any).fecha_cierre instanceof Date
+          ? (eventoExistente as any).fecha_cierre.toISOString()
+          : String((eventoExistente as any).fecha_cierre))
+      : null,
+    observacionesCierre: (eventoExistente as any).observaciones_cierre ?? null,
   };
 }
