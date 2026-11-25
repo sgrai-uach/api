@@ -92,8 +92,9 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Adjunto** | `adjunto` | Migración 004 / 011 | Evidencia | Archivos y fotos vinculadas a avisos, incidentes o reportes de terreno. |
 | **Recurso** | `recurso` | Migración 005 | Recursos | Maquinaria, motobombas y vehículos. |
 | **Patrulla Verificadora** | `patrulla_verificadora`| Migración 006 | Operaciones | Unidades tácticas de evaluación preliminar. |
-| **Cuadrilla** | `cuadrilla` | Migración 006 | Operaciones | Unidades tácticas operativas de intervención. |
-| *(Asignación Logística)* | `cuadrilla_recurso` | Migración 006 | Recursos | Asignación N:M de recursos a cuadrillas. |
+| **Cuadrilla** | `cuadrilla` | Migración 006 / 027 / 031 / 032 | Operaciones | Unidades tácticas operativas de intervención. |
+| *(Asignación Logística)* | `cuadrilla_recurso` | Migración 006 / 032 | Recursos | Asignación N:M de recursos a cuadrillas con trazabilidad de desvinculación. |
+| *(Dotación de Integrantes)* | `cuadrilla_personal` (vista `cuadrilla_integrante`) | Migración 031 / 032 / 042 | Operaciones | Asignación N:M de funcionarios a cuadrillas con índice de unicidad activa y auditoría. |
 | **Prevención (Puntos Críticos)**| `prevencion` | Migración 006 / 012 / 015 / 016 | Eventos ATP | Puntos críticos, factores de riesgo, edición (HU-55) y borrado lógico (HU-56). |
 | **Misión** | `mision` | Migración 006 | Operaciones | Despacho y seguimiento táctico en terreno. |
 | **Reporte Terreno** | `reporte_terreno` | Migración 011 | Evidencia / Misiones | Informe técnico estructurado y evolución tras intervención de patrulla/cuadrilla. |
@@ -101,6 +102,7 @@ A diferencia de un sistema administrativo tradicional, el SGRAI fue modelado des
 | **Asistencia Social** | `evento_asistencia_social` | Migración 022 | Eventos ATP / Asistencia Social | Eventos excepcionales de vulnerabilidad social y requerimientos para levantamiento de ficha FIBE (HU-28). |
 | **Disponibilidad (enum)** | `estado_operativo` | Migración 002 / 025 | Operaciones | Enum de disponibilidad del funcionario (`disponible`, `en_mision`, `en_patrulla`, `descanso`, `licencia`, `inactivo`), normalizado a `usuario.estado_operativo` (H11). |
 | **Permisos de Personal** | `permiso` / `rol_permiso` | Migración 030 | Seguridad | `personal:leer`, `personal:crear`, `personal:editar` y `personal:gestionar` (H11). |
+| **Notificaciones de Misión** | `notificaciones_mision` | Migración 061 | Misiones / Terreno | Trazabilidad y máquina de estados auditable (`PENDIENTE_ENVIO`, `ENVIADA`, `RECIBIDA`, `LEIDA`) para órdenes de terreno (HU-35). |
 | **EventoATP** | *`evento_atp`* | Hoja de Ruta (Roadmap) | Eventos ATP | Agrupación macro de incidentes / eventos climáticos mayores. |
 | **Log de Misión** | *`log_mision`* | Hoja de Ruta (Roadmap) | Misiones | Bitácora cronológica detallada de hitos de misión. |
 | **Beneficio** | *`beneficio`* | Hoja de Ruta (Roadmap) | Asistencia Social | Ayudas sociales entregadas a damnificados (FIBE / DIDECO). |
@@ -384,7 +386,9 @@ Registro formal de incidente de emergencia gestionado bajo la metodología del S
 | `ubicacion` | `GEOMETRY` | NO | — | Geometría PostGIS `Point(lng, lat)`, SRID 4326. Indexada con GiST. |
 | `estado` | `VARCHAR(50)` | NO | `'REPORTADO'` | Estado canónico ICS (`REPORTADO`, `VERIFICANDO`, `EN_ATENCION`, `NO_ABORDABLE`, `RESUELTO`). |
 | `prioridad` | `VARCHAR(20)` | NO | `'MEDIA'` | Severidad ICS (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
-| `requiere_asistencia_social`| `BOOLEAN` | NO | `false` | Indica si requiere derivación a DIDECO para Ficha FIBE. |
+| `prioridad_sugerida` | `VARCHAR(20)` | SÍ | `NULL` | Prioridad sugerida preliminarmente por el sistema según evaluación de terreno (`BAJA`, `MEDIA`, `ALTA`, `CRITICA` - HU-38 / Migración 053). |
+| `justificacion_prioridad` | `TEXT` | SÍ | `NULL` | Justificación técnica obligatoria cuando la patrulla modifica la prioridad sugerida en terreno (HU-38 / Migración 053). |
+| `requiere_asistencia_social`| `BOOLEAN` | NO | `false` | Indica si requiere derivación a Asistente Social DGRD para Ficha FIBE. |
 | `fuente_origen` | `VARCHAR(50)` | NO | `'CHATBOT'` | Canal original (`CHATBOT`, `LLAMADA_TELEFONICA`, `FUNCIONARIO_TERRENO`, `SENAPRED`). |
 | `asterisk_call_id`| `VARCHAR(100)`| SÍ | `NULL` | Identificador de llamada telefónica IVR si aplica. |
 | `asterisk_caller_phone`| `VARCHAR(30)`| SÍ | `NULL` | Número de teléfono entrante de la llamada IVR. |
@@ -462,7 +466,7 @@ Cuadrillas operativas municipales pesadas de intervención en terreno.
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de registro. |
 
 #### Tabla: `cuadrilla_recurso`
-Asignación temporal de recursos a cuadrillas para ejecución de tareas.
+Asignación temporal de recursos a cuadrillas para ejecución de tareas (Migración 006 y 032).
 
 | Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
 |---|---|---|---|---|
@@ -471,6 +475,22 @@ Asignación temporal de recursos a cuadrillas para ejecución de tareas.
 | `recurso_id` | `UUID` | NO | — | FK a `recurso.id` (ON DELETE RESTRICT). |
 | `cantidad_asignada`| `INTEGER` | NO | `1` | Cantidad entregada a la cuadrilla. |
 | `asignado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de despacho del recurso. |
+| `activo` | `BOOLEAN` | NO | `true` | Indicador de asignación vigente. |
+| `desvinculado_en` | `TIMESTAMPTZ` | SÍ | `NULL` | Fecha de devolución al inventario central. |
+
+#### Tabla: `cuadrilla_personal` (y Vista `cuadrilla_integrante`)
+Dotación humana operativa y asignación de funcionarios de terreno a cuadrillas (Migraciones 031, 032 y 042).
+
+| Columna | Tipo | Nulo | Por Defecto | Descripción / Relación |
+|---|---|---|---|---|
+| `id` | `UUID` | NO | `gen_random_uuid()` | Identificador de la asignación de integrante. |
+| `cuadrilla_id` | `UUID` | NO | — | FK a `cuadrilla.id` (ON DELETE CASCADE). |
+| `personal_id` | `UUID` | NO | — | FK a `personal.id` (ON DELETE RESTRICT). |
+| `asignado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de incorporación a la cuadrilla. |
+| `activo` | `BOOLEAN` | NO | `true` | Estado activo de la asignación. |
+| `desvinculado_en` | `TIMESTAMPTZ` | SÍ | `NULL` | Fecha de desvinculación o baja de la brigada. |
+
+> **Nota:** La restricción de unicidad para asignaciones activas se asegura mediante el índice parcial `idx_cuadrilla_personal_activa (cuadrilla_id, personal_id) WHERE desvinculado_en IS NULL`. La vista `cuadrilla_integrante` provee compatibilidad directa sobre esta tabla.
 
 #### Tabla: `prevencion`
 Puntos críticos de mitigación y prevención geográfica comunal (Migraciones 006, 011 y 013).
@@ -516,6 +536,21 @@ Misiones tácticas despachadas a patrullas verificadoras o cuadrillas operativas
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de creación. |
 | `actualizado_en`| `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha de última actualización. |
 
+#### Tabla: `mision_hito` (Bitácora de Hitos de Misión - HU-20 / HU-36 / Migración 028)
+Registro cronológico de hitos tácticos de la misión (despacho, aceptación por patrulla en terreno con `hito = 'MISION_ACEPTADA'` y `descripcion = 'Misión Aceptada por Patrulla'`, cierre, etc.).
+
+| Columna | Tipo | Nullable | Default | Descripción / Restricciones |
+|---|---|---|---|---|
+| `id` | `UUID` | NO | `gen_random_uuid()` | Clave primaria única. |
+| `mision_id` | `UUID` | NO | — | FK a `mision.id` (ON DELETE CASCADE). |
+| `hito` | `VARCHAR(50)` | NO | — | Código canónico del hito (ej. `'DESPACHADA'`, `'MISION_ACEPTADA'`). |
+| `descripcion` | `TEXT` | NO | — | Glosa descriptiva del hito (ej. `'Misión Aceptada por Patrulla'`). |
+| `registrado_por_id` | `UUID` | SÍ | `NULL` | FK a `usuario.id` (ON DELETE SET NULL). Funcionario o líder de patrulla en sesión. |
+| `latitud` | `DECIMAL(10, 7)` | SÍ | `NULL` | Coordenada Y opcional reportada desde terreno. |
+| `longitud` | `DECIMAL(10, 7)` | SÍ | `NULL` | Coordenada X opcional reportada desde terreno. |
+| `metadatos` | `JSONB` | SÍ | `NULL` | Metadatos estructurados del hito (ej. `{ tipoAnterior, tipoAnteriorId, tipoNuevo, tipoNuevoId, justificacion }` en `TIPOLOGIA_RECLASIFICADA`, Migración 055). |
+| `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Marca temporal del hito. |
+
 #### Tabla: `reporte_terreno` (Reporte Técnico de Terreno - HU-17 / Migración 011)
 Informes técnicos y diagnósticos estructurados levantados por patrullas verificadoras o cuadrillas tras su intervención o evaluación en terreno. Admite múltiples reportes por misión (1:N) para reflejar su evolución temporal.
 
@@ -530,9 +565,34 @@ Informes técnicos y diagnósticos estructurados levantados por patrullas verifi
 | `danos_estimados` | `TEXT` | SÍ | `NULL` | Estimación descriptiva o cuantitativa de daños. |
 | `observaciones` | `TEXT` | SÍ | `NULL` | Condiciones climáticas o notas de seguridad. |
 | `personas_afectadas` | `INTEGER` | NO | `0` | Cantidad estimada de damnificados en el punto. |
-| `estado_terreno` | `VARCHAR(50)` | NO | `'FINALIZADO'` | Estado operativo del reporte (`PRELIMINAR`, `EN_PROCESO`, `FINALIZADO`). |
+| `estado_terreno` | `VARCHAR(50)` | NO | `'FINALIZADO'` | Estado operativo del reporte (`PRELIMINAR`, `EN_VERIFICACION`, `EN_PROCESO`, `FINALIZADO`). |
+| `version_reporte` | `INTEGER` | NO | `1` | Número correlativo de envío del reporte en la misión (`1` inicial, `2+` rectificaciones - HU-38 / Migración 053). |
+| `es_rectificacion` | `BOOLEAN` | NO | `false` | `true` cuando el reporte es una modificación/reenvío posterior al primer reporte de evaluación (HU-38 / Migración 053). |
+| `prioridad_sugerida` | `VARCHAR(20)` | SÍ | `NULL` | Prioridad sugerida por el sistema en el momento del envío de este reporte (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
+| `prioridad_asignada` | `VARCHAR(20)` | SÍ | `NULL` | Prioridad confirmada o ajustada por la patrulla en este reporte (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
+| `justificacion_prioridad` | `TEXT` | SÍ | `NULL` | Justificación técnica registrada en este reporte ante discrepancia con la prioridad sugerida. |
+| `detalles_evaluacion` | `JSONB` | NO | `'{}'` | Desglose estructurado del formulario de evaluación en terreno (núcleo familiar, niños, adultos mayores, discapacitados, electrodependientes, mascotas, compromiso de vivienda, riesgos activos y puntaje). |
 | `creado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Fecha y hora de emisión del informe. |
 | `actualizado_en` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Última modificación del informe. |
+
+#### Tabla: `notificaciones_mision` (Trazabilidad y ACKs de Terreno - HU-35 / Migración 061)
+Almacena el ciclo de vida auditable de las notificaciones de despacho táctico emitidas a patrullas verificadoras, gestionando los acuses de recibo técnicos automáticos y los acuses de lectura operativa para garantizar la trazabilidad ante situaciones de pérdida de cobertura (Offline-First).
+
+| Columna | Tipo | Nulo | Por Defecto | Descripción / Restricciones |
+|---|---|---|---|---|
+| `id` | `UUID` | NO | `gen_random_uuid()` | Clave primaria única de la notificación. |
+| `mision_id` | `UUID` | NO | — | FK a `mision.id` (ON DELETE CASCADE). Misión despachada. |
+| `patrulla_id` | `UUID` | NO | — | FK a `patrulla_verificadora.id` (ON DELETE CASCADE). Patrulla destinataria. |
+| `estado` | `VARCHAR(30)` | NO | `'PENDIENTE_ENVIO'` | Estado del ciclo de vida (`PENDIENTE_ENVIO`, `ENVIADA`, `RECIBIDA`, `LEIDA`). |
+| `intentos_envio` | `INTEGER` | NO | `0` | Contador acumulado de emisiones hacia la patrulla. |
+| `creada_at` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | Marca temporal UTC de registro en base de datos. |
+| `enviada_at` | `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal UTC de emisión hacia la sala Socket de la patrulla. |
+| `recibida_at` | `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal UTC del acuse de recibo técnico automático (ACK). |
+| `leida_at` | `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal UTC de apertura o interacción con la notificación. |
+
+*Índices:*
+- `idx_notificaciones_mision_patrulla_estado`: `(patrulla_id, estado)` para acelerar consultas de reconciliación offline.
+- `idx_notificaciones_mision_mision_id`: `(mision_id)` para trazabilidad directa desde el detalle de la misión.
 
 ---
 
@@ -698,11 +758,30 @@ npm run db:migrate
 ```
 El runner Kysely (`src/lib/db/migrator.ts`) detecta los archivos en `src/lib/db/migrations/` y los aplica en estricto orden correlativo (`001_...` a `071_indices_listado_cuadrillas.ts`; los correlativos intermedios pueden estar reservados por otras historias del equipo).
 
-### 7.2 Sembrar Datos para Tablero Kanban
+### 7.2 Sembrar Datos de Desarrollo y QA
 ```bash
-npm run db:seed
+npm run seed
 ```
-Ejecuta el script `src/lib/db/seed-kanban.ts` insertando incidentes, patrullas, cuadrillas y misiones para pruebas de desarrollo local.
+Ejecuta el orquestador `scripts/seed/index.ts`, que siembra de forma idempotente:
+- usuarios PATRULLA, personal, vehículos y patrullas verificadoras;
+- incidentes, misiones, cuadrillas y recursos del tablero Kanban;
+- incidentes y misiones adicionales en todos los estados operativos;
+- puntos críticos de prevención y misión preventiva;
+- eventos de recuperación, misiones e insumos asociados;
+- fixtures QA de HU-21 (cuadrillas) y HU-38 (prioridad en terreno).
+
+Opciones útiles:
+```bash
+npm run seed -- --only=h38          # solo fixture HU-38
+npm run seed -- --only=h21,h38      # fixtures QA
+npm run seed -- --skip=estados      # omitir un módulo
+npm run seed -- --clean             # limpiar y recrear fixtures QA
+```
+
+Para el sembrador REST aleatorio (requiere la API levantada):
+```bash
+npx tsx scripts/seed.ts 5 --promover
+```
 
 ### 7.3 Reglas para Nuevas Migraciones
 1. Crear un archivo numerado correlativamente en `src/lib/db/migrations/XXX_nombre_descriptivo.ts`.

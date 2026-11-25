@@ -15,14 +15,26 @@ export async function listarMisionesService(
   const data: MisionItem[] = filas.map((fila) => ({
     id: fila.id,
     codigo: fila.codigo,
-    titulo: fila.titulo,
+    titulo:
+      fila.tipo_mision === "VERIFICACION" &&
+      fila.incidente_tipo_afectacion &&
+      fila.incidente_codigo
+        ? `Verificación: ${fila.incidente_tipo_afectacion} - ${fila.incidente_codigo}`
+        : fila.titulo,
     descripcion: fila.descripcion,
     tipoMision: fila.tipo_mision as MisionItem["tipoMision"],
     estado: fila.estado as MisionItem["estado"],
     prioridad: fila.prioridad as MisionItem["prioridad"],
     justificacionRechazo: fila.justificacion_rechazo,
+    ...(fila.trazabilidad_notificacion
+      ? {
+          trazabilidadNotificacion:
+            fila.trazabilidad_notificacion as MisionItem["trazabilidadNotificacion"],
+        }
+      : {}),
     incidenteId: fila.incidente_id,
     incidenteCodigo: fila.incidente_codigo,
+    incidenteTipoAfectacion: fila.incidente_tipo_afectacion ?? null,
     cuadrillaId: fila.cuadrilla_id,
     cuadrillaNombre: fila.cuadrilla_nombre,
     patrullaId: fila.patrulla_id,

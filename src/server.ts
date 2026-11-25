@@ -7,6 +7,7 @@ import { setSocketServer, REDIS_SOCKET_CHANNEL } from "./lib/socket";
 import { verificarTokenJwt } from "./modules/seguridad/jwt";
 import { TelemetriaPosicionPayloadSchema } from "./modules/geolocalizacion/telemetria.schema";
 import { guardarPosicionUnidad } from "./modules/geolocalizacion/telemetria-cache.service";
+import { actualizarEstadoNotificacionService } from "./modules/misiones/notificacion-mision.service";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -131,6 +132,30 @@ async function bootstrap() {
         io.to("mapa").emit("telemetria:posicion", posicionPersistida);
       } catch (err) {
         console.error("[Socket Telemetria]: Error procesando telemetría:", err);
+      }
+    });
+
+    socket.on("notificacion:ack", async (payload, callback) => {
+      try {
+        if (!payload || !payload.notificacionId || !["RECIBIDA", "LEIDA"].includes(payload.estado)) {
+          callback?.({ ok: false, error: "Payload inválido para notificacion:ack." });
+          return;
+        }
+
+        const usuarioId = socket.data?.userId ?? "00000000-0000-4000-8000-000000000001";
+        const esAdmin = socket.data?.role === "ADMIN" || !socket.data?.userId;
+
+        const resultado = await actualizarEstadoNotificacionService(
+          payload.notificacionId,
+          payload.estado,
+          usuarioId,
+          esAdmin
+        );
+
+        callback?.({ ok: true, message: resultado.message });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Error al procesar acuse de notificación.";
+        callback?.({ ok: false, error: msg });
       }
     });
   });

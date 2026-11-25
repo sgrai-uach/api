@@ -17,8 +17,11 @@ export const PERMISO_CREAR_RECUPERACION = "recuperacion:crear";
 export const PERMISO_CREAR_ASISTENCIA_SOCIAL = "asistencia_social:crear";
 export const PERMISO_LEER_ASISTENCIA_SOCIAL = "asistencia_social:leer";
 export const PERMISO_CREAR_EVENTO_PREVENCION = "prevencion:eventos:crear";
+export const PERMISO_CREAR_EVENTO_ATP = "eventos_atp:crear";
 export const PERMISO_LEER_PERSONAL = "personal:leer";
 export const PERMISO_CREAR_PERSONAL = "personal:crear";
 export const PERMISO_EDITAR_PERSONAL = "personal:editar";
 export const PERMISO_GESTIONAR_PERSONAL = "personal:gestionar";
+export const PERMISO_VERIFICAR_MISION_TERRENO = "misiones:terreno:verificar";
 export const PERMISO_ELIMINAR_CUADRILLA = "cuadrillas:eliminar";
+

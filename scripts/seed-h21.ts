@@ -84,7 +84,6 @@ const RECURSOS_QA = Object.values(IDS.recursos);
 const INCIDENTES_QA = Object.values(IDS.incidentes);
 const MISIONES_VERIFICACION_QA = [IDS.misionVerificacion, IDS.misionVerificacion2];
 
-const SOLO_LIMPIEZA = process.argv.includes("--clean");
 
 /**
  * Elimina exclusivamente los registros del fixture QA de HU-21.
@@ -137,7 +136,10 @@ async function limpiarFixture(): Promise<void> {
 /**
  * Siembra el fixture completo de pruebas HU-21.
  */
-export async function sembrarFixtureH21(): Promise<void> {
+export async function sembrarFixtureH21(
+  options: { cleanOnly?: boolean } = {}
+): Promise<void> {
+  const { cleanOnly = false } = options;
   console.log("Iniciando fixture de pruebas HU-21 (asignar cuadrilla / liberar patrulla)...");
 
   // -------------------------------------------------------------------------
@@ -201,7 +203,7 @@ export async function sembrarFixtureH21(): Promise<void> {
   await limpiarFixture();
   console.log("Fixture anterior limpiado.");
 
-  if (SOLO_LIMPIEZA) {
+  if (cleanOnly) {
     console.log("Modo --clean: no se siembran datos nuevos.");
     return;
   }
@@ -668,7 +670,7 @@ export async function sembrarFixtureH21(): Promise<void> {
 }
 
 if (require.main === module || process.argv[1]?.includes("seed-h21")) {
-  sembrarFixtureH21()
+  sembrarFixtureH21({ cleanOnly: process.argv.includes("--clean") })
     .then(async () => {
       await db.destroy();
       process.exit(0);

@@ -13,8 +13,10 @@ export interface ServerToClientEvents {
     "recurso:actualizado": (payload: unknown) => void;
     "prevencion:creada": (payload: unknown) => void;
     "recuperacion:creada": (payload: unknown) => void;
+    "recuperacion:actualizada": (payload: unknown) => void;
     "asistencia_social:creada": (payload: unknown) => void;
     "punto_critico:creado": (payload: unknown) => void;
+    "evento_atp:creado": (payload: unknown) => void;
     "punto_critico:eliminado": (payload: {
         id: string;
         codigo: string;
@@ -51,15 +53,66 @@ export interface ServerToClientEvents {
         eliminadoEn: string;
     }) => void;
     "mision:asignada": (payload: {
+        notificacionId?: string;
         misionId: string;
         codigo: string;
         tipoMision: string;
         patrullaId?: string | null;
         cuadrillaId?: string | null;
         incidenteId?: string | null;
+        incidenteCodigo?: string | null;
+        incidenteFolio?: string | null;
+        tipoAfectacion?: string | null;
+        direccion?: string | null;
+        prioridad?: string;
         asignadoEn: string;
     }) => void;
     "telemetria:posicion": (payload: PosicionUnidadActivaDTO | TelemetriaPosicionDTO) => void;
+    "mision:rechazada": (payload: MisionRechazadaPayload) => void;
+    "mision:actualizada": (payload: {
+        misionId: string;
+        codigo: string;
+        estado: string;
+        tipoMision: string;
+        patrullaId?: string | null;
+        cuadrillaId?: string | null;
+        incidenteId?: string | null;
+        fechaInicio: string | null;
+        hito: {
+            id: string;
+            hito: string;
+            descripcion: string;
+            registradoPorId: string | null;
+            creadoEn: string;
+        };
+        actualizadoEn: string;
+    }) => void;
+    "notificacion:trazabilidad_actualizada": (payload: {
+        notificacionId: string;
+        misionId: string;
+        patrullaId: string;
+        estado: "PENDIENTE_ENVIO" | "ENVIADA" | "RECIBIDA" | "LEIDA";
+        intentosEnvio: number;
+        creadaAt: string;
+        enviadaAt?: string | null;
+        recibidaAt?: string | null;
+        leidaAt?: string | null;
+        actualizadoEn: string;
+    }) => void;
+}
+
+export interface MisionRechazadaPayload {
+    misionId: string;
+    codigo: string;
+    tipoMision: string;
+    motivo: string;
+    justificacionRechazo?: string;
+    patrullaId: string | null;
+    patrullaNombre?: string | null;
+    incidenteId: string | null;
+    incidenteCodigo?: string | null;
+    rechazadoPorId?: string | null;
+    rechazadoEn: string;
 }
 
 export interface ClientToServerEvents {
@@ -68,6 +121,10 @@ export interface ClientToServerEvents {
     unirse: (room: string) => void;
     salir: (room: string) => void;
     "telemetria:posicion": (payload: TelemetriaPosicionDTO) => void;
+    "notificacion:ack": (
+        payload: { notificacionId: string; estado: "RECIBIDA" | "LEIDA" },
+        callback?: (response: { ok: boolean; message?: string; error?: string }) => void
+    ) => void;
 }
 
 export interface InterServerEvents {
