@@ -4,16 +4,17 @@ import { Server as SocketIOServer } from "socket.io";
 import Redis from "ioredis";
 import { loadEnvConfig } from "@next/env";
 import { setSocketServer, REDIS_SOCKET_CHANNEL } from "./lib/socket";
-import { verificarTokenJwt } from "./modules/seguridad/jwt";
-import { TelemetriaPosicionPayloadSchema } from "./modules/geolocalizacion/telemetria.schema";
-import { guardarPosicionUnidad } from "./modules/geolocalizacion/telemetria-cache.service";
+import {
+  registrarMiddlewareAuthSocket,
+  registrarHandlersBaseYTelemetria,
+  procesarMensajeRedisSocket,
+} from "./lib/socket/telemetria.handler";
 import { actualizarEstadoNotificacionService } from "./modules/misiones/notificacion-mision.service";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
   InterServerEvents,
   SocketData,
-  RedisSocketMessage,
 } from "./lib/socket/types";
 
 // Cargar variables de entorno desde .env, .env.local, etc.
@@ -52,7 +53,7 @@ async function bootstrap() {
     },
   });
 
-  // Suscribirse al canal de Redis para recibir eventos de Workers / Route Handlers
+  // Suscribirse al canal de Redis para recibir eventos de Workers / Route Handlers / otras instancias
   if (process.env.REDIS_URL) {
     try {
       const redisSubscriber = new Redis(process.env.REDIS_URL, {
@@ -67,13 +68,7 @@ async function bootstrap() {
 
       redisSubscriber.on("message", (channel, message) => {
         if (channel === REDIS_SOCKET_CHANNEL) {
-          try {
-            const { room, event, payload } = JSON.parse(message) as RedisSocketMessage;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (io.to(room) as any).emit(event, payload);
-          } catch (e) {
-            console.error("Error al parsear mensaje de Redis Socket:", e);
-          }
+          procesarMensajeRedisSocket(io, message);
         }
       });
       console.log("> Conectado a Redis Pub/Sub para eventos de Socket.io.");
@@ -82,59 +77,12 @@ async function bootstrap() {
     }
   }
 
-  // Middleware de autenticación opcional / progresivo para sockets conectados con JWT
-  io.use(async (socket, next) => {
-    const rawToken =
-      socket.handshake.auth?.token ||
-      (typeof socket.handshake.headers?.authorization === "string"
-        ? socket.handshake.headers.authorization.replace(/^Bearer\s+/i, "")
-        : null);
+  // Middleware JWT y handlers desacoplados de salas y telemetría GPS (HU-70)
+  registrarMiddlewareAuthSocket(io);
+  registrarHandlersBaseYTelemetria(io);
 
-    if (rawToken) {
-      try {
-        const payload = await verificarTokenJwt(rawToken);
-        socket.data.userId = payload.sub;
-        socket.data.role = payload.rolCodigo;
-      } catch (err) {
-        console.warn("[Socket.io Auth Warning]: Token inválido en handshake:", err);
-        return next(new Error("Autenticación inválida: token no válido o expirado"));
-      }
-    }
-    return next();
-  });
-
+  // Handler de acuse de lectura de notificaciones tácticas (HU-35)
   io.on("connection", (socket) => {
-    socket.on("join", (room: string) => {
-      socket.join(room);
-    });
-
-    socket.on("unirse", (room: string) => {
-      socket.join(room);
-    });
-
-    socket.on("leave", (room: string) => {
-      socket.leave(room);
-    });
-
-    socket.on("salir", (room: string) => {
-      socket.leave(room);
-    });
-
-    socket.on("telemetria:posicion", async (data) => {
-      const validacion = TelemetriaPosicionPayloadSchema.safeParse(data);
-      if (!validacion.success) {
-        console.warn("[Socket Telemetria]: Coordenadas o payload inválido recibido:", validacion.error.issues);
-        return;
-      }
-
-      try {
-        const posicionPersistida = await guardarPosicionUnidad(validacion.data);
-        io.to("mapa").emit("telemetria:posicion", posicionPersistida);
-      } catch (err) {
-        console.error("[Socket Telemetria]: Error procesando telemetría:", err);
-      }
-    });
-
     socket.on("notificacion:ack", async (payload, callback) => {
       try {
         if (!payload || !payload.notificacionId || !["RECIBIDA", "LEIDA"].includes(payload.estado)) {
