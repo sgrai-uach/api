@@ -687,9 +687,22 @@ Permite al cliente móvil (`sgrai-pwa`) consultar las misiones asignadas cuyas n
 
 ### 3.9. `GET /api/geolocalizacion/posiciones` (HU-70: Posiciones GPS Activas de Unidades en Terreno)
 
-Permite al Centro de Mando (`sgrai-web`) consultar de forma instantánea el snapshot de últimas posiciones GPS conocidas de todas las patrullas y cuadrillas operativas en misión activa que se encuentren vigentes en la caché de Redis.
+Permite al Centro de Mando (`sgrai-web`) consultar de forma instantánea el snapshot de últimas posiciones GPS conocidas de todas las patrullas y cuadrillas operativas en misión activa (`EN_CURSO`) que se encuentren vigentes en la caché de Redis (TTL 300 segundos).
 
-- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (requiere sesión de usuario válida en SGRAI).
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (usuario activo en base de datos).
+- **Permiso RBAC requerido:** `misiones:leer` (perfiles `ENCARGADO`, `SUPERVISOR`) o perfil `ADMIN`.
+
+#### Parámetros de Consulta Opcionales (Query Params)
+
+| Parámetro | Tipo | Requerido | Descripción | Ejemplo |
+|---|---|---|---|---|
+| `tipoUnidad` | `PATRULLA` \| `CUADRILLA` | No | Filtra posiciones activas por tipo de unidad operativa. | `PATRULLA` |
+| `unidadId` | `UUID` | No | Filtra la posición vigente de una unidad específica. | `f1000000-0000-4000-8000-000000000001` |
+
+#### Códigos de Error Adicionales (`GET /api/geolocalizacion/posiciones`)
+- **`400 Bad Request`:** `tipoUnidad` distinto a `PATRULLA`/`CUADRILLA` o `unidadId` con formato no UUID.
+- **`401 Unauthorized`:** Token JWT ausente, inválido, expirado o usuario inactivo.
+- **`403 Forbidden`:** El rol del usuario autenticado carece del permiso `misiones:leer` y no es Administrador.
 
 #### Ejemplo de Respuesta Exitosa (`HTTP 200 OK`)
 
@@ -702,11 +715,11 @@ Permite al Centro de Mando (`sgrai-web`) consultar de forma instantánea el snap
       "tipoUnidad": "PATRULLA",
       "lat": -39.81422,
       "lng": -73.24589,
-      "timestamp": "2026-11-12T15:00:00.000Z",
+      "timestamp": "2026-11-24T15:00:00.000Z",
       "rumbo": 180.5,
       "precision": 10.5,
       "velocidad": 4.2,
-      "recibidoEn": "2026-11-12T15:00:01.000Z"
+      "recibidoEn": "2026-11-24T15:00:01.000Z"
     }
   ]
 }
@@ -794,8 +807,14 @@ Al confirmarse la asignación de misiones operativas mediante `POST /api/misione
    - **Salas destino:** `encargado`, `sala:encargados`, `supervisor`, `patrulla:{patrullaId}` y difusión global.
    - **Payload:** `{ misionId, codigo, tipoMision, motivo, justificacionRechazo, patrullaId, patrullaNombre, incidenteId, incidenteCodigo, rechazadoPorId, rechazadoEn }`.
    - **Propósito:** Alertar en tiempo real al Centro de Mando del rechazo motivado de una misión por la patrulla verificadora (HU-69), permitiendo la reasignación inmediata.
-9. **`telemetria:posicion` (HU-70: Transmisión y Retransmisión GPS en Terreno)**:
-   - **Evento de Entrada (Client-to-Server):** Emitido periódicamente (cada 30 a 60 segundos) por la app PWA móvil de patrullas y delegados de cuadrilla cuando se encuentran en misión activa (`EN_CURSO`).
+9. **`telemetria:posicion` y `telemetria:inactiva` (HU-70: Transmisión y Retransmisión GPS en Terreno)**:
+   - **Autenticación y Control de Salas en Socket.io:** El handshake valida el JWT provisto en `auth.token` o cabecera `Authorization: Bearer <token>`. El ingreso a salas operativas restringidas (como `mapa`, `encargado`, `supervisor`, `patrulla:{id}`, `cuadrilla:{id}`) y la emisión de `telemetria:posicion` / `telemetria:detener` exigen socket autenticado.
+   - **Evento de Entrada (Client-to-Server) — `telemetria:posicion`:** Emitido periódicamente (cada 30 a 60 segundos) por la PWA móvil de patrullas y delegados de cuadrilla cuando se encuentran en misión activa (`EN_CURSO`). Admite callback opcional `{ ok, codigo?, error?, omitidaPorObsoleta?, data? }`.
+     - **Validaciones de Negocio en Backend (ICS):**
+       1. Valida estructura Zod estricta bajo estándar WGS84 (`lat` en `[-90, 90]`, `lng` en `[-180, 180]`), finitud numérica y validez cronológica del `timestamp` (sin fallos `RangeError`).
+       2. Verifica en PostgreSQL que el usuario autenticado esté activo y pertenezca a la unidad (`usuario_lider_id` / `patrulla_personal` o `usuario_delegado_id` / `cuadrilla_personal`, o perfil `ADMIN`).
+       3. Exige que la unidad no esté `DISPONIBLE` y mantenga una misión activa en estado `EN_CURSO`. Si la unidad ya retornó a `DISPONIBLE` o finalizó su misión, purga inmediatamente su clave en Redis, emite `telemetria:inactiva` a `mapa` y responde `codigo: "UNIDAD_DISPONIBLE" | "MISION_NO_EN_CURSO"` en el callback para pausar la transmisión.
+       4. Protección contra paquetes desordenados: tramas con `timestamp` anterior al último almacenado para la misma unidad se omiten sin sobrescribir ni retroceder el marcador.
      - **Payload:**
        ```json
        {
@@ -803,7 +822,7 @@ Al confirmarse la asignación de misiones operativas mediante `POST /api/misione
          "tipoUnidad": "PATRULLA",
          "lat": -39.81422,
          "lng": -73.24589,
-         "timestamp": "2026-11-12T15:00:00.000Z",
+         "timestamp": "2026-11-24T15:00:00.000Z",
          "rumbo": 180.5,
          "precision": 10.5,
          "velocidad": 4.2
@@ -812,13 +831,14 @@ Al confirmarse la asignación de misiones operativas mediante `POST /api/misione
      - **Atributos:**
        - `unidadId` (UUID): Identificador de la patrulla o cuadrilla.
        - `tipoUnidad` (`PATRULLA` | `CUADRILLA`): Clasificación de la unidad operativa.
-       - `lat`, `lng` (número decimal WGS84): Coordenadas geográficas.
-       - `timestamp` (ISO 8601 o epoch): Marca temporal de captura.
+       - `lat`, `lng` (número decimal finito WGS84): Coordenadas geográficas.
+       - `timestamp` (ISO 8601 o epoch ms válido): Marca temporal de captura.
        - `rumbo` (opcional, grados 0-360): Orientación del desplazamiento para rotar el icono en el mapa.
-       - `precision` (opcional, metros): Radio de exactitud provisto por `GeolocationCoordinates.accuracy`.
-       - `velocidad` (opcional, m/s): Velocidad instantánea de desplazamiento.
-   - **Almacenamiento en Caché Redis:** Cada posición válida recibida se almacena con clave `telemetria:posicion:{tipoUnidad}:{unidadId}` y expiración TTL de 300 segundos (5 minutos), asegurando que si la unidad se desconecta o culmina su turno, expire naturalmente sin sobrecargar PostgreSQL.
-   - **Evento de Salida (Server-to-Client):**
-     - **Sala destino:** `mapa`.
-     - **Propósito:** Retransmitir en tiempo real las coordenadas hacia el Centro de Mando en `sgrai-web` para actualizar la posición de los marcadores dinámicos sin refrescar la vista.
-   - **Resiliencia ante Conectividad:** Si el dispositivo móvil pierde señal, la PWA reintenta de forma transparente sin bloquear la interfaz de usuario. Al recuperar conectividad, el flujo de telemetría se reanuda de inmediato.
+       - `precision` (opcional, metros >= 0): Radio de exactitud provisto por `GeolocationCoordinates.accuracy`.
+       - `velocidad` (opcional, m/s >= 0): Velocidad instantánea de desplazamiento.
+   - **Evento de Entrada (Client-to-Server) — `telemetria:detener`:** Permite a la PWA notificar pausa explícita `{ unidadId, tipoUnidad, motivo? }` al finalizar una misión; purga la clave de Redis y emite `telemetria:inactiva` a `mapa`. Adicionalmente, el backend purga automáticamente la telemetría cuando una patrulla se libera a `DISPONIBLE`.
+   - **Almacenamiento en Caché Redis y Broker Pub/Sub Multi-Instancia:** Cada posición válida se almacena bajo `telemetria:posicion:{tipoUnidad}:{unidadId}` con TTL de 300 segundos y se indexa en `telemetria:unidades_activas` (con degradación en memoria si Redis no está disponible). La retransmisión emite localmente a `io.to("mapa")` y publica simultáneamente en `sgrai:socket-events` con `originInstanceId` para replicación multi-instancia sin duplicados locales.
+   - **Eventos de Salida (Server-to-Client hacia sala `mapa`):**
+     - `telemetria:posicion`: Posición validada enriquecida con `recibidoEn`.
+     - `telemetria:inactiva`: `{ unidadId, tipoUnidad, motivo, detenidoEn }` indicando al mapa retirar el marcador activo.
+   - **Resiliencia ante Conectividad:** Si el dispositivo móvil pierde señal, la PWA reintenta de forma transparente sin alertas bloqueantes; el backend descarta tramas malformadas u obsoletas sin interrumpir la conexión del socket.
