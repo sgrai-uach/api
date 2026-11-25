@@ -637,6 +637,7 @@ export function emitirCuadrillaCreada(payload: unknown): void {
 export function emitirCuadrillaActualizada(payload: unknown): void {
   emitirEvento("operaciones", "cuadrilla:actualizada", payload);
   emitirEvento("encargado", "cuadrilla:actualizada", payload);
+  emitirEvento("sala:encargados", "cuadrilla:actualizada", payload);
   emitirEvento("supervisor", "cuadrilla:actualizada", payload);
 }
 

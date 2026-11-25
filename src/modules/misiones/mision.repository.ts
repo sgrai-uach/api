@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { sql, type Transaction } from "kysely";
+import { sql, type ExpressionBuilder, type Transaction } from "kysely";
 import { NotFoundError, ConflictError, ForbiddenError } from "@/modules/seguridad/errors";
 import type { Database } from "@/lib/db/types";
 import type {
@@ -1283,10 +1283,10 @@ export async function aceptarMisionPatrullaRepo(
       },
       incidente: misionExistente.incidente_id
         ? {
-            id: misionExistente.incidente_id,
-            codigo: misionExistente.incidente_codigo ?? "",
-            estado: "VERIFICANDO",
-          }
+          id: misionExistente.incidente_id,
+          codigo: misionExistente.incidente_codigo ?? "",
+          estado: "VERIFICANDO",
+        }
         : null,
       hito: {
         id: hitoRegistrado.id,
@@ -1329,6 +1329,7 @@ export interface RechazarMisionCuadrillaResult {
     estado: string;
     prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
   } | null;
+  incidenteActualizado?: boolean;
   hito: {
     id: string;
     misionId: string;
@@ -1364,6 +1365,7 @@ export interface RechazarMisionPatrullaResult {
     estado: string;
     prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
   };
+  incidenteActualizado?: boolean;
   hito: {
     id: string;
     misionId?: string;
@@ -1380,9 +1382,125 @@ export type RechazarMisionResult =
   | (RechazarMisionCuadrillaResult & { patrulla?: never })
   | (RechazarMisionPatrullaResult & { cuadrilla?: never });
 
+const ESTADOS_PATRULLA_DESPLEGADA = [
+  "EN_VERIFICACION",
+  "EN_PREVENCION",
+  "EN_RECUPERACION",
+  "EN_MISION",
+] as const;
+
+function condicionSinOtrasUnidadesActivas(
+  eb: ExpressionBuilder<Database, "usuario">,
+  cuadrillaId: string
+) {
+  return eb.and([
+    // 1. No ser delegado de otra cuadrilla activa en misión o con misión activa
+    eb.not(
+      eb.exists(
+        eb
+          .selectFrom("cuadrilla as c_otra")
+          .select("c_otra.id")
+          .whereRef("c_otra.usuario_delegado_id", "=", "usuario.id")
+          .where("c_otra.id", "!=", cuadrillaId)
+          .where("c_otra.activo", "=", true)
+          .where("c_otra.eliminado_en", "is", null)
+          .where((ebC) =>
+            ebC.or([
+              ebC("c_otra.estado", "=", "EN_MISION"),
+              ebC.exists(
+                ebC
+                  .selectFrom("mision as m_cd")
+                  .select("m_cd.id")
+                  .whereRef("m_cd.cuadrilla_id", "=", "c_otra.id")
+                  .where("m_cd.estado", "in", ["DESPACHADA", "EN_CURSO"])
+              ),
+            ])
+          )
+      )
+    ),
+    // 2. No ser integrante activo de otra cuadrilla activa en misión o con misión activa
+    eb.not(
+      eb.exists(
+        eb
+          .selectFrom("cuadrilla_personal as cp_otra")
+          .innerJoin("personal as p_otra", "p_otra.id", "cp_otra.personal_id")
+          .innerJoin("cuadrilla as c_p_otra", "c_p_otra.id", "cp_otra.cuadrilla_id")
+          .select("cp_otra.id")
+          .whereRef("p_otra.usuario_id", "=", "usuario.id")
+          .where("cp_otra.cuadrilla_id", "!=", cuadrillaId)
+          .where("cp_otra.activo", "=", true)
+          .where("cp_otra.desvinculado_en", "is", null)
+          .where("c_p_otra.activo", "=", true)
+          .where("c_p_otra.eliminado_en", "is", null)
+          .where((ebCp) =>
+            ebCp.or([
+              ebCp("c_p_otra.estado", "=", "EN_MISION"),
+              ebCp.exists(
+                ebCp
+                  .selectFrom("mision as m_cp")
+                  .select("m_cp.id")
+                  .whereRef("m_cp.cuadrilla_id", "=", "c_p_otra.id")
+                  .where("m_cp.estado", "in", ["DESPACHADA", "EN_CURSO"])
+              ),
+            ])
+          )
+      )
+    ),
+    // 3. No ser líder de una patrulla verificadora activa desplegada o con misión activa
+    eb.not(
+      eb.exists(
+        eb
+          .selectFrom("patrulla_verificadora as pv_l")
+          .select("pv_l.id")
+          .whereRef("pv_l.usuario_lider_id", "=", "usuario.id")
+          .where("pv_l.activo", "=", true)
+          .where("pv_l.eliminado_en", "is", null)
+          .where((ebPv) =>
+            ebPv.or([
+              ebPv("pv_l.estado", "in", [...ESTADOS_PATRULLA_DESPLEGADA]),
+              ebPv.exists(
+                ebPv
+                  .selectFrom("mision as m_pvl")
+                  .select("m_pvl.id")
+                  .whereRef("m_pvl.patrulla_id", "=", "pv_l.id")
+                  .where("m_pvl.estado", "in", ["DESPACHADA", "EN_CURSO"])
+              ),
+            ])
+          )
+      )
+    ),
+    // 4. No ser integrante de una patrulla verificadora activa desplegada o con misión activa
+    eb.not(
+      eb.exists(
+        eb
+          .selectFrom("patrulla_personal as pp_o")
+          .innerJoin("personal as p_pp", "p_pp.id", "pp_o.personal_id")
+          .innerJoin("patrulla_verificadora as pv_p", "pv_p.id", "pp_o.patrulla_id")
+          .select("pp_o.id")
+          .whereRef("p_pp.usuario_id", "=", "usuario.id")
+          .where("pv_p.activo", "=", true)
+          .where("pv_p.eliminado_en", "is", null)
+          .where((ebPpv) =>
+            ebPpv.or([
+              ebPpv("pv_p.estado", "in", [...ESTADOS_PATRULLA_DESPLEGADA]),
+              ebPpv.exists(
+                ebPpv
+                  .selectFrom("mision as m_pvp")
+                  .select("m_pvp.id")
+                  .whereRef("m_pvp.patrulla_id", "=", "pv_p.id")
+                  .where("m_pvp.estado", "in", ["DESPACHADA", "EN_CURSO"])
+              ),
+            ])
+          )
+      )
+    ),
+  ]);
+}
+
 /**
  * Libera la disponibilidad operativa de la dotación humana de una cuadrilla
- * cuando su misión es rechazada o finalizada, retornando a `'disponible'`.
+ * cuando su misión es rechazada o finalizada, retornando a `'disponible'` solo si
+ * el usuario no participa simultáneamente en otra cuadrilla o patrulla activa.
  */
 export async function liberarDotacionCuadrillaDeMision(
   trx: MisionTrx,
@@ -1408,6 +1526,7 @@ export async function liberarDotacionCuadrillaDeMision(
         .where("cuadrilla_personal.activo", "=", true)
         .where("cuadrilla_personal.desvinculado_en", "is", null)
     )
+    .where((eb) => condicionSinOtrasUnidadesActivas(eb, cuadrillaId))
     .execute();
 
   if (usuarioDelegadoId) {
@@ -1420,6 +1539,7 @@ export async function liberarDotacionCuadrillaDeMision(
       .where("id", "=", usuarioDelegadoId)
       .where("activo", "=", true)
       .where("estado_operativo", "=", "en_mision")
+      .where((eb) => condicionSinOtrasUnidadesActivas(eb, cuadrillaId))
       .execute();
   }
 }
@@ -1506,6 +1626,16 @@ async function ejecutarRechazoCuadrillaEnTrx(
     );
   }
 
+  if (
+    misionExistente.incidente_id &&
+    (misionExistente.incidente_estado === "RESUELTO" ||
+      misionExistente.incidente_estado === "NO_ABORDABLE")
+  ) {
+    throw new ConflictError(
+      `No es posible rechazar la misión porque el incidente asociado ya se encuentra en estado terminal '${misionExistente.incidente_estado}'.`
+    );
+  }
+
   const misionActualizada = await trx
     .updateTable("mision")
     .set({
@@ -1583,45 +1713,58 @@ async function ejecutarRechazoCuadrillaEnTrx(
   }
 
   let incidenteResultado: RechazarMisionCuadrillaResult["incidente"] = null;
+  let incidenteActualizado = false;
 
   if (misionExistente.incidente_id) {
-    const verificacionCompletada = await trx
+    const otraMisionActivaIncidente = await trx
       .selectFrom("mision")
       .select("id")
       .where("incidente_id", "=", misionExistente.incidente_id)
-      .where("tipo_mision", "=", "VERIFICACION")
-      .where("estado", "=", "COMPLETADA")
+      .where("id", "!=", misionId)
+      .where("estado", "in", ["DESPACHADA", "EN_CURSO"])
       .executeTakeFirst();
 
-    const estadoDestino = verificacionCompletada ? "VERIFICANDO" : "REPORTADO";
-
     let incidenteCodigo = misionExistente.incidente_codigo ?? "";
-    let incidenteEstado = estadoDestino;
+    let incidenteEstado = misionExistente.incidente_estado ?? "EN_ATENCION";
     let incidentePrioridad = (misionExistente.incidente_prioridad ?? "MEDIA") as
       | "BAJA"
       | "MEDIA"
       | "ALTA"
       | "CRITICA";
 
-    const incidenteRes = await trx
-      .updateTable("incidente")
-      .set({
-        estado: estadoDestino,
-        actualizado_en: sql`CURRENT_TIMESTAMP`,
-      })
-      .where("id", "=", misionExistente.incidente_id)
-      .where("estado", "in", ["EN_ATENCION", "VERIFICANDO", "REPORTADO"])
-      .returning(["id", "codigo", "estado", "prioridad"])
-      .executeTakeFirst();
+    if (!otraMisionActivaIncidente) {
+      const verificacionCompletada = await trx
+        .selectFrom("mision")
+        .select("id")
+        .where("incidente_id", "=", misionExistente.incidente_id)
+        .where("tipo_mision", "=", "VERIFICACION")
+        .where("estado", "=", "COMPLETADA")
+        .executeTakeFirst();
 
-    if (incidenteRes) {
-      incidenteCodigo = incidenteRes.codigo;
-      incidenteEstado = incidenteRes.estado;
-      if (incidenteRes.prioridad) {
-        incidentePrioridad = incidenteRes.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+      const estadoDestino = verificacionCompletada ? "VERIFICANDO" : "REPORTADO";
+      incidenteEstado = estadoDestino;
+
+      const incidenteRes = await trx
+        .updateTable("incidente")
+        .set({
+          estado: estadoDestino,
+          actualizado_en: sql`CURRENT_TIMESTAMP`,
+        })
+        .where("id", "=", misionExistente.incidente_id)
+        .where("estado", "in", ["EN_ATENCION", "VERIFICANDO", "REPORTADO"])
+        .returning(["id", "codigo", "estado", "prioridad"])
+        .executeTakeFirst();
+
+      if (incidenteRes) {
+        incidenteCodigo = incidenteRes.codigo;
+        incidenteEstado = incidenteRes.estado;
+        if (incidenteRes.prioridad) {
+          incidentePrioridad = incidenteRes.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+        }
+        incidenteActualizado = true;
+      } else if (misionExistente.incidente_estado) {
+        incidenteEstado = misionExistente.incidente_estado;
       }
-    } else if (misionExistente.incidente_estado) {
-      incidenteEstado = misionExistente.incidente_estado;
     }
 
     incidenteResultado = {
@@ -1673,6 +1816,7 @@ async function ejecutarRechazoCuadrillaEnTrx(
       usuarioDelegadoId: cuadrillaDelegadoId,
     },
     incidente: incidenteResultado,
+    incidenteActualizado,
     hito: {
       id: hito.id,
       misionId: hito.mision_id,
@@ -1734,6 +1878,16 @@ async function ejecutarRechazoPatrullaEnTrx(
     );
   }
 
+  if (
+    misionExistente.incidente_id &&
+    (misionExistente.incidente_estado === "RESUELTO" ||
+      misionExistente.incidente_estado === "NO_ABORDABLE")
+  ) {
+    throw new ConflictError(
+      `No es posible rechazar la misión porque el incidente asociado ya se encuentra en estado terminal '${misionExistente.incidente_estado}'.`
+    );
+  }
+
   const misionActualizada = await trx
     .updateTable("mision")
     .set({
@@ -1787,33 +1941,46 @@ async function ejecutarRechazoPatrullaEnTrx(
     }
   }
 
+  const otraMisionActivaIncidente = await trx
+    .selectFrom("mision")
+    .select("id")
+    .where("incidente_id", "=", misionExistente.incidente_id)
+    .where("id", "!=", misionId)
+    .where("estado", "in", ["DESPACHADA", "EN_CURSO"])
+    .executeTakeFirst();
+
   let incidenteCodigo = misionExistente.incidente_codigo ?? "";
-  let incidenteEstado = "REPORTADO";
+  let incidenteEstado = misionExistente.incidente_estado ?? "REPORTADO";
   let incidentePrioridad = (misionExistente.incidente_prioridad ?? "MEDIA") as
     | "BAJA"
     | "MEDIA"
     | "ALTA"
     | "CRITICA";
+  let incidenteActualizado = false;
 
-  const incidenteRes = await trx
-    .updateTable("incidente")
-    .set({
-      estado: "REPORTADO",
-      actualizado_en: sql`CURRENT_TIMESTAMP`,
-    })
-    .where("id", "=", misionExistente.incidente_id)
-    .where("estado", "in", ["REPORTADO", "VERIFICANDO"])
-    .returning(["id", "codigo", "estado", "prioridad"])
-    .executeTakeFirst();
+  if (!otraMisionActivaIncidente) {
+    incidenteEstado = "REPORTADO";
+    const incidenteRes = await trx
+      .updateTable("incidente")
+      .set({
+        estado: "REPORTADO",
+        actualizado_en: sql`CURRENT_TIMESTAMP`,
+      })
+      .where("id", "=", misionExistente.incidente_id)
+      .where("estado", "in", ["REPORTADO", "VERIFICANDO"])
+      .returning(["id", "codigo", "estado", "prioridad"])
+      .executeTakeFirst();
 
-  if (incidenteRes) {
-    incidenteCodigo = incidenteRes.codigo;
-    incidenteEstado = incidenteRes.estado;
-    if (incidenteRes.prioridad) {
-      incidentePrioridad = incidenteRes.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+    if (incidenteRes) {
+      incidenteCodigo = incidenteRes.codigo;
+      incidenteEstado = incidenteRes.estado;
+      if (incidenteRes.prioridad) {
+        incidentePrioridad = incidenteRes.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
+      }
+      incidenteActualizado = true;
+    } else if (misionExistente.incidente_estado) {
+      incidenteEstado = misionExistente.incidente_estado;
     }
-  } else if (misionExistente.incidente_estado) {
-    incidenteEstado = misionExistente.incidente_estado;
   }
 
   const hito = await trx
@@ -1854,6 +2021,7 @@ async function ejecutarRechazoPatrullaEnTrx(
       estado: incidenteEstado,
       prioridad: incidentePrioridad,
     },
+    incidenteActualizado,
     hito: {
       id: hito.id,
       misionId: hito.mision_id ?? misionId,

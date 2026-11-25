@@ -546,6 +546,7 @@ export const RechazarMisionBodySchema = z
       .string()
       .trim()
       .min(5, "El motivo de rechazo (justificacion_rechazo) debe contener al menos 5 caracteres.")
+      .max(1000, "El motivo de rechazo (justificacion_rechazo) no puede exceder los 1000 caracteres.")
       .openapi({
         description:
           "Justificación técnica obligatoria del rechazo de la misión (mínimo 5 caracteres según Regla §3.3)",
@@ -572,6 +573,13 @@ export const RechazarMisionBodySchema = z
         example: -73.24589,
       }),
   })
+  .refine(
+    (data) => (data.latitud !== undefined) === (data.longitud !== undefined),
+    {
+      message: "Debe proporcionar tanto latitud como longitud si incluye coordenadas GPS.",
+      path: ["longitud"],
+    }
+  )
   .openapi("RechazarMisionBody");
 
 export const RechazarMisionInputSchema = z
@@ -597,6 +605,13 @@ export const RechazarMisionInputSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "El motivo de rechazo (justificacion_rechazo) debe contener al menos 5 caracteres.",
+        path: ["justificacion_rechazo"],
+      });
+    }
+    if (motivo.length > 1000) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "El motivo de rechazo (justificacion_rechazo) no puede exceder los 1000 caracteres.",
         path: ["justificacion_rechazo"],
       });
     }
