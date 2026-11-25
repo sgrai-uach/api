@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { RecuperacionIdParamSchema } from "@/modules/eventos-atp/recuperacion.schema";
 import {
   obtenerDetalleRecuperacionService,
+  verificarAutorizacionLecturaRecuperacion,
   NotFoundError,
 } from "@/modules/eventos-atp/recuperacion.service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
@@ -13,34 +14,26 @@ interface RouteContext {
 
 /**
  * GET /api/eventos-atp/recuperacion/[id]
- * Consulta el detalle estructurado de un operativo de recuperación post-desastre (H73).
- * Alimenta el drawer lateral en 'sgrai-web' con la información de insumos, patrulla e historial.
- * Requiere que el usuario posea el permiso 'recuperacion:leer' (Encargado, Administrador o Supervisor).
+ * Consulta el detalle integral de un evento/operativo de recuperación territorial para el drawer lateral (HU-73)
+ * y para la visualización del mapa táctico (HU-32).
  */
-export async function GET(req: NextRequest, props: RouteContext) {
+export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    // 1. Extraer autenticación
-    const usuarioId =
-      (await extraerUsuarioId(req)) ||
-      req.headers.get("x-user-id")?.trim() ||
-      null;
+    // 1. Extraer usuario autenticado mediante JWT Bearer obligatorio (BUG-H73-API-01: sin bypass)
+    const usuarioId = await extraerUsuarioId(req);
 
-    if (!usuarioId) {
-      return NextResponse.json(
-        { message: "Se requiere cabecera de autenticación Authorization: Bearer <token> o X-User-Id." },
-        { status: 401 }
-      );
-    }
+    // 2. Verificar autorización RBAC
+    await verificarAutorizacionLecturaRecuperacion(usuarioId);
 
-    // 2. Extraer y validar parámetro de ruta UUID
-    const { id } = await props.params;
-    const resultadoValidacion = RecuperacionIdParamSchema.safeParse(id);
-    if (!resultadoValidacion.success) {
+    // 3. Extraer y validar parámetro de ruta UUID
+    const { id } = await context.params;
+    const validacionId = RecuperacionIdParamSchema.safeParse({ id });
+    if (!validacionId.success) {
       return NextResponse.json(
         {
-          message: "El identificador del operativo de recuperación no es un UUID válido.",
-          errors: resultadoValidacion.error.issues.map((issue) => ({
-            campo: "id",
+          message: "Identificador de evento de recuperación inválido.",
+          errors: validacionId.error.issues.map((issue) => ({
+            campo: issue.path.join("."),
             mensaje: issue.message,
           })),
         },
@@ -48,15 +41,12 @@ export async function GET(req: NextRequest, props: RouteContext) {
       );
     }
 
-    // 3. Consultar servicio de negocio
-    const detalle = await obtenerDetalleRecuperacionService(
-      resultadoValidacion.data,
-      usuarioId
-    );
+    // 4. Ejecutar servicio de detalle
+    const detalle = await obtenerDetalleRecuperacionService(validacionId.data.id, usuarioId);
 
     return NextResponse.json(
       {
-        message: "Detalle de operativo de recuperación obtenido exitosamente.",
+        message: "Detalle del evento de recuperación obtenido exitosamente.",
         data: detalle,
       },
       { status: 200 }
@@ -70,16 +60,13 @@ export async function GET(req: NextRequest, props: RouteContext) {
       return NextResponse.json({ message: error.message }, { status: 403 });
     }
 
-    if (
-      error instanceof NotFoundError ||
-      (typeof error === "object" && error !== null && (error as { name?: string }).name === "NotFoundError")
-    ) {
+    if (error instanceof NotFoundError || (error as { name?: string }).name === "NotFoundError") {
       return NextResponse.json({ message: (error as Error).message }, { status: 404 });
     }
 
-    console.error("Error al obtener detalle de operativo de recuperación:", error);
+    console.error("Error al obtener detalle de evento de recuperación:", error);
     return NextResponse.json(
-      { message: "Error interno del servidor al procesar el detalle del operativo de recuperación." },
+      { message: "Error interno del servidor al procesar la consulta del evento de recuperación." },
       { status: 500 }
     );
   }

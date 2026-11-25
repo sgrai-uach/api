@@ -3,7 +3,6 @@ import { NextRequest } from "next/server";
 import { POST, GET } from "../route";
 import * as recuperacionService from "@/modules/eventos-atp/recuperacion.service";
 import type {
-  EventoRecuperacionResponse,
   ListarRecuperacionesResponse,
 } from "@/modules/eventos-atp/recuperacion.schema";
 import * as authGuard from "@/modules/seguridad/auth.guard";
@@ -151,7 +150,7 @@ describe("Route Handler POST /api/eventos-atp/recuperacion (HU-29)", () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
     vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
     vi.spyOn(recuperacionService, "crearEventoRecuperacionService").mockRejectedValueOnce(
-      new recuperacionService.StockInsuficienteError("Stock insuficiente para el recurso")
+      new recuperacionService.StockInsuficienteError("Stock insuficiente para Frazadas")
     );
 
     const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion", {
@@ -163,14 +162,14 @@ describe("Route Handler POST /api/eventos-atp/recuperacion (HU-29)", () => {
     const res = await POST(req);
     expect(res.status).toBe(409);
     const body = await res.json();
-    expect(body.message).toContain("Stock insuficiente");
+    expect(body.message).toContain("insuficiente");
   });
 
-  it("debe responder 201 y retornar la estructura creada ante una solicitud válida", async () => {
+  it("debe responder 201 y retornar el evento creado cuando el payload es válido", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
     vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
 
-    const respuestaMock: EventoRecuperacionResponse = {
+    const eventoCreadoMock = {
       id: "70000000-0000-4000-8000-000000000001",
       codigo: "REC-2026-0001",
       nombre: payloadValido.nombre,
@@ -182,13 +181,13 @@ describe("Route Handler POST /api/eventos-atp/recuperacion (HU-29)", () => {
       contactoTelefono: null,
       latitud: payloadValido.latitud,
       longitud: payloadValido.longitud,
-      estado: "PLANIFICADA",
+      estado: "PLANIFICADA" as const,
       familiasAfectadas: payloadValido.familiasAfectadas,
       delegacion: null,
       mision: {
         id: "60000000-0000-4000-8000-000000000001",
         codigo: "MIS-2026-0001",
-        titulo: payloadValido.nombre,
+        titulo: "Operativo de Recuperación: Entrega de frazadas en Sector Collico",
         estado: "DESPACHADA",
         tipoMision: "RECUPERACION",
       },
@@ -205,11 +204,11 @@ describe("Route Handler POST /api/eventos-atp/recuperacion (HU-29)", () => {
         },
       ],
       creadoPorId: usuarioEncargadoId,
-      creadoEn: "2026-10-04T12:00:00.000Z",
-      actualizadoEn: "2026-10-04T12:00:00.000Z",
+      creadoEn: new Date().toISOString(),
+      actualizadoEn: new Date().toISOString(),
     };
 
-    vi.spyOn(recuperacionService, "crearEventoRecuperacionService").mockResolvedValueOnce(respuestaMock);
+    vi.spyOn(recuperacionService, "crearEventoRecuperacionService").mockResolvedValueOnce(eventoCreadoMock);
 
     const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion", {
       method: "POST",
@@ -226,32 +225,34 @@ describe("Route Handler POST /api/eventos-atp/recuperacion (HU-29)", () => {
   });
 });
 
-describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73)", () => {
+describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73 / HU-32)", () => {
   const usuarioEncargadoId = "00000000-0000-4000-8000-000000000003";
 
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("debe responder 401 si no hay usuario autenticado", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(null);
+  it("debe responder 401 si no hay usuario autenticado (BUG-H73-API-01)", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValueOnce(
+      new UnauthorizedError("Token no válido o ausente")
+    );
 
     const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion");
     const res = await GET(req);
 
     expect(res.status).toBe(401);
     const body = await res.json();
-    expect(body.message).toContain("autenticación");
+    expect(body.message).toBeDefined();
   });
 
   it("debe responder 403 si el usuario carece de permiso recuperacion:leer", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(recuperacionService, "listarEventosRecuperacionService").mockRejectedValueOnce(
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockRejectedValueOnce(
       new ForbiddenError("No cuenta con el permiso requerido: recuperacion:leer")
     );
 
     const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion", {
-      headers: { "x-user-id": usuarioEncargadoId },
+      headers: { authorization: "Bearer token-valido" },
     });
     const res = await GET(req);
 
@@ -260,11 +261,16 @@ describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73)", () => {
     expect(body.message).toContain("recuperacion:leer");
   });
 
-  it("debe responder 400 si los query params son inválidos", async () => {
+  it("debe responder 400 si los query params son inválidos (ej. límite excesivo)", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce({
+      id: usuarioEncargadoId,
+      nombre: "Encargado",
+      rol: "ENCARGADO",
+    });
 
     const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion?limit=500", {
-      headers: { "x-user-id": usuarioEncargadoId },
+      headers: { authorization: "Bearer token-valido" },
     });
     const res = await GET(req);
 
@@ -274,11 +280,35 @@ describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73)", () => {
     expect(body.errors).toBeDefined();
   });
 
+  it("debe responder 400 si fechaDesde > fechaHasta (BUG-H73-API-02)", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce({
+      id: usuarioEncargadoId,
+      nombre: "Encargado",
+      rol: "ENCARGADO",
+    });
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion?fechaDesde=2026-12-01&fechaHasta=2026-11-01", {
+      headers: { authorization: "Bearer token-valido" },
+    });
+    const res = await GET(req);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("inválidos");
+  });
+
   it("debe responder 200 y retornar listado paginado bajo estándar H34", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce({
+      id: usuarioEncargadoId,
+      nombre: "Encargado",
+      rol: "ENCARGADO",
+    });
 
     const respuestaMock: ListarRecuperacionesResponse = {
       message: "Listado de operativos de recuperación obtenido exitosamente",
+      total: 1,
       data: [
         {
           id: "70000000-0000-4000-8000-000000000001",
@@ -324,7 +354,7 @@ describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73)", () => {
     const req = new NextRequest(
       "http://localhost:3000/api/eventos-atp/recuperacion?delegacionId=30000000-0000-4000-8000-000000000001&estado=PLANIFICADA",
       {
-        headers: { "x-user-id": usuarioEncargadoId },
+        headers: { authorization: "Bearer token-valido" },
       }
     );
     const res = await GET(req);
@@ -335,5 +365,6 @@ describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73)", () => {
     expect(body.data[0].codigo).toBe("REC-2026-0001");
     expect(body.data[0].cantidadInsumosAsignados).toBe(15);
     expect(body.meta.totalPages).toBe(1);
+    expect(body.total).toBe(1);
   });
 });

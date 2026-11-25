@@ -6,6 +6,7 @@ import {
 import {
   crearEventoRecuperacionService,
   listarEventosRecuperacionService,
+  verificarAutorizacionLecturaRecuperacion,
   PatrullaNoDisponibleError,
   StockInsuficienteError,
   NotFoundError,
@@ -17,40 +18,29 @@ import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.erro
 
 /**
  * GET /api/eventos-atp/recuperacion
- * Listado paginado y filtrable de operativos de recuperación post-desastre (H73).
- * Soporta contratos estándar H34 (page, limit, total, totalPages) y filtros por:
- * - delegacionId: UUID de delegación territorial
- * - estado: PLANIFICADA | EN_EJECUCION | COMPLETADA | CANCELADA
- * - prioridad: BAJA | MEDIA | ALTA | CRITICA
- * - busqueda: Búsqueda textual sobre código (REC-XXXX), nombre o sector
- * - fechaDesde, fechaHasta: Rango temporal de registro
+ * Endpoint para listar operativos de recuperación territoriales con soporte de filtros y paginación H34 (HU-73).
  */
 export async function GET(req: NextRequest) {
   try {
-    const usuarioId =
-      (await extraerUsuarioId(req)) ||
-      req.headers.get("x-user-id")?.trim() ||
-      null;
+    // 1. Extraer usuario autenticado mediante JWT Bearer obligatorio (BUG-H73-API-01: sin bypass por cabecera libre)
+    const usuarioId = await extraerUsuarioId(req);
 
-    if (!usuarioId) {
-      return NextResponse.json(
-        { message: "Se requiere cabecera de autenticación Authorization: Bearer <token> o X-User-Id." },
-        { status: 401 }
-      );
-    }
+    // 2. Verificar autorización RBAC
+    await verificarAutorizacionLecturaRecuperacion(usuarioId);
 
+    // 3. Extraer y validar parámetros de consulta con Zod (BUG-H73-API-02 / BUG-H73-API-03)
     const searchParams = req.nextUrl.searchParams;
-    const queryParams: Record<string, string> = {};
-    searchParams.forEach((value, key) => {
-      queryParams[key] = value;
+    const queryObj: Record<string, string> = {};
+    searchParams.forEach((val, key) => {
+      queryObj[key] = val;
     });
 
-    const resultadoValidacion = ListarRecuperacionesQuerySchema.safeParse(queryParams);
-    if (!resultadoValidacion.success) {
+    const validacion = ListarRecuperacionesQuerySchema.safeParse(queryObj);
+    if (!validacion.success) {
       return NextResponse.json(
         {
-          message: "Parámetros de consulta de listado inválidos.",
-          errors: resultadoValidacion.error.issues.map((issue) => ({
+          message: "Parámetros de consulta inválidos para el listado de operativos de recuperación.",
+          errors: validacion.error.issues.map((issue) => ({
             campo: issue.path.join("."),
             mensaje: issue.message,
           })),
@@ -59,12 +49,18 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const respuestaPaginada = await listarEventosRecuperacionService(
-      resultadoValidacion.data,
-      usuarioId
-    );
+    // 4. Ejecutar servicio de negocio
+    const resultado = await listarEventosRecuperacionService(validacion.data, usuarioId);
 
-    return NextResponse.json(respuestaPaginada, { status: 200 });
+    return NextResponse.json(
+      {
+        message: resultado.message ?? "Operativos de recuperación obtenidos exitosamente.",
+        total: resultado.total,
+        data: resultado.data,
+        meta: resultado.meta,
+      },
+      { status: 200 }
+    );
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ message: error.message }, { status: 401 });
@@ -76,7 +72,7 @@ export async function GET(req: NextRequest) {
 
     console.error("Error al listar operativos de recuperación:", error);
     return NextResponse.json(
-      { message: "Error interno del servidor al procesar el listado de operativos de recuperación." },
+      { message: "Error interno del servidor al consultar operativos de recuperación." },
       { status: 500 }
     );
   }

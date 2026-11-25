@@ -9,8 +9,10 @@ export interface ServerToClientEvents {
     "recurso:actualizado": (payload: unknown) => void;
     "prevencion:creada": (payload: unknown) => void;
     "recuperacion:creada": (payload: unknown) => void;
+    "recuperacion:actualizada": (payload: unknown) => void;
     "asistencia_social:creada": (payload: unknown) => void;
     "punto_critico:creado": (payload: unknown) => void;
+    "evento_atp:creado": (payload: unknown) => void;
     "punto_critico:eliminado": (payload: {
         id: string;
         codigo: string;
@@ -61,6 +63,7 @@ export interface ServerToClientEvents {
         prioridad?: string;
         asignadoEn: string;
     }) => void;
+    "mision:rechazada": (payload: MisionRechazadaPayload) => void;
     "mision:actualizada": (payload: {
         misionId: string;
         codigo: string;
@@ -91,6 +94,20 @@ export interface ServerToClientEvents {
         leidaAt?: string | null;
         actualizadoEn: string;
     }) => void;
+}
+
+export interface MisionRechazadaPayload {
+    misionId: string;
+    codigo: string;
+    tipoMision: string;
+    motivo: string;
+    justificacionRechazo?: string;
+    patrullaId: string | null;
+    patrullaNombre?: string | null;
+    incidenteId: string | null;
+    incidenteCodigo?: string | null;
+    rechazadoPorId?: string | null;
+    rechazadoEn: string;
 }
 
 export interface ClientToServerEvents {

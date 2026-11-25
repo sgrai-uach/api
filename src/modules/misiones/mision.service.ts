@@ -2,6 +2,7 @@ import {
   obtenerMisionDetallePorIdRepo,
   crearMisionVerificacionRepo,
   aceptarMisionPatrullaRepo,
+  rechazarMisionPatrullaRepo,
   asignarCuadrillaIncidenteRepo,
 } from "./mision.repository";
 import type {
@@ -15,6 +16,8 @@ import type {
   AceptarMisionResponse,
   AsignarCuadrillaMisionInput,
   AsignarCuadrillaMisionResponse,
+  RechazarMisionInput,
+  RechazarMisionResponse,
 } from "./mision.schema";
 import {
   notificarMisionAsignada,
@@ -25,6 +28,7 @@ import {
   tieneConexionEnSala,
   notificarPatrullaLiberada,
   emitirCuadrillaActualizada,
+  notificarMisionRechazada,
 } from "@/lib/socket";
 import { marcarNotificacionEnviadaRepo } from "./notificacion-mision.repository";
 
@@ -36,19 +40,36 @@ function formatearFechaIso(fecha: Date | string | null | undefined): string | nu
 function desglosarHitoTiempo(
   fecha: Date | string,
   hito: string,
-  descripcion: string
+  descripcion: string,
+  id?: string,
+  metadatosRaw?: Record<string, unknown> | string | null
 ): MisionBitacoraHito {
   const d = typeof fecha === "string" ? new Date(fecha) : fecha;
   const iso = d.toISOString();
   const [fechaStr, resto] = iso.split("T");
   const horaStr = resto.split(".")[0];
 
+  let metadatos: Record<string, unknown> | null | undefined = undefined;
+  if (typeof metadatosRaw === "string") {
+    try {
+      metadatos = JSON.parse(metadatosRaw);
+    } catch {
+      metadatos = null;
+    }
+  } else if (metadatosRaw && typeof metadatosRaw === "object") {
+    metadatos = metadatosRaw;
+  } else if (metadatosRaw === null) {
+    metadatos = null;
+  }
+
   return {
+    ...(id ? { id } : {}),
     hito,
     fecha: fechaStr,
     hora: horaStr,
     timestamp: iso,
     descripcion,
+    ...(metadatos !== undefined ? { metadatos } : {}),
   };
 }
 
@@ -65,7 +86,7 @@ export async function obtenerDetalleMisionService(
     return null;
   }
 
-  const { mision, recursosCuadrilla, reportesTerreno: reportesRaw } = resultado;
+  const { mision, recursosCuadrilla, reportesTerreno: reportesRaw, hitos = [] } = resultado;
 
   // 1. Bitácora de tiempos (incorporando hitos reales de mision_hito o fallback a timestamps)
   const bitacoraTiempos: MisionBitacoraHito[] = [];
@@ -73,7 +94,7 @@ export async function obtenerDetalleMisionService(
   if (resultado.hitos && resultado.hitos.length > 0) {
     for (const h of resultado.hitos) {
       bitacoraTiempos.push(
-        desglosarHitoTiempo(h.creado_en, h.hito, h.descripcion)
+        desglosarHitoTiempo(h.creado_en, h.hito, h.descripcion, h.id, h.metadatos)
       );
     }
   } else {
@@ -138,9 +159,33 @@ export async function obtenerDetalleMisionService(
       };
     });
 
+    const versionReporte = Number(rep.version_reporte ?? 1);
+    const esRectificacion = Boolean(rep.es_rectificacion ?? versionReporte > 1);
+    let detallesEvaluacionObj: Record<string, unknown> = {};
+    if (typeof rep.detalles_evaluacion === "string") {
+      try {
+        detallesEvaluacionObj = JSON.parse(rep.detalles_evaluacion);
+      } catch {
+        detallesEvaluacionObj = {};
+      }
+    } else if (rep.detalles_evaluacion && typeof rep.detalles_evaluacion === "object") {
+      detallesEvaluacionObj = rep.detalles_evaluacion;
+    }
+
     return {
       id: rep.id,
       misionId: rep.mision_id,
+      versionReporte,
+      esRectificacion,
+      etiquetaReporte: esRectificacion
+        ? `Reporte de Evaluación #${versionReporte} (Rectificación)`
+        : `Reporte de Evaluación #1 (Inicial)`,
+      prioridadSugerida:
+        (rep.prioridad_sugerida as ReporteTerrenoDetalle["prioridadSugerida"]) ?? null,
+      prioridadAsignada:
+        (rep.prioridad_asignada as ReporteTerrenoDetalle["prioridadAsignada"]) ?? null,
+      justificacionPrioridad: rep.justificacion_prioridad ?? null,
+      detallesEvaluacion: detallesEvaluacionObj,
       resumenTecnico: rep.resumen_tecnico,
       accionesRealizadas: rep.acciones_realizadas ?? null,
       requiereApoyoAdicional: Boolean(rep.requiere_apoyo_adicional),
@@ -173,6 +218,8 @@ export async function obtenerDetalleMisionService(
         longitud: Number(mision.incidente_longitud ?? -73.245209),
         estado: mision.incidente_estado ?? "EN_ATENCION",
         prioridad: mision.incidente_prioridad ?? "MEDIA",
+        prioridadSugerida: mision.incidente_prioridad_sugerida ?? null,
+        justificacionPrioridad: mision.incidente_justificacion_prioridad ?? null,
         requiereAsistenciaSocial: Boolean(mision.incidente_requiere_asistencia_social),
         delegacionNombre: mision.incidente_delegacion_nombre ?? null,
       }
@@ -243,10 +290,29 @@ export async function obtenerDetalleMisionService(
       }
     : null;
 
+  const hitosTipologia = (hitos || []).filter(
+    (h) => h.hito === "TIPOLOGIA_RECLASIFICADA" || h.hito === "TIPOLOGIA_CONFIRMADA"
+  );
+  const ultimoHitoTipologia =
+    hitosTipologia.length > 0 ? hitosTipologia[hitosTipologia.length - 1] : null;
+
+  const reportesPorVersion = [...reportesMapeados].sort((a, b) => {
+    const vA = Number(a.versionReporte ?? 0);
+    const vB = Number(b.versionReporte ?? 0);
+    if (vA !== vB) return vB - vA;
+    return new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime();
+  });
+  const ultimoReportePrioridad = reportesPorVersion[0] ?? null;
+
   return {
     id: mision.id,
     codigo: mision.codigo,
-    titulo: mision.titulo,
+    titulo:
+      mision.tipo_mision === "VERIFICACION" &&
+      mision.incidente_tipo_afectacion &&
+      mision.incidente_codigo
+        ? `Verificación: ${mision.incidente_tipo_afectacion} - ${mision.incidente_codigo}`
+        : mision.titulo,
     descripcion: mision.descripcion,
     tipoMision: mision.tipo_mision as MisionDetalleCompleto["tipoMision"],
     estado: mision.estado as MisionDetalleCompleto["estado"],
@@ -270,6 +336,15 @@ export async function obtenerDetalleMisionService(
     patrulla,
     bitacoraTiempos,
     reportesTerreno: reportesMapeados,
+    evaluaciones: {
+      tipologiaEvaluada: hitosTipologia.length > 0,
+      tipologiaEvaluadaEn: ultimoHitoTipologia
+        ? formatearFechaIso(ultimoHitoTipologia.creado_en)
+        : null,
+      prioridadEvaluada: reportesMapeados.length > 0,
+      prioridadEvaluadaEn: ultimoReportePrioridad?.creadoEn ?? null,
+      versionReportePrioridad: ultimoReportePrioridad?.versionReporte ?? null,
+    },
   };
 }
 
@@ -498,6 +573,77 @@ export async function aceptarMisionService(
   return {
     message:
       "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
+    data: {
+      mision: resultado.mision,
+      patrulla: resultado.patrulla,
+      incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
+
+export async function rechazarMisionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: RechazarMisionInput
+): Promise<RechazarMisionResponse> {
+  const resultado = await rechazarMisionPatrullaRepo(
+    misionId,
+    usuarioId,
+    input.justificacionRechazo,
+    esAdmin,
+    {
+      latitud: input.latitud,
+      longitud: input.longitud,
+    }
+  );
+
+  // Emitir eventos en tiempo real
+  try {
+    notificarMisionRechazada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      tipoMision: "VERIFICACION",
+      motivo: resultado.mision.justificacionRechazo,
+      justificacionRechazo: resultado.mision.justificacionRechazo,
+      patrullaId: resultado.patrulla.id || null,
+      patrullaNombre: resultado.patrulla.nombre,
+      incidenteId: resultado.incidente.id || null,
+      incidenteCodigo: resultado.incidente.codigo,
+      rechazadoPorId: usuarioId,
+      rechazadoEn: resultado.mision.actualizadoEn,
+    });
+
+    if (resultado.incidente.id) {
+      notificarIncidenteActualizado({
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        nuevoEstado: resultado.incidente.estado,
+        prioridad: resultado.incidente.prioridad,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
+
+    if (resultado.patrulla.id) {
+      notificarPatrullaActualizada({
+        patrullaId: resultado.patrulla.id,
+        nombre: resultado.patrulla.nombre,
+        estado: resultado.patrulla.estado,
+        delegacionId: resultado.patrulla.delegacionId ?? null,
+        usuarioLiderId: resultado.patrulla.usuarioLiderId ?? null,
+        misionActivaId: null,
+        incidenteId: null,
+        actualizadoEn: new Date().toISOString(),
+      });
+    }
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras rechazar misión:", error);
+  }
+
+  return {
+    message:
+      "Misión rechazada exitosamente. El incidente ha vuelto a estado REPORTADO para su reasignación.",
     data: {
       mision: resultado.mision,
       patrulla: resultado.patrulla,

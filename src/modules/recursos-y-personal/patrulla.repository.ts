@@ -102,14 +102,8 @@ export async function listarPatrullasRepo(filtros: ListarPatrullasQuery) {
     .executeTakeFirst();
   const total = conteoResult?.total ?? 0;
 
-  // 2. Obtener filas principales con Left Join a misión activa e incidente
-  const filas = await baseQuery
-    .leftJoin("mision as m", (join) =>
-      join
-        .onRef("m.patrulla_id", "=", "pv.id")
-        .on("m.estado", "in", ["PLANIFICADA", "DESPACHADA", "EN_CURSO"])
-    )
-    .leftJoin("incidente as inc", "inc.id", "m.incidente_id")
+  // 2. Obtener filas principales sin join 1:N de misiones para evitar duplicados y preservar paginación exacta
+  const patrullasBase = await baseQuery
     .select([
       "pv.id as patrulla_id",
       "pv.codigo as patrulla_codigo",
@@ -132,17 +126,6 @@ export async function listarPatrullasRepo(filtros: ListarPatrullasQuery) {
       "u.email as lider_email",
       "u.telefono as lider_telefono",
       "u.rut as lider_rut",
-      "m.id as mision_id",
-      "m.codigo as mision_codigo",
-      "m.titulo as mision_titulo",
-      "m.tipo_mision as mision_tipo",
-      "m.estado as mision_estado",
-      "m.prioridad as mision_prioridad",
-      "inc.id as incidente_id",
-      "inc.codigo as incidente_codigo",
-      "inc.folio as incidente_folio",
-      "inc.tipo_afectacion as incidente_tipo_afectacion",
-      "inc.direccion_texto as incidente_direccion",
       "pv.activo as patrulla_activo",
       "pv.eliminado_en as patrulla_eliminado_en",
       "pv.eliminado_por_id as patrulla_eliminado_por_id",
@@ -152,11 +135,67 @@ export async function listarPatrullasRepo(filtros: ListarPatrullasQuery) {
     .offset(offset)
     .execute();
 
-  // 3. Obtener integrantes de terreno para las patrullas seleccionadas
-  const patrullaIds = filas.map((f) => f.patrulla_id);
+  // 3. Obtener la misión activa más reciente e integrantes de terreno para las patrullas seleccionadas
+  const patrullaIds = patrullasBase.map((f) => f.patrulla_id);
+  const misionActivaMap = new Map<
+    string,
+    {
+      mision_id: string;
+      mision_codigo: string;
+      mision_titulo: string;
+      mision_tipo: string;
+      mision_estado: string;
+      mision_prioridad: string;
+      incidente_id: string | null;
+      incidente_codigo: string | null;
+      incidente_folio: string | null;
+      incidente_tipo_afectacion: string | null;
+      incidente_direccion: string | null;
+    }
+  >();
   const integrantesMap = new Map<string, FilaIntegranteConsulta[]>();
 
   if (patrullaIds.length > 0) {
+    const misionesActivas = await db
+      .selectFrom("mision as m")
+      .leftJoin("incidente as inc", "inc.id", "m.incidente_id")
+      .where("m.patrulla_id", "in", patrullaIds)
+      .where("m.estado", "in", ["PLANIFICADA", "DESPACHADA", "EN_CURSO"])
+      .orderBy("m.creado_en", "desc")
+      .select([
+        "m.patrulla_id",
+        "m.id as mision_id",
+        "m.codigo as mision_codigo",
+        "m.titulo as mision_titulo",
+        "m.tipo_mision as mision_tipo",
+        "m.estado as mision_estado",
+        "m.prioridad as mision_prioridad",
+        "inc.id as incidente_id",
+        "inc.codigo as incidente_codigo",
+        "inc.folio as incidente_folio",
+        "inc.tipo_afectacion as incidente_tipo_afectacion",
+        "inc.direccion_texto as incidente_direccion",
+      ])
+      .execute();
+
+    for (const m of misionesActivas) {
+      if (m.patrulla_id && !misionActivaMap.has(m.patrulla_id)) {
+        misionActivaMap.set(m.patrulla_id, {
+          mision_id: m.mision_id,
+          mision_codigo: m.mision_codigo,
+          mision_titulo: m.mision_titulo,
+          mision_tipo: m.mision_tipo,
+          mision_estado: m.mision_estado,
+          mision_prioridad: m.mision_prioridad,
+          incidente_id: m.incidente_id,
+          incidente_codigo: m.incidente_codigo,
+          incidente_folio: m.incidente_folio,
+          incidente_tipo_afectacion: m.incidente_tipo_afectacion,
+          incidente_direccion: m.incidente_direccion,
+        });
+      }
+    }
+
     try {
       const integrantes = await db
         .selectFrom("patrulla_personal as pp")
@@ -188,9 +227,40 @@ export async function listarPatrullasRepo(filtros: ListarPatrullasQuery) {
     }
   }
 
+  const filas: FilaPatrullaConsulta[] = patrullasBase.map((pv) => {
+    const mision = misionActivaMap.get(pv.patrulla_id);
+    return {
+      ...(pv as unknown as Omit<
+        FilaPatrullaConsulta,
+        | "mision_id"
+        | "mision_codigo"
+        | "mision_titulo"
+        | "mision_tipo"
+        | "mision_estado"
+        | "mision_prioridad"
+        | "incidente_id"
+        | "incidente_codigo"
+        | "incidente_folio"
+        | "incidente_tipo_afectacion"
+        | "incidente_direccion"
+      >),
+      mision_id: mision?.mision_id ?? null,
+      mision_codigo: mision?.mision_codigo ?? null,
+      mision_titulo: mision?.mision_titulo ?? null,
+      mision_tipo: mision?.mision_tipo ?? null,
+      mision_estado: mision?.mision_estado ?? null,
+      mision_prioridad: mision?.mision_prioridad ?? null,
+      incidente_id: mision?.incidente_id ?? null,
+      incidente_codigo: mision?.incidente_codigo ?? null,
+      incidente_folio: mision?.incidente_folio ?? null,
+      incidente_tipo_afectacion: mision?.incidente_tipo_afectacion ?? null,
+      incidente_direccion: mision?.incidente_direccion ?? null,
+    };
+  });
+
   return {
     total,
-    filas: filas as unknown as FilaPatrullaConsulta[],
+    filas,
     integrantesMap,
   };
 }

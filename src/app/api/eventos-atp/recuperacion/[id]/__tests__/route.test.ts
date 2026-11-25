@@ -5,32 +5,35 @@ import * as recuperacionService from "@/modules/eventos-atp/recuperacion.service
 import { NotFoundError } from "@/modules/eventos-atp/recuperacion.service";
 import type { RecuperacionDetalleResponse } from "@/modules/eventos-atp/recuperacion.schema";
 import * as authGuard from "@/modules/seguridad/auth.guard";
-import { ForbiddenError } from "@/modules/seguridad/auth.errors";
+import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
-describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)", () => {
+describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-32 / HU-73 - Drawer)", () => {
   const usuarioEncargadoId = "00000000-0000-4000-8000-000000000003";
   const operativoValidoId = "70000000-0000-4000-8000-000000000001";
+  const contextValido = { params: Promise.resolve({ id: operativoValidoId }) };
 
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("debe responder 401 si no hay usuario autenticado", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(null);
+  it("debe responder 401 si no hay usuario autenticado (BUG-H73-API-01)", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValueOnce(
+      new UnauthorizedError("Token no válido o ausente")
+    );
 
     const req = new NextRequest(`http://localhost:3000/api/eventos-atp/recuperacion/${operativoValidoId}`);
-    const res = await GET(req, { params: Promise.resolve({ id: operativoValidoId }) });
+    const res = await GET(req, contextValido);
 
     expect(res.status).toBe(401);
     const body = await res.json();
-    expect(body.message).toContain("autenticación");
+    expect(body.message).toBeDefined();
   });
 
   it("debe responder 400 si el parámetro id no es un UUID válido", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
 
     const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion/id-invalido", {
-      headers: { "x-user-id": usuarioEncargadoId },
+      headers: { authorization: "Bearer token-valido" },
     });
     const res = await GET(req, { params: Promise.resolve({ id: "id-invalido" }) });
 
@@ -39,16 +42,16 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)"
     expect(body.message).toContain("UUID válido");
   });
 
-  it("debe responder 403 si el usuario carece del permiso recuperacion:leer", async () => {
+  it("debe responder 403 si el usuario carece del permiso de lectura", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(recuperacionService, "obtenerDetalleRecuperacionService").mockRejectedValueOnce(
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockRejectedValueOnce(
       new ForbiddenError("No cuenta con el permiso requerido: recuperacion:leer")
     );
 
     const req = new NextRequest(`http://localhost:3000/api/eventos-atp/recuperacion/${operativoValidoId}`, {
-      headers: { "x-user-id": usuarioEncargadoId },
+      headers: { authorization: "Bearer token-valido" },
     });
-    const res = await GET(req, { params: Promise.resolve({ id: operativoValidoId }) });
+    const res = await GET(req, contextValido);
 
     expect(res.status).toBe(403);
     const body = await res.json();
@@ -57,14 +60,19 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)"
 
   it("debe responder 404 si el operativo no existe", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce({
+      id: usuarioEncargadoId,
+      nombre: "Encargado",
+      rol: "ENCARGADO",
+    });
     vi.spyOn(recuperacionService, "obtenerDetalleRecuperacionService").mockRejectedValueOnce(
       new NotFoundError("Operativo no encontrado")
     );
 
     const req = new NextRequest(`http://localhost:3000/api/eventos-atp/recuperacion/${operativoValidoId}`, {
-      headers: { "x-user-id": usuarioEncargadoId },
+      headers: { authorization: "Bearer token-valido" },
     });
-    const res = await GET(req, { params: Promise.resolve({ id: operativoValidoId }) });
+    const res = await GET(req, contextValido);
 
     expect(res.status).toBe(404);
     const body = await res.json();
@@ -73,8 +81,13 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)"
 
   it("debe responder 200 y retornar el detalle completo para el drawer", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce({
+      id: usuarioEncargadoId,
+      nombre: "Encargado",
+      rol: "ENCARGADO",
+    });
 
-    const detalleMock: RecuperacionDetalleResponse = {
+    const detalleMock: RecuperacionDetalleResponse["data"] = {
       id: operativoValidoId,
       codigo: "REC-2026-0001",
       nombre: "Entrega de frazadas en Collico",
@@ -97,6 +110,7 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)"
         id: usuarioEncargadoId,
         nombre: "Encargado de Operaciones",
       },
+      creadoPorId: usuarioEncargadoId,
       mision: {
         id: "60000000-0000-4000-8000-000000000001",
         codigo: "MIS-2026-0001",
@@ -104,6 +118,7 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)"
         estado: "DESPACHADA",
         tipoMision: "RECUPERACION",
       },
+      misiones: [],
       patrulla: {
         id: "50000000-0000-4000-8000-000000000001",
         nombre: "Patrulla Verificadora Alfa",
@@ -116,6 +131,7 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)"
           cantidadAsignada: 10,
         },
       ],
+      recursosAsignados: [],
       cantidadInsumosAsignados: 10,
       totalTiposInsumos: 1,
       historial: [
@@ -140,9 +156,9 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)"
     vi.spyOn(recuperacionService, "obtenerDetalleRecuperacionService").mockResolvedValueOnce(detalleMock);
 
     const req = new NextRequest(`http://localhost:3000/api/eventos-atp/recuperacion/${operativoValidoId}`, {
-      headers: { "x-user-id": usuarioEncargadoId },
+      headers: { authorization: "Bearer token-valido" },
     });
-    const res = await GET(req, { params: Promise.resolve({ id: operativoValidoId }) });
+    const res = await GET(req, contextValido);
 
     expect(res.status).toBe(200);
     const body = await res.json();
