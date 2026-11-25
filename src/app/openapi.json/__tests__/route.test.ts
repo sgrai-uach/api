@@ -21,6 +21,14 @@ describe("Endpoint GET /openapi.json", () => {
     // Rutas de Geolocalización y Telemetría (HU-70)
     expect(spec.paths["/api/geolocalizacion/posiciones"]).toBeDefined();
     expect(spec.paths["/api/geolocalizacion/posiciones"].get).toBeDefined();
+    expect(spec.paths["/api/geolocalizacion/posiciones"].get.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(spec.paths["/api/geolocalizacion/posiciones"].get.responses["400"]).toBeDefined();
+    expect(spec.paths["/api/geolocalizacion/posiciones"].get.responses["403"]).toBeDefined();
+    expect(spec.components.schemas.TelemetriaPosicionPayload).toBeDefined();
+    expect(spec.components.schemas.PosicionUnidadActiva).toBeDefined();
+    expect(spec.components.schemas.PosicionesActivasResponse).toBeDefined();
 
     // Rutas de Patrullas Verificadoras (HU-16, HU-84, HU-85)
     expect(spec.paths["/api/patrullas"]).toBeDefined();
