@@ -16,6 +16,7 @@ export const PERMISO_ASIGNAR_MISION = "misiones:asignar";
 export const PERMISO_CREAR_RECUPERACION = "recuperacion:crear";
 export const PERMISO_CREAR_ASISTENCIA_SOCIAL = "asistencia_social:crear";
 export const PERMISO_LEER_ASISTENCIA_SOCIAL = "asistencia_social:leer";
+export const PERMISO_GESTIONAR_FIBE = "asistencia_social:fibe:gestionar";
 export const PERMISO_CREAR_EVENTO_PREVENCION = "prevencion:eventos:crear";
 export const PERMISO_CREAR_EVENTO_ATP = "eventos_atp:crear";
 export const PERMISO_LEER_PERSONAL = "personal:leer";
