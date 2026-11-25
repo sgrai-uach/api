@@ -64,6 +64,11 @@ export interface FilaEventoAsistenciaSocialConRelaciones {
   asistente_social_id: string | null;
   asistente_social_nombre: string | null;
   detalles_evaluacion?: Record<string, unknown> | string | null;
+  folio_fibe?: string | null;
+  nivel_dano_vivienda?: string | null;
+  observaciones_fibe?: string | null;
+  fibe_registrada_en?: Date | string | null;
+  fibe_registrada_por_id?: string | null;
   creado_por_id: string;
   creado_por_nombre: string | null;
   creado_en: Date;
@@ -115,6 +120,11 @@ function consultarEventoConRelacionesBase(executor: DbExecutor) {
       "evento_asistencia_social.asistente_social_id",
       "asistente.nombre as asistente_social_nombre",
       "evento_asistencia_social.detalles_evaluacion",
+      "evento_asistencia_social.folio_fibe",
+      "evento_asistencia_social.nivel_dano_vivienda",
+      "evento_asistencia_social.observaciones_fibe",
+      "evento_asistencia_social.fibe_registrada_en",
+      "evento_asistencia_social.fibe_registrada_por_id",
       "evento_asistencia_social.creado_por_id",
       "creador.nombre as creado_por_nombre",
       "evento_asistencia_social.creado_en",
@@ -1165,6 +1175,227 @@ export async function derivarIncidenteAAsistenciaSocialRepo(
         ),
         actualizado_en: incidenteActualizado?.actualizado_en ?? new Date(),
       },
+    };
+  });
+}
+
+export interface DatosRegistrarFichaFibeRepo {
+  eventoId: string;
+  folioFibe: string;
+  personasAfectadas?: number;
+  nivelDanoVivienda?: NivelCompromisoVivienda;
+  observacionesSociales?: string | null;
+  usuarioId: string;
+}
+
+export type ResultadoRegistrarFichaFibeRepo =
+  | {
+      ok: true;
+      evento: FilaEventoAsistenciaSocialConRelaciones;
+    }
+  | {
+      ok: false;
+      motivo: "EVENTO_NO_ENCONTRADO" | "ESTADO_INVALIDO" | "FOLIO_DUPLICADO";
+      detalle: string;
+    };
+
+const NIVELES_DANO_VALIDOS = new Set<string>([
+  "SIN_DANO",
+  "LEVE",
+  "MODERADO",
+  "GRAVE_INHABITABLE",
+]);
+
+function extraerNivelCompromisoDesdeDetalles(
+  raw: Record<string, unknown> | string | null | undefined
+): NivelCompromisoVivienda | null {
+  if (!raw) return null;
+  let obj: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+    return null;
+  }
+  const nivel = (obj as Record<string, unknown>).nivelCompromisoVivienda;
+  if (typeof nivel === "string" && NIVELES_DANO_VALIDOS.has(nivel)) {
+    return nivel as NivelCompromisoVivienda;
+  }
+  return null;
+}
+
+function esErrorUnicidadFolioFibe(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const err = error as { code?: string; constraint?: string; message?: string };
+  if (err.code !== "23505") return false;
+  if (!err.constraint && !err.message) return true;
+  return (
+    err.constraint?.includes("folio_fibe") ||
+    err.message?.includes("folio_fibe") ||
+    false
+  );
+}
+
+/**
+ * Registra o actualiza los datos oficiales de la Ficha Básica de Emergencia (FIBE)
+ * sobre un evento de asistencia social en estado ASIGNADO o EN_EVALUACION_FIBE (HU-71).
+ */
+export async function registrarFichaFibeRepo(
+  input: DatosRegistrarFichaFibeRepo
+): Promise<ResultadoRegistrarFichaFibeRepo> {
+  return await db.transaction().execute(async (trx) => {
+    const evento = await trx
+      .selectFrom("evento_asistencia_social")
+      .select([
+        "id",
+        "codigo",
+        "estado",
+        "personas_afectadas",
+        "nivel_dano_vivienda",
+        "observaciones_fibe",
+        "detalles_evaluacion",
+        "incidente_id",
+        "latitud",
+        "longitud",
+        "fibe_registrada_en",
+        "fibe_registrada_por_id",
+      ])
+      .where("id", "=", input.eventoId)
+      .where("eliminado_en", "is", null)
+      .forUpdate()
+      .executeTakeFirst();
+
+    if (!evento) {
+      return {
+        ok: false,
+        motivo: "EVENTO_NO_ENCONTRADO",
+        detalle: "El evento de asistencia social especificado no existe.",
+      };
+    }
+
+    if (evento.estado !== "ASIGNADO" && evento.estado !== "EN_EVALUACION_FIBE") {
+      return {
+        ok: false,
+        motivo: "ESTADO_INVALIDO",
+        detalle: `No se puede registrar la Ficha FIBE porque el evento se encuentra en estado ${evento.estado}. Debe estar en ASIGNADO o EN_EVALUACION_FIBE.`,
+      };
+    }
+
+    const folioNormalizado = input.folioFibe.trim().toUpperCase();
+
+    const duplicado = await trx
+      .selectFrom("evento_asistencia_social")
+      .select(["id", "codigo"])
+      .where(sql<boolean>`UPPER(TRIM(folio_fibe)) = ${folioNormalizado}`)
+      .where("id", "<>", input.eventoId)
+      .where("eliminado_en", "is", null)
+      .executeTakeFirst();
+
+    if (duplicado) {
+      return {
+        ok: false,
+        motivo: "FOLIO_DUPLICADO",
+        detalle: `El folio FIBE ${folioNormalizado} ya se encuentra registrado en otro expediente (${duplicado.codigo}).`,
+      };
+    }
+
+    const personasFinal =
+      input.personasAfectadas !== undefined
+        ? Math.trunc(input.personasAfectadas)
+        : Number(evento.personas_afectadas ?? 0);
+
+    const nivelDanoFinal =
+      input.nivelDanoVivienda ??
+      (evento.nivel_dano_vivienda as NivelCompromisoVivienda | null) ??
+      extraerNivelCompromisoDesdeDetalles(evento.detalles_evaluacion) ??
+      null;
+
+    const observacionesFinal =
+      input.observacionesSociales !== undefined
+        ? input.observacionesSociales?.trim() || null
+        : (evento.observaciones_fibe ?? null);
+
+    try {
+      await trx
+        .updateTable("evento_asistencia_social")
+        .set({
+          folio_fibe: folioNormalizado,
+          personas_afectadas: personasFinal,
+          nivel_dano_vivienda: nivelDanoFinal,
+          observaciones_fibe: observacionesFinal,
+          estado: "EN_EVALUACION_FIBE",
+          ...(evento.fibe_registrada_en
+            ? {}
+            : { fibe_registrada_en: sql`CURRENT_TIMESTAMP` as unknown as Date }),
+          ...(evento.fibe_registrada_por_id
+            ? {}
+            : { fibe_registrada_por_id: input.usuarioId }),
+          actualizado_en: sql`CURRENT_TIMESTAMP` as unknown as Date,
+          actualizado_por_id: input.usuarioId,
+        })
+        .where("id", "=", input.eventoId)
+        .execute();
+    } catch (error) {
+      if (esErrorUnicidadFolioFibe(error)) {
+        return {
+          ok: false,
+          motivo: "FOLIO_DUPLICADO",
+          detalle: `El folio FIBE ${folioNormalizado} ya se encuentra registrado en otro expediente.`,
+        };
+      }
+      throw error;
+    }
+
+    if (evento.incidente_id) {
+      const misionesIncidente = await trx
+        .selectFrom("mision")
+        .select(["id", "codigo", "tipo_mision", "estado", "fecha_cierre", "creado_en"])
+        .where("incidente_id", "=", evento.incidente_id)
+        .execute();
+
+      const misionObjetivo = seleccionarMisionParaHitoDerivacion(misionesIncidente);
+      if (misionObjetivo) {
+        const metadatosHito = {
+          eventoAsistenciaSocialId: evento.id,
+          eventoAsistenciaSocialCodigo: evento.codigo,
+          folioFibe: folioNormalizado,
+          personasAfectadas: personasFinal,
+          nivelDanoVivienda: nivelDanoFinal,
+        };
+
+        await trx
+          .insertInto("mision_hito")
+          .values({
+            mision_id: misionObjetivo.id,
+            hito: "REGISTRO_FICHA_FIBE",
+            descripcion: `Ficha FIBE ${folioNormalizado} registrada en expediente ${evento.codigo} (integrantes evaluados: ${personasFinal}).`,
+            registrado_por_id: input.usuarioId,
+            latitud: evento.latitud,
+            longitud: evento.longitud,
+            metadatos: JSON.stringify(metadatosHito),
+          })
+          .execute();
+      }
+    }
+
+    const eventoActualizado = await consultarEventoConRelacionesBase(trx)
+      .where("evento_asistencia_social.id", "=", input.eventoId)
+      .where("evento_asistencia_social.eliminado_en", "is", null)
+      .executeTakeFirst();
+
+    if (!eventoActualizado) {
+      throw new Error(
+        "No se pudo recuperar el evento de asistencia social tras registrar la Ficha FIBE."
+      );
+    }
+
+    return {
+      ok: true,
+      evento: eventoActualizado as unknown as FilaEventoAsistenciaSocialConRelaciones,
     };
   });
 }

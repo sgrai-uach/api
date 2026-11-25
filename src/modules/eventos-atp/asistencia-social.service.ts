@@ -2,6 +2,7 @@ import { verificarPermiso } from "@/modules/seguridad/auth.service";
 import {
   PERMISO_CREAR_ASISTENCIA_SOCIAL,
   PERMISO_LEER_ASISTENCIA_SOCIAL,
+  PERMISO_GESTIONAR_FIBE,
 } from "@/modules/seguridad/permisos.constants";
 import {
   emitirAsistenciaSocialCreada,
@@ -15,6 +16,7 @@ import {
   contarEventosAsistenciaSocial,
   asignarAsistenteSocialEventoRepo,
   derivarIncidenteAAsistenciaSocialRepo,
+  registrarFichaFibeRepo,
   AsistenteSocialRepoError,
   type FilaEventoAsistenciaSocialConRelaciones,
   type DatosInsertarEventoAsistenciaSocialRepo,
@@ -24,18 +26,21 @@ import {
   ListarEventosAsistenciaSocialQuerySchema,
   AsignarAsistenteSocialInputSchema,
   DerivarAsistenciaSocialIncidenteInputSchema,
+  RegistrarFichaFibeInputSchema,
   DetallesEvaluacionSocialSchema,
   type CrearEventoAsistenciaSocialInput,
   type ListarEventosAsistenciaSocialQuery,
   type AsignarAsistenteSocialInput,
   type DerivarAsistenciaSocialIncidenteInput,
   type DerivarAsistenciaSocialIncidenteResponse,
+  type RegistrarFichaFibeInput,
   type EventoAsistenciaSocialResponse,
   type ListarEventosAsistenciaSocialResponse,
   type PrioridadEventoAsistenciaSocial,
   type EstadoEventoAsistenciaSocial,
   type DetallesEvaluacionSocial,
   type FamiliaAfectadaSocial,
+  type NivelCompromisoViviendaSocial,
 } from "./asistencia-social.schema";
 import { extraerContactoPrincipalDesdeFamilias } from "@/modules/shared/familia-afectada.schema";
 
@@ -89,6 +94,15 @@ export class EventoAsistenciaSocialEnProcesoError extends Error {
   ) {
     super(message);
     this.name = "EventoAsistenciaSocialEnProcesoError";
+  }
+}
+
+export class FolioFibeDuplicadoError extends Error {
+  constructor(
+    message = "El folio oficial de Ficha FIBE ya se encuentra registrado en otro expediente."
+  ) {
+    super(message);
+    this.name = "FolioFibeDuplicadoError";
   }
 }
 
@@ -285,6 +299,28 @@ export function mapearFilaEventoAsistenciaSocial(
     asistenteSocialId: fila.asistente_social_id ?? null,
     asistenteSocialNombre: fila.asistente_social_nombre ?? null,
     detallesEvaluacion: parsearDetallesEvaluacionFila(fila.detalles_evaluacion),
+    ...(fila.folio_fibe !== undefined ? { folioFibe: fila.folio_fibe ?? null } : {}),
+    ...(fila.nivel_dano_vivienda !== undefined
+      ? {
+          nivelDanoVivienda:
+            (fila.nivel_dano_vivienda as NivelCompromisoViviendaSocial | null) ?? null,
+        }
+      : {}),
+    ...(fila.observaciones_fibe !== undefined
+      ? { observacionesFibe: fila.observaciones_fibe ?? null }
+      : {}),
+    ...(fila.fibe_registrada_en !== undefined
+      ? {
+          fibeRegistradaEn: fila.fibe_registrada_en
+            ? fila.fibe_registrada_en instanceof Date
+              ? fila.fibe_registrada_en.toISOString()
+              : new Date(fila.fibe_registrada_en).toISOString()
+            : null,
+        }
+      : {}),
+    ...(fila.fibe_registrada_por_id !== undefined
+      ? { fibeRegistradaPorId: fila.fibe_registrada_por_id ?? null }
+      : {}),
     creadoPor: {
       id: fila.creado_por_id,
       nombre: fila.creado_por_nombre ?? "Encargado de Operaciones",
@@ -583,4 +619,51 @@ export async function derivarIncidenteAAsistenciaSocialService(
     data: eventoDto,
     hito: hitoDto,
   };
+}
+
+/**
+ * Servicio para registrar o actualizar los datos oficiales de la Ficha Básica de Emergencia (FIBE)
+ * de un caso de asistencia social (HU-71).
+ * - Exige permiso RBAC `asistencia_social:fibe:gestionar`.
+ * - Valida unicidad de `folio_fibe` y transiciona el estado a `EN_EVALUACION_FIBE`.
+ * - Emite evento WebSocket `asistencia_social:actualizada`.
+ */
+export async function registrarFichaFibeService(
+  eventoId: string,
+  input: RegistrarFichaFibeInput,
+  usuarioId: string
+): Promise<EventoAsistenciaSocialResponse> {
+  // 1. Control de Acceso RBAC: Requiere permiso asistencia_social:fibe:gestionar
+  const usuario = await verificarPermiso(usuarioId, PERMISO_GESTIONAR_FIBE);
+
+  // 2. Validar payload de entrada
+  const datosValidados = RegistrarFichaFibeInputSchema.parse(input);
+
+  // 3. Ejecutar registro atómico en repositorio Kysely
+  const resultado = await registrarFichaFibeRepo({
+    eventoId,
+    folioFibe: datosValidados.folioFibe,
+    personasAfectadas: datosValidados.personasAfectadas,
+    nivelDanoVivienda: datosValidados.nivelDanoVivienda,
+    observacionesSociales: datosValidados.observacionesSociales,
+    usuarioId: usuario.id,
+  });
+
+  if (!resultado.ok) {
+    switch (resultado.motivo) {
+      case "EVENTO_NO_ENCONTRADO":
+        throw new EventoAsistenciaSocialNotFoundError(resultado.detalle);
+      case "ESTADO_INVALIDO":
+        throw new EstadoEventoAsistenciaSocialInvalidoError(resultado.detalle);
+      case "FOLIO_DUPLICADO":
+        throw new FolioFibeDuplicadoError(resultado.detalle);
+    }
+  }
+
+  const respuesta = mapearFilaEventoAsistenciaSocial(resultado.evento);
+
+  // 4. Emitir notificación WebSocket hacia salas correspondientes
+  emitirAsistenciaSocialActualizada(respuesta);
+
+  return respuesta;
 }
