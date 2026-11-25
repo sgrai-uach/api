@@ -69,6 +69,7 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
 | `PATCH` | `/api/eventos-atp/asistencia-social/{id}` | Asignar un asistente social disponible a un evento en estado `PENDIENTE`, transicionando atómicamente a `ASIGNADO` (H31). |
+| `PATCH` | `/api/eventos-atp/asistencia-social/{id}/fibe` | Registrar o actualizar los datos oficiales de la Ficha Básica de Emergencia (FIBE), validando unicidad de `folio_fibe` y transicionando a `EN_EVALUACION_FIBE` (HU-71). |
 | `POST` | `/api/incidentes/{id}/asistencia-social` | Derivar un incidente en estado `RESUELTO` con afectación de personas o marca social hacia Asistencia Social (DGRD / FIBE), asignando profesional en estado inicial `ASIGNADO` y registrando hito en `mision_hito` (HU-25). |
 | `POST` | `/api/eventos-atp` | Registrar el marco oficial de un Evento de Alerta Temprana Preventiva con alcance territorial, estado `ACTIVO` y notificación Socket.io (H61). |
 
@@ -1300,6 +1301,25 @@ Asigna formalmente un profesional con rol `ASISTENTE_SOCIAL` en estado operativo
 - `403 Forbidden`: El usuario no cuenta con el permiso `asistencia_social:crear`.
 - `404 Not Found`: El evento o el usuario asistente social no existe.
 - `409 Conflict`: El evento ya no está en estado `PENDIENTE`, o el usuario seleccionado no posee rol `ASISTENTE_SOCIAL` / no está en estado `disponible`.
+
+### Detalle de Endpoint: `PATCH /api/eventos-atp/asistencia-social/{id}/fibe` (HU-71)
+
+Permite al rol **Asistente Social** (o **Administrador**) registrar o actualizar la información oficial recopilada en terreno de la **Ficha Básica de Emergencia (FIBE)** para un caso social asignado, formalizando la evaluación de vulnerabilidad en la DGRD (DIDECO fuera de alcance).
+
+#### Reglas de Negocio Aplicadas
+1. **Control de Acceso RBAC:** Requiere el permiso `asistencia_social:fibe:gestionar` (asignado a `ASISTENTE_SOCIAL` y `ADMINISTRADOR`).
+2. **Estados Permitidos y Transición Atómica:** Mediante transacción PostgreSQL con bloqueo de fila (`FOR UPDATE`), exige que el evento esté en estado `ASIGNADO` o `EN_EVALUACION_FIBE`, actualizando su estado a `EN_EVALUACION_FIBE`.
+3. **Unicidad de Folio FIBE:** Normaliza `folioFibe` (`TRIM` + `UPPER`) y valida que no exista otro expediente activo (`eliminado_en IS NULL`) con el mismo folio, respaldado por el índice único parcial `uq_evento_asistencia_social_folio_fibe` (Migración `047`).
+4. **Reutilización de Datos Preliminares:** Si `personasAfectadas` o `nivelDanoVivienda` (`SIN_DANO`, `LEVE`, `MODERADO`, `GRAVE_INHABITABLE`) se omiten en la petición, el servidor conserva/reutiliza los valores previos del evento social (incluyendo `detalles_evaluacion.nivelCompromisoVivienda`). Si se envían, los actualiza con los datos confirmados en terreno.
+5. **Auditoría y Bitácora:** Registra `fibe_registrada_en`, `fibe_registrada_por_id`, `actualizado_en` y `actualizado_por_id` en `evento_asistencia_social`, y si el caso está vinculado a un incidente con misiones, inserta el hito `REGISTRO_FICHA_FIBE` en `mision_hito`.
+6. **Notificación en Tiempo Real:** Emite `asistencia_social:actualizada` vía Socket.io / Redis Pub/Sub.
+
+#### Errores Esperables
+- `400 Bad Request`: UUID inválido, `folioFibe` vacío/no alfanumérico o enum `nivelDanoVivienda` inválido.
+- `401 Unauthorized`: Ausencia de cabecera de autenticación.
+- `403 Forbidden`: El usuario no cuenta con el permiso `asistencia_social:fibe:gestionar`.
+- `404 Not Found`: El evento de asistencia social no existe o fue eliminado.
+- `409 Conflict`: El `folio_fibe` ya existe en otro expediente activo, o el evento está en un estado no editable (`PENDIENTE`, `FINALIZADO`, `DESCARTADO`).
 
 ### Catastro Preliminar por Familia, Coherencia Demográfica y Alcance frente a la FIBE
 
