@@ -85,17 +85,19 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
   - En `POST /api/incidentes/manual`: Se detectaron reportes similares en la zona (requiere confirmación `forzarCreacion: true`).
   - En `POST /api/incidentes/avisos/{id}/verificar` o `descartar`: El aviso ya fue gestionado concurrentemente por otro operador.
   - En `PATCH /api/incidentes/{id}/tipologia`: La patrulla debe haber aceptado la misión previamente (`estado = EN_CURSO`). Si la misión está en `DESPACHADA` o no existe misión de verificación para el incidente, se rechaza la operación.
+  - En `POST /api/incidentes/{id}/prioridad/calcular` y `PATCH /api/incidentes/{id}/prioridad`: El incidente está cerrado (`RESUELTO` / `NO_ABORDABLE`), no existe misión `VERIFICACION` `EN_CURSO` con `patrulla_id` asignada o la patrulla fue dada de baja.
 - **`400 Bad Request`:**
   - Cuerpo JSON inválido, datos requeridos ausentes, o motivo de descarte menor a 5 caracteres.
   - En `PATCH /api/incidentes/{id}/tipologia`: Justificación ausente o menor a 5 caracteres, o tipo de incidente inactivo en base de datos.
+  - En `PATCH /api/incidentes/{id}/prioridad`: La prioridad seleccionada difiere de la `prioridad_sugerida` calculada autoritativamente (incluyendo evaluación vía `familias` o `riesgosActivos`) sin `justificacion_prioridad` de al menos 5 caracteres.
 - **`401 Unauthorized`:**
-  - Cabecera `Authorization: Bearer <token>` o `X-User-Id` ausente o no registrada en el sistema.
+  - Cabecera `X-User-Id` ausente o no registrada en el sistema.
 - **`403 Forbidden`:**
   - El usuario no posee el rol ni permiso necesario para la operación solicitada (`misiones:terreno:verificar`).
-  - En `PATCH /api/incidentes/{id}/tipologia`: El funcionario autenticado no forma parte de la patrulla verificadora asignada a la misión.
+  - En `PATCH /api/incidentes/{id}/tipologia`, `POST /api/incidentes/{id}/prioridad/calcular` y `PATCH /api/incidentes/{id}/prioridad`: El funcionario autenticado no forma parte de la patrulla verificadora asignada a la misión.
 - **`404 Not Found`:**
   - No existe el recurso o código de seguimiento consultado.
-  - En `PATCH /api/incidentes/{id}/tipologia`: Incidente, tipo de incidente o misión especificada no existen.
+  - En `PATCH /api/incidentes/{id}/tipologia` y `/prioridad`: Incidente, tipo de incidente o misión especificada no existen.
 - **`500 Internal Server Error`:**
   - Error no controlado o fallo de conexión a la base de datos.
 
@@ -127,3 +129,16 @@ Documentación técnica de los endpoints, eventos en tiempo real y lógica de ne
       -H "X-User-Id: c1111111-1111-4111-8111-111111111111"
     ```
     *Respuesta esperada: HTTP 200 donde cada objeto retornado en `data` incluye el atributo `minutosEnEspera` (número entero $\ge 0$ calculado en tiempo real según la fecha de creación para alimentar el semáforo de urgencia del Call Center) y la propiedad `delegacionNombre: string | null` debidamente resuelta a partir de la relación territorial (`Norte`, `Sur`, `Costa`, `Calle Calle`).*
+
+14. **Pre-cálculo y asignación de prioridad en terreno (`200 OK` - HU-38):**
+    ```bash
+    curl -X POST "http://localhost:3000/api/incidentes/{id}/prioridad/calcular" \
+      -H "Authorization: Bearer <token_patrulla>" \
+      -H "Content-Type: application/json" \
+      -d '{"familias":[{"nucleoFamiliarTotal":3,"personasElectrodependientes":1}]}'
+
+    curl -X PATCH "http://localhost:3000/api/incidentes/{id}/prioridad" \
+      -H "Authorization: Bearer <token_patrulla>" \
+      -H "Content-Type: application/json" \
+      -d '{"prioridad":"ALTA","justificacion_prioridad":"Se estabilizó suministro de respaldo para paciente electrodependiente.","familias":[{"nucleoFamiliarTotal":3,"personasElectrodependientes":1}]}'
+    ```

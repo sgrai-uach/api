@@ -22,9 +22,16 @@ export class PrioridadService {
    */
   async calcularPrioridadSugerida(
     incidenteId: string,
-    input: CalcularPrioridadInput
+    input: CalcularPrioridadInput,
+    usuarioId?: string,
+    esAdmin = false
   ): Promise<CalcularPrioridadResponse> {
-    const data = await this.repo.calcularPrioridadPreliminar(incidenteId, input);
+    const data = await this.repo.calcularPrioridadPreliminar(
+      incidenteId,
+      input,
+      usuarioId,
+      esAdmin
+    );
 
     return {
       message:

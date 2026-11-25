@@ -1,16 +1,6 @@
 import { db } from "@/lib/db";
 import { sql } from "kysely";
 import type { ListarIncidentesQuery } from "./incidente-kanban.schema";
-import { asegurarColumnasHu38EnEsquema } from "./prioridad.repository";
-
-function esErrorColumnaInexistente(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code?: string }).code === "42703"
-  );
-}
 
 export interface FilaIncidenteResumen {
   id: string;
@@ -47,28 +37,6 @@ export interface FilaIncidenteResumen {
  * Consulta la lista paginada de incidentes con filtros opcionales para el tablero Kanban.
  */
 export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQuery) {
-  // Sincronización defensiva: garantizar consistencia operacional si un incidente
-  // posee una misión aceptada en terreno (EN_CURSO) pero persistía en REPORTADO
-  try {
-    await db
-      .updateTable("incidente")
-      .set({
-        estado: "VERIFICANDO",
-        actualizado_en: sql`CURRENT_TIMESTAMP`,
-      })
-      .where("estado", "=", "REPORTADO")
-      .where("id", "in", (eb) =>
-        eb
-          .selectFrom("mision")
-          .select("mision.incidente_id")
-          .where("mision.estado", "=", "EN_CURSO")
-          .where("mision.incidente_id", "is not", null)
-      )
-      .execute();
-  } catch {
-    // Si la base de datos o el mock no implementa updateTable en tests unitarios aislados, ignorar
-  }
-
   let consultaBase = db
     .selectFrom("incidente")
     .leftJoin("informante", "informante.id", "incidente.informante_id")
@@ -195,6 +163,13 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
         (eb) =>
           eb
             .selectFrom("mision")
+            .innerJoin("reporte_terreno", "reporte_terreno.mision_id", "mision.id")
+            .select(sql<number>`count(reporte_terreno.id)::int`.as("count"))
+            .whereRef("mision.incidente_id", "=", "incidente.id")
+            .as("total_reportes_terreno"),
+        (eb) =>
+          eb
+            .selectFrom("mision")
             .select(
               sql<boolean>`case when count(mision.id) > 0 then true else false end`.as(
                 "tiene_mision_despachada"
@@ -280,17 +255,7 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
       .offset(((filtros.page ?? 1) - 1) * (filtros.limit ?? 20))
       .execute();
 
-  let filas;
-  try {
-    filas = await ejecutarConsultaFilas();
-  } catch (err) {
-    if (esErrorColumnaInexistente(err)) {
-      await asegurarColumnasHu38EnEsquema();
-      filas = await ejecutarConsultaFilas();
-    } else {
-      throw err;
-    }
-  }
+  const filas = await ejecutarConsultaFilas();
 
   return {
     filas: filas as unknown as FilaIncidenteResumen[],
@@ -347,17 +312,7 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
       .where("incidente.id", "=", id)
       .executeTakeFirst();
 
-  let incidente;
-  try {
-    incidente = await ejecutarConsultaIncidente();
-  } catch (err) {
-    if (esErrorColumnaInexistente(err)) {
-      await asegurarColumnasHu38EnEsquema();
-      incidente = await ejecutarConsultaIncidente();
-    } else {
-      throw err;
-    }
-  }
+  const incidente = await ejecutarConsultaIncidente();
 
   if (!incidente) {
     return null;
@@ -563,17 +518,7 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
           .orderBy("reporte_terreno.creado_en", "desc")
           .execute();
 
-      let filasRep;
-      try {
-        filasRep = await ejecutarConsultaReportesInc();
-      } catch (err) {
-        if (esErrorColumnaInexistente(err)) {
-          await asegurarColumnasHu38EnEsquema();
-          filasRep = await ejecutarConsultaReportesInc();
-        } else {
-          throw err;
-        }
-      }
+      const filasRep = await ejecutarConsultaReportesInc();
 
       const repIds = filasRep.map((r) => r.id);
       let adjFilas: Array<{

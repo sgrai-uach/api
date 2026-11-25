@@ -163,7 +163,6 @@ export async function crearPuntoCritico(
   // 1. Control de Acceso RBAC: Requiere rol Administrador con permiso puntos_criticos:crear
   const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [
     PERMISO_CREAR_PUNTO_CRITICO,
-    "eventos_atp:crear",
   ]);
 
   // Validar y normalizar datos de entrada con el esquema Zod

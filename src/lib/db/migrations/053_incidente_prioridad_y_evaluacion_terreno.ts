@@ -44,9 +44,15 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_reporte_terreno_mision_version
     ON reporte_terreno (mision_id, version_reporte DESC);
   `.execute(db);
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_reporte_terreno_mision_version
+    ON reporte_terreno (mision_id, version_reporte);
+  `.execute(db);
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
+  await sql`DROP INDEX IF EXISTS uq_reporte_terreno_mision_version;`.execute(db);
   await sql`DROP INDEX IF EXISTS idx_reporte_terreno_mision_version;`.execute(db);
 
   await sql`

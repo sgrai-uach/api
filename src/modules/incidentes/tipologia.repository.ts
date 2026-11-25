@@ -109,18 +109,25 @@ export class TipologiaRepository {
         );
       }
 
-      // 2. Validar que el incidente exista
+      // 2. Validar que el incidente exista y bloquear fila para evitar condiciones de carrera
       const incidenteExistente = await trx
         .selectFrom("incidente")
         .select(["id", "codigo", "estado", "prioridad", "tipo_incidente_id", "tipo_afectacion"])
         .where("id", "=", incidenteId)
+        .forUpdate()
         .executeTakeFirst();
 
       if (!incidenteExistente) {
         throw new NotFoundError("No se encontró ningún incidente con el identificador proporcionado.");
       }
 
-      // 3. Buscar la misión asociada a este incidente
+      if (!["REPORTADO", "VERIFICANDO"].includes(incidenteExistente.estado.toUpperCase())) {
+        throw new ConflictError(
+          `El incidente se encuentra en estado '${incidenteExistente.estado}'. Solo se puede reclasificar la tipología de incidentes en estado REPORTADO o VERIFICANDO.`
+        );
+      }
+
+      // 3. Buscar la misión de verificación asociada a este incidente
       let queryMision = trx
         .selectFrom("mision")
         .leftJoin("patrulla_verificadora", "patrulla_verificadora.id", "mision.patrulla_id")
@@ -130,22 +137,28 @@ export class TipologiaRepository {
           "mision.estado",
           "mision.tipo_mision",
           "mision.patrulla_id",
+          "patrulla_verificadora.activo as patrulla_activo",
+          "patrulla_verificadora.eliminado_en as patrulla_eliminado_en",
           "patrulla_verificadora.usuario_lider_id as patrulla_lider_id",
         ])
-        .where("mision.incidente_id", "=", incidenteId);
+        .where("mision.incidente_id", "=", incidenteId)
+        .where("mision.tipo_mision", "=", "VERIFICACION");
 
       if (misionIdFiltro) {
         queryMision = queryMision.where("mision.id", "=", misionIdFiltro);
       }
 
-      const misiones = await queryMision.execute();
+      const misiones = await queryMision
+        .orderBy("mision.creado_en", "desc")
+        .forUpdate("mision")
+        .execute();
 
       if (misiones.length === 0) {
         if (misionIdFiltro) {
           throw new NotFoundError("La misión especificada no se encuentra asociada a este incidente.");
         }
         throw new ConflictError(
-          "No existe una misión operativa asociada a este incidente para registrar la evaluación de terreno."
+          "No existe una misión de verificación asociada a este incidente para registrar la evaluación de terreno."
         );
       }
 
@@ -165,8 +178,25 @@ export class TipologiaRepository {
         );
       }
 
+      // Validar que la misión tenga una patrulla verificadora asignada y activa
+      if (!misionSeleccionada.patrulla_id) {
+        throw new ConflictError(
+          "La misión de verificación no tiene una patrulla verificadora asignada."
+        );
+      }
+
+      if (
+        misionSeleccionada.patrulla_activo === false ||
+        (misionSeleccionada.patrulla_eliminado_en !== undefined &&
+          misionSeleccionada.patrulla_eliminado_en !== null)
+      ) {
+        throw new ConflictError(
+          "La patrulla verificadora asignada a la misión ha sido desactivada o dada de baja."
+        );
+      }
+
       // 4. Validar pertenencia del usuario a la patrulla asignada (salvo Administrador)
-      if (!esAdmin && misionSeleccionada.patrulla_id) {
+      if (!esAdmin) {
         const esLider = misionSeleccionada.patrulla_lider_id === usuarioId;
         if (!esLider) {
           const integrante = await trx

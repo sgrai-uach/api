@@ -5,18 +5,13 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "dev:next": "next dev",
-    "build": "next build",
+    "build": "node -e \"require('fs').rmSync('.next/dev',{recursive:true,force:true})\" && next build",
     "start": "NODE_ENV=production tsx src/server.ts",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx src/lib/db/migrator.ts",
-    "db:seed": "tsx src/lib/db/seed-kanban.ts",
-    "seed": "tsx scripts/seed.ts",
-    "seed:estados": "tsx scripts/seed-estados-incidentes.ts",
-    "seed:puntos-criticos": "tsx scripts/seed-puntos-criticos.ts",
-    "seed:patrullas": "tsx scripts/seed-patrullas.ts",
-    "seed:h21": "tsx scripts/seed-h21.ts"
+    "seed": "tsx scripts/seed/index.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
