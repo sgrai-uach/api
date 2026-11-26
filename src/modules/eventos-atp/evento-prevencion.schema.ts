@@ -1,11 +1,15 @@
 import { z } from "zod";
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import {
+  PaginationMetaSchema,
+  PaginationQuerySchema,
+} from "@/lib/shared/pagination.schema";
 
 extendZodWithOpenApi(z);
 
 export const EstadoEventoPrevencionSchema = z.enum([
   "PLANIFICADA",
-  "EN_CURSO",
+  "EN_EJECUCION",
   "COMPLETADA",
   "CANCELADA",
 ]);
@@ -176,3 +180,120 @@ export const CrearEventoPrevencionResponseSchema = z.object({
 });
 
 export type CrearEventoPrevencionResponse = z.infer<typeof CrearEventoPrevencionResponseSchema>;
+
+/**
+ * Parámetros de consulta para listado paginado de eventos de prevención bajo estándar H34 (H76).
+ */
+export const ListarEventosPrevencionQuerySchema = PaginationQuerySchema.extend({
+  delegacionId: z.string().uuid("El UUID de la delegación debe ser válido").optional().openapi({
+    description: "Filtrar por UUID de delegación municipal asignada",
+    example: "30000000-0000-4000-8000-000000000001",
+  }),
+  estado: EstadoEventoPrevencionSchema.optional().openapi({
+    description: "Filtrar por estado operativo del evento preventivo",
+    example: "PLANIFICADA",
+  }),
+  busqueda: z.string().trim().optional().openapi({
+    description: "Búsqueda textual insensible a mayúsculas por código, nombre, sector o punto crítico asociado",
+    example: "Angachilla",
+  }),
+});
+
+export type ListarEventosPrevencionQuery = z.infer<typeof ListarEventosPrevencionQuerySchema>;
+
+/**
+ * Geometría GeoJSON Point (EPSG:4326) para coordenadas PostGIS.
+ */
+export const GeoJsonPointSchema = z
+  .object({
+    type: z.literal("Point"),
+    coordinates: z.tuple([z.number(), z.number()]),
+  })
+  .openapi({
+    description: "Geometría PostGIS Point en formato GeoJSON (EPSG:4326)",
+    example: { type: "Point", coordinates: [-73.2389, -39.8456] },
+  });
+
+/**
+ * Detalle georreferenciado PostGIS del punto crítico asociado para el drawer lateral (H76).
+ */
+export const PuntoCriticoDetallePrevencionSchema = z.object({
+  id: z.string().uuid(),
+  codigo: z.string().openapi({ example: "PC-VAL-001" }),
+  nombre: z.string().openapi({ example: "Colector Humedal Angachilla" }),
+  descripcion: z.string().nullable().openapi({ example: "Zona baja propensa a anegamiento por lluvias" }),
+  tipoRiesgo: z.string().nullable().openapi({ example: "Inundación" }),
+  prioridad: PrioridadEventoPrevencionSchema.openapi({ example: "ALTA" }),
+  latitud: z.number().openapi({ example: -39.8456 }),
+  longitud: z.number().openapi({ example: -73.2389 }),
+  ubicacionGeoJson: GeoJsonPointSchema.nullable().openapi({
+    description: "Geometría PostGIS Point en formato GeoJSON (EPSG:4326)",
+    example: { type: "Point", coordinates: [-73.2389, -39.8456] },
+  }),
+});
+
+/**
+ * Resumen de la misión táctica en el listado de prevención (H76).
+ */
+export const MisionPrevencionListadoResumenSchema = MisionPrevencionResumenSchema.extend({
+  fechaInicio: z.string().nullable().openapi({ description: "Fecha de inicio de la misión (ISO 8601)" }),
+  fechaCierre: z.string().nullable().openapi({ description: "Fecha de cierre de la misión (ISO 8601)" }),
+});
+
+/**
+ * Resumen de cuadrilla operativa asignada (si aplica).
+ */
+export const CuadrillaAsignadaPrevencionResumenSchema = z.object({
+  id: z.string().uuid().openapi({ example: "70000000-0000-4000-8000-000000000001" }),
+  nombre: z.string().openapi({ example: "Cuadrilla Mitigación Sur" }),
+  estado: z.string().openapi({ example: "EN_MISION" }),
+});
+
+/**
+ * Ítem del listado paginado de eventos de prevención (H76).
+ */
+export const EventoPrevencionListadoItemSchema = z.object({
+  id: z.string().uuid(),
+  codigo: z.string().openapi({ example: "PREV-2026-0001" }),
+  nombre: z.string().openapi({ example: "Limpieza de sumideros en Angachilla" }),
+  descripcion: z.string(),
+  sector: z.string().nullable(),
+  direccionTexto: z.string().nullable(),
+  prioridad: PrioridadEventoPrevencionSchema,
+  estado: EstadoEventoPrevencionSchema,
+  latitud: z.number(),
+  longitud: z.number(),
+  ubicacionGeoJson: GeoJsonPointSchema.nullable().openapi({
+    description: "Geometría PostGIS Point del evento en formato GeoJSON (EPSG:4326)",
+  }),
+  puntoCritico: PuntoCriticoDetallePrevencionSchema.nullable().openapi({
+    description: "Detalle completo y PostGIS del punto crítico asociado (si existe)",
+  }),
+  delegacion: z
+    .object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      nombre: z.string(),
+    })
+    .nullable(),
+  mision: MisionPrevencionListadoResumenSchema.nullable(),
+  patrulla: PatrullaAsignadaPrevencionResumenSchema.nullable(),
+  cuadrilla: CuadrillaAsignadaPrevencionResumenSchema.nullable(),
+  recursos: z.array(RecursoAsignadoPrevencionResponseSchema),
+  creadoPorId: z.string().uuid(),
+  creadoEn: z.string(),
+  actualizadoEn: z.string(),
+});
+
+export type EventoPrevencionListadoItem = z.infer<typeof EventoPrevencionListadoItemSchema>;
+
+/**
+ * Respuesta HTTP 200 OK estándar H34 para GET /api/eventos-atp/prevencion (H76).
+ */
+export const ListarEventosPrevencionResponseSchema = z.object({
+  message: z.string().openapi({ example: "Eventos de prevención obtenidos exitosamente." }),
+  data: z.array(EventoPrevencionListadoItemSchema),
+  meta: PaginationMetaSchema,
+});
+
+export type ListarEventosPrevencionResponse = z.infer<typeof ListarEventosPrevencionResponseSchema>;

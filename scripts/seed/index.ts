@@ -4,6 +4,7 @@ import { sembrarDatosKanban } from "../../src/lib/db/seed-kanban";
 import { sembrarEstadosIncidentes } from "../seed-estados-incidentes";
 import { sembrarPuntosCriticos } from "../seed-puntos-criticos";
 import { sembrarEventosRecuperacion } from "../seed-recuperacion";
+import { sembrarEventosPrevencion } from "../seed-eventos-prevencion";
 import { sembrarFixtureH21 } from "../seed-h21";
 import { sembrarFixtureH38 } from "./h38";
 import { sembrarFixtureH41 } from "./h41";
@@ -53,6 +54,11 @@ const MODULES: SeedModule[] = [
     id: "recuperacion",
     descripcion: "Eventos de recuperación, misiones e insumos asociados",
     run: () => sembrarEventosRecuperacion(),
+  },
+  {
+    id: "eventos-prevencion",
+    descripcion: "Eventos de prevención en puntos críticos y misiones preventivas (H76)",
+    run: () => sembrarEventosPrevencion(),
   },
   {
     id: "h21",

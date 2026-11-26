@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { POST } from "../route";
+import { POST, GET } from "../route";
 import * as eventoPrevencionService from "@/modules/eventos-atp/evento-prevencion.service";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import { seguridadService } from "@/modules/seguridad/service";
@@ -270,5 +270,192 @@ describe("Route Handlers /api/eventos-atp/prevencion (HU-30)", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.message).toContain("Error interno del servidor");
+  });
+});
+
+describe("Route Handler GET /api/eventos-atp/prevencion (H76 - Estándar H34)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("debe retornar 401 si no se envía cabecera de autenticación", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValueOnce(
+      new UnauthorizedError("Se requiere token Bearer o cabecera X-User-Id.")
+    );
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp/prevencion");
+    const res = await GET(req);
+    expect(res.status).toBe(401);
+  });
+
+  it("debe retornar 403 con mensaje explícito si el usuario no tiene el permiso prevencion:eventos:leer", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(
+      "00000000-0000-4000-8000-000000000099"
+    );
+    const spyValidar = vi
+      .spyOn(seguridadService, "validarAccesoRoles")
+      .mockRejectedValueOnce(
+        new ForbiddenError("Acceso denegado. Se requiere el permiso 'prevencion:eventos:leer'.")
+      );
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp/prevencion", {
+      headers: { authorization: "Bearer valid-token" },
+    });
+    const res = await GET(req);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.message).toContain("prevencion:eventos:leer");
+    expect(spyValidar).toHaveBeenCalledWith(
+      "00000000-0000-4000-8000-000000000099",
+      ["prevencion:eventos:leer"],
+      "Acceso denegado. Se requiere el permiso 'prevencion:eventos:leer'."
+    );
+  });
+
+  it("debe ignorar query params opcionales vacíos (?delegacionId=&estado=) y retornar 200 OK", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(
+      "00000000-0000-4000-8000-000000000001"
+    );
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({} as any);
+    const spyListar = vi
+      .spyOn(eventoPrevencionService, "listarEventosPrevencionService")
+      .mockResolvedValueOnce({
+        message: "Eventos de prevención obtenidos exitosamente.",
+        data: [],
+        meta: {
+          total: 0,
+          page: 1,
+          limit: 20,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false,
+        },
+      });
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp/prevencion?delegacionId=&estado=&busqueda=%20%20",
+      { headers: { authorization: "Bearer valid-token" } }
+    );
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    expect(spyListar).toHaveBeenCalledWith({ page: 1, limit: 20 });
+  });
+
+  it("debe retornar 400 si delegacionId o estado son inválidos", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(
+      "00000000-0000-4000-8000-000000000001"
+    );
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({} as any);
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp/prevencion?delegacionId=invalido&estado=NO_EXISTE",
+      { headers: { authorization: "Bearer valid-token" } }
+    );
+    const res = await GET(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.errors).toBeDefined();
+    expect(body.errors.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("debe retornar 200 con listado paginado estándar H34 y filtros aplicados", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(
+      "00000000-0000-4000-8000-000000000001"
+    );
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({} as any);
+
+    const respuestaMock = {
+      message: "Eventos de prevención obtenidos exitosamente.",
+      data: [
+        {
+          id: "80000000-0000-4000-8000-000000000001",
+          codigo: "PREV-2026-0001",
+          nombre: "Limpieza de sumideros en Angachilla",
+          descripcion: "Despeje preventivo de rejillas",
+          sector: "Humedal Angachilla",
+          direccionTexto: "Av. Simpson s/n",
+          prioridad: "ALTA" as const,
+          estado: "EN_EJECUCION" as const,
+          latitud: -39.8456,
+          longitud: -73.2389,
+          ubicacionGeoJson: {
+            type: "Point" as const,
+            coordinates: [-73.2389, -39.8456] as [number, number],
+          },
+          puntoCritico: {
+            id: "40000000-0000-4000-8000-000000000001",
+            codigo: "PC-SUR-001",
+            nombre: "Colector Angachilla",
+            descripcion: "Punto crítico de anegamiento",
+            tipoRiesgo: "Inundación",
+            prioridad: "ALTA" as const,
+            latitud: -39.8456,
+            longitud: -73.2389,
+            ubicacionGeoJson: {
+              type: "Point" as const,
+              coordinates: [-73.2389, -39.8456] as [number, number],
+            },
+          },
+          delegacion: {
+            id: "30000000-0000-4000-8000-000000000002",
+            codigo: "SUR",
+            nombre: "Delegación Municipal Sur",
+          },
+          mision: {
+            id: "60000000-0000-4000-8000-000000000001",
+            codigo: "MIS-2026-0010",
+            titulo: "Limpieza de sumideros en Angachilla",
+            estado: "EN_CURSO",
+            tipoMision: "PREVENCION",
+            fechaInicio: "2026-11-19T01:00:00.000Z",
+            fechaCierre: null,
+          },
+          patrulla: {
+            id: "50000000-0000-4000-8000-000000000001",
+            nombre: "Patrulla Sur 1",
+            estado: "EN_PREVENCION",
+          },
+          cuadrilla: null,
+          recursos: [],
+          creadoPorId: "00000000-0000-4000-8000-000000000001",
+          creadoEn: "2026-11-19T00:00:00.000Z",
+          actualizadoEn: "2026-11-19T01:00:00.000Z",
+        },
+      ],
+      meta: {
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+        hasNext: false,
+        hasPrev: false,
+      },
+    };
+
+    const spyListar = vi
+      .spyOn(eventoPrevencionService, "listarEventosPrevencionService")
+      .mockResolvedValueOnce(respuestaMock);
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp/prevencion?page=1&limit=10&estado=EN_EJECUCION&delegacionId=30000000-0000-4000-8000-000000000002&busqueda=Angachilla",
+      { headers: { authorization: "Bearer valid-token" } }
+    );
+
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toHaveLength(1);
+    expect(body.meta.total).toBe(1);
+    expect(body.data[0].puntoCritico.ubicacionGeoJson).toEqual({
+      type: "Point",
+      coordinates: [-73.2389, -39.8456],
+    });
+    expect(spyListar).toHaveBeenCalledWith({
+      page: 1,
+      limit: 10,
+      estado: "EN_EJECUCION",
+      delegacionId: "30000000-0000-4000-8000-000000000002",
+      busqueda: "Angachilla",
+    });
   });
 });
