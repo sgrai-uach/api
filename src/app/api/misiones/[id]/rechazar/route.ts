@@ -5,8 +5,11 @@ import {
 } from "@/modules/misiones/mision.schema";
 import { rechazarMisionService } from "@/modules/misiones/mision.service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
-import { verificarPermiso } from "@/modules/seguridad/auth.service";
-import { PERMISO_VERIFICAR_MISION_TERRENO } from "@/modules/seguridad/permisos.constants";
+import { verificarAlgunPermiso } from "@/modules/seguridad/auth.service";
+import {
+  PERMISO_EJECUTAR_MISION_TERRENO,
+  PERMISO_VERIFICAR_MISION_TERRENO,
+} from "@/modules/seguridad/permisos.constants";
 import {
   UnauthorizedError,
   ForbiddenError,
@@ -20,31 +23,31 @@ interface RouteContext {
 }
 
 /**
- * POST /api/misiones/[id]/rechazar (HU-69)
+ * POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-69 Patrulla)
  *
- * Permite a una patrulla verificadora en terreno rechazar una misión de verificación asignada
- * ingresando una justificación obligatoria (mínimo 5 caracteres según Regla Crítica §3.3).
+ * Permite al Delegado de cuadrilla (permiso `misiones:terreno:ejecutar`) o a una
+ * patrulla verificadora (permiso `misiones:terreno:verificar`) rechazar una misión
+ * asignada ingresando una justificación técnica obligatoria (>= 5 caracteres, Regla §3.3).
  *
  * Ejecuta una transacción atómica:
  * 1. Actualiza `mision.estado = 'RECHAZADA'`, registra `justificacion_rechazo` y `fecha_cierre`.
- * 2. Transiciona `patrulla.estado = 'DISPONIBLE'` para liberarla en el sistema.
- * 3. Revierte `incidente.estado = 'REPORTADO'` para permitir su reasignación inmediata en el Centro de Mando.
- * 4. Inserta el hito cronológico `'RECHAZADA'` en `mision_hito`.
- * 5. Emite la notificación WebSocket `mision:rechazada` hacia la sala `encargado`.
- *
- * Requiere autenticación de patrulla verificadora (permiso `misiones:terreno:verificar` y pertenencia a la patrulla asignada, o rol Administrador).
+ * 2. Devuelve la unidad (cuadrilla + dotación, o patrulla verificadora) a estado `DISPONIBLE`.
+ * 3. Retorna el incidente asociado a `VERIFICANDO` (cuadrilla tras verificación) o `REPORTADO`.
+ * 4. Inserta el hito `'RECHAZADA'` con la justificación en `mision_hito`.
+ * 5. Emite la alerta WebSocket `mision:rechazada` hacia la sala `encargado`.
  */
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    // 1. Extraer usuario autenticado
+    // 1. Extraer usuario autenticado y verificar permiso RBAC de terreno (cuadrilla o patrulla)
     const tokenUserId = await extraerUsuarioId(request);
-    const headerUserId = request.headers.get("x-user-id");
+    const headerUserId =
+      process.env.NODE_ENV !== "production" ? request.headers.get("x-user-id") : null;
     const usuarioId = tokenUserId || headerUserId;
 
-    const usuarioAutenticado = await verificarPermiso(
-      usuarioId,
-      PERMISO_VERIFICAR_MISION_TERRENO
-    );
+    const usuarioAutenticado = await verificarAlgunPermiso(usuarioId, [
+      PERMISO_EJECUTAR_MISION_TERRENO,
+      PERMISO_VERIFICAR_MISION_TERRENO,
+    ]);
 
     // 2. Validar parámetro de ruta UUID
     const { id } = await context.params;
@@ -88,7 +91,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
     }
 
-    // 4. Validar cuerpo con Zod (mínimo 5 caracteres en justificacion_rechazo)
+    // 4. Validar cuerpo no vacío y esquema Zod (Regla §3.3: mínimo 5 caracteres en justificacion_rechazo)
+    if (!bodyRaw || typeof bodyRaw !== "object" || Array.isArray(bodyRaw)) {
+      return NextResponse.json(
+        {
+          message: "Datos de entrada inválidos para el rechazo de la misión.",
+          errors: [
+            {
+              campo: "justificacion_rechazo",
+              mensaje:
+                "El cuerpo de la solicitud es obligatorio y debe contener justificacion_rechazo (mínimo 5 caracteres).",
+            },
+          ],
+        },
+        { status: 400 }
+      );
+    }
+
     const validacionBody = RechazarMisionInputSchema.safeParse(bodyRaw);
     if (!validacionBody.success) {
       return NextResponse.json(
@@ -106,12 +125,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const esAdmin =
       usuarioAutenticado.rol === "Administrador" || usuarioAutenticado.rol === "ADMIN";
 
-    // 5. Ejecutar transacción y notificaciones en servicio
+    // 5. Ejecutar transacción atómica y notificaciones WebSocket
     const resultado = await rechazarMisionService(
       validacionId.data,
       usuarioAutenticado.id,
       esAdmin,
-      validacionBody.data
+      validacionBody.data,
+      usuarioAutenticado.permisos
     );
 
     return NextResponse.json(resultado, { status: 200 });
@@ -139,4 +159,3 @@ export async function POST(request: NextRequest, context: RouteContext) {
     );
   }
 }
-

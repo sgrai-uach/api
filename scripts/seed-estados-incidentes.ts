@@ -29,6 +29,12 @@ export async function sembrarEstadosIncidentes() {
   const rolDelegado = await db.selectFrom("rol").where("codigo", "=", "DELEGADO_CUADRILLA").selectAll().executeTakeFirst();
   const rolDelegadoId = rolDelegado?.id ?? "20000000-0000-4000-8000-000000000005";
 
+  const rolBrigadista = await db.selectFrom("rol").where("codigo", "=", "BRIGADISTA").selectAll().executeTakeFirst();
+  const rolBrigadistaId = rolBrigadista?.id ?? "20000000-0000-4000-8000-000000000009";
+
+  const rolSupervisor = await db.selectFrom("rol").where("codigo", "=", "SUPERVISOR").selectAll().executeTakeFirst();
+  const rolSupervisorId = rolSupervisor?.id ?? "20000000-0000-4000-8000-000000000010";
+
   const encargado = await db.selectFrom("usuario").where("email", "=", "encargado@valdivia.cl").selectAll().executeTakeFirst();
   const encargadoId = encargado?.id ?? "00000000-0000-4000-8000-000000000003";
 
@@ -37,7 +43,7 @@ export async function sembrarEstadosIncidentes() {
 
   // Hash oficial de desarrollo 'Valdivia2026!'
   const HASH_VALDIVIA_2026 = "$2b$10$dMlhpX4QFpPonWcTHVNo0usyfRLusunVKj6LsxLc9PaZ9JZkN5asm";
-  // 5. Asegurar usuarios Delegados de Cuadrilla
+  // 5. Asegurar usuarios Delegados de Cuadrilla y dotación de brigadistas
   await sql`
     INSERT INTO usuario (id, rut, nombres, apellidos, email, password_hash, rol_id, delegacion_id, activo, estado_operativo)
     VALUES
@@ -66,7 +72,7 @@ export async function sembrarEstadosIncidentes() {
         'disponible'
       ),
       (
-        '00000000-0000-4000-8000-000000000010',
+        'd1e10000-0000-4000-8000-000000000010',
         '17.654.321-0',
         'Felipe',
         'Sandoval Cárdenas',
@@ -88,14 +94,126 @@ export async function sembrarEstadosIncidentes() {
         ${delCalleCalle},
         true,
         'disponible'
-      )
+      ),
+      (
+        'd1e10000-0000-4000-8000-000000000012',
+        '19.101.112-3',
+        'Diego',
+        'Núñez Delegado',
+        'diego.nunez.delegado@valdivia.cl',
+        ${HASH_VALDIVIA_2026},
+        ${rolDelegadoId},
+        ${delNorte},
+        true,
+        'disponible'
+      ),
+      (
+        'd1e10000-0000-4000-8000-000000000013',
+        '19.202.223-4',
+        'Paula',
+        'Rivas Delegado',
+        'paula.rivas.delegado@valdivia.cl',
+        ${HASH_VALDIVIA_2026},
+        ${rolDelegadoId},
+        ${delNorte},
+        true,
+        'disponible'
+      ),
+      (
+        'd1e10000-0000-4000-8000-000000000014',
+        '19.303.334-5',
+        'Tomás',
+        'Vega Delegado',
+        'tomas.vega.delegado@valdivia.cl',
+        ${HASH_VALDIVIA_2026},
+        ${rolDelegadoId},
+        ${delCalleCalle},
+        true,
+        'disponible'
+      ),
+      -- Brigadistas de dotación para las cuadrillas EST
+      ('d1e10000-0000-4000-8000-000000000101', '19.800.001-1', 'Brigadista', 'EST Norte Uno',   'brigadista.est1a@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delNorte},      true, 'en_mision'),
+      ('d1e10000-0000-4000-8000-000000000102', '19.800.002-2', 'Brigadista', 'EST Norte Dos',   'brigadista.est1b@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delNorte},      true, 'en_mision'),
+      ('d1e10000-0000-4000-8000-000000000201', '19.800.003-3', 'Brigadista', 'EST Norte Tres',  'brigadista.est2a@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delNorte},      true, 'disponible'),
+      ('d1e10000-0000-4000-8000-000000000202', '19.800.004-4', 'Brigadista', 'EST Norte Cuatro','brigadista.est2b@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delNorte},      true, 'disponible'),
+      ('d1e10000-0000-4000-8000-000000000301', '19.800.005-5', 'Brigadista', 'EST Sur Uno',     'brigadista.est3a@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delSur},        true, 'disponible'),
+      ('d1e10000-0000-4000-8000-000000000302', '19.800.006-6', 'Brigadista', 'EST Sur Dos',     'brigadista.est3b@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delSur},        true, 'disponible'),
+      ('d1e10000-0000-4000-8000-000000000401', '19.800.007-7', 'Brigadista', 'EST Calle Uno',   'brigadista.est4a@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delCalleCalle}, true, 'disponible'),
+      ('d1e10000-0000-4000-8000-000000000402', '19.800.008-8', 'Brigadista', 'EST Calle Dos',   'brigadista.est4b@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delCalleCalle}, true, 'disponible'),
+      ('d1e10000-0000-4000-8000-000000000501', '19.800.009-9', 'Brigadista', 'EST Costa Uno',   'brigadista.est5a@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delCosta},      true, 'disponible'),
+      ('d1e10000-0000-4000-8000-000000000502', '19.800.010-K', 'Brigadista', 'EST Costa Dos',   'brigadista.est5b@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delCosta},      true, 'disponible'),
+      ('d1e10000-0000-4000-8000-000000000601', '19.800.011-1', 'Brigadista', 'EST Norte Cinco', 'brigadista.est6a@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delNorte},      true, 'disponible'),
+      ('d1e10000-0000-4000-8000-000000000602', '19.800.012-2', 'Brigadista', 'EST Norte Seis',  'brigadista.est6b@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delNorte},      true, 'disponible'),
+      ('d1e10000-0000-4000-8000-000000000701', '19.800.013-3', 'Brigadista', 'EST Calle Tres',  'brigadista.est7a@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delCalleCalle}, true, 'disponible'),
+      ('d1e10000-0000-4000-8000-000000000702', '19.800.014-4', 'Brigadista', 'EST Calle Cuatro','brigadista.est7b@valdivia.cl', ${HASH_VALDIVIA_2026}, ${rolBrigadistaId}, ${delCalleCalle}, true, 'disponible')
     ON CONFLICT (id) DO UPDATE SET
       nombres = EXCLUDED.nombres,
       apellidos = EXCLUDED.apellidos,
+      email = EXCLUDED.email,
+      rol_id = EXCLUDED.rol_id,
+      delegacion_id = EXCLUDED.delegacion_id,
+      activo = true,
+      estado_operativo = EXCLUDED.estado_operativo;
+  `.execute(db);
+
+  // 5.1 Restaurar la cuenta del Supervisor, que versiones previas del seed
+  // sobrescribían con el ID 00000000-0000-4000-8000-000000000010.
+  await sql`
+    INSERT INTO usuario (id, rut, nombres, apellidos, email, password_hash, rol_id, delegacion_id, activo, estado_operativo)
+    VALUES (
+      '00000000-0000-4000-8000-000000000010',
+      '44444444-4',
+      'Supervisor',
+      'Estratégico',
+      'supervisor@valdivia.cl',
+      ${HASH_VALDIVIA_2026},
+      ${rolSupervisorId},
+      ${delNorte},
+      true,
+      'disponible'
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      rut = EXCLUDED.rut,
+      nombres = EXCLUDED.nombres,
+      apellidos = EXCLUDED.apellidos,
+      email = EXCLUDED.email,
+      password_hash = EXCLUDED.password_hash,
       rol_id = EXCLUDED.rol_id,
       delegacion_id = EXCLUDED.delegacion_id,
       activo = true,
       estado_operativo = 'disponible';
+  `.execute(db);
+
+  // 5.2 Fichas de personal de delegados y brigadistas EST.
+  await sql`
+    INSERT INTO personal (id, usuario_id, delegacion_id, especialidad, cargo, disponible_terreno)
+    VALUES
+      ('c1e10000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000005', ${delNorte},      'Mando y coordinación de cuadrilla', 'Delegado de Cuadrilla', true),
+      ('c1e10000-0000-4000-8000-000000000006', '00000000-0000-4000-8000-000000000006', ${delCosta},      'Mando y coordinación de cuadrilla', 'Delegado de Cuadrilla', true),
+      ('c1e10000-0000-4000-8000-000000000010', 'd1e10000-0000-4000-8000-000000000010', ${delSur},        'Mando y coordinación de cuadrilla', 'Delegado de Cuadrilla', true),
+      ('c1e10000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000011', ${delCalleCalle}, 'Mando y coordinación de cuadrilla', 'Delegado de Cuadrilla', true),
+      ('c1e10000-0000-4000-8000-000000000012', 'd1e10000-0000-4000-8000-000000000012', ${delNorte},      'Mando y coordinación de cuadrilla', 'Delegado de Cuadrilla', true),
+      ('c1e10000-0000-4000-8000-000000000013', 'd1e10000-0000-4000-8000-000000000013', ${delNorte},      'Mando y coordinación de cuadrilla', 'Delegado de Cuadrilla', true),
+      ('c1e10000-0000-4000-8000-000000000014', 'd1e10000-0000-4000-8000-000000000014', ${delCalleCalle}, 'Mando y coordinación de cuadrilla', 'Delegado de Cuadrilla', true),
+      ('c1e10000-0000-4000-8000-000000000101', 'd1e10000-0000-4000-8000-000000000101', ${delNorte},      'Despeje, bombeo y mitigación', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000102', 'd1e10000-0000-4000-8000-000000000102', ${delNorte},      'Control de tránsito y perímetro', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000201', 'd1e10000-0000-4000-8000-000000000201', ${delNorte},      'Poda, tala y mitigación de riesgos', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000202', 'd1e10000-0000-4000-8000-000000000202', ${delNorte},      'Despeje, bombeo y mitigación', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000301', 'd1e10000-0000-4000-8000-000000000301', ${delSur},        'Operación de motobomba y achique', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000302', 'd1e10000-0000-4000-8000-000000000302', ${delSur},        'Control de tránsito y perímetro', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000401', 'd1e10000-0000-4000-8000-000000000401', ${delCalleCalle}, 'Poda, tala y mitigación de riesgos', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000402', 'd1e10000-0000-4000-8000-000000000402', ${delCalleCalle}, 'Despeje, bombeo y mitigación', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000501', 'd1e10000-0000-4000-8000-000000000501', ${delCosta},      'Operación de motobomba y achique', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000502', 'd1e10000-0000-4000-8000-000000000502', ${delCosta},      'Control de tránsito y perímetro', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000601', 'd1e10000-0000-4000-8000-000000000601', ${delNorte},      'Poda, tala y mitigación de riesgos', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000602', 'd1e10000-0000-4000-8000-000000000602', ${delNorte},      'Despeje, bombeo y mitigación', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000701', 'd1e10000-0000-4000-8000-000000000701', ${delCalleCalle}, 'Operación de motobomba y achique', 'Brigadista Operativo', true),
+      ('c1e10000-0000-4000-8000-000000000702', 'd1e10000-0000-4000-8000-000000000702', ${delCalleCalle}, 'Control de tránsito y perímetro', 'Brigadista Operativo', true)
+    ON CONFLICT (usuario_id) DO UPDATE SET
+      delegacion_id = EXCLUDED.delegacion_id,
+      especialidad = EXCLUDED.especialidad,
+      cargo = EXCLUDED.cargo,
+      disponible_terreno = true;
   `.execute(db);
 
   // 6. Informantes
@@ -110,6 +228,50 @@ export async function sembrarEstadosIncidentes() {
   `.execute(db);
 
   // 7. Sembrar Cuadrillas Operativas con sus Delegados
+  // Limpiar cuadrillas legacy de seeds anteriores que quedaron sin dotación
+  // y que aparecían como DISPONIBLES vacías en la vista de cuadrillas.
+  await sql`
+    DELETE FROM cuadrilla_recurso
+    WHERE cuadrilla_id IN (
+      SELECT c.id FROM cuadrilla c
+      WHERE c.id IN (
+        '50000000-0000-4000-8000-000000000001',
+        '50000000-0000-4000-8000-000000000003',
+        'c1000000-0000-4000-8000-000000000003',
+        'c1000000-0000-4000-8000-000000000004',
+        'c1000000-0000-4000-8000-000000000005'
+      )
+        AND NOT EXISTS (SELECT 1 FROM mision WHERE mision.cuadrilla_id = c.id)
+    )
+  `.execute(db);
+
+  await sql`
+    DELETE FROM cuadrilla_personal
+    WHERE cuadrilla_id IN (
+      SELECT c.id FROM cuadrilla c
+      WHERE c.id IN (
+        '50000000-0000-4000-8000-000000000001',
+        '50000000-0000-4000-8000-000000000003',
+        'c1000000-0000-4000-8000-000000000003',
+        'c1000000-0000-4000-8000-000000000004',
+        'c1000000-0000-4000-8000-000000000005'
+      )
+        AND NOT EXISTS (SELECT 1 FROM mision WHERE mision.cuadrilla_id = c.id)
+    )
+  `.execute(db);
+
+  await sql`
+    DELETE FROM cuadrilla
+    WHERE id IN (
+      '50000000-0000-4000-8000-000000000001',
+      '50000000-0000-4000-8000-000000000003',
+      'c1000000-0000-4000-8000-000000000003',
+      'c1000000-0000-4000-8000-000000000004',
+      'c1000000-0000-4000-8000-000000000005'
+    )
+      AND NOT EXISTS (SELECT 1 FROM mision WHERE mision.cuadrilla_id = cuadrilla.id)
+  `.execute(db);
+
   await sql`
     INSERT INTO cuadrilla (id, nombre, estado, delegacion_id, usuario_delegado_id, creado_por_id, creado_en)
     VALUES
@@ -129,7 +291,7 @@ export async function sembrarEstadosIncidentes() {
         'Cuadrilla EST Vías y Despeje Urbano',
         'DISPONIBLE',
         ${delNorte},
-        '00000000-0000-4000-8000-000000000005',
+        'd1e10000-0000-4000-8000-000000000012',
         ${adminId},
         CURRENT_TIMESTAMP - interval '3 days'
       ),
@@ -139,7 +301,7 @@ export async function sembrarEstadosIncidentes() {
         'Cuadrilla EST Operativa Sur - Despeje y Bombeo',
         'DISPONIBLE',
         ${delSur},
-        '00000000-0000-4000-8000-000000000010',
+        'd1e10000-0000-4000-8000-000000000010',
         ${adminId},
         CURRENT_TIMESTAMP - interval '2 days'
       ),
@@ -169,7 +331,7 @@ export async function sembrarEstadosIncidentes() {
         'Cuadrilla EST Vías y Despeje Urbano Norte',
         'DISPONIBLE',
         ${delNorte},
-        '00000000-0000-4000-8000-000000000005',
+        'd1e10000-0000-4000-8000-000000000013',
         ${adminId},
         CURRENT_TIMESTAMP - interval '3 days'
       ),
@@ -178,7 +340,7 @@ export async function sembrarEstadosIncidentes() {
         'Cuadrilla EST Bombeo y Desagüe Calle Calle',
         'DISPONIBLE',
         ${delCalleCalle},
-        '00000000-0000-4000-8000-000000000011',
+        'd1e10000-0000-4000-8000-000000000014',
         ${adminId},
         CURRENT_TIMESTAMP - interval '2 days'
       )
@@ -190,6 +352,87 @@ export async function sembrarEstadosIncidentes() {
       actualizado_por_id = EXCLUDED.creado_por_id,
       actualizado_en = CURRENT_TIMESTAMP,
       eliminado_en = NULL,
+      activo = true;
+  `.execute(db);
+
+  // 7.1 Dotación humana de las cuadrillas EST
+  await sql`
+    INSERT INTO cuadrilla_personal (cuadrilla_id, personal_id, activo)
+    VALUES
+      ('c1e10000-0000-4000-8000-000000000001', 'c1e10000-0000-4000-8000-000000000101', true),
+      ('c1e10000-0000-4000-8000-000000000001', 'c1e10000-0000-4000-8000-000000000102', true),
+      ('c1e10000-0000-4000-8000-000000000002', 'c1e10000-0000-4000-8000-000000000201', true),
+      ('c1e10000-0000-4000-8000-000000000002', 'c1e10000-0000-4000-8000-000000000202', true),
+      ('c1e10000-0000-4000-8000-000000000003', 'c1e10000-0000-4000-8000-000000000301', true),
+      ('c1e10000-0000-4000-8000-000000000003', 'c1e10000-0000-4000-8000-000000000302', true),
+      ('c1e10000-0000-4000-8000-000000000004', 'c1e10000-0000-4000-8000-000000000401', true),
+      ('c1e10000-0000-4000-8000-000000000004', 'c1e10000-0000-4000-8000-000000000402', true),
+      ('c1e10000-0000-4000-8000-000000000005', 'c1e10000-0000-4000-8000-000000000501', true),
+      ('c1e10000-0000-4000-8000-000000000005', 'c1e10000-0000-4000-8000-000000000502', true),
+      ('c1e10000-0000-4000-8000-000000000006', 'c1e10000-0000-4000-8000-000000000601', true),
+      ('c1e10000-0000-4000-8000-000000000006', 'c1e10000-0000-4000-8000-000000000602', true),
+      ('c1e10000-0000-4000-8000-000000000007', 'c1e10000-0000-4000-8000-000000000701', true),
+      ('c1e10000-0000-4000-8000-000000000007', 'c1e10000-0000-4000-8000-000000000702', true)
+    ON CONFLICT (cuadrilla_id, personal_id) WHERE desvinculado_en IS NULL DO UPDATE SET
+      activo = true;
+  `.execute(db);
+
+  // 7.2 Recursos y equipamiento de las cuadrillas EST
+  await sql`
+    INSERT INTO recurso (
+      id, nombre, es_individual, estado, cantidad_inventario, cantidad_en_uso, cantidad_minima,
+      latitud, longitud, ubicacion, descripcion, delegacion_id, creado_por_id
+    )
+    VALUES
+      ('e1e10000-0000-4000-8000-000000000001', 'Camioneta Cuadrilla EST Norte Alfa (Patente: EST-N1)', true, 'DISPONIBLE', 1, 0, 0, -39.8052, -73.2295, ST_SetSRID(ST_MakePoint(-73.2295, -39.8052), 4326), 'Vehículo de traslado de cuadrilla operativa', ${delNorte}, ${adminId}),
+      ('e1e10000-0000-4000-8000-000000000002', 'Camioneta Cuadrilla EST Vías Norte (Patente: EST-N2)', true, 'DISPONIBLE', 1, 0, 0, -39.8052, -73.2295, ST_SetSRID(ST_MakePoint(-73.2295, -39.8052), 4326), 'Vehículo de traslado de cuadrilla operativa', ${delNorte}, ${adminId}),
+      ('e1e10000-0000-4000-8000-000000000003', 'Camioneta Cuadrilla EST Sur (Patente: EST-S1)', true, 'DISPONIBLE', 1, 0, 0, -39.8310, -73.2289, ST_SetSRID(ST_MakePoint(-73.2289, -39.8310), 4326), 'Vehículo de traslado de cuadrilla operativa', ${delSur}, ${adminId}),
+      ('e1e10000-0000-4000-8000-000000000004', 'Camioneta Cuadrilla EST Calle Calle (Patente: EST-C1)', true, 'DISPONIBLE', 1, 0, 0, -39.8174, -73.2145, ST_SetSRID(ST_MakePoint(-73.2145, -39.8174), 4326), 'Vehículo de traslado de cuadrilla operativa', ${delCalleCalle}, ${adminId}),
+      ('e1e10000-0000-4000-8000-000000000005', 'Camioneta Cuadrilla EST Costa (Patente: EST-CO1)', true, 'DISPONIBLE', 1, 0, 0, -39.8451, -73.2812, ST_SetSRID(ST_MakePoint(-73.2812, -39.8451), 4326), 'Vehículo de traslado de cuadrilla operativa', ${delCosta}, ${adminId}),
+      ('e1e10000-0000-4000-8000-000000000006', 'Camioneta Cuadrilla EST Norte Dos (Patente: EST-N3)', true, 'DISPONIBLE', 1, 0, 0, -39.8052, -73.2295, ST_SetSRID(ST_MakePoint(-73.2295, -39.8052), 4326), 'Vehículo de traslado de cuadrilla operativa', ${delNorte}, ${adminId}),
+      ('e1e10000-0000-4000-8000-000000000007', 'Camioneta Cuadrilla EST Calle Calle Dos (Patente: EST-C2)', true, 'DISPONIBLE', 1, 0, 0, -39.8174, -73.2145, ST_SetSRID(ST_MakePoint(-73.2145, -39.8174), 4326), 'Vehículo de traslado de cuadrilla operativa', ${delCalleCalle}, ${adminId}),
+      ('e1e10000-0000-4000-8000-000000000008', 'Motosierras de despeje EST', false, 'DISPONIBLE', 14, 0, 2, -39.8142, -73.2459, ST_SetSRID(ST_MakePoint(-73.2459, -39.8142), 4326), 'Motosierras para despeje de vías y trozado de árboles', NULL, ${adminId}),
+      ('e1e10000-0000-4000-8000-000000000009', 'Motobombas EST', false, 'DISPONIBLE', 7, 0, 1, -39.8142, -73.2459, ST_SetSRID(ST_MakePoint(-73.2459, -39.8142), 4326), 'Motobombas para desagüe y achique', NULL, ${adminId}),
+      ('e1e10000-0000-4000-8000-000000000010', 'Sacos de Arena EST', false, 'DISPONIBLE', 500, 0, 50, -39.8142, -73.2459, ST_SetSRID(ST_MakePoint(-73.2459, -39.8142), 4326), 'Sacos para contención fluvial y protección domiciliaria', NULL, ${adminId})
+    ON CONFLICT (id) DO UPDATE SET
+      nombre = EXCLUDED.nombre,
+      estado = EXCLUDED.estado,
+      cantidad_inventario = EXCLUDED.cantidad_inventario,
+      cantidad_en_uso = EXCLUDED.cantidad_en_uso,
+      cantidad_minima = EXCLUDED.cantidad_minima,
+      delegacion_id = EXCLUDED.delegacion_id;
+  `.execute(db);
+
+  await sql`
+    INSERT INTO cuadrilla_recurso (id, cuadrilla_id, recurso_id, cantidad_asignada, activo)
+    VALUES
+      ('cd1e1000-0000-4000-8000-000000000001', 'c1e10000-0000-4000-8000-000000000001', 'e1e10000-0000-4000-8000-000000000001', 1, true),
+      ('cd1e1000-0000-4000-8000-000000000002', 'c1e10000-0000-4000-8000-000000000001', 'e1e10000-0000-4000-8000-000000000008', 2, true),
+      ('cd1e1000-0000-4000-8000-000000000003', 'c1e10000-0000-4000-8000-000000000001', 'e1e10000-0000-4000-8000-000000000009', 1, true),
+      ('cd1e1000-0000-4000-8000-000000000004', 'c1e10000-0000-4000-8000-000000000001', 'e1e10000-0000-4000-8000-000000000010', 20, true),
+      ('cd1e1000-0000-4000-8000-000000000005', 'c1e10000-0000-4000-8000-000000000002', 'e1e10000-0000-4000-8000-000000000002', 1, true),
+      ('cd1e1000-0000-4000-8000-000000000006', 'c1e10000-0000-4000-8000-000000000002', 'e1e10000-0000-4000-8000-000000000008', 2, true),
+      ('cd1e1000-0000-4000-8000-000000000007', 'c1e10000-0000-4000-8000-000000000002', 'e1e10000-0000-4000-8000-000000000010', 20, true),
+      ('cd1e1000-0000-4000-8000-000000000008', 'c1e10000-0000-4000-8000-000000000003', 'e1e10000-0000-4000-8000-000000000003', 1, true),
+      ('cd1e1000-0000-4000-8000-000000000009', 'c1e10000-0000-4000-8000-000000000003', 'e1e10000-0000-4000-8000-000000000008', 2, true),
+      ('cd1e1000-0000-4000-8000-000000000010', 'c1e10000-0000-4000-8000-000000000003', 'e1e10000-0000-4000-8000-000000000009', 1, true),
+      ('cd1e1000-0000-4000-8000-000000000011', 'c1e10000-0000-4000-8000-000000000003', 'e1e10000-0000-4000-8000-000000000010', 20, true),
+      ('cd1e1000-0000-4000-8000-000000000012', 'c1e10000-0000-4000-8000-000000000004', 'e1e10000-0000-4000-8000-000000000004', 1, true),
+      ('cd1e1000-0000-4000-8000-000000000013', 'c1e10000-0000-4000-8000-000000000004', 'e1e10000-0000-4000-8000-000000000008', 2, true),
+      ('cd1e1000-0000-4000-8000-000000000014', 'c1e10000-0000-4000-8000-000000000004', 'e1e10000-0000-4000-8000-000000000010', 20, true),
+      ('cd1e1000-0000-4000-8000-000000000015', 'c1e10000-0000-4000-8000-000000000005', 'e1e10000-0000-4000-8000-000000000005', 1, true),
+      ('cd1e1000-0000-4000-8000-000000000016', 'c1e10000-0000-4000-8000-000000000005', 'e1e10000-0000-4000-8000-000000000008', 2, true),
+      ('cd1e1000-0000-4000-8000-000000000017', 'c1e10000-0000-4000-8000-000000000005', 'e1e10000-0000-4000-8000-000000000009', 1, true),
+      ('cd1e1000-0000-4000-8000-000000000018', 'c1e10000-0000-4000-8000-000000000005', 'e1e10000-0000-4000-8000-000000000010', 20, true),
+      ('cd1e1000-0000-4000-8000-000000000019', 'c1e10000-0000-4000-8000-000000000006', 'e1e10000-0000-4000-8000-000000000006', 1, true),
+      ('cd1e1000-0000-4000-8000-000000000020', 'c1e10000-0000-4000-8000-000000000006', 'e1e10000-0000-4000-8000-000000000008', 2, true),
+      ('cd1e1000-0000-4000-8000-000000000021', 'c1e10000-0000-4000-8000-000000000006', 'e1e10000-0000-4000-8000-000000000010', 20, true),
+      ('cd1e1000-0000-4000-8000-000000000022', 'c1e10000-0000-4000-8000-000000000007', 'e1e10000-0000-4000-8000-000000000007', 1, true),
+      ('cd1e1000-0000-4000-8000-000000000023', 'c1e10000-0000-4000-8000-000000000007', 'e1e10000-0000-4000-8000-000000000008', 2, true),
+      ('cd1e1000-0000-4000-8000-000000000024', 'c1e10000-0000-4000-8000-000000000007', 'e1e10000-0000-4000-8000-000000000009', 1, true),
+      ('cd1e1000-0000-4000-8000-000000000025', 'c1e10000-0000-4000-8000-000000000007', 'e1e10000-0000-4000-8000-000000000010', 20, true)
+    ON CONFLICT (id) DO UPDATE SET
+      cantidad_asignada = EXCLUDED.cantidad_asignada,
       activo = true;
   `.execute(db);
 

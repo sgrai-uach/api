@@ -100,6 +100,19 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/misiones"].get).toBeDefined();
     expect(spec.paths["/api/misiones"].post).toBeDefined();
 
+    // Ruta unificada de Rechazo de Misión (HU-41 Cuadrilla / HU-69 Patrulla)
+    const postRechazar = spec.paths["/api/misiones/{id}/rechazar"]?.post;
+    expect(postRechazar).toBeDefined();
+    expect(postRechazar.responses["200"]).toBeDefined();
+    expect(postRechazar.responses["400"]).toBeDefined();
+    expect(postRechazar.responses["401"]).toBeDefined();
+    expect(postRechazar.responses["403"]).toBeDefined();
+    expect(postRechazar.responses["404"]).toBeDefined();
+    expect(postRechazar.responses["409"]).toBeDefined();
+    expect(postRechazar.responses["500"]).toBeDefined();
+    expect(spec.components.schemas.RechazarMisionBody).toBeDefined();
+    expect(spec.components.schemas.RechazarMisionResponse).toBeDefined();
+
     // Rutas de Terreno - Notificaciones y ACKs (HU-35)
     expect(spec.paths["/api/terreno/notificaciones/{id}/estado"]).toBeDefined();
     expect(spec.paths["/api/terreno/notificaciones/{id}/estado"].patch).toBeDefined();
