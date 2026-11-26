@@ -1,11 +1,21 @@
 import { db } from "@/lib/db";
 import { sql, type ExpressionBuilder, type Transaction } from "kysely";
-import { NotFoundError, ConflictError, ForbiddenError } from "@/modules/seguridad/errors";
-import type { Database } from "@/lib/db/types";
+import {
+  BadRequestError,
+  NotFoundError,
+  ConflictError,
+  ForbiddenError,
+} from "@/modules/seguridad/errors";
+import type {
+  Database,
+  DictamenVerificacion,
+  PrioridadIncidente,
+} from "@/lib/db/types";
 import type {
   CrearMisionVerificacionInput,
-  AsignarCuadrillaMisionInput,
   AceptarMisionInput,
+  AsignarCuadrillaMisionInput,
+  CrearReporteVerificacionInput,
 } from "./mision.schema";
 import { crearNotificacionMisionRepo } from "./notificacion-mision.repository";
 import type { NotificacionMisionDetalle } from "./notificacion-mision.schema";
@@ -51,6 +61,8 @@ export interface MisionDetalleQueryResult {
     incidente_prioridad_sugerida?: string | null;
     incidente_justificacion_prioridad?: string | null;
     incidente_requiere_asistencia_social?: boolean | null;
+    incidente_fecha_cierre?: Date | string | null;
+    incidente_motivo_no_abordable?: string | null;
     incidente_delegacion_nombre?: string | null;
 
     // Prevención
@@ -97,6 +109,10 @@ export interface MisionDetalleQueryResult {
     id: string;
     mision_id: string;
     evaluador_id: string;
+    tipo_reporte?: string | null;
+    dictamen?: string | null;
+    motivo_no_abordable?: string | null;
+    requiere_asistencia_social?: boolean | null;
     resumen_tecnico: string;
     acciones_realizadas: string | null;
     requiere_apoyo_adicional: boolean;
@@ -134,6 +150,8 @@ export interface MisionDetalleQueryResult {
     longitud: number | string | null;
     metadatos?: Record<string, unknown> | string | null;
     creado_en: Date | string;
+    registrador_nombre?: string | null;
+    registrador_email?: string | null;
   }>;
 }
 
@@ -200,6 +218,8 @@ export async function obtenerMisionDetallePorIdRepo(
         "incidente.prioridad_sugerida as incidente_prioridad_sugerida",
         "incidente.justificacion_prioridad as incidente_justificacion_prioridad",
         "incidente.requiere_asistencia_social as incidente_requiere_asistencia_social",
+        "incidente.fecha_cierre as incidente_fecha_cierre",
+        "incidente.motivo_no_abordable as incidente_motivo_no_abordable",
         "delegacion_incidente.nombre as incidente_delegacion_nombre",
 
         // Prevención
@@ -275,35 +295,42 @@ export async function obtenerMisionDetallePorIdRepo(
   }
 
   // Reportes de terreno elaborados para esta misión
-  const reportesFilas = await db
-    .selectFrom("reporte_terreno")
-    .leftJoin("usuario as evaluador", "evaluador.id", "reporte_terreno.evaluador_id")
-    .select([
-      "reporte_terreno.id",
-      "reporte_terreno.mision_id",
-      "reporte_terreno.evaluador_id",
-      "reporte_terreno.resumen_tecnico",
-      "reporte_terreno.acciones_realizadas",
-      "reporte_terreno.requiere_apoyo_adicional",
-      "reporte_terreno.danos_estimados",
-      "reporte_terreno.observaciones",
-      "reporte_terreno.personas_afectadas",
-      "reporte_terreno.estado_terreno",
-      "reporte_terreno.version_reporte",
-      "reporte_terreno.es_rectificacion",
-      "reporte_terreno.prioridad_sugerida",
-      "reporte_terreno.prioridad_asignada",
-      "reporte_terreno.justificacion_prioridad",
-      "reporte_terreno.detalles_evaluacion",
-      "reporte_terreno.creado_en",
-      "reporte_terreno.actualizado_en",
-      "evaluador.nombre as evaluador_nombre",
-      "evaluador.email as evaluador_email",
-      "evaluador.rut as evaluador_rut",
-    ])
-    .where("reporte_terreno.mision_id", "=", id)
-    .orderBy("reporte_terreno.creado_en", "asc")
-    .execute();
+  const ejecutarConsultaReportes = () =>
+    db
+      .selectFrom("reporte_terreno")
+      .leftJoin("usuario as evaluador", "evaluador.id", "reporte_terreno.evaluador_id")
+      .select([
+        "reporte_terreno.id",
+        "reporte_terreno.mision_id",
+        "reporte_terreno.evaluador_id",
+        "reporte_terreno.tipo_reporte",
+        "reporte_terreno.dictamen",
+        "reporte_terreno.motivo_no_abordable",
+        "reporte_terreno.requiere_asistencia_social",
+        "reporte_terreno.resumen_tecnico",
+        "reporte_terreno.acciones_realizadas",
+        "reporte_terreno.requiere_apoyo_adicional",
+        "reporte_terreno.danos_estimados",
+        "reporte_terreno.observaciones",
+        "reporte_terreno.personas_afectadas",
+        "reporte_terreno.estado_terreno",
+        "reporte_terreno.version_reporte",
+        "reporte_terreno.es_rectificacion",
+        "reporte_terreno.prioridad_sugerida",
+        "reporte_terreno.prioridad_asignada",
+        "reporte_terreno.justificacion_prioridad",
+        "reporte_terreno.detalles_evaluacion",
+        "reporte_terreno.creado_en",
+        "reporte_terreno.actualizado_en",
+        "evaluador.nombre as evaluador_nombre",
+        "evaluador.email as evaluador_email",
+        "evaluador.rut as evaluador_rut",
+      ])
+      .where("reporte_terreno.mision_id", "=", id)
+      .orderBy("reporte_terreno.creado_en", "asc")
+      .execute();
+
+  const reportesFilas = await ejecutarConsultaReportes();
 
   const reporteIds = reportesFilas.map((r) => r.id);
   type AdjuntoFila = {
@@ -356,11 +383,13 @@ export async function obtenerMisionDetallePorIdRepo(
     mision_id: string;
     hito: string;
     descripcion: string;
+    registrado_por_id?: string | null;
     latitud: number | string | null;
     longitud: number | string | null;
     metadatos?: Record<string, unknown> | string | null;
     creado_en: Date | string;
     registrador_nombre?: string | null;
+    registrador_email?: string | null;
   }> = [];
 
   try {
@@ -372,11 +401,13 @@ export async function obtenerMisionDetallePorIdRepo(
         "mision_hito.mision_id",
         "mision_hito.hito",
         "mision_hito.descripcion",
+        "mision_hito.registrado_por_id",
         "mision_hito.latitud",
         "mision_hito.longitud",
         "mision_hito.metadatos",
         "mision_hito.creado_en",
         "registrador.nombre as registrador_nombre",
+        "registrador.email as registrador_email",
       ])
       .where("mision_hito.mision_id", "=", id)
       .orderBy("mision_hito.creado_en", "asc")
@@ -387,11 +418,13 @@ export async function obtenerMisionDetallePorIdRepo(
       mision_id: h.mision_id,
       hito: h.hito,
       descripcion: h.descripcion,
+      registrado_por_id: h.registrado_por_id ?? null,
       latitud: h.latitud ? Number(h.latitud) : null,
       longitud: h.longitud ? Number(h.longitud) : null,
       metadatos: h.metadatos ?? null,
       creado_en: h.creado_en,
-      registrador_nombre: h.registrador_nombre,
+      registrador_nombre: h.registrador_nombre ?? null,
+      registrador_email: h.registrador_email ?? null,
     }));
   } catch {
     // Si la tabla o mock no está presente en algún test unitario aislado
@@ -1077,6 +1110,754 @@ export async function asignarCuadrillaIncidenteRepo(
     };
   });
 }
+
+// ========================================================
+// HU-39: Informe Técnico de Verificación y Cierre de Misión
+// ========================================================
+
+export interface CrearReporteVerificacionResult {
+  reporteTerreno: {
+    id: string;
+    misionId: string;
+    tipoReporte: string;
+    dictamen: DictamenVerificacion;
+    motivoNoAbordable: string | null;
+    requiereAsistenciaSocial: boolean;
+    versionReporte: number;
+    esRectificacion: boolean;
+    etiquetaReporte: string;
+    prioridadSugerida: PrioridadIncidente | null;
+    prioridadAsignada: PrioridadIncidente | null;
+    justificacionPrioridad: string | null;
+    detallesEvaluacion: Record<string, unknown>;
+    evaluador: {
+      id: string;
+      nombre: string;
+      email: string;
+      rut: string | null;
+    };
+    resumenTecnico: string;
+    accionesRealizadas: string | null;
+    requiereApoyoAdicional: boolean;
+    danosEstimados: string | null;
+    observaciones: string | null;
+    personasAfectadas: number;
+    estadoTerreno: string;
+    adjuntos: Array<{
+      id: string;
+      nombreArchivo: string;
+      url: string;
+      tipoMime: string;
+      tamanoBytes: number;
+      creadoEn: string;
+    }>;
+    creadoEn: string;
+    actualizadoEn: string;
+  };
+  mision: {
+    id: string;
+    codigo: string;
+    titulo: string;
+    tipoMision:
+      | "VERIFICACION"
+      | "ATENCION_CUADRILLA"
+      | "PREVENCION"
+      | "RECUPERACION"
+      | "ASISTENCIA_SOCIAL";
+    estado:
+      | "PLANIFICADA"
+      | "DESPACHADA"
+      | "EN_CURSO"
+      | "COMPLETADA"
+      | "CANCELADA"
+      | "RECHAZADA";
+    prioridad: PrioridadIncidente;
+    incidenteId: string | null;
+    patrullaId: string | null;
+    fechaInicio: string | null;
+    fechaCierre: string;
+    actualizadoEn: string;
+  };
+  patrulla: {
+    id: string;
+    nombre: string;
+    estado: string;
+    delegacionId: string | null;
+    usuarioLiderId: string | null;
+  } | null;
+  incidente: {
+    id: string;
+    codigo: string;
+    estado: string;
+    prioridad: string;
+    requiereAsistenciaSocial: boolean;
+    fechaCierre: string | null;
+    motivoNoAbordable: string | null;
+  } | null;
+  hito: {
+    id: string;
+    misionId: string;
+    hito: string;
+    descripcion: string;
+    registradoPorId: string | null;
+    latitud: number | null;
+    longitud: number | null;
+    metadatos: Record<string, unknown> | null;
+    creadoEn: string;
+  };
+}
+
+function normalizarTextoOpcional(valor: string | null | undefined): string | null {
+  if (typeof valor !== "string") return null;
+  const limpio = valor.trim();
+  return limpio.length > 0 ? limpio : null;
+}
+
+function parsearObjetoJson(raw: unknown): Record<string, unknown> {
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  if (raw && typeof raw === "object") {
+    return raw as Record<string, unknown>;
+  }
+  return {};
+}
+
+/**
+ * HU-39 / HU-86 - Persiste el informe técnico de verificación en terreno y cierra la misión
+ * inicial de patrullaje dentro de una transacción atómica Kysely:
+ * 1. Valida que la misión exista, esté `EN_CURSO` y pertenezca a la patrulla del usuario (salvo Admin).
+ * 2. Rescata `personas_afectadas` del reporte previo de evaluación de prioridad (HU-38) si no fue modificado.
+ * 3. Crea el registro en `reporte_terreno` (`tipo_reporte = 'VERIFICACION_CIERRE'`, `evaluador_id = usuarioId`).
+ * 4. Vincula adjuntos fotográficos si fueron enviados (sección preparada para HU-43).
+ * 5. Actualiza `mision.estado = 'COMPLETADA'` y `mision.fecha_cierre = CURRENT_TIMESTAMP`.
+ * 6. Libera `patrulla_verificadora.estado = 'DISPONIBLE'` si no tiene otra misión activa.
+ * 7. Actualiza `incidente` (`NO_ABORDABLE` con `fecha_cierre` y `motivo_no_abordable`, o mantiene `VERIFICANDO`)
+ *    y marca `incidente.requiere_asistencia_social = true` si el reporte solicita Ficha FIBE.
+ * 8. Registra el hito `'VERIFICACION_COMPLETADA'` en `mision_hito`.
+ */
+export async function crearReporteVerificacionYCerrarMisionRepo(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: CrearReporteVerificacionInput
+): Promise<CrearReporteVerificacionResult> {
+  const ejecutarTransaccion = async (): Promise<CrearReporteVerificacionResult> => {
+    return await db.transaction().execute(async (trx) => {
+      // 1. Consultar misión, patrulla e incidente asociado
+      const misionExistente = await trx
+        .selectFrom("mision")
+        .leftJoin(
+          "patrulla_verificadora",
+          "patrulla_verificadora.id",
+          "mision.patrulla_id"
+        )
+        .leftJoin("incidente", "incidente.id", "mision.incidente_id")
+        .select([
+          "mision.id",
+          "mision.codigo",
+          "mision.titulo",
+          "mision.tipo_mision",
+          "mision.estado",
+          "mision.prioridad",
+          "mision.incidente_id",
+          "mision.patrulla_id",
+          "mision.fecha_inicio",
+          "patrulla_verificadora.nombre as patrulla_nombre",
+          "patrulla_verificadora.estado as patrulla_estado",
+          "patrulla_verificadora.activo as patrulla_activo",
+          "patrulla_verificadora.delegacion_id as patrulla_delegacion_id",
+          "patrulla_verificadora.usuario_lider_id as patrulla_lider_id",
+          "incidente.codigo as incidente_codigo",
+          "incidente.estado as incidente_estado",
+          "incidente.prioridad as incidente_prioridad",
+          "incidente.prioridad_sugerida as incidente_prioridad_sugerida",
+          "incidente.justificacion_prioridad as incidente_justificacion_prioridad",
+          "incidente.requiere_asistencia_social as incidente_requiere_asistencia_social",
+        ])
+        .where("mision.id", "=", misionId)
+        .forUpdate("mision")
+        .executeTakeFirst();
+
+      if (!misionExistente) {
+        throw new NotFoundError(
+          "No se encontró ninguna misión con el identificador proporcionado."
+        );
+      }
+
+      // 2. Validar invariantes ICS de tipo de misión, patrulla e incidente asociado
+      if (
+        misionExistente.tipo_mision !== "VERIFICACION" ||
+        !misionExistente.patrulla_id
+      ) {
+        throw new ConflictError(
+          "La misión indicada no corresponde a una verificación con patrulla asignada."
+        );
+      }
+
+      // 2b. Validar estado de la misión
+      if (misionExistente.estado !== "EN_CURSO") {
+        if (misionExistente.estado === "DESPACHADA") {
+          throw new ConflictError(
+            "La patrulla debe aceptar la misión asignada antes de poder enviar el informe técnico de verificación."
+          );
+        }
+        if (misionExistente.estado === "COMPLETADA") {
+          throw new ConflictError(
+            "La misión ya fue completada y cerrada previamente."
+          );
+        }
+        throw new ConflictError(
+          `La misión se encuentra en estado '${misionExistente.estado}'. Solo se puede enviar el informe técnico de verificación en misiones activas en curso.`
+        );
+      }
+
+      if (
+        misionExistente.patrulla_activo === false ||
+        misionExistente.patrulla_estado !== "EN_VERIFICACION"
+      ) {
+        throw new ConflictError(
+          "La patrulla verificadora asignada no se encuentra activa o en estado 'EN_VERIFICACION'."
+        );
+      }
+
+      if (
+        misionExistente.incidente_id &&
+        !["REPORTADO", "VERIFICANDO"].includes(
+          String(misionExistente.incidente_estado)
+        )
+      ) {
+        throw new ConflictError(
+          `El incidente asociado no puede cerrarse por verificación porque su estado actual es '${misionExistente.incidente_estado}'.`
+        );
+      }
+
+      // 3. Validar pertenencia del usuario a la patrulla asignada (salvo Administrador)
+      if (!esAdmin) {
+        const esLiderDirecto = misionExistente.patrulla_lider_id === usuarioId;
+        if (!esLiderDirecto) {
+          const integrante = await trx
+            .selectFrom("patrulla_personal")
+            .innerJoin("personal", "personal.id", "patrulla_personal.personal_id")
+            .select("patrulla_personal.id")
+            .where("patrulla_personal.patrulla_id", "=", misionExistente.patrulla_id)
+            .where("personal.usuario_id", "=", usuarioId)
+            .executeTakeFirst();
+
+          if (!integrante) {
+            throw new ForbiddenError(
+              "No está autorizado para enviar el informe técnico ni cerrar una misión asignada a otra patrulla verificadora."
+            );
+          }
+        }
+      }
+
+      // 4. Validar datos técnicos y reglas de negocio
+      const dictamen = (input.dictamen ??
+        input.dictamenAtencion ??
+        input.dictamen_atencion) as DictamenVerificacion;
+
+      const motivoLimpio = normalizarTextoOpcional(
+        input.motivoNoAbordable ?? input.motivo_no_abordable
+      );
+
+      if (dictamen === "NO_ABORDABLE" && (!motivoLimpio || motivoLimpio.length < 15)) {
+        throw new BadRequestError(
+          "Cuando el dictamen es 'NO_ABORDABLE', el campo 'motivo_no_abordable' es obligatorio y debe contener al menos 15 caracteres."
+        );
+      }
+
+      const resumenLimpio =
+        normalizarTextoOpcional(input.resumenTecnico ?? input.resumen_tecnico) ?? "";
+      if (resumenLimpio.length < 10) {
+        throw new BadRequestError(
+          "El resumen técnico del siniestro es obligatorio y debe contener al menos 10 caracteres."
+        );
+      }
+
+      const estadoTerrenoFinal =
+        normalizarTextoOpcional(input.estadoTerreno ?? input.estado_terreno) ??
+        "FINALIZADO";
+      const danosEstimadosFinal = normalizarTextoOpcional(
+        input.danosEstimados ?? input.danos_estimados
+      );
+      const observacionesFinal = normalizarTextoOpcional(input.observaciones);
+      const accionesRealizadasFinal = normalizarTextoOpcional(
+        input.accionesRealizadas ?? input.acciones_realizadas
+      );
+      const requiereAsistenciaSocialReportada = Boolean(
+        input.requiereAsistenciaSocial ?? input.requiere_asistencia_social ?? false
+      );
+      const requiereApoyoAdicionalFinal = dictamen === "REQUIERE_CUADRILLA";
+
+      // 5. Consultar reportes previos de la misión para versionado y rescate de personas_afectadas (HU-38)
+      const reportesPrevios = await trx
+        .selectFrom("reporte_terreno")
+        .select([
+          "id",
+          "tipo_reporte",
+          "personas_afectadas",
+          "version_reporte",
+          "detalles_evaluacion",
+          "creado_en",
+        ])
+        .where("mision_id", "=", misionExistente.id)
+        .orderBy("version_reporte", "desc")
+        .orderBy("creado_en", "desc")
+        .execute();
+
+      const versionReporte = reportesPrevios.length + 1;
+      const reportePrioridadPrevio =
+        reportesPrevios.find(
+          (r) => !r.tipo_reporte || r.tipo_reporte === "EVALUACION_PRIORIDAD"
+        ) ?? reportesPrevios[0];
+
+      const personasAfectadasPrevias = reportePrioridadPrevio
+        ? Number(reportePrioridadPrevio.personas_afectadas ?? 0)
+        : 0;
+
+      const personasAfectadasInput =
+        input.personasAfectadas ?? input.personas_afectadas;
+      const tienePersonasAfectadasInput =
+        personasAfectadasInput !== undefined && personasAfectadasInput !== null;
+      const personasAfectadasFinal = tienePersonasAfectadasInput
+        ? Number(personasAfectadasInput)
+        : personasAfectadasPrevias;
+      const personasAfectadasModificadas =
+        tienePersonasAfectadasInput &&
+        Number(personasAfectadasInput) !== personasAfectadasPrevias;
+
+      const evaluacionPrioridadPreviaObj = reportePrioridadPrevio
+        ? parsearObjetoJson(reportePrioridadPrevio.detalles_evaluacion)
+        : null;
+
+      const detallesEvaluacionPayload: Record<string, unknown> = {
+        tipoReporte: "VERIFICACION_CIERRE",
+        dictamen,
+        motivoNoAbordable: dictamen === "NO_ABORDABLE" ? motivoLimpio : null,
+        estadoTerreno: estadoTerrenoFinal,
+        personasAfectadasPrevias,
+        personasAfectadas: personasAfectadasFinal,
+        personasAfectadasModificadas,
+        requiereAsistenciaSocial: requiereAsistenciaSocialReportada,
+        ...(evaluacionPrioridadPreviaObj
+          ? { evaluacionPrioridadPrevia: evaluacionPrioridadPreviaObj }
+          : {}),
+      };
+
+      // 6. Insertar reporte técnico en `reporte_terreno`
+      const prioridadSugeridaInc =
+        (misionExistente.incidente_prioridad_sugerida as PrioridadIncidente | null) ??
+        null;
+      const prioridadAsignadaInc =
+        (misionExistente.incidente_prioridad as PrioridadIncidente | null) ??
+        (misionExistente.prioridad as PrioridadIncidente | null) ??
+        null;
+
+      const reporteInsertado = await trx
+        .insertInto("reporte_terreno")
+        .values({
+          mision_id: misionExistente.id,
+          evaluador_id: usuarioId,
+          tipo_reporte: "VERIFICACION_CIERRE",
+          dictamen,
+          motivo_no_abordable: dictamen === "NO_ABORDABLE" ? motivoLimpio : null,
+          requiere_asistencia_social: requiereAsistenciaSocialReportada,
+          version_reporte: versionReporte,
+          es_rectificacion: false,
+          prioridad_sugerida: prioridadSugeridaInc,
+          prioridad_asignada: prioridadAsignadaInc,
+          justificacion_prioridad:
+            misionExistente.incidente_justificacion_prioridad ?? null,
+          resumen_tecnico: resumenLimpio,
+          acciones_realizadas: accionesRealizadasFinal,
+          requiere_apoyo_adicional: requiereApoyoAdicionalFinal,
+          danos_estimados: danosEstimadosFinal,
+          observaciones: observacionesFinal,
+          personas_afectadas: personasAfectadasFinal,
+          estado_terreno: estadoTerrenoFinal,
+          detalles_evaluacion: JSON.stringify(detallesEvaluacionPayload),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+
+      // 7. Sección preparada para integración de evidencia fotográfica (HU-43)
+      const adjuntosMapeados: CrearReporteVerificacionResult["reporteTerreno"]["adjuntos"] =
+        [];
+      const adjuntoIdsDirectos = input.adjuntoIds ?? input.adjunto_ids ?? [];
+      const adjuntoIdsDesdeObjetos = (input.adjuntos ?? [])
+        .map((a) => a.id)
+        .filter((id): id is string => Boolean(id));
+      const todosLosAdjuntoIds = Array.from(
+        new Set([...adjuntoIdsDirectos, ...adjuntoIdsDesdeObjetos])
+      );
+
+      if (todosLosAdjuntoIds.length > 0) {
+        const adjuntosExistentes = await trx
+          .selectFrom("adjunto")
+          .select(["id", "incidente_id", "reporte_terreno_id"])
+          .where("id", "in", todosLosAdjuntoIds)
+          .execute();
+
+        const mapaExistentes = new Map(
+          adjuntosExistentes.map((adj) => [adj.id, adj])
+        );
+
+        for (const reqId of todosLosAdjuntoIds) {
+          const existente = mapaExistentes.get(reqId);
+          if (!existente) {
+            throw new NotFoundError(
+              `El adjunto '${reqId}' no existe en el sistema.`
+            );
+          }
+          if (existente.reporte_terreno_id !== null) {
+            throw new ConflictError(
+              `El adjunto '${reqId}' ya se encuentra vinculado a otro reporte de terreno.`
+            );
+          }
+          if (
+            existente.incidente_id !== null &&
+            misionExistente.incidente_id &&
+            existente.incidente_id !== misionExistente.incidente_id
+          ) {
+            throw new ForbiddenError(
+              `El adjunto '${reqId}' pertenece a otro incidente y no puede vincularse a esta misión.`
+            );
+          }
+        }
+
+        const adjuntosVinculados = await trx
+          .updateTable("adjunto")
+          .set({
+            reporte_terreno_id: reporteInsertado.id,
+            ...(misionExistente.incidente_id
+              ? { incidente_id: misionExistente.incidente_id }
+              : {}),
+          })
+          .where("id", "in", todosLosAdjuntoIds)
+          .returningAll()
+          .execute();
+
+        for (const adj of adjuntosVinculados) {
+          adjuntosMapeados.push({
+            id: adj.id,
+            nombreArchivo: adj.nombre_archivo,
+            url: adj.url,
+            tipoMime: adj.tipo_mime,
+            tamanoBytes: Number(adj.tamano_bytes),
+            creadoEn: adj.creado_en
+              ? new Date(adj.creado_en).toISOString()
+              : new Date().toISOString(),
+          });
+        }
+      }
+
+      if (input.adjuntos && input.adjuntos.length > 0) {
+        for (const adjInput of input.adjuntos) {
+          if (adjInput.id) {
+            continue;
+          }
+          const urlAdj = normalizarTextoOpcional(adjInput.url);
+          if (!urlAdj) {
+            throw new BadRequestError(
+              "Cada adjunto nuevo debe incluir una URL válida."
+            );
+          }
+
+          const nombreArchivo =
+            normalizarTextoOpcional(
+              adjInput.nombreArchivo ?? adjInput.nombre_archivo
+            ) ?? "evidencia.jpg";
+          const tipoMime =
+            normalizarTextoOpcional(adjInput.tipoMime ?? adjInput.tipo_mime) ??
+            "image/jpeg";
+          const tamanoBytes = Number(
+            adjInput.tamanoBytes ?? adjInput.tamano_bytes ?? 0
+          );
+
+          const adjCreado = await trx
+            .insertInto("adjunto")
+            .values({
+              nombre_archivo: nombreArchivo,
+              url: urlAdj,
+              tipo_mime: tipoMime,
+              tamano_bytes: tamanoBytes,
+              aviso_id: null,
+              incidente_id: misionExistente.incidente_id ?? null,
+              reporte_terreno_id: reporteInsertado.id,
+            })
+            .returningAll()
+            .executeTakeFirstOrThrow();
+
+          adjuntosMapeados.push({
+            id: adjCreado.id,
+            nombreArchivo: adjCreado.nombre_archivo,
+            url: adjCreado.url,
+            tipoMime: adjCreado.tipo_mime,
+            tamanoBytes: Number(adjCreado.tamano_bytes),
+            creadoEn: adjCreado.creado_en
+              ? new Date(adjCreado.creado_en).toISOString()
+              : new Date().toISOString(),
+          });
+        }
+      }
+
+      // 8. Transicionar atómicamente `mision.estado = 'COMPLETADA'` con `fecha_cierre = CURRENT_TIMESTAMP`
+      const misionActualizada = await trx
+        .updateTable("mision")
+        .set({
+          estado: "COMPLETADA",
+          fecha_cierre: sql`CURRENT_TIMESTAMP`,
+          actualizado_en: sql`CURRENT_TIMESTAMP`,
+        })
+        .where("id", "=", misionId)
+        .where("estado", "=", "EN_CURSO")
+        .returningAll()
+        .executeTakeFirst();
+
+      if (!misionActualizada) {
+        throw new ConflictError(
+          "La misión fue modificada o cerrada concurrentemente por otro proceso."
+        );
+      }
+
+      // 9. Liberar patrulla verificadora a `DISPONIBLE` si no posee otra misión activa
+      let patrullaResultado: CrearReporteVerificacionResult["patrulla"] =
+        misionExistente.patrulla_id
+          ? {
+              id: misionExistente.patrulla_id,
+              nombre: misionExistente.patrulla_nombre ?? "Patrulla Verificadora",
+              estado: misionExistente.patrulla_estado ?? "EN_VERIFICACION",
+              delegacionId: misionExistente.patrulla_delegacion_id ?? null,
+              usuarioLiderId: misionExistente.patrulla_lider_id ?? null,
+            }
+          : null;
+
+      if (misionExistente.patrulla_id) {
+        const otraMisionActiva = await trx
+          .selectFrom("mision")
+          .select("id")
+          .where("patrulla_id", "=", misionExistente.patrulla_id)
+          .where("id", "!=", misionId)
+          .where("estado", "in", ["DESPACHADA", "EN_CURSO"])
+          .executeTakeFirst();
+
+        if (!otraMisionActiva) {
+          await trx
+            .updateTable("patrulla_verificadora")
+            .set({
+              estado: "DISPONIBLE",
+              actualizado_en: sql`CURRENT_TIMESTAMP`,
+            })
+            .where("id", "=", misionExistente.patrulla_id)
+            .execute();
+
+          patrullaResultado = {
+            id: misionExistente.patrulla_id,
+            nombre: misionExistente.patrulla_nombre ?? "Patrulla Verificadora",
+            estado: "DISPONIBLE",
+            delegacionId: misionExistente.patrulla_delegacion_id ?? null,
+            usuarioLiderId: misionExistente.patrulla_lider_id ?? null,
+          };
+        }
+      }
+
+      // 10. Actualizar incidente asociado
+      let incidenteResultado: CrearReporteVerificacionResult["incidente"] = null;
+      if (misionExistente.incidente_id) {
+        const requiereAsistenciaSocialFinal = requiereAsistenciaSocialReportada
+          ? true
+          : Boolean(misionExistente.incidente_requiere_asistencia_social);
+
+        const incidenteActualizado = await trx
+          .updateTable("incidente")
+          .set(
+            dictamen === "NO_ABORDABLE"
+              ? {
+                  estado: "NO_ABORDABLE",
+                  fecha_cierre: sql`CURRENT_TIMESTAMP`,
+                  motivo_no_abordable: motivoLimpio,
+                  requiere_asistencia_social: requiereAsistenciaSocialFinal,
+                  actualizado_en: sql`CURRENT_TIMESTAMP`,
+                }
+              : {
+                  estado: sql`CASE WHEN estado = 'REPORTADO' THEN 'VERIFICANDO' ELSE estado END`,
+                  requiere_asistencia_social: requiereAsistenciaSocialFinal,
+                  actualizado_en: sql`CURRENT_TIMESTAMP`,
+                }
+          )
+          .where("id", "=", misionExistente.incidente_id)
+          .returningAll()
+          .executeTakeFirstOrThrow();
+
+        incidenteResultado = {
+          id: incidenteActualizado.id,
+          codigo: incidenteActualizado.codigo,
+          estado: incidenteActualizado.estado,
+          prioridad: incidenteActualizado.prioridad,
+          requiereAsistenciaSocial: Boolean(
+            incidenteActualizado.requiere_asistencia_social ??
+              requiereAsistenciaSocialFinal
+          ),
+          fechaCierre: incidenteActualizado.fecha_cierre
+            ? new Date(incidenteActualizado.fecha_cierre).toISOString()
+            : null,
+          motivoNoAbordable: incidenteActualizado.motivo_no_abordable ?? null,
+        };
+      }
+
+      // 11. Registrar hito de cierre en `mision_hito`
+      const descripcionHito =
+        dictamen === "NO_ABORDABLE"
+          ? `Informe técnico enviado y misión cerrada. Dictamen: NO_ABORDABLE. Motivo: ${motivoLimpio}`
+          : `Informe técnico enviado y misión cerrada. Dictamen: REQUIERE_CUADRILLA. Personas afectadas: ${personasAfectadasFinal}.`;
+
+      const metadatosHito = {
+        reporteId: reporteInsertado.id,
+        dictamen,
+        motivoNoAbordable: dictamen === "NO_ABORDABLE" ? motivoLimpio : null,
+        estadoTerreno: estadoTerrenoFinal,
+        personasAfectadasPrevias,
+        personasAfectadas: personasAfectadasFinal,
+        personasAfectadasModificadas,
+        requiereAsistenciaSocial: requiereAsistenciaSocialReportada,
+      };
+
+      const hitoRegistrado = await trx
+        .insertInto("mision_hito")
+        .values({
+          mision_id: misionId,
+          hito: "VERIFICACION_COMPLETADA",
+          descripcion: descripcionHito,
+          registrado_por_id: usuarioId,
+          latitud: input.latitud ?? null,
+          longitud: input.longitud ?? null,
+          metadatos: JSON.stringify(metadatosHito),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+
+      // 12. Datos del evaluador
+      let evaluadorNombre = "Patrullero en Terreno";
+      let evaluadorEmail = "patrulla@valdivia.cl";
+      let evaluadorRut: string | null = null;
+
+      const usr = await trx
+        .selectFrom("usuario")
+        .select(["nombre", "email", "rut"])
+        .where("id", "=", usuarioId)
+        .executeTakeFirst();
+      if (usr?.nombre) evaluadorNombre = usr.nombre;
+      if (usr?.email) evaluadorEmail = usr.email;
+      if (usr?.rut) evaluadorRut = usr.rut;
+
+      const fechaCierreIso = misionActualizada.fecha_cierre
+        ? new Date(misionActualizada.fecha_cierre).toISOString()
+        : new Date().toISOString();
+      const actualizadoEnIso = misionActualizada.actualizado_en
+        ? new Date(misionActualizada.actualizado_en).toISOString()
+        : fechaCierreIso;
+      const reporteCreadoEnIso = reporteInsertado.creado_en
+        ? new Date(reporteInsertado.creado_en).toISOString()
+        : fechaCierreIso;
+      const reporteActualizadoEnIso = reporteInsertado.actualizado_en
+        ? new Date(reporteInsertado.actualizado_en).toISOString()
+        : reporteCreadoEnIso;
+      const hitoCreadoEnIso = hitoRegistrado.creado_en
+        ? new Date(hitoRegistrado.creado_en).toISOString()
+        : fechaCierreIso;
+
+      const etiquetaReporte =
+        dictamen === "NO_ABORDABLE"
+          ? "Informe Técnico de Verificación (Cierre — No Abordable)"
+          : "Informe Técnico de Verificación (Cierre — Requiere Cuadrilla)";
+
+      return {
+        reporteTerreno: {
+          id: reporteInsertado.id,
+          misionId: misionExistente.id,
+          tipoReporte: "VERIFICACION_CIERRE",
+          dictamen,
+          motivoNoAbordable: dictamen === "NO_ABORDABLE" ? motivoLimpio : null,
+          requiereAsistenciaSocial: requiereAsistenciaSocialReportada,
+          versionReporte,
+          esRectificacion: false,
+          etiquetaReporte,
+          prioridadSugerida: prioridadSugeridaInc,
+          prioridadAsignada: prioridadAsignadaInc,
+          justificacionPrioridad:
+            misionExistente.incidente_justificacion_prioridad ?? null,
+          detallesEvaluacion: detallesEvaluacionPayload,
+          evaluador: {
+            id: usuarioId,
+            nombre: evaluadorNombre,
+            email: evaluadorEmail,
+            rut: evaluadorRut,
+          },
+          resumenTecnico: reporteInsertado.resumen_tecnico ?? resumenLimpio,
+          accionesRealizadas:
+            reporteInsertado.acciones_realizadas ?? accionesRealizadasFinal,
+          requiereApoyoAdicional: Boolean(
+            reporteInsertado.requiere_apoyo_adicional ?? requiereApoyoAdicionalFinal
+          ),
+          danosEstimados: reporteInsertado.danos_estimados ?? danosEstimadosFinal,
+          observaciones: reporteInsertado.observaciones ?? observacionesFinal,
+          personasAfectadas: Number(
+            reporteInsertado.personas_afectadas ?? personasAfectadasFinal
+          ),
+          estadoTerreno: reporteInsertado.estado_terreno ?? estadoTerrenoFinal,
+          adjuntos: adjuntosMapeados,
+          creadoEn: reporteCreadoEnIso,
+          actualizadoEn: reporteActualizadoEnIso,
+        },
+        mision: {
+          id: misionActualizada.id,
+          codigo: misionActualizada.codigo,
+          titulo: misionActualizada.titulo,
+          tipoMision:
+            misionActualizada.tipo_mision as CrearReporteVerificacionResult["mision"]["tipoMision"],
+          estado:
+            misionActualizada.estado as CrearReporteVerificacionResult["mision"]["estado"],
+          prioridad: misionActualizada.prioridad as PrioridadIncidente,
+          incidenteId: misionActualizada.incidente_id,
+          patrullaId: misionActualizada.patrulla_id,
+          fechaInicio: misionActualizada.fecha_inicio
+            ? new Date(misionActualizada.fecha_inicio).toISOString()
+            : null,
+          fechaCierre: fechaCierreIso,
+          actualizadoEn: actualizadoEnIso,
+        },
+        patrulla: patrullaResultado,
+        incidente: incidenteResultado,
+        hito: {
+          id: hitoRegistrado.id,
+          misionId: hitoRegistrado.mision_id,
+          hito: hitoRegistrado.hito,
+          descripcion: hitoRegistrado.descripcion,
+          registradoPorId: hitoRegistrado.registrado_por_id,
+          latitud:
+            hitoRegistrado.latitud !== null && hitoRegistrado.latitud !== undefined
+              ? Number(hitoRegistrado.latitud)
+              : null,
+          longitud:
+            hitoRegistrado.longitud !== null && hitoRegistrado.longitud !== undefined
+              ? Number(hitoRegistrado.longitud)
+              : null,
+          metadatos: metadatosHito,
+          creadoEn: hitoCreadoEnIso,
+        },
+      };
+    });
+  };
+
+  return await ejecutarTransaccion();
+}
+
 export interface AceptarMisionPatrullaResult {
   mision: {
     id: string;

@@ -197,12 +197,33 @@ describe("Endpoint GET /openapi.json", () => {
       spec.components.schemas.CrearEventoAtpInput.required ?? []
     ).not.toContain("codigo");
 
-    // Rutas de Misiones (HU-17)
+    // Rutas de Misiones (HU-17 y HU-39)
     expect(spec.paths["/api/misiones/{id}"]).toBeDefined();
     expect(spec.paths["/api/misiones/{id}"].get).toBeDefined();
     expect(spec.paths["/api/misiones/{id}"].get.summary).toBe(
       "Consultar detalle completo de una misión operativa"
     );
+    expect(spec.paths["/api/misiones/{id}"].get.security).toEqual([{ BearerAuth: [] }]);
+    expect(spec.paths["/api/misiones/{id}"].get.responses["403"].description).toContain(
+      "misiones:terreno:verificar"
+    );
+    expect(spec.paths["/api/misiones/{id}"].get.responses["403"].description).toContain(
+      "reportes:crear"
+    );
+    expect(spec.paths["/api/misiones/{id}/reporte"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["201"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["400"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["401"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["403"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["404"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["409"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["500"]).toBeDefined();
+    expect(spec.components.schemas.CrearReporteVerificacionInput).toBeDefined();
+    expect(spec.components.schemas.EnviarReporteVerificacionResponse).toBeDefined();
 
     // Rutas de Personal (HU-12 y HU-13)
     expect(spec.paths["/api/personal"]).toBeDefined();

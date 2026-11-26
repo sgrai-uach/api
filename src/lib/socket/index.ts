@@ -43,6 +43,9 @@ export interface IncidenteActualizadoPayload {
   tipoIncidenteId?: string | null;
   tipoAfectacion?: string;
   justificacion?: string | null;
+  motivoNoAbordable?: string | null;
+  fechaCierre?: string | null;
+  dictamen?: string | null;
   reporteTerreno?: Record<string, unknown> | null;
 }
 
@@ -880,6 +883,7 @@ export interface MisionActualizadaPayload {
   cuadrillaId?: string | null;
   incidenteId?: string | null;
   fechaInicio: string | null;
+  fechaCierre?: string | null;
   hito: {
     id: string;
     hito: string;
@@ -887,6 +891,7 @@ export interface MisionActualizadaPayload {
     registradoPorId: string | null;
     creadoEn: string;
   };
+  reporteTerreno?: Record<string, unknown> | null;
   actualizadoEn: string;
 }
 

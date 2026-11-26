@@ -389,6 +389,8 @@ Registro formal de incidente de emergencia gestionado bajo la metodología del S
 | `prioridad_sugerida` | `VARCHAR(20)` | SÍ | `NULL` | Prioridad sugerida preliminarmente por el sistema según evaluación de terreno (`BAJA`, `MEDIA`, `ALTA`, `CRITICA` - HU-38 / Migración 053). |
 | `justificacion_prioridad` | `TEXT` | SÍ | `NULL` | Justificación técnica obligatoria cuando la patrulla modifica la prioridad sugerida en terreno (HU-38 / Migración 053). |
 | `requiere_asistencia_social`| `BOOLEAN` | NO | `false` | Indica si requiere derivación a Asistente Social DGRD para Ficha FIBE. |
+| `fecha_cierre` | `TIMESTAMPTZ` | SÍ | `NULL` | Marca temporal de cierre del incidente (ej. al declararse `NO_ABORDABLE` en HU-39 / Migración 056). |
+| `motivo_no_abordable` | `TEXT` | SÍ | `NULL` | Justificación fundada (mín. 15 caracteres) cuando el incidente es declarado `NO_ABORDABLE` desde terreno (HU-39 / HU-86 / Migración 056). |
 | `fuente_origen` | `VARCHAR(50)` | NO | `'CHATBOT'` | Canal original (`CHATBOT`, `LLAMADA_TELEFONICA`, `FUNCIONARIO_TERRENO`, `SENAPRED`). |
 | `asterisk_call_id`| `VARCHAR(100)`| SÍ | `NULL` | Identificador de llamada telefónica IVR si aplica. |
 | `asterisk_caller_phone`| `VARCHAR(30)`| SÍ | `NULL` | Número de teléfono entrante de la llamada IVR. |
@@ -565,7 +567,11 @@ Informes técnicos y diagnósticos estructurados levantados por patrullas verifi
 | `danos_estimados` | `TEXT` | SÍ | `NULL` | Estimación descriptiva o cuantitativa de daños. |
 | `observaciones` | `TEXT` | SÍ | `NULL` | Condiciones climáticas o notas de seguridad. |
 | `personas_afectadas` | `INTEGER` | NO | `0` | Cantidad estimada de damnificados en el punto. |
-| `estado_terreno` | `VARCHAR(50)` | NO | `'FINALIZADO'` | Estado operativo del reporte (`PRELIMINAR`, `EN_VERIFICACION`, `EN_PROCESO`, `FINALIZADO`). |
+| `estado_terreno` | `VARCHAR(50)` | NO | `'FINALIZADO'` | Estado operativo del reporte (`PRELIMINAR`, `EN_VERIFICACION`, `EN_PROCESO`, `FINALIZADO`, `CRITICO`, `ESTABLE`, `INACCESIBLE`, `CONTROLADO`). |
+| `tipo_reporte` | `VARCHAR(40)` | NO | `'EVALUACION_PRIORIDAD'` | Clasificación del informe (`EVALUACION_PRIORIDAD` en HU-38, `VERIFICACION_CIERRE` en HU-39, `REPORTE_CUADRILLA`). Migración 056. |
+| `dictamen` | `VARCHAR(30)` | SÍ | `NULL` | Dictamen operativo de verificación (`REQUIERE_CUADRILLA` o `NO_ABORDABLE` - HU-39 / Migración 056). |
+| `motivo_no_abordable` | `TEXT` | SÍ | `NULL` | Motivo técnico fundado cuando `dictamen = 'NO_ABORDABLE'` (mín. 15 caracteres - HU-39 / HU-86 / Migración 056). |
+| `requiere_asistencia_social` | `BOOLEAN` | NO | `false` | Indicador de derivación a Asistente Social / Ficha FIBE capturado en el informe de verificación (HU-39 / Migración 056). |
 | `version_reporte` | `INTEGER` | NO | `1` | Número correlativo de envío del reporte en la misión (`1` inicial, `2+` rectificaciones - HU-38 / Migración 053). |
 | `es_rectificacion` | `BOOLEAN` | NO | `false` | `true` cuando el reporte es una modificación/reenvío posterior al primer reporte de evaluación (HU-38 / Migración 053). |
 | `prioridad_sugerida` | `VARCHAR(20)` | SÍ | `NULL` | Prioridad sugerida por el sistema en el momento del envío de este reporte (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |

@@ -102,6 +102,15 @@ export const IncidenteResumenSchema = z.object({
   justificacionPrioridad: z.string().nullable().optional().openapi({ description: "Justificación técnica de la patrulla si modificó la prioridad sugerida (HU-38)" }),
   totalReportesTerreno: z.number().optional().openapi({ description: "Cantidad total de reportes de evaluación en terreno enviados al Centro de Mando" }),
   requiereAsistenciaSocial: z.boolean().openapi({ description: "Indica si se requiere derivación para ficha FIBE" }),
+  fechaCierre: z.string().nullable().optional().openapi({ description: "Fecha y hora de cierre del incidente (si aplica)" }),
+  motivoNoAbordable: z.string().nullable().optional().openapi({ description: "Motivo fundado cuando el incidente fue declarado NO_ABORDABLE" }),
+  dictamenTerreno: z
+    .enum(["REQUIERE_CUADRILLA", "NO_ABORDABLE"])
+    .nullable()
+    .optional()
+    .openapi({
+      description: "Último dictamen operativo emitido por la patrulla verificadora en terreno (HU-39)",
+    }),
   fuenteOrigen: z.string().openapi({ description: "Fuente de origen del reporte (CHATBOT, LLAMADA, TERRENO, SENAPRED)" }),
   informanteNombre: z.string().nullable().openapi({ description: "Nombre de pila del ciudadano informante o null si anónimo" }),
   delegacionNombre: z.string().nullable().openapi({ description: "Nombre de la delegación territorial correspondiente" }),
@@ -199,6 +208,12 @@ export const IncidenteDetalleSchema = z.object({
     description: "Justificación técnica de cambio de prioridad en terreno (HU-38)",
   }),
   requiereAsistenciaSocial: z.boolean(),
+  fechaCierre: z.string().nullable().optional().openapi({
+    description: "Fecha y hora de cierre del incidente (ej. al declararse NO_ABORDABLE o RESUELTO)",
+  }),
+  motivoNoAbordable: z.string().nullable().optional().openapi({
+    description: "Motivo técnico fundado registrado por la patrulla verificadora si fue declarado NO_ABORDABLE (HU-39 / HU-86)",
+  }),
   fuenteOrigen: z.string(),
   asteriskCallId: z.string().nullable(),
   asteriskCallerPhone: z.string().nullable(),
@@ -242,6 +257,11 @@ export const IncidenteDetalleSchema = z.object({
       z.object({
         id: z.string().uuid(),
         misionId: z.string().uuid(),
+        tipoReporte: z.string().optional(),
+        dictamen: z.enum(["REQUIERE_CUADRILLA", "NO_ABORDABLE"]).nullable().optional(),
+        motivoNoAbordable: z.string().nullable().optional(),
+        requiereAsistenciaSocial: z.boolean().optional(),
+        estadoTerreno: z.string().optional(),
         versionReporte: z.number().int(),
         esRectificacion: z.boolean(),
         etiquetaReporte: z.string(),
@@ -255,6 +275,18 @@ export const IncidenteDetalleSchema = z.object({
         personasAfectadas: z.number(),
         requiereApoyoAdicional: z.boolean(),
         evaluacion: z.record(z.string(), z.unknown()),
+        adjuntos: z
+          .array(
+            z.object({
+              id: z.string().uuid(),
+              nombreArchivo: z.string(),
+              url: z.string(),
+              tipoMime: z.string(),
+              tamanoBytes: z.number(),
+              creadoEn: z.string(),
+            })
+          )
+          .optional(),
         evaluador: z.object({
           id: z.string().uuid(),
           nombre: z.string(),
@@ -298,6 +330,9 @@ export const IncidenteDetalleSchema = z.object({
       creadoEn: z.string(),
       resumen: z.string(),
       prioridadAsignada: PrioridadIncidenteEnum.nullable(),
+      dictamen: z.enum(["REQUIERE_CUADRILLA", "NO_ABORDABLE"]).nullable().optional(),
+      motivoNoAbordable: z.string().nullable().optional(),
+      tipoReporte: z.string().nullable().optional(),
       versionReporte: z.number().int().nullable(),
       esRectificacion: z.boolean(),
     })
