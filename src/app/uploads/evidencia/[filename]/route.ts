@@ -21,6 +21,37 @@ const MIME_POR_EXTENSION: Record<string, string> = {
 const NOMBRE_ARCHIVO_SEGURO_REGEX = /^[a-zA-Z0-9._-]+$/;
 
 /**
+ * Construye cabeceras CORS y de seguridad para servir evidencia multimedia en navegadores y PWA.
+ */
+function buildMediaHeaders(
+  request: NextRequest,
+  extra: Record<string, string> = {}
+): Record<string, string> {
+  const origin = request.headers.get("origin") || "*";
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Headers": "Range, Content-Type, Authorization",
+    "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+    "X-Content-Type-Options": "nosniff",
+    ...extra,
+  };
+}
+
+/**
+ * OPTIONS /uploads/evidencia/[filename]
+ * Responde preflight CORS para fetch/pdf.js/Service Worker desde orígenes de frontends.
+ */
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, {
+    status: 204,
+    headers: buildMediaHeaders(request, {
+      "Access-Control-Max-Age": "86400",
+    }),
+  });
+}
+
+/**
  * GET /uploads/evidencia/[filename]
  *
  * Sirve archivos de evidencia almacenados en disco con protección contra path traversal
@@ -30,25 +61,37 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const { filename } = await context.params;
 
   if (!filename || !NOMBRE_ARCHIVO_SEGURO_REGEX.test(filename) || filename.includes("..")) {
-    return NextResponse.json({ message: "Nombre de archivo inválido." }, { status: 400 });
+    return NextResponse.json(
+      { message: "Nombre de archivo inválido." },
+      { status: 400, headers: buildMediaHeaders(request) }
+    );
   }
 
   const ext = path.extname(filename).toLowerCase();
   const contentType = MIME_POR_EXTENSION[ext];
   if (!contentType) {
-    return NextResponse.json({ message: "Tipo de archivo no soportado." }, { status: 404 });
+    return NextResponse.json(
+      { message: "Tipo de archivo no soportado." },
+      { status: 404, headers: buildMediaHeaders(request) }
+    );
   }
 
   const evidenciaDir = path.resolve(getEvidenciaDir());
   const filePath = path.resolve(evidenciaDir, filename);
   if (!filePath.startsWith(evidenciaDir + path.sep)) {
-    return NextResponse.json({ message: "Ruta de archivo inválida." }, { status: 400 });
+    return NextResponse.json(
+      { message: "Ruta de archivo inválida." },
+      { status: 400, headers: buildMediaHeaders(request) }
+    );
   }
 
   try {
     const stat = await fs.stat(filePath);
     if (!stat.isFile()) {
-      return NextResponse.json({ message: "Archivo no encontrado." }, { status: 404 });
+      return NextResponse.json(
+        { message: "Archivo no encontrado." },
+        { status: 404, headers: buildMediaHeaders(request) }
+      );
     }
 
     const totalSize = stat.size;
@@ -59,7 +102,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
       if (!match) {
         return new NextResponse(null, {
           status: 416,
-          headers: { "Content-Range": `bytes */${totalSize}` },
+          headers: buildMediaHeaders(request, {
+            "Content-Range": `bytes */${totalSize}`,
+          }),
         });
       }
 
@@ -69,7 +114,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
       if (start >= totalSize || start > end) {
         return new NextResponse(null, {
           status: 416,
-          headers: { "Content-Range": `bytes */${totalSize}` },
+          headers: buildMediaHeaders(request, {
+            "Content-Range": `bytes */${totalSize}`,
+          }),
         });
       }
 
@@ -80,13 +127,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
         await handle.read(buffer, 0, chunkSize, start);
         return new NextResponse(buffer, {
           status: 206,
-          headers: {
+          headers: buildMediaHeaders(request, {
             "Content-Type": contentType,
             "Content-Length": String(chunkSize),
             "Content-Range": `bytes ${start}-${end}/${totalSize}`,
             "Accept-Ranges": "bytes",
             "Cache-Control": "public, max-age=31536000, immutable",
-          },
+          }),
         });
       } finally {
         await handle.close();
@@ -96,14 +143,17 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const fileBuffer = await fs.readFile(filePath);
     return new NextResponse(fileBuffer, {
       status: 200,
-      headers: {
+      headers: buildMediaHeaders(request, {
         "Content-Type": contentType,
         "Content-Length": String(totalSize),
         "Accept-Ranges": "bytes",
         "Cache-Control": "public, max-age=31536000, immutable",
-      },
+      }),
     });
   } catch {
-    return NextResponse.json({ message: "Archivo no encontrado." }, { status: 404 });
+    return NextResponse.json(
+      { message: "Archivo no encontrado." },
+      { status: 404, headers: buildMediaHeaders(request) }
+    );
   }
 }

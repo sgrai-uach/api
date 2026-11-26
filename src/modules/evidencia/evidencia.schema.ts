@@ -67,8 +67,34 @@ export const AdjuntoCreadoResponseSchema = z
     tamanoBytes: z.number().int().nonnegative().openapi({ example: 145820 }),
     incidenteId: z.string().uuid().nullable(),
     reporteTerrenoId: z.string().uuid().nullable(),
+    misionId: z.string().uuid().nullable().optional(),
     creadoEn: z.string().datetime(),
   })
   .openapi("AdjuntoCreadoResponse");
 
 export type AdjuntoCreadoResponse = z.infer<typeof AdjuntoCreadoResponseSchema>;
+
+export const ListarAdjuntosQuerySchema = z
+  .object({
+    incidente_id: z
+      .string()
+      .uuid("El incidente_id debe ser un UUID válido.")
+      .optional(),
+    reporte_terreno_id: z
+      .string()
+      .uuid("El reporte_terreno_id debe ser un UUID válido.")
+      .optional(),
+  })
+  .refine((data) => Boolean(data.incidente_id || data.reporte_terreno_id), {
+    message: "Debe proporcionar al menos incidente_id o reporte_terreno_id.",
+  });
+
+export type ListarAdjuntosQuery = z.infer<typeof ListarAdjuntosQuerySchema>;
+
+export const ListarAdjuntosResponseSchema = z
+  .object({
+    data: z.array(AdjuntoCreadoResponseSchema),
+  })
+  .openapi("ListarAdjuntosResponse");
+
+export type ListarAdjuntosResponse = z.infer<typeof ListarAdjuntosResponseSchema>;

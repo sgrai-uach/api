@@ -1,56 +1,78 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { POST } from "../route";
+import { GET, POST } from "../route";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import * as authService from "@/modules/seguridad/auth.service";
 import * as evidenciaService from "@/modules/evidencia/evidencia.service";
-import { ForbiddenError, UnauthorizedError } from "@/modules/seguridad/errors";
+import {
+  ConflictError,
+  ForbiddenError,
+  UnauthorizedError,
+} from "@/modules/seguridad/errors";
 import {
   PayloadTooLargeError,
   UnsupportedMediaTypeError,
 } from "@/modules/evidencia/evidencia.schema";
 
 vi.mock("@/modules/seguridad/auth.guard", () => ({
-  extraerUsuarioId: vi.fn(),
+  exigirUsuarioId: vi.fn(),
 }));
 
 vi.mock("@/modules/seguridad/auth.service", () => ({
   verificarPermiso: vi.fn(),
+  verificarAlgunPermiso: vi.fn(),
 }));
 
 vi.mock("@/modules/evidencia/evidencia.service", () => ({
   subirEvidenciaService: vi.fn(),
+  listarEvidenciaService: vi.fn(),
 }));
 
-describe("POST /api/evidencia/adjuntos (HU-43)", () => {
+describe("API /api/evidencia/adjuntos (HU-43)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValue("00000000-0000-4000-8000-000000000005");
+    vi.mocked(authGuard.exigirUsuarioId).mockResolvedValue("00000000-0000-4000-8000-000000000005");
     vi.mocked(authService.verificarPermiso).mockResolvedValue({
       id: "00000000-0000-4000-8000-000000000005",
-      nombre: "Delegado",
-      apellido: "Terreno",
-      email: "delegado@valdivia.cl",
-      rolId: "20000000-0000-4000-8000-000000000005",
-      rolCodigo: "DELEGADO_CUADRILLA",
-      rolNombre: "Delegado de Cuadrilla",
+      nombre: "Delegado Terreno",
+      rol: "Delegado de Cuadrilla",
+    });
+    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValue({
+      id: "00000000-0000-4000-8000-000000000005",
+      nombre: "Delegado Terreno",
+      rol: "Delegado de Cuadrilla",
       permisos: ["reportes:crear"],
-    } as never);
+    });
   });
 
-  function crearMultipartRequest(formData: FormData): NextRequest {
+  function crearMultipartRequest(
+    formData: FormData,
+    headers?: Record<string, string>
+  ): NextRequest {
     return new NextRequest("http://localhost:3000/api/evidencia/adjuntos", {
       method: "POST",
+      headers,
       body: formData,
     });
   }
 
-  it("debe retornar 401 si no hay usuario autenticado", async () => {
-    vi.mocked(authService.verificarPermiso).mockRejectedValueOnce(new UnauthorizedError());
+  it("debe rechazar 401 cuando solo se envía x-user-id sin JWT Bearer (BUG-H43-API-02)", async () => {
+    vi.mocked(authGuard.exigirUsuarioId).mockRejectedValueOnce(
+      new UnauthorizedError("Se requiere cabecera de autenticación Authorization: Bearer <token>.")
+    );
 
     const formData = new FormData();
-    const res = await POST(crearMultipartRequest(formData));
+    formData.append("file", new File(["%PDF-1.7"], "doc.pdf", { type: "application/pdf" }));
+    formData.append("incidente_id", "50000000-0000-4000-8000-000000000001");
+
+    const res = await POST(
+      crearMultipartRequest(formData, {
+        "x-user-id": "00000000-0000-4000-8000-000000000001",
+      })
+    );
     expect(res.status).toBe(401);
+    expect(authGuard.exigirUsuarioId).toHaveBeenCalledTimes(1);
+    expect(authService.verificarPermiso).not.toHaveBeenCalled();
   });
 
   it("debe retornar 403 si el usuario no posee el permiso reportes:crear", async () => {
@@ -69,6 +91,19 @@ describe("POST /api/evidencia/adjuntos (HU-43)", () => {
 
     const res = await POST(crearMultipartRequest(formData));
     expect(res.status).toBe(400);
+  });
+
+  it("debe retornar 409 ante incidente cerrado o inconsistencia con reporte_terreno_id (BUG-H43-API-01/02)", async () => {
+    vi.mocked(evidenciaService.subirEvidenciaService).mockRejectedValueOnce(
+      new ConflictError("El incidente está RESUELTO.")
+    );
+
+    const formData = new FormData();
+    formData.append("file", new File(["%PDF-1.7"], "doc.pdf", { type: "application/pdf" }));
+    formData.append("incidente_id", "50000000-0000-4000-8000-000000000001");
+
+    const res = await POST(crearMultipartRequest(formData));
+    expect(res.status).toBe(409);
   });
 
   it("debe retornar 413 cuando el archivo supera 10 MB", async () => {
@@ -119,5 +154,33 @@ describe("POST /api/evidencia/adjuntos (HU-43)", () => {
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body).toEqual(esperado);
+  });
+
+  it("GET /api/evidencia/adjuntos debe listar adjuntos por incidente_id (200) y validar query (400)", async () => {
+    const reqInvalido = new NextRequest("http://localhost:3000/api/evidencia/adjuntos");
+    const res400 = await GET(reqInvalido);
+    expect(res400.status).toBe(400);
+
+    vi.mocked(evidenciaService.listarEvidenciaService).mockResolvedValueOnce([
+      {
+        id: "80000000-0000-4000-8000-000000000001",
+        nombreArchivo: "foto.jpg",
+        url: "/uploads/evidencia/hash.webp",
+        tipoMime: "image/webp",
+        tamanoBytes: 2048,
+        incidenteId: "50000000-0000-4000-8000-000000000001",
+        reporteTerrenoId: null,
+        creadoEn: "2026-11-17T20:00:00.000Z",
+      },
+    ]);
+
+    const reqValido = new NextRequest(
+      "http://localhost:3000/api/evidencia/adjuntos?incidente_id=50000000-0000-4000-8000-000000000001"
+    );
+    const res200 = await GET(reqValido);
+    expect(res200.status).toBe(200);
+    const body = await res200.json();
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].incidenteId).toBe("50000000-0000-4000-8000-000000000001");
   });
 });

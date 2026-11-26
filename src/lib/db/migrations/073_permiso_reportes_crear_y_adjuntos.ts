@@ -1,11 +1,11 @@
 import { Kysely, sql } from "kysely";
 
 /**
- * HU-43 - Permiso RBAC `reportes:crear` para adjuntar evidencia multimedia en terreno
- * y columna `sha256_hash` en `adjunto` para deduplicación de almacenamiento.
+ * HU-43 - Permiso RBAC `reportes:crear` (idempotente sobre 056) y columna
+ * `sha256_hash` en `adjunto` para deduplicación de almacenamiento.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
-  // 1. Registrar permiso `reportes:crear` y asignarlo a ADMIN, DELEGADO_CUADRILLA y PATRULLA_VERIFICADORA
+  // 1. Asegurar permiso `reportes:crear` sin sobrescribir nombre/módulo si ya fue creado por 056
   await sql`
     DO $$
     DECLARE
@@ -23,29 +23,28 @@ export async function up(db: Kysely<unknown>): Promise<void> {
           INSERT INTO permiso (codigo, nombre, descripcion, modulo)
           VALUES (
             'reportes:crear',
-            'Crear Reportes y Adjuntar Evidencia',
+            'Crear Reportes Técnicos de Terreno',
             'Permite subir fotografías, videos y documentos técnicos de respaldo asociados a incidentes o reportes de terreno',
-            'Evidencia'
+            'Misiones'
           )
+          ON CONFLICT (codigo) DO NOTHING
           RETURNING id INTO v_permiso_id;
         ELSE
           INSERT INTO permiso (id, codigo, nombre, descripcion, modulo)
           VALUES (
             v_target_id,
             'reportes:crear',
-            'Crear Reportes y Adjuntar Evidencia',
+            'Crear Reportes Técnicos de Terreno',
             'Permite subir fotografías, videos y documentos técnicos de respaldo asociados a incidentes o reportes de terreno',
-            'Evidencia'
+            'Misiones'
           )
+          ON CONFLICT (codigo) DO NOTHING
           RETURNING id INTO v_permiso_id;
         END IF;
-      ELSE
-        UPDATE permiso
-        SET
-          nombre = 'Crear Reportes y Adjuntar Evidencia',
-          descripcion = 'Permite subir fotografías, videos y documentos técnicos de respaldo asociados a incidentes o reportes de terreno',
-          modulo = 'Evidencia'
-        WHERE id = v_permiso_id;
+
+        IF v_permiso_id IS NULL THEN
+          SELECT id INTO v_permiso_id FROM permiso WHERE codigo = 'reportes:crear';
+        END IF;
       END IF;
 
       SELECT id INTO v_admin_user_id FROM usuario WHERE id = '00000000-0000-4000-8000-000000000001';
@@ -78,18 +77,11 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`CREATE INDEX IF NOT EXISTS idx_adjunto_sha256_hash ON adjunto (sha256_hash);`.execute(db);
 }
 
+/**
+ * Revierte únicamente los cambios propios de HU-43 (`idx_adjunto_sha256_hash` y `sha256_hash`)
+ * sin eliminar `reportes:crear` ni `rol_permiso`, los cuales pertenecen a la migración 056 (HU-39).
+ */
 export async function down(db: Kysely<unknown>): Promise<void> {
   await sql`DROP INDEX IF EXISTS idx_adjunto_sha256_hash;`.execute(db);
   await sql`ALTER TABLE adjunto DROP COLUMN IF EXISTS sha256_hash;`.execute(db);
-
-  await sql`
-    DELETE FROM rol_permiso
-    WHERE permiso_id IN (
-      SELECT id FROM permiso WHERE codigo = 'reportes:crear'
-    );
-  `.execute(db);
-
-  await sql`
-    DELETE FROM permiso WHERE codigo = 'reportes:crear';
-  `.execute(db);
 }

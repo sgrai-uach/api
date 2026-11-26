@@ -301,6 +301,22 @@ export const IncidenteDetalleSchema = z.object({
       description:
         "Historial cronológico de reportes de evaluación en terreno enviados por la patrulla (incluyendo reporte inicial #1 y rectificaciones posteriores #2+)",
     }),
+  adjuntos: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        nombreArchivo: z.string(),
+        url: z.string(),
+        tipoMime: z.string(),
+        tamanoBytes: z.number(),
+        creadoEn: z.string(),
+      })
+    )
+    .optional()
+    .openapi({
+      description:
+        "Evidencias multimedia asociadas al incidente (directas por incidente_id y vinculadas a reportes de terreno)",
+    }),
   verificado: z.boolean().default(false).openapi({ description: "Indica si la verificación presencial fue completada" }),
   reclasificadoEnTerreno: z.boolean().default(false).openapi({ description: "Indica si fue verificado o reclasificado en terreno" }),
   justificacionReclasificacion: z.string().nullable().optional().openapi({ description: "Justificación técnica en terreno" }),

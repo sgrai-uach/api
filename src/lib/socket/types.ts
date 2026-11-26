@@ -107,6 +107,7 @@ export interface AdjuntoCreadoPayload {
     tamanoBytes: number;
     incidenteId: string | null;
     reporteTerrenoId: string | null;
+    misionId?: string | null;
     creadoEn: string;
 }
 

@@ -10,7 +10,7 @@ import {
   type Driver,
   type QueryResult,
 } from "kysely";
-import { up, down } from "../058_permiso_reportes_crear_y_adjuntos";
+import { up, down } from "../073_permiso_reportes_crear_y_adjuntos";
 
 class CapturingConnection implements DatabaseConnection {
   constructor(public queries: CompiledQuery[]) {}
@@ -54,14 +54,17 @@ function crearDbDePruebas() {
   return { db, sql: () => driver.queries.map((q) => q.sql).join("\n") };
 }
 
-describe("Migración 058 - Permiso RBAC reportes:crear y sha256_hash en adjunto (HU-43)", () => {
-  it("debe registrar el permiso reportes:crear, asignarlo a ADMIN/PATRULLA/DELEGADO y añadir sha256_hash", async () => {
+describe("Migración 073 - Permiso RBAC reportes:crear idempotente y sha256_hash en adjunto (HU-43)", () => {
+  it("debe asegurar reportes:crear sin sobrescribir 056, asignar roles con ON CONFLICT DO NOTHING y añadir sha256_hash", async () => {
     const { db, sql } = crearDbDePruebas();
 
     await up(db);
 
     const sqlEjecutado = sql();
     expect(sqlEjecutado).toContain("reportes:crear");
+    expect(sqlEjecutado).toContain("ON CONFLICT (codigo) DO NOTHING");
+    expect(sqlEjecutado).toContain("ON CONFLICT DO NOTHING");
+    expect(sqlEjecutado).not.toContain("UPDATE permiso");
     expect(sqlEjecutado).toContain("20000000-0000-4000-8000-000000000001");
     expect(sqlEjecutado).toContain("20000000-0000-4000-8000-000000000004");
     expect(sqlEjecutado).toContain("20000000-0000-4000-8000-000000000005");
@@ -69,14 +72,15 @@ describe("Migración 058 - Permiso RBAC reportes:crear y sha256_hash en adjunto 
     expect(sqlEjecutado).toContain("idx_adjunto_sha256_hash");
   });
 
-  it("debe revertir eliminando sha256_hash, asignaciones y el permiso reportes:crear en down", async () => {
+  it("debe revertir solo idx_adjunto_sha256_hash y sha256_hash sin borrar reportes:crear de 056", async () => {
     const { db, sql } = crearDbDePruebas();
 
     await down(db);
 
     const sqlEjecutado = sql();
+    expect(sqlEjecutado).toContain("DROP INDEX IF EXISTS idx_adjunto_sha256_hash");
     expect(sqlEjecutado).toContain("DROP COLUMN IF EXISTS sha256_hash");
-    expect(sqlEjecutado).toContain("DELETE FROM rol_permiso");
-    expect(sqlEjecutado).toContain("DELETE FROM permiso WHERE codigo = 'reportes:crear'");
+    expect(sqlEjecutado).not.toContain("DELETE FROM rol_permiso");
+    expect(sqlEjecutado).not.toContain("DELETE FROM permiso");
   });
 });

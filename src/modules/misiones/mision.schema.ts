@@ -247,6 +247,9 @@ export const MisionDetalleCompletoSchema = z.object({
   reportesTerreno: z.array(ReporteTerrenoDetalleSchema).openapi({
     description: "Informes técnicos levantados en terreno con su respectiva evidencia multimedia (vacío si no hay reportes)",
   }),
+  adjuntos: z.array(AdjuntoEvidenciaSchema).optional().openapi({
+    description: "Evidencias multimedia consolidadas de la misión y su incidente asociado (HU-43)",
+  }),
   evaluaciones: z
     .object({
       tipologiaEvaluada: z.boolean(),

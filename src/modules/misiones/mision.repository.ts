@@ -153,6 +153,14 @@ export interface MisionDetalleQueryResult {
     registrador_nombre?: string | null;
     registrador_email?: string | null;
   }>;
+  adjuntosIncidente?: Array<{
+    id: string;
+    nombre_archivo: string;
+    url: string;
+    tipo_mime: string;
+    tamano_bytes: number | string | bigint;
+    creado_en: Date | string;
+  }>;
 }
 
 /**
@@ -430,11 +438,42 @@ export async function obtenerMisionDetallePorIdRepo(
     // Si la tabla o mock no está presente en algún test unitario aislado
   }
 
+  // Adjuntos directos asociados al incidente de la misión (HU-43)
+  let adjuntosIncidente: Array<{
+    id: string;
+    nombre_archivo: string;
+    url: string;
+    tipo_mime: string;
+    tamano_bytes: number | string | bigint;
+    creado_en: Date | string;
+  }> = [];
+
+  if (mision.incidente_id) {
+    try {
+      adjuntosIncidente = await db
+        .selectFrom("adjunto")
+        .select([
+          "id",
+          "nombre_archivo",
+          "url",
+          "tipo_mime",
+          "tamano_bytes",
+          "creado_en",
+        ])
+        .where("incidente_id", "=", mision.incidente_id)
+        .orderBy("creado_en", "asc")
+        .execute();
+    } catch {
+      adjuntosIncidente = [];
+    }
+  }
+
   return {
     mision,
     recursosCuadrilla,
     reportesTerreno,
     hitos,
+    adjuntosIncidente,
   };
 }
 

@@ -5,7 +5,11 @@ import {
 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
-import { AdjuntoCreadoResponseSchema } from "@/modules/evidencia/evidencia.schema";
+import {
+  AdjuntoCreadoResponseSchema,
+  ListarAdjuntosQuerySchema,
+  ListarAdjuntosResponseSchema,
+} from "@/modules/evidencia/evidencia.schema";
 
 import {
   AvisoDetalleResponseSchema,
@@ -2973,6 +2977,9 @@ registry.registerPath({
     404: {
       description: "El incidente_id o reporte_terreno_id especificado no existe",
     },
+    409: {
+      description: "Conflicto relacional (reporte_terreno_id e incidente_id no coinciden) o incidente en estado cerrado (RESUELTO / NO_ABORDABLE)",
+    },
     413: {
       description: "El archivo supera el límite máximo permitido de 10 MB",
     },
@@ -2981,6 +2988,41 @@ registry.registerPath({
     },
     500: {
       description: "Error interno del servidor al almacenar la evidencia",
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/evidencia/adjuntos",
+  tags: ["Evidencia"],
+  summary: "Listar evidencia multimedia por incidente o reporte de terreno (HU-43)",
+  description:
+    "Retorna la lista cronológica de evidencias multimedia asociadas a un incidente o reporte de terreno.",
+  security: [{ BearerAuth: [] }],
+  request: {
+    query: ListarAdjuntosQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado de archivos adjuntos asociados",
+      content: {
+        "application/json": {
+          schema: ListarAdjuntosResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros inválidos o falta incidente_id y reporte_terreno_id",
+    },
+    401: {
+      description: "No autenticado o token JWT inválido",
+    },
+    403: {
+      description: "Sin permisos suficientes para consultar evidencias",
+    },
+    500: {
+      description: "Error interno del servidor al consultar evidencias",
     },
   },
 });

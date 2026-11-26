@@ -250,6 +250,23 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["404"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["409"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/prevencion"].post.responses["500"]).toBeDefined();
+
+    // Rutas y esquemas de Evidencia Multimedia (HU-43, BUG-H43-API-06)
+    expect(spec.paths["/api/evidencia/adjuntos"]).toBeDefined();
+    expect(spec.paths["/api/evidencia/adjuntos"].post).toBeDefined();
+    expect(spec.paths["/api/evidencia/adjuntos"].post.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(spec.paths["/api/evidencia/adjuntos"].post.responses["201"]).toBeDefined();
+    expect(spec.paths["/api/evidencia/adjuntos"].post.responses["409"]).toBeDefined();
+    expect(spec.paths["/api/evidencia/adjuntos"].post.responses["413"]).toBeDefined();
+    expect(spec.paths["/api/evidencia/adjuntos"].post.responses["415"]).toBeDefined();
+    expect(spec.paths["/api/evidencia/adjuntos"].get).toBeDefined();
+    expect(spec.paths["/api/evidencia/adjuntos"].get.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(spec.components.schemas.AdjuntoCreadoResponse).toBeDefined();
+    expect(spec.components.schemas.ListarAdjuntosResponse).toBeDefined();
   });
 });
 

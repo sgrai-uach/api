@@ -22,6 +22,37 @@ export interface ArchivoProcesado {
   tipoMime: string;
   tamanoBytes: number;
   sha256Hash: string;
+  archivoNuevoEnDisco?: boolean;
+  targetPath?: string;
+}
+
+const MP4_BRANDS_PERMITIDOS = new Set([
+  "isom",
+  "iso2",
+  "iso3",
+  "iso4",
+  "iso5",
+  "iso6",
+  "mp41",
+  "mp42",
+  "mp71",
+  "avc1",
+  "M4V ",
+  "M4VH",
+  "M4VP",
+  "MSNV",
+  "f4v ",
+  "3gp4",
+  "3gp5",
+  "3gp6",
+  "3g2a",
+]);
+
+/**
+ * Normaliza un Content-Type eliminando parámetros de códec o charset (ej. `video/webm;codecs=vp8` -> `video/webm`).
+ */
+export function normalizarMimeBase(mime: string): string {
+  return (mime || "").split(";")[0].trim().toLowerCase();
 }
 
 export function getUploadRootDir(): string {
@@ -81,23 +112,30 @@ export function detectarMimePorMagicBytes(buffer: Buffer): MimePermitido | null 
     return "application/pdf";
   }
 
-  // WEBM: 1A 45 DF A3
+  // WEBM: 1A 45 DF A3 + DocType 'webm' en cabecera EBML
   if (
     buffer[0] === 0x1a &&
     buffer[1] === 0x45 &&
     buffer[2] === 0xdf &&
     buffer[3] === 0xa3
   ) {
-    return "video/webm";
+    const ebmlHeader = buffer.subarray(0, Math.min(buffer.length, 64)).toString("latin1");
+    if (ebmlHeader.includes("webm")) {
+      return "video/webm";
+    }
+    return null;
   }
 
-  // MP4 / QuickTime: box 'ftyp' en offset 4..8
+  // MP4 / QuickTime: box 'ftyp' en offset 4..8 restringido a marcas de video válidas
   if (buffer.subarray(4, 8).toString("ascii") === "ftyp") {
     const brand = buffer.subarray(8, 12).toString("ascii");
     if (brand === "qt  ") {
       return "video/quicktime";
     }
-    return "video/mp4";
+    if (MP4_BRANDS_PERMITIDOS.has(brand)) {
+      return "video/mp4";
+    }
+    return null;
   }
 
   return null;
@@ -138,7 +176,8 @@ export function validarArchivoEvidencia(
     throw new PayloadTooLargeError();
   }
 
-  if (!MIME_PERMITIDOS.includes(declaredMime as MimePermitido)) {
+  const mimeBase = normalizarMimeBase(declaredMime);
+  if (!MIME_PERMITIDOS.includes(mimeBase as MimePermitido)) {
     throw new UnsupportedMediaTypeError();
   }
 
@@ -150,16 +189,16 @@ export function validarArchivoEvidencia(
   }
 
   const esContenedorIsoBmff =
-    (declaredMime === "video/mp4" || declaredMime === "video/quicktime") &&
+    (mimeBase === "video/mp4" || mimeBase === "video/quicktime") &&
     (detectedMime === "video/mp4" || detectedMime === "video/quicktime");
 
-  if (detectedMime !== declaredMime && !esContenedorIsoBmff) {
+  if (detectedMime !== mimeBase && !esContenedorIsoBmff) {
     throw new UnsupportedMediaTypeError(
-      `El contenido binario del archivo (${detectedMime}) no coincide con el tipo declarado (${declaredMime}).`
+      `El contenido binario del archivo (${detectedMime}) no coincide con el tipo declarado (${mimeBase}).`
     );
   }
 
-  return declaredMime as MimePermitido;
+  return mimeBase as MimePermitido;
 }
 
 /**
@@ -168,17 +207,23 @@ export function validarArchivoEvidencia(
 export async function optimizarImagen(
   buffer: Buffer
 ): Promise<{ buffer: Buffer; mime: MimePermitido; ext: string }> {
-  const optimizado = await sharp(buffer)
-    .rotate()
-    .resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
-    .webp({ quality: 80, effort: 4 })
-    .toBuffer();
+  try {
+    const optimizado = await sharp(buffer)
+      .rotate()
+      .resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 80, effort: 4 })
+      .toBuffer();
 
-  return {
-    buffer: optimizado,
-    mime: "image/webp",
-    ext: "webp",
-  };
+    return {
+      buffer: optimizado,
+      mime: "image/webp",
+      ext: "webp",
+    };
+  } catch {
+    throw new UnsupportedMediaTypeError(
+      "La imagen proporcionada está corrupta o no puede decodificarse."
+    );
+  }
 }
 
 /**
@@ -226,7 +271,11 @@ export async function optimizarVideo(
         ext: "mp4",
       };
     }
-  } catch {
+  } catch (err: unknown) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code && code !== "ENOENT") {
+      console.warn("[evidencia.storage] No se pudo optimizar el video con ffmpeg, se usará original:", code);
+    }
     // Fallback seguro: si ffmpeg no está disponible en el entorno local o falla, se almacena el video validado
   } finally {
     await fs.unlink(inputPath).catch(() => {});
@@ -279,10 +328,12 @@ export async function guardarArchivoEvidencia(params: {
   await fs.mkdir(evidenciaDir, { recursive: true });
 
   // Deduplicación: evitar reescribir si el mismo contenido optimizado ya existe en disco
+  let archivoNuevoEnDisco = false;
   try {
     await fs.access(targetPath);
   } catch {
     await fs.writeFile(targetPath, finalBuffer);
+    archivoNuevoEnDisco = true;
   }
 
   return {
@@ -291,5 +342,7 @@ export async function guardarArchivoEvidencia(params: {
     tipoMime: finalMime,
     tamanoBytes: finalBuffer.length,
     sha256Hash,
+    archivoNuevoEnDisco,
+    targetPath,
   };
 }

@@ -43,7 +43,7 @@ describe("evidencia.storage (HU-43)", () => {
       detectarMimePorMagicBytes(Buffer.from("%PDF-1.7\n1 0 obj", "ascii"))
     ).toBe("application/pdf");
     expect(
-      detectarMimePorMagicBytes(Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0, 0, 0, 0, 0, 0, 0, 0]))
+      detectarMimePorMagicBytes(Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x82, 0x84, ...Buffer.from("webm")]))
     ).toBe("video/webm");
     expect(
       detectarMimePorMagicBytes(Buffer.from("\x00\x00\x00\x18ftypisom", "latin1"))
@@ -51,6 +51,47 @@ describe("evidencia.storage (HU-43)", () => {
     expect(
       detectarMimePorMagicBytes(Buffer.from("\x00\x00\x00\x14ftypqt  ", "latin1"))
     ).toBe("video/quicktime");
+  });
+
+  it("debe rechazar marcas ISO BMFF no permitidas (ftypheic, ftypavif, ftypM4A) y EBML sin DocType webm (BUG-H43-API-04)", () => {
+    expect(
+      detectarMimePorMagicBytes(Buffer.from("\x00\x00\x00\x18ftypheic\x00\x00\x00\x00", "latin1"))
+    ).toBeNull();
+    expect(
+      detectarMimePorMagicBytes(Buffer.from("\x00\x00\x00\x18ftypavif\x00\x00\x00\x00", "latin1"))
+    ).toBeNull();
+    expect(
+      detectarMimePorMagicBytes(Buffer.from("\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00", "latin1"))
+    ).toBeNull();
+    expect(
+      detectarMimePorMagicBytes(Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0, 0, 0, 0, 0, 0, 0, 0]))
+    ).toBeNull();
+
+    const heicFake = Buffer.from("\x00\x00\x00\x18ftypheic\x00\x00\x00\x00", "latin1");
+    expect(() => validarArchivoEvidencia(heicFake, "video/mp4", heicFake.length)).toThrow(
+      UnsupportedMediaTypeError
+    );
+
+    const webmHeader = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x82, 0x84, ...Buffer.from("webm"), 0, 0]);
+    expect(validarArchivoEvidencia(webmHeader, "video/webm;codecs=vp8", webmHeader.length)).toBe(
+      "video/webm"
+    );
+  });
+
+  it("debe devolver UnsupportedMediaTypeError (415) ante imágenes JPEG truncadas o corruptas (BUG-H43-API-04)", async () => {
+    const jpegCorrupto = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46,
+      0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
+    ]);
+
+    await expect(
+      guardarArchivoEvidencia({
+        buffer: jpegCorrupto,
+        originalName: "corrupta.jpg",
+        declaredMime: "image/jpeg",
+        size: jpegCorrupto.length,
+      })
+    ).rejects.toThrow(UnsupportedMediaTypeError);
   });
 
   it("debe rechazar archivos vacíos, mayores a 10 MB, MIME no permitidos y magic bytes falsificados", () => {

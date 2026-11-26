@@ -1,20 +1,103 @@
 import { NextRequest, NextResponse } from "next/server";
-import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
-import { verificarPermiso } from "@/modules/seguridad/auth.service";
-import { PERMISO_CREAR_REPORTES } from "@/modules/seguridad/permisos.constants";
+import { exigirUsuarioId } from "@/modules/seguridad/auth.guard";
+import {
+  verificarAlgunPermiso,
+  verificarPermiso,
+} from "@/modules/seguridad/auth.service";
+import {
+  PERMISO_CREAR_REPORTES,
+  PERMISO_KANBAN_INCIDENTES,
+  PERMISO_LEER_MISION,
+} from "@/modules/seguridad/permisos.constants";
 import {
   BadRequestError,
+  ConflictError,
   ForbiddenError,
   NotFoundError,
   UnauthorizedError,
 } from "@/modules/seguridad/errors";
 import {
+  ListarAdjuntosQuerySchema,
   MAX_ADJUNTO_SIZE_BYTES,
   PayloadTooLargeError,
   SubirAdjuntoFieldsSchema,
   UnsupportedMediaTypeError,
 } from "@/modules/evidencia/evidencia.schema";
-import { subirEvidenciaService } from "@/modules/evidencia/evidencia.service";
+import {
+  listarEvidenciaService,
+  subirEvidenciaService,
+} from "@/modules/evidencia/evidencia.service";
+
+function mapearErrorHttpEvidencia(error: unknown, contexto: string): NextResponse {
+  if (error instanceof UnauthorizedError) {
+    return NextResponse.json({ message: error.message }, { status: 401 });
+  }
+  if (error instanceof ForbiddenError) {
+    return NextResponse.json({ message: error.message }, { status: 403 });
+  }
+  if (error instanceof NotFoundError) {
+    return NextResponse.json({ message: error.message }, { status: 404 });
+  }
+  if (error instanceof ConflictError) {
+    return NextResponse.json({ message: error.message }, { status: 409 });
+  }
+  if (error instanceof PayloadTooLargeError) {
+    return NextResponse.json({ message: error.message }, { status: 413 });
+  }
+  if (error instanceof UnsupportedMediaTypeError) {
+    return NextResponse.json({ message: error.message }, { status: 415 });
+  }
+  if (error instanceof BadRequestError) {
+    return NextResponse.json({ message: error.message }, { status: 400 });
+  }
+
+  console.error(`[${contexto}] Error inesperado:`, error);
+  return NextResponse.json(
+    { message: "Error interno del servidor al procesar el archivo adjunto." },
+    { status: 500 }
+  );
+}
+
+/**
+ * GET /api/evidencia/adjuntos (HU-43)
+ *
+ * Lista la evidencia multimedia asociada a un `incidente_id` o `reporte_terreno_id`.
+ * Requiere JWT válido y al menos uno de `reportes:crear`, `misiones:leer` o `incidentes:kanban`.
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const usuarioId = await exigirUsuarioId(request);
+    await verificarAlgunPermiso(usuarioId, [
+      PERMISO_CREAR_REPORTES,
+      PERMISO_LEER_MISION,
+      PERMISO_KANBAN_INCIDENTES,
+    ]);
+
+    const { searchParams } = new URL(request.url);
+    const validacion = ListarAdjuntosQuerySchema.safeParse({
+      incidente_id: searchParams.get("incidente_id")?.trim() || undefined,
+      reporte_terreno_id: searchParams.get("reporte_terreno_id")?.trim() || undefined,
+    });
+
+    if (!validacion.success) {
+      return NextResponse.json(
+        {
+          message: "Parámetros de consulta inválidos.",
+          errors: validacion.error.issues.map((issue) => ({
+            campo: issue.path.join(".") || "query",
+            mensaje: issue.message,
+          })),
+        },
+        { status: 400 }
+      );
+    }
+
+    const data = await listarEvidenciaService(validacion.data);
+    return NextResponse.json({ data }, { status: 200 });
+  } catch (error: unknown) {
+    return mapearErrorHttpEvidencia(error, "GET /api/evidencia/adjuntos");
+  }
+}
 
 /**
  * POST /api/evidencia/adjuntos (HU-43)
@@ -23,15 +106,12 @@ import { subirEvidenciaService } from "@/modules/evidencia/evidencia.service";
  * junto con `incidente_id` o `reporte_terreno_id`, valida tamaño (<= 10 MB) y magic bytes,
  * optimiza el archivo en disco, persiste en `adjunto` y emite `adjunto:creado`.
  *
- * Requiere permiso RBAC `reportes:crear`.
+ * Requiere token JWT válido, permiso RBAC `reportes:crear` y pertenencia a la unidad asignada.
  */
 export async function POST(request: NextRequest) {
   try {
-    const tokenUserId = await extraerUsuarioId(request);
-    const headerUserId = request.headers.get("x-user-id");
-    const usuarioId = tokenUserId || headerUserId;
-
-    await verificarPermiso(usuarioId, PERMISO_CREAR_REPORTES);
+    const usuarioId = await exigirUsuarioId(request);
+    const usuario = await verificarPermiso(usuarioId, PERMISO_CREAR_REPORTES);
 
     const contentType = request.headers.get("content-type") || "";
     if (!contentType.includes("multipart/form-data")) {
@@ -56,7 +136,18 @@ export async function POST(request: NextRequest) {
     let formData: FormData;
     try {
       formData = await request.formData();
-    } catch {
+    } catch (err) {
+      const contentLength = contentLengthHeader ? Number(contentLengthHeader) : NaN;
+      const errMsg = err instanceof Error ? err.message : "";
+      if (
+        (Number.isFinite(contentLength) && contentLength > MAX_ADJUNTO_SIZE_BYTES) ||
+        /exceed|too large|body size/i.test(errMsg)
+      ) {
+        return NextResponse.json(
+          { message: "El archivo excede el tamaño máximo permitido de 10 MB." },
+          { status: 413 }
+        );
+      }
       return NextResponse.json(
         { message: "No se pudo parsear el cuerpo multipart/form-data." },
         { status: 400 }
@@ -107,33 +198,14 @@ export async function POST(request: NextRequest) {
       declaredMime: fileEntry.type || "",
       size: fileEntry.size ?? buffer.length,
       fields: validacionCampos.data,
+      usuario: {
+        id: usuario.id,
+        rol: usuario.rol,
+      },
     });
 
     return NextResponse.json(resultado, { status: 201 });
   } catch (error: unknown) {
-    if (error instanceof UnauthorizedError) {
-      return NextResponse.json({ message: error.message }, { status: 401 });
-    }
-    if (error instanceof ForbiddenError) {
-      return NextResponse.json({ message: error.message }, { status: 403 });
-    }
-    if (error instanceof NotFoundError) {
-      return NextResponse.json({ message: error.message }, { status: 404 });
-    }
-    if (error instanceof PayloadTooLargeError) {
-      return NextResponse.json({ message: error.message }, { status: 413 });
-    }
-    if (error instanceof UnsupportedMediaTypeError) {
-      return NextResponse.json({ message: error.message }, { status: 415 });
-    }
-    if (error instanceof BadRequestError) {
-      return NextResponse.json({ message: error.message }, { status: 400 });
-    }
-
-    console.error("[POST /api/evidencia/adjuntos] Error inesperado:", error);
-    return NextResponse.json(
-      { message: "Error interno del servidor al procesar el archivo adjunto." },
-      { status: 500 }
-    );
+    return mapearErrorHttpEvidencia(error, "POST /api/evidencia/adjuntos");
   }
 }
