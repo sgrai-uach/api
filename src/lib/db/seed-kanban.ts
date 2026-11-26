@@ -6,18 +6,28 @@ export async function sembrarDatosKanban() {
 
   // 1. Obtener IDs de delegaciones maestras
   const delegaciones = await db.selectFrom("delegacion").selectAll().execute();
-  const delNorte = delegaciones.find((d) => d.nombre === "Norte")?.id;
-  const delSur = delegaciones.find((d) => d.nombre === "Sur")?.id;
-  const delCosta = delegaciones.find((d) => d.nombre === "Costa")?.id;
-  const delCalleCalle = delegaciones.find((d) => d.nombre === "Calle Calle")?.id;
+  const delNorte = delegaciones.find((d) => d.codigo === "DEL_NORTE")?.id;
+  const delSur = delegaciones.find((d) => d.codigo === "DEL_SUR")?.id;
+  const delCosta = delegaciones.find((d) => d.codigo === "DEL_COSTA")?.id;
+  const delCalleCalle = delegaciones.find((d) => d.codigo === "DEL_CALLE_CALLE")?.id;
 
   // 2. Obtener IDs de tipos de incidente
   const tipos = await db.selectFrom("tipo_incidente").selectAll().execute();
-  const tipoInundacion = tipos.find((t) => t.nombre === "Inundación")?.id;
-  const tipoArbol = tipos.find((t) => t.nombre === "Caída de árbol")?.id;
-  const tipoDeslizamiento = tipos.find((t) => t.nombre === "Deslizamiento de tierra")?.id;
-  const tipoAnegamiento = tipos.find((t) => t.nombre === "Anegamiento de calzada")?.id;
-  const tipoOtro = tipos.find((t) => t.nombre === "Otro")?.id;
+  const tipoInundacion =
+    tipos.find((t) => t.nombre === "Inundación")?.id ??
+    tipos.find((t) => t.nombre.toLowerCase().includes("inundac"))?.id;
+  const tipoArbol =
+    tipos.find((t) => t.nombre === "Caída de árbol")?.id ??
+    tipos.find((t) => t.nombre.toLowerCase().includes("árbol") || t.nombre.toLowerCase().includes("arbol"))?.id;
+  const tipoDeslizamiento =
+    tipos.find((t) => t.nombre === "Deslizamiento de tierra")?.id ??
+    tipos.find((t) => t.nombre.toLowerCase().includes("deslizam"))?.id;
+  const tipoAnegamiento =
+    tipos.find((t) => t.nombre === "Anegamiento de calzada")?.id ??
+    tipos.find((t) => t.nombre.toLowerCase().includes("anegam"))?.id;
+  const tipoOtro =
+    tipos.find((t) => t.nombre === "Otro")?.id ??
+    tipos.find((t) => t.nombre.toLowerCase().includes("otro"))?.id;
 
   // 3. Obtener IDs de fuentes
   const fuentes = await db.selectFrom("fuente_incidente").selectAll().execute();
@@ -31,7 +41,7 @@ export async function sembrarDatosKanban() {
     .where("email", "=", "admin@valdivia.cl")
     .selectAll()
     .executeTakeFirst();
-  const adminId = usuarioAdmin?.id ?? "00000000-0000-0000-0000-000000000001";
+  const adminId = usuarioAdmin?.id ?? "00000000-0000-4000-8000-000000000001";
 
   const usuarioEncargado = await db
     .selectFrom("usuario")
@@ -39,6 +49,28 @@ export async function sembrarDatosKanban() {
     .selectAll()
     .executeTakeFirst();
   const encargadoId = usuarioEncargado?.id ?? "00000000-0000-4000-8000-000000000003";
+
+  // 4.1 Líderes reales de patrulla (creados por scripts/seed-patrullas.ts) y rol brigadista
+  const usuariosPatrulla = await db
+    .selectFrom("usuario")
+    .select(["id", "email"])
+    .where("email", "in", ["matias.patrulla@valdivia.cl", "loreto.patrulla@valdivia.cl"])
+    .execute();
+
+  const liderCosta =
+    usuariosPatrulla.find((u) => u.email === "matias.patrulla@valdivia.cl")?.id ??
+    encargadoId;
+  const liderSur =
+    usuariosPatrulla.find((u) => u.email === "loreto.patrulla@valdivia.cl")?.id ??
+    encargadoId;
+
+  const rolBrigadista = await db
+    .selectFrom("rol")
+    .select("id")
+    .where("codigo", "=", "BRIGADISTA")
+    .executeTakeFirst();
+  const rolBrigadistaId =
+    rolBrigadista?.id ?? "20000000-0000-4000-8000-000000000009";
 
   // 5. Informantes Ciudadanos
   await sql`
@@ -119,31 +151,173 @@ export async function sembrarDatosKanban() {
   `.execute(db);
 
   // 7. Equipos Operativos: Patrullas Verificadoras y Cuadrillas
+  // Brigadistas de apoyo para que las cuadrillas demo tengan dotación visible en el detalle.
   await sql`
-    INSERT INTO patrulla_verificadora (id, nombre, estado, delegacion_id, usuario_lider_id)
+    INSERT INTO usuario (
+      id, rut, nombres, apellidos, email, rol_id, delegacion_id, activo, estado_operativo
+    )
     VALUES
-      ('f1000000-0000-4000-8000-000000000001', 'Patrulla Rápida Costa-1', 'EN_VERIFICACION', ${delCosta ?? null}, ${encargadoId}),
-      ('f1000000-0000-4000-8000-000000000002', 'Patrulla Rápida Centro-Sur', 'DISPONIBLE', ${delSur ?? null}, ${encargadoId})
-    ON CONFLICT (id) DO NOTHING;
+      (
+        'd1000000-0000-4000-8000-000000000006',
+        '19.555.001-1',
+        'Brigadista',
+        'Kanban Sur',
+        'brigadista.kanban1@valdivia.cl',
+        ${rolBrigadistaId},
+        ${delSur ?? null},
+        true,
+        'disponible'
+      ),
+      (
+        'd1000000-0000-4000-8000-000000000007',
+        '19.555.002-2',
+        'Brigadista',
+        'Kanban Norte',
+        'brigadista.kanban2@valdivia.cl',
+        ${rolBrigadistaId},
+        ${delNorte ?? null},
+        true,
+        'disponible'
+      )
+    ON CONFLICT (id) DO UPDATE SET
+      rol_id = EXCLUDED.rol_id,
+      delegacion_id = EXCLUDED.delegacion_id,
+      activo = true,
+      estado_operativo = 'disponible';
   `.execute(db);
 
   await sql`
-    INSERT INTO cuadrilla (id, nombre, estado, delegacion_id, usuario_delegado_id)
+    INSERT INTO personal (id, usuario_id, delegacion_id, especialidad, cargo, disponible_terreno)
     VALUES
-      ('c1000000-0000-4000-8000-000000000001', 'Cuadrilla Aguas Lluvias Alfa', 'EN_MISION', ${delSur ?? null}, ${encargadoId}),
-      ('c1000000-0000-4000-8000-000000000002', 'Cuadrilla Vías y Despeje Urbano', 'EN_MISION', ${delNorte ?? null}, ${encargadoId})
-    ON CONFLICT (id) DO NOTHING;
+      (
+        'c1000000-0000-4000-8000-000000000006',
+        'd1000000-0000-4000-8000-000000000006',
+        ${delSur ?? null},
+        'Despeje, bombeo y mitigación',
+        'Brigadista Operativo',
+        true
+      ),
+      (
+        'c1000000-0000-4000-8000-000000000007',
+        'd1000000-0000-4000-8000-000000000007',
+        ${delNorte ?? null},
+        'Despeje, bombeo y mitigación',
+        'Brigadista Operativo',
+        true
+      )
+    ON CONFLICT (usuario_id) DO UPDATE SET
+      delegacion_id = EXCLUDED.delegacion_id,
+      disponible_terreno = true;
+  `.execute(db);
+
+  await sql`
+    INSERT INTO patrulla_verificadora (
+      id, codigo, nombre, estado, delegacion_id, usuario_lider_id,
+      vehiculo_id, activo, eliminado_en, creado_en, actualizado_en
+    )
+    VALUES
+      (
+        'f1000000-0000-4000-8000-000000000001',
+        'PV-COSTA-01',
+        'Patrulla Rápida Costa-1',
+        'EN_VERIFICACION',
+        ${delCosta ?? null},
+        ${liderCosta},
+        (SELECT id FROM recurso WHERE id = 'b1000000-0000-4000-8000-000000000003'::uuid),
+        true,
+        NULL,
+        CURRENT_TIMESTAMP - interval '3 days',
+        CURRENT_TIMESTAMP
+      ),
+      (
+        'f1000000-0000-4000-8000-000000000002',
+        'PV-CENTROSUR-01',
+        'Patrulla Rápida Centro-Sur',
+        'DISPONIBLE',
+        ${delSur ?? null},
+        ${liderSur},
+        (SELECT id FROM recurso WHERE id = 'b1000000-0000-4000-8000-000000000002'::uuid),
+        true,
+        NULL,
+        CURRENT_TIMESTAMP - interval '3 days',
+        CURRENT_TIMESTAMP
+      )
+    ON CONFLICT (id) DO UPDATE SET
+      codigo = COALESCE(patrulla_verificadora.codigo, EXCLUDED.codigo),
+      nombre = EXCLUDED.nombre,
+      estado = EXCLUDED.estado,
+      delegacion_id = EXCLUDED.delegacion_id,
+      usuario_lider_id = EXCLUDED.usuario_lider_id,
+      vehiculo_id = COALESCE(patrulla_verificadora.vehiculo_id, EXCLUDED.vehiculo_id),
+      activo = true,
+      eliminado_en = NULL,
+      actualizado_en = CURRENT_TIMESTAMP;
+  `.execute(db);
+
+  await sql`
+    INSERT INTO cuadrilla (
+      id, nombre, estado, delegacion_id, usuario_delegado_id,
+      creado_por_id, creado_en, actualizado_por_id, actualizado_en,
+      eliminado_en, activo
+    )
+    VALUES
+      (
+        'c1000000-0000-4000-8000-000000000001',
+        'Cuadrilla Aguas Lluvias Alfa',
+        'EN_MISION',
+        ${delSur ?? null},
+        ${encargadoId},
+        ${adminId},
+        CURRENT_TIMESTAMP - interval '3 days',
+        ${adminId},
+        CURRENT_TIMESTAMP,
+        NULL,
+        true
+      ),
+      (
+        'c1000000-0000-4000-8000-000000000002',
+        'Cuadrilla Vías y Despeje Urbano',
+        'EN_MISION',
+        ${delNorte ?? null},
+        ${encargadoId},
+        ${adminId},
+        CURRENT_TIMESTAMP - interval '3 days',
+        ${adminId},
+        CURRENT_TIMESTAMP,
+        NULL,
+        true
+      )
+    ON CONFLICT (id) DO UPDATE SET
+      nombre = EXCLUDED.nombre,
+      estado = EXCLUDED.estado,
+      delegacion_id = EXCLUDED.delegacion_id,
+      usuario_delegado_id = EXCLUDED.usuario_delegado_id,
+      actualizado_por_id = EXCLUDED.actualizado_por_id,
+      actualizado_en = CURRENT_TIMESTAMP,
+      eliminado_en = NULL,
+      activo = true;
+  `.execute(db);
+
+  await sql`
+    INSERT INTO cuadrilla_personal (cuadrilla_id, personal_id, activo)
+    VALUES
+      ('c1000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000006', true),
+      ('c1000000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000007', true)
+    ON CONFLICT (cuadrilla_id, personal_id) WHERE desvinculado_en IS NULL DO UPDATE SET
+      activo = true;
   `.execute(db);
 
   // 8. Asignación de Recursos a Cuadrillas
   await sql`
-    INSERT INTO cuadrilla_recurso (id, cuadrilla_id, recurso_id, cantidad_asignada)
+    INSERT INTO cuadrilla_recurso (id, cuadrilla_id, recurso_id, cantidad_asignada, activo)
     VALUES
-      ('cd100000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 1),
-      ('cd100000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000002', 1),
-      ('cd100000-0000-4000-8000-000000000003', 'c1000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000003', 2),
-      ('cd100000-0000-4000-8000-000000000004', 'c1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000004', 50)
-    ON CONFLICT (id) DO NOTHING;
+      ('cd100000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 1, true),
+      ('cd100000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000002', 1, true),
+      ('cd100000-0000-4000-8000-000000000003', 'c1000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000003', 2, true),
+      ('cd100000-0000-4000-8000-000000000004', 'c1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000004', 50, true)
+    ON CONFLICT (id) DO UPDATE SET
+      cantidad_asignada = EXCLUDED.cantidad_asignada,
+      activo = true;
   `.execute(db);
 
   // 9. Incidentes de Prueba (Cubriendo todos los estados del Tablero Kanban)
@@ -458,7 +632,7 @@ export async function sembrarDatosKanban() {
     INSERT INTO mision (
       id, codigo, titulo, descripcion, tipo_mision, estado, prioridad,
       incidente_id, patrulla_id, cuadrilla_id, encargado_id, creado_por_id,
-      fecha_inicio, fecha_cierre, creado_en
+      fecha_inicio, fecha_cierre, creado_en, actualizado_en
     )
     VALUES
       -- Misión de verificación para incidente 3
@@ -477,7 +651,8 @@ export async function sembrarDatosKanban() {
         ${adminId},
         CURRENT_TIMESTAMP - interval '25 minutes',
         NULL,
-        CURRENT_TIMESTAMP - interval '30 minutes'
+        CURRENT_TIMESTAMP - interval '30 minutes',
+        CURRENT_TIMESTAMP - interval '5 minutes'
       ),
       -- Misión de desagüe con motobomba para incidente 4
       (
@@ -495,7 +670,8 @@ export async function sembrarDatosKanban() {
         ${adminId},
         CURRENT_TIMESTAMP - interval '1 hour',
         NULL,
-        CURRENT_TIMESTAMP - interval '1 hour 15 minutes'
+        CURRENT_TIMESTAMP - interval '1 hour 15 minutes',
+        CURRENT_TIMESTAMP - interval '10 minutes'
       ),
       -- Misión de trozado de árbol para incidente 5
       (
@@ -513,7 +689,8 @@ export async function sembrarDatosKanban() {
         ${adminId},
         CURRENT_TIMESTAMP - interval '2 hours',
         NULL,
-        CURRENT_TIMESTAMP - interval '2 hours 15 minutes'
+        CURRENT_TIMESTAMP - interval '2 hours 15 minutes',
+        CURRENT_TIMESTAMP - interval '15 minutes'
       ),
       -- Misión completada para incidente 6
       (
@@ -531,9 +708,23 @@ export async function sembrarDatosKanban() {
         ${adminId},
         CURRENT_TIMESTAMP - interval '4 hours',
         CURRENT_TIMESTAMP - interval '1 hour',
-        CURRENT_TIMESTAMP - interval '4 hours 30 minutes'
+        CURRENT_TIMESTAMP - interval '4 hours 30 minutes',
+        CURRENT_TIMESTAMP - interval '1 hour'
       )
-    ON CONFLICT (id) DO NOTHING;
+    ON CONFLICT (id) DO UPDATE SET
+      codigo = EXCLUDED.codigo,
+      titulo = EXCLUDED.titulo,
+      descripcion = EXCLUDED.descripcion,
+      tipo_mision = EXCLUDED.tipo_mision,
+      estado = EXCLUDED.estado,
+      prioridad = EXCLUDED.prioridad,
+      incidente_id = EXCLUDED.incidente_id,
+      patrulla_id = EXCLUDED.patrulla_id,
+      cuadrilla_id = EXCLUDED.cuadrilla_id,
+      encargado_id = EXCLUDED.encargado_id,
+      fecha_inicio = EXCLUDED.fecha_inicio,
+      fecha_cierre = EXCLUDED.fecha_cierre,
+      actualizado_en = CURRENT_TIMESTAMP;
   `.execute(db);
 
   console.log("¡Datos de prueba para el Tablero Kanban sembrados exitosamente!");

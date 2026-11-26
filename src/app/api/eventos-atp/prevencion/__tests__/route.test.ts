@@ -288,19 +288,57 @@ describe("Route Handler GET /api/eventos-atp/prevencion (H76 - Estándar H34)", 
     expect(res.status).toBe(401);
   });
 
-  it("debe retornar 403 si el usuario no tiene el permiso prevencion:eventos:leer", async () => {
+  it("debe retornar 403 con mensaje explícito si el usuario no tiene el permiso prevencion:eventos:leer", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(
       "00000000-0000-4000-8000-000000000099"
     );
-    vi.spyOn(seguridadService, "validarAccesoRoles").mockRejectedValueOnce(
-      new ForbiddenError("Acceso denegado.")
-    );
+    const spyValidar = vi
+      .spyOn(seguridadService, "validarAccesoRoles")
+      .mockRejectedValueOnce(
+        new ForbiddenError("Acceso denegado. Se requiere el permiso 'prevencion:eventos:leer'.")
+      );
 
     const req = new NextRequest("http://localhost:3000/api/eventos-atp/prevencion", {
       headers: { authorization: "Bearer valid-token" },
     });
     const res = await GET(req);
     expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.message).toContain("prevencion:eventos:leer");
+    expect(spyValidar).toHaveBeenCalledWith(
+      "00000000-0000-4000-8000-000000000099",
+      ["prevencion:eventos:leer"],
+      "Acceso denegado. Se requiere el permiso 'prevencion:eventos:leer'."
+    );
+  });
+
+  it("debe ignorar query params opcionales vacíos (?delegacionId=&estado=) y retornar 200 OK", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(
+      "00000000-0000-4000-8000-000000000001"
+    );
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({} as any);
+    const spyListar = vi
+      .spyOn(eventoPrevencionService, "listarEventosPrevencionService")
+      .mockResolvedValueOnce({
+        message: "Eventos de prevención obtenidos exitosamente.",
+        data: [],
+        meta: {
+          total: 0,
+          page: 1,
+          limit: 20,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false,
+        },
+      });
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp/prevencion?delegacionId=&estado=&busqueda=%20%20",
+      { headers: { authorization: "Bearer valid-token" } }
+    );
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    expect(spyListar).toHaveBeenCalledWith({ page: 1, limit: 20 });
   });
 
   it("debe retornar 400 si delegacionId o estado son inválidos", async () => {
@@ -337,10 +375,13 @@ describe("Route Handler GET /api/eventos-atp/prevencion (H76 - Estándar H34)", 
           sector: "Humedal Angachilla",
           direccionTexto: "Av. Simpson s/n",
           prioridad: "ALTA" as const,
-          estado: "EN_CURSO" as const,
+          estado: "EN_EJECUCION" as const,
           latitud: -39.8456,
           longitud: -73.2389,
-          ubicacionGeoJson: { type: "Point", coordinates: [-73.2389, -39.8456] },
+          ubicacionGeoJson: {
+            type: "Point" as const,
+            coordinates: [-73.2389, -39.8456] as [number, number],
+          },
           puntoCritico: {
             id: "40000000-0000-4000-8000-000000000001",
             codigo: "PC-SUR-001",
@@ -350,7 +391,10 @@ describe("Route Handler GET /api/eventos-atp/prevencion (H76 - Estándar H34)", 
             prioridad: "ALTA" as const,
             latitud: -39.8456,
             longitud: -73.2389,
-            ubicacionGeoJson: { type: "Point", coordinates: [-73.2389, -39.8456] },
+            ubicacionGeoJson: {
+              type: "Point" as const,
+              coordinates: [-73.2389, -39.8456] as [number, number],
+            },
           },
           delegacion: {
             id: "30000000-0000-4000-8000-000000000002",
@@ -393,7 +437,7 @@ describe("Route Handler GET /api/eventos-atp/prevencion (H76 - Estándar H34)", 
       .mockResolvedValueOnce(respuestaMock);
 
     const req = new NextRequest(
-      "http://localhost:3000/api/eventos-atp/prevencion?page=1&limit=10&estado=EN_CURSO&delegacionId=30000000-0000-4000-8000-000000000002&busqueda=Angachilla",
+      "http://localhost:3000/api/eventos-atp/prevencion?page=1&limit=10&estado=EN_EJECUCION&delegacionId=30000000-0000-4000-8000-000000000002&busqueda=Angachilla",
       { headers: { authorization: "Bearer valid-token" } }
     );
 
@@ -409,7 +453,7 @@ describe("Route Handler GET /api/eventos-atp/prevencion (H76 - Estándar H34)", 
     expect(spyListar).toHaveBeenCalledWith({
       page: 1,
       limit: 10,
-      estado: "EN_CURSO",
+      estado: "EN_EJECUCION",
       delegacionId: "30000000-0000-4000-8000-000000000002",
       busqueda: "Angachilla",
     });

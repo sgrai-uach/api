@@ -1,7 +1,7 @@
 import { Kysely, sql } from "kysely";
 
 /**
- * HU-36 - Permiso RBAC para confirmación y aceptación de misión por Patrulla Verificadora en terreno.
+ * HU-36 / HU-69 - Permiso RBAC para confirmación, aceptación y rechazo de misión por Patrulla Verificadora en terreno.
  *
  * Se registra el permiso `misiones:terreno:verificar` en el módulo 'Misiones' y se asigna
  * a los roles `PATRULLA_VERIFICADORA` y `ADMIN`.
@@ -24,7 +24,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
           VALUES (
             'misiones:terreno:verificar',
             'Verificar y Aceptar Misiones en Terreno',
-            'Permite a la patrulla verificadora confirmar y aceptar misiones asignadas desde terreno',
+            'Permite a la patrulla verificadora gestionar, aceptar o rechazar misiones asignadas desde terreno',
             'Misiones'
           )
           RETURNING id INTO v_permiso_id;
@@ -34,7 +34,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
             v_target_id,
             'misiones:terreno:verificar',
             'Verificar y Aceptar Misiones en Terreno',
-            'Permite a la patrulla verificadora confirmar y aceptar misiones asignadas desde terreno',
+            'Permite a la patrulla verificadora gestionar, aceptar o rechazar misiones asignadas desde terreno',
             'Misiones'
           )
           RETURNING id INTO v_permiso_id;
@@ -43,7 +43,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
         UPDATE permiso
         SET
           nombre = 'Verificar y Aceptar Misiones en Terreno',
-          descripcion = 'Permite a la patrulla verificadora confirmar y aceptar misiones asignadas desde terreno',
+          descripcion = 'Permite a la patrulla verificadora gestionar, aceptar o rechazar misiones asignadas desde terreno',
           modulo = 'Misiones'
         WHERE id = v_permiso_id;
       END IF;

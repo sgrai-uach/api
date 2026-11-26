@@ -9,7 +9,7 @@ extendZodWithOpenApi(z);
 
 export const EstadoEventoPrevencionSchema = z.enum([
   "PLANIFICADA",
-  "EN_CURSO",
+  "EN_EJECUCION",
   "COMPLETADA",
   "CANCELADA",
 ]);
@@ -202,6 +202,19 @@ export const ListarEventosPrevencionQuerySchema = PaginationQuerySchema.extend({
 export type ListarEventosPrevencionQuery = z.infer<typeof ListarEventosPrevencionQuerySchema>;
 
 /**
+ * Geometría GeoJSON Point (EPSG:4326) para coordenadas PostGIS.
+ */
+export const GeoJsonPointSchema = z
+  .object({
+    type: z.literal("Point"),
+    coordinates: z.tuple([z.number(), z.number()]),
+  })
+  .openapi({
+    description: "Geometría PostGIS Point en formato GeoJSON (EPSG:4326)",
+    example: { type: "Point", coordinates: [-73.2389, -39.8456] },
+  });
+
+/**
  * Detalle georreferenciado PostGIS del punto crítico asociado para el drawer lateral (H76).
  */
 export const PuntoCriticoDetallePrevencionSchema = z.object({
@@ -213,7 +226,7 @@ export const PuntoCriticoDetallePrevencionSchema = z.object({
   prioridad: PrioridadEventoPrevencionSchema.openapi({ example: "ALTA" }),
   latitud: z.number().openapi({ example: -39.8456 }),
   longitud: z.number().openapi({ example: -73.2389 }),
-  ubicacionGeoJson: z.unknown().nullable().openapi({
+  ubicacionGeoJson: GeoJsonPointSchema.nullable().openapi({
     description: "Geometría PostGIS Point en formato GeoJSON (EPSG:4326)",
     example: { type: "Point", coordinates: [-73.2389, -39.8456] },
   }),
@@ -250,7 +263,7 @@ export const EventoPrevencionListadoItemSchema = z.object({
   estado: EstadoEventoPrevencionSchema,
   latitud: z.number(),
   longitud: z.number(),
-  ubicacionGeoJson: z.unknown().nullable().openapi({
+  ubicacionGeoJson: GeoJsonPointSchema.nullable().openapi({
     description: "Geometría PostGIS Point del evento en formato GeoJSON (EPSG:4326)",
   }),
   puntoCritico: PuntoCriticoDetallePrevencionSchema.nullable().openapi({

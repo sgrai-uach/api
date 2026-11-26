@@ -31,13 +31,17 @@ export async function GET(req: NextRequest) {
     const usuarioId = await extraerUsuarioId(req);
 
     // Validar autorización RBAC (requiere permiso prevencion:eventos:leer)
-    await seguridadService.validarAccesoRoles(usuarioId, [
-      PERMISO_LEER_EVENTOS_PREVENCION,
-    ]);
+    await seguridadService.validarAccesoRoles(
+      usuarioId,
+      [PERMISO_LEER_EVENTOS_PREVENCION],
+      "Acceso denegado. Se requiere el permiso 'prevencion:eventos:leer'."
+    );
 
     const queryParams: Record<string, string> = {};
     req.nextUrl.searchParams.forEach((value, key) => {
-      queryParams[key] = value;
+      if (value.trim() !== "") {
+        queryParams[key] = value;
+      }
     });
 
     const resultadoValidacion =

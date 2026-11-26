@@ -22,6 +22,13 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     ON evento_prevencion (creado_en DESC);
   `.execute(db);
 
+  // Normalizar registros históricos que pudieran usar EN_CURSO a EN_EJECUCION (CA-2 H76)
+  await sql`
+    UPDATE evento_prevencion
+    SET estado = 'EN_EJECUCION'
+    WHERE estado = 'EN_CURSO';
+  `.execute(db);
+
   // 3. Registrar permiso RBAC prevencion:eventos:leer y asignarlo a ADMIN, ENCARGADO y SUPERVISOR
   await sql`
     DO $$

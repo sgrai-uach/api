@@ -233,6 +233,27 @@ function toIsoString(fecha: Date | string | null | undefined): string | null {
   return fecha instanceof Date ? fecha.toISOString() : String(fecha);
 }
 
+type GeoJsonPoint = { type: "Point"; coordinates: [number, number] };
+
+function toGeoJsonPoint(raw: unknown): GeoJsonPoint | null {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    "type" in raw &&
+    (raw as { type: unknown }).type === "Point" &&
+    "coordinates" in raw &&
+    Array.isArray((raw as { coordinates: unknown }).coordinates) &&
+    (raw as { coordinates: unknown[] }).coordinates.length >= 2
+  ) {
+    const coords = (raw as { coordinates: unknown[] }).coordinates;
+    return {
+      type: "Point",
+      coordinates: [Number(coords[0]), Number(coords[1])],
+    };
+  }
+  return null;
+}
+
 /**
  * Servicio de negocio para listar eventos de prevención paginados con filtros H34 (H76).
  */
@@ -257,7 +278,7 @@ export async function listarEventosPrevencionService(
       estado: row.ep_estado as EstadoEventoPrevencion,
       latitud: Number(row.ep_latitud),
       longitud: Number(row.ep_longitud),
-      ubicacionGeoJson: row.ep_ubicacion_geojson ?? null,
+      ubicacionGeoJson: toGeoJsonPoint(row.ep_ubicacion_geojson),
       puntoCritico: row.pc_id
         ? {
             id: row.pc_id,
@@ -268,7 +289,7 @@ export async function listarEventosPrevencionService(
             prioridad: (row.pc_prioridad ?? "MEDIA") as PrioridadEventoPrevencion,
             latitud: Number(row.pc_latitud),
             longitud: Number(row.pc_longitud),
-            ubicacionGeoJson: row.pc_ubicacion_geojson ?? null,
+            ubicacionGeoJson: toGeoJsonPoint(row.pc_ubicacion_geojson),
           }
         : null,
       delegacion: row.del_id

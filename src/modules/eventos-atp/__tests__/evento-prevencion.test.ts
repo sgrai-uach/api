@@ -409,11 +409,16 @@ describe("Módulo Eventos ATP / Prevención (HU-30) - Pruebas Unitarias", () => 
       }
     });
 
-    it("debe rechazar estado inválido fuera del enum (ej. EN_EJECUCION)", () => {
-      const parsed = ListarEventosPrevencionQuerySchema.safeParse({
+    it("debe aceptar estado EN_EJECUCION y rechazar EN_CURSO en ListarEventosPrevencionQuerySchema", () => {
+      const valido = ListarEventosPrevencionQuerySchema.safeParse({
         estado: "EN_EJECUCION",
       });
-      expect(parsed.success).toBe(false);
+      expect(valido.success).toBe(true);
+
+      const invalido = ListarEventosPrevencionQuerySchema.safeParse({
+        estado: "EN_CURSO",
+      });
+      expect(invalido.success).toBe(false);
     });
 
     it("debe mapear correctamente eventos paginados con punto crítico PostGIS, patrulla y cuadrilla", async () => {
@@ -429,7 +434,7 @@ describe("Módulo Eventos ATP / Prevención (HU-30) - Pruebas Unitarias", () => 
             ep_sector: "Niebla",
             ep_direccion_texto: "Camino Real km 2",
             ep_prioridad: "ALTA",
-            ep_estado: "EN_CURSO",
+            ep_estado: "EN_EJECUCION",
             ep_latitud: "-39.8712",
             ep_longitud: "-73.3951",
             ep_ubicacion_geojson: { type: "Point", coordinates: [-73.3951, -39.8712] },

@@ -42,9 +42,43 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/puntos-criticos/{id}"]).toBeDefined();
     expect(spec.paths["/api/puntos-criticos/{id}"].delete).toBeDefined();
 
-    // Rutas de Recuperación (Eventos ATP - HU-29)
+    // Rutas de Recuperación (Eventos ATP - HU-29, HU-32)
     expect(spec.paths["/api/eventos-atp/recuperacion"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/recuperacion"].post).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/recuperacion/{id}"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/recuperacion/{id}"].get).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/recuperacion/{id}/asignar"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/recuperacion/{id}/asignar"].post).toBeDefined();
+
+    // Rutas de Eventos ATP - Creación (H61)
+    expect(spec.paths["/api/eventos-atp"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.responses["201"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.responses["400"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.responses["401"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.responses["403"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.responses["409"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.responses["500"]).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].post.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(spec.paths["/api/misiones/{id}/rechazar"]?.post?.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+
+    // Validar que todo esquema de seguridad referenciado exista en components.securitySchemes
+    const esquemasDefinidos = new Set(Object.keys(spec.components.securitySchemes));
+    for (const methods of Object.values(spec.paths) as Array<Record<string, { security?: Array<Record<string, unknown>> }>>) {
+      for (const op of Object.values(methods)) {
+        if (op?.security) {
+          for (const secObj of op.security) {
+            for (const schemeName of Object.keys(secObj)) {
+              expect(esquemasDefinidos.has(schemeName)).toBe(true);
+            }
+          }
+        }
+      }
+    }
 
     // Rutas de Recursos y Personal
     expect(spec.paths["/api/cuadrillas"]).toBeDefined();
@@ -138,6 +172,17 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/recursos"].post.security).toEqual([{ BearerAuth: [] }]);
     expect(spec.paths["/api/seguridad/roles"].get.security).toEqual([{ BearerAuth: [] }]);
     expect(spec.paths["/api/incidentes"].get.security).toEqual([{ BearerAuth: [] }]);
+
+    // Esquemas de Eventos ATP (H61)
+    expect(spec.components.schemas.CrearEventoAtpInput).toBeDefined();
+    expect(spec.components.schemas.EventoAtpResponse).toBeDefined();
+    expect(spec.components.schemas.CrearEventoAtpResponse).toBeDefined();
+    expect(
+      spec.components.schemas.CrearEventoAtpInput.properties.codigo.type
+    ).toBe("string");
+    expect(
+      spec.components.schemas.CrearEventoAtpInput.required ?? []
+    ).not.toContain("codigo");
 
     // Rutas de Misiones (HU-17)
     expect(spec.paths["/api/misiones/{id}"]).toBeDefined();

@@ -341,9 +341,19 @@ export async function listarEventosPrevencionPaginados(
       sql<unknown>`ST_AsGeoJSON(pc.ubicacion)::json`.as("pc_ubicacion_geojson"),
     ])
     .orderBy("ep.creado_en", "desc")
+    .orderBy("ep.id", "desc")
     .limit(limit)
     .offset(offset)
     .execute();
+
+  if (eventos.length === 0) {
+    return {
+      total,
+      eventos: [],
+      misionesPorEvento: new Map(),
+      recursosPorEvento: new Map(),
+    };
+  }
 
   const eventoIds = eventos.map((e) => e.ep_id);
 
@@ -368,7 +378,12 @@ export async function listarEventosPrevencionPaginados(
       "c.estado as c_estado",
     ])
     .where("m.evento_prevencion_id", "in", eventoIds)
+    .orderBy(
+      sql`CASE WHEN m.estado IN ('EN_CURSO', 'DESPACHADA') THEN 0 ELSE 1 END`,
+      "asc"
+    )
     .orderBy("m.creado_en", "desc")
+    .orderBy("m.id", "desc")
     .execute();
 
   const misionesPorEvento = new Map<string, (typeof misionesRows)[number]>();

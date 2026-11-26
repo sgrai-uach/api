@@ -22,13 +22,16 @@ export async function sembrarEventosPrevencion() {
     delegaciones.find((d) => d.codigo === "DEL_CALLE_CALLE")?.id ||
     "30000000-0000-4000-8000-000000000004";
 
-  // 2. Obtener usuario creador (Encargado o Admin)
+  // 2. Obtener usuario creador con rol ENCARGADO o ADMIN (BUG-H76-API-03)
   const usuario = await db
-    .selectFrom("usuario")
-    .select("id")
-    .where("activo", "=", true)
+    .selectFrom("usuario as u")
+    .innerJoin("rol as r", "r.id", "u.rol_id")
+    .select("u.id")
+    .where("u.activo", "=", true)
+    .where("r.codigo", "in", ["ENCARGADO", "ADMIN"])
+    .orderBy(sql`CASE WHEN r.codigo = 'ENCARGADO' THEN 0 ELSE 1 END`, "asc")
     .executeTakeFirst();
-  const usuarioId = usuario?.id || "00000000-0000-4000-8000-000000000001";
+  const usuarioId = usuario?.id || "00000000-0000-4000-8000-000000000003";
 
   // 3. Obtener puntos críticos existentes (si existen de seed:puntos-criticos)
   const puntosCriticos = await db
@@ -68,7 +71,7 @@ export async function sembrarEventosPrevencion() {
       descripcion:
         "Despeje de colectores y rejillas de aguas lluvias previo a sistema frontal.",
       prioridad: "ALTA",
-      estado: "EN_CURSO",
+      estado: "EN_EJECUCION",
       sector: "Humedal Angachilla",
       direccionTexto: "Pasaje Los Robles s/n con Av. Simpson",
       puntoCriticoId: pcMap.get("PC-ANG-01") ?? null,

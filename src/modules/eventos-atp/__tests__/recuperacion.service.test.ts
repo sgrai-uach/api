@@ -167,6 +167,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         estado: "PLANIFICADA",
         familias_afectadas: inputValido.familiasAfectadas,
         delegacion_id: inputValido.delegacionId ?? null,
+        evento_atp_id: null,
         creado_por_id: usuarioId,
         creado_en: new Date("2026-10-04T12:00:00Z"),
         actualizado_en: new Date("2026-10-04T12:00:00Z"),
@@ -197,7 +198,13 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
 
       const spyInsertarRecursos = vi.spyOn(repo, "insertarRecursosRecuperacion").mockResolvedValueOnce();
       const spyDescontarStock = vi.spyOn(repo, "descontarStockRecurso").mockResolvedValueOnce();
-      const spyActualizarPatrulla = vi.spyOn(repo, "actualizarEstadoPatrulla").mockResolvedValueOnce();
+      const spyActualizarPatrulla = vi.spyOn(repo, "actualizarEstadoPatrulla").mockResolvedValueOnce({
+        id: "50000000-0000-4000-8000-000000000001",
+        nombre: "Patrulla Norte",
+        estado: "EN_RECUPERACION",
+        delegacion_id: null,
+        usuario_lider_id: null,
+      });
       const spyActualizarLider = vi.spyOn(repo, "actualizarEstadoPersonalLider").mockResolvedValueOnce();
       const spyBuscarDelegacion = vi.spyOn(repo, "buscarDelegacionPorId").mockResolvedValueOnce({
         id: "30000000-0000-4000-8000-000000000001",
