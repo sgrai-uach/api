@@ -1282,14 +1282,9 @@ registry.registerPath({
   description:
     "Retorna la información completa pre-cargada de un recurso (cantidades, disponibilidad operativa, delegación territorial y auditoría) para alimentar el formulario de edición. Accesible por perfil de Administrador.",
   tags: ["Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: RecursoIdParamSchema,
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
   },
   responses: {
     200: {
@@ -1304,7 +1299,7 @@ registry.registerPath({
       description: "Identificador de recurso inválido",
     },
     401: {
-      description: "No autenticado / cabecera X-User-Id ausente",
+      description: "No autenticado / token Bearer ausente o inválido",
     },
     403: {
       description: "Acceso denegado. Se requiere perfil de Administrador",
@@ -1326,14 +1321,9 @@ registry.registerPath({
   description:
     "Modifica inventario físico, ubicación geográfica, detalles técnicos y estado operativo del recurso. Notifica en tiempo real vía WebSockets (Socket.io) a las salas de Encargado y Supervisor. Mantiene inmutable el tipo de recurso (esIndividual).",
   tags: ["Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: RecursoIdParamSchema,
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
     body: {
       content: {
         "application/json": {
@@ -1358,7 +1348,7 @@ registry.registerPath({
       description: "Datos de entrada inválidos o inventario menor a unidades en uso en terreno",
     },
     401: {
-      description: "No autenticado / cabecera X-User-Id ausente",
+      description: "No autenticado / token Bearer ausente o inválido",
     },
     403: {
       description: "Acceso denegado. Se requiere perfil de Administrador",
@@ -1473,15 +1463,9 @@ registry.registerPath({
   description:
     "Aplica un borrado lógico (soft delete) a un recurso existente registrando fecha, hora y usuario responsable. Impide la eliminación con código 409 Conflict si el recurso está actualmente en uso en terreno o asignado a una misión activa / cuadrilla. Emite evento WebSocket 'recurso:eliminado' a los clientes conectados.",
   tags: ["Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: RecursoIdParamSchema,
-    headers: z.object({
-      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
   },
   responses: {
     200: {
@@ -1496,7 +1480,7 @@ registry.registerPath({
       description: "Identificador de recurso inválido",
     },
     401: {
-      description: "No autenticado / cabecera X-User-Id ausente",
+      description: "No autenticado / token Bearer ausente o inválido",
     },
     403: {
       description: "Acceso denegado. Se requiere perfil de Administrador",
@@ -1607,7 +1591,7 @@ registry.registerPath({
     401: { description: "No autenticado / cabecera Authorization ausente o inválida" },
     403: {
       description:
-        "No cuenta con ninguno de los permisos requeridos: misiones:leer, misiones:terreno:verificar o reportes:crear",
+        "No cuenta con ninguno de los permisos requeridos: misiones:leer, misiones:terreno:verificar, misiones:terreno:ejecutar o reportes:crear",
     },
     404: { description: "Misión no encontrada" },
     500: { description: "Error interno del servidor" },
@@ -1622,14 +1606,9 @@ registry.registerPath({
   description:
     "Retorna los contadores numéricos consolidados de incidentes agrupados por los 5 estados canónicos (REPORTADO, VERIFICANDO, EN_ATENCION, NO_ABORDABLE, RESUELTO) para el día indicado o la fecha actual en Valdivia/Chile (America/Santiago). Admite filtrado opcional por delegación territorial.",
   tags: ["Incidentes"],
+  security: [{ BearerAuth: [] }],
   request: {
     query: IncidentesKpisQuerySchema,
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario autenticado (Encargado o Admin)" }),
-    }),
   },
   responses: {
     200: {
@@ -1644,7 +1623,7 @@ registry.registerPath({
       description: "Parámetros de consulta inválidos",
     },
     401: {
-      description: "No autenticado / cabecera X-User-Id ausente",
+      description: "No autenticado / token Bearer ausente o inválido",
     },
     403: {
       description: "Acceso denegado. Permiso insuficiente",
@@ -1671,14 +1650,9 @@ registry.registerPath({
   description:
     "Retorna la colección paginada de puntos críticos y sectores vulnerables monitoreados en Valdivia. Admite filtros por delegación, prioridad, estado activo y búsqueda textual. Requiere rol Administrador.",
   tags: ["Eventos ATP"],
+  security: [{ BearerAuth: [] }],
   request: {
     query: ListarPuntosCriticosQuerySchema,
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
   },
   responses: {
     200: {
@@ -1712,13 +1686,8 @@ registry.registerPath({
   description:
     "Registra un nuevo punto crítico o sector vulnerable con coordenadas PostGIS (EPSG:4326), autogenera su código correlativo institucional y emite notificación en tiempo real vía Socket.io. Requiere rol Administrador con permiso puntos_criticos:crear.",
   tags: ["Eventos ATP"],
+  security: [{ BearerAuth: [] }],
   request: {
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
     body: {
       description: "Datos requeridos para la creación del punto crítico",
       content: {
@@ -1763,14 +1732,9 @@ registry.registerPath({
   description:
     "Retorna el detalle completo de un punto crítico específico con su delegación territorial y auditoría para precargar el formulario de edición. Requiere rol Administrador.",
   tags: ["Eventos ATP"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: PuntoCriticoIdParamSchema,
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
   },
   responses: {
     200: {
@@ -1807,14 +1771,9 @@ registry.registerPath({
   description:
     "Modifica los datos y la ubicación geográfica (PostGIS EPSG:4326) de un punto crítico comunal. El código institucional es inmutable. Permite actualizar la ubicación en cualquier momento y emite notificación reactiva vía Socket.io a la central, supervisores y cuadrillas/patrullas.",
   tags: ["Eventos ATP"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: PuntoCriticoIdParamSchema,
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
     body: {
       description: "Campos actualizables del punto crítico",
       content: {
@@ -1959,13 +1918,8 @@ registry.registerPath({
   description:
     "Permite al Encargado de operaciones generar un nuevo evento territorial de recuperación, asignando una patrulla verificadora disponible y recursos de inventario para su entrega directa en terreno, sin requerir la existencia formal de un incidente previo.",
   tags: ["Eventos ATP / Recuperación"],
+  security: [{ BearerAuth: [] }],
   request: {
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
-    }),
     body: {
       description: "Datos del evento de recuperación, sector geográfico, patrulla y recursos solicitados",
       content: {
@@ -1988,7 +1942,7 @@ registry.registerPath({
       description: "Datos de entrada inválidos o faltantes en el payload",
     },
     401: {
-      description: "No autenticado / cabecera X-User-Id ausente o inválida",
+      description: "No autenticado / token Bearer ausente o inválido",
     },
     403: {
       description: "Acceso denegado. Se requiere permiso 'recuperacion:crear'",
