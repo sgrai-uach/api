@@ -222,8 +222,8 @@ export const EventoRecuperacionResponseSchema = z.object({
     codigo: z.string(),
     nombre: z.string(),
   }).nullable().openapi({ description: "Delegación territorial asignada" }),
-  mision: MisionRecuperacionResumenSchema.openapi({ description: "Misión táctica despachada a terreno" }),
-  patrulla: PatrullaAsignadaResumenSchema.openapi({ description: "Patrulla asignada a la operación" }),
+  mision: MisionRecuperacionResumenSchema.nullable().openapi({ description: "Misión táctica despachada a terreno" }),
+  patrulla: PatrullaAsignadaResumenSchema.nullable().openapi({ description: "Patrulla asignada a la operación" }),
   recursos: z.array(RecursoAsignadoItemResponseSchema).openapi({ description: "Recursos reservados o descontados para la entrega" }),
   creadoPorId: z.string().uuid().openapi({ description: "Identificador del Encargado que creó el evento" }),
   fechaEstimadaFin: z.string().nullable().optional().openapi({ description: "Fecha estimada de término ISO 8601" }),
@@ -255,13 +255,82 @@ export const EditarEventoRecuperacionResponseSchema = z.object({
 export type EditarEventoRecuperacionResponse = z.infer<typeof EditarEventoRecuperacionResponseSchema>;
 
 /**
- * Respuesta JSON exitosa HTTP 200 para GET /api/eventos-atp/recuperacion/{id}
+ * Respuesta JSON exitosa HTTP 200 para GET /api/eventos-atp/recuperacion/{id} (HU-74)
  */
 export const ObtenerEventoRecuperacionResponseSchema = z.object({
   data: EventoRecuperacionResponseSchema,
 });
 
 export type ObtenerEventoRecuperacionResponse = z.infer<typeof ObtenerEventoRecuperacionResponseSchema>;
+
+// ==========================================
+// ESQUEMAS DE LISTADO Y ASIGNACIÓN (HU-32)
+// ==========================================
+
+/**
+ * Respuesta JSON exitosa HTTP 200 para listado simple de eventos de recuperación (HU-32).
+ */
+export const ListarEventosRecuperacionResponseSchema = z.object({
+  message: z.string().openapi({ example: "Eventos de recuperación obtenidos exitosamente." }),
+  total: z.number().openapi({ example: 4 }),
+  data: z.array(EventoRecuperacionResponseSchema),
+});
+
+export type ListarEventosRecuperacionResponse = z.infer<typeof ListarEventosRecuperacionResponseSchema>;
+
+/**
+ * Esquema de entrada para asignar patrulla y recursos a un evento de recuperación existente (HU-32).
+ */
+export const AsignarRecursosRecuperacionInputSchema = z.object({
+  patrullaId: z.string().uuid("El UUID de la patrulla verificadora es obligatorio y debe ser válido").openapi({
+    description: "Identificador de la patrulla verificadora disponible a asignar",
+    example: "50000000-0000-4000-8000-000000000001",
+  }),
+  recursos: z.array(ItemRecursoSolicitadoSchema).min(1, "Debe asignar al menos un recurso al evento de recuperación").openapi({
+    description: "Listado de insumos y recursos logísticos a entregar",
+  }),
+});
+
+export type AsignarRecursosRecuperacionInput = z.infer<typeof AsignarRecursosRecuperacionInputSchema>;
+
+/**
+ * Detalle del recurso asignado devuelto en la asignación HU-32.
+ */
+export const RecursoAsignadoDetalleSchema = z.object({
+  recursoId: z.string().uuid().openapi({ example: "00000000-0000-4000-8000-000000000001" }),
+  nombre: z.string().openapi({ example: "Sacos de Arena 25kg" }),
+  esIndividual: z.boolean().openapi({ example: false }),
+  cantidadAsignada: z.number().openapi({ example: 10 }),
+  cantidadEnUso: z.number().openapi({ example: 10 }),
+  estadoRecurso: z.string().openapi({ example: "DISPONIBLE" }),
+});
+
+export type RecursoAsignadoDetalle = z.infer<typeof RecursoAsignadoDetalleSchema>;
+
+/**
+ * Datos de respuesta para la asignación de recursos y patrulla (HU-32).
+ */
+export const AsignarRecursosRecuperacionResponseDataSchema = z.object({
+  evento: z.object({
+    id: z.string().uuid().openapi({ example: "70000000-0000-4000-8000-000000000001" }),
+    codigo: z.string().openapi({ example: "REC-2026-0001" }),
+    nombre: z.string().openapi({ example: "Entrega de frazadas y techumbre en Sector Collico" }),
+    estado: EstadoRecuperacionSchema.openapi({ example: "PLANIFICADA" }),
+  }),
+  mision: MisionRecuperacionResumenSchema.openapi({ description: "Misión táctica despachada a terreno" }),
+  patrulla: PatrullaAsignadaResumenSchema.openapi({ description: "Patrulla transicionada a EN_RECUPERACION" }),
+  recursos: z.array(RecursoAsignadoDetalleSchema).openapi({ description: "Recursos asignados con stock en uso actualizado" }),
+  asignadoEn: z.string().openapi({ description: "Fecha de asignación ISO 8601" }),
+});
+
+export type AsignarRecursosRecuperacionResponseData = z.infer<typeof AsignarRecursosRecuperacionResponseDataSchema>;
+
+export const AsignarRecursosRecuperacionResponseSchema = z.object({
+  message: z.string().openapi({ example: "Patrulla y recursos logísticos asignados exitosamente al evento de recuperación." }),
+  data: AsignarRecursosRecuperacionResponseDataSchema,
+});
+
+export type AsignarRecursosRecuperacionResponse = z.infer<typeof AsignarRecursosRecuperacionResponseSchema>;
 
 // ==========================================
 // ESQUEMAS PARA LISTADO PAGINADO (H73)
@@ -433,7 +502,7 @@ export const RecuperacionDetalleResponseSchema = z.object({
 export type RecuperacionDetalleResponse = z.infer<typeof RecuperacionDetalleResponseSchema>;
 
 /**
- * Respuesta HTTP 200 para GET /api/eventos-atp/recuperacion/{id}
+ * Respuesta HTTP 200 para GET /api/eventos-atp/recuperacion/{id} (H73 / H74)
  */
 export const ObtenerRecuperacionDetalleResponseSchema = z.object({
   message: z.string().openapi({ example: "Detalle de operativo de recuperación obtenido exitosamente" }),
@@ -441,3 +510,63 @@ export const ObtenerRecuperacionDetalleResponseSchema = z.object({
 });
 
 export type ObtenerRecuperacionDetalleResponse = z.infer<typeof ObtenerRecuperacionDetalleResponseSchema>;
+
+/**
+ * Esquema de detalle del evento de recuperación (HU-32).
+ */
+export const RecuperacionDetalleResponseDataSchema = z.object({
+  id: z.string().uuid(),
+  codigo: z.string(),
+  nombre: z.string(),
+  descripcion: z.string().nullable(),
+  sector: z.string(),
+  direccionTexto: z.string().nullable(),
+  prioridad: PrioridadRecuperacionSchema,
+  contactoNombre: z.string().nullable(),
+  contactoTelefono: z.string().nullable(),
+  latitud: z.number(),
+  longitud: z.number(),
+  estado: EstadoRecuperacionSchema,
+  familiasAfectadas: z.number(),
+  delegacion: z
+    .object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      nombre: z.string(),
+    })
+    .nullable(),
+  misiones: z.array(
+    z.object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      titulo: z.string(),
+      estado: z.string(),
+      tipoMision: z.string(),
+      patrulla: z
+        .object({
+          id: z.string().uuid(),
+          nombre: z.string(),
+          estado: z.string(),
+        })
+        .nullable()
+        .optional(),
+      creadoEn: z.string(),
+    })
+  ),
+  recursosAsignados: z.array(
+    z.object({
+      id: z.string().uuid(),
+      recursoId: z.string().uuid(),
+      nombre: z.string(),
+      esIndividual: z.boolean(),
+      cantidadAsignada: z.number(),
+      misionId: z.string().uuid().nullable().optional(),
+      creadoEn: z.string(),
+    })
+  ),
+  creadoPorId: z.string().uuid(),
+  creadoEn: z.string(),
+  actualizadoEn: z.string(),
+});
+
+export type RecuperacionDetalleResponseData = z.infer<typeof RecuperacionDetalleResponseDataSchema>;

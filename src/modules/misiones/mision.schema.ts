@@ -63,6 +63,13 @@ export type EvaluadorTerreno = z.infer<typeof EvaluadorTerrenoSchema>;
 export const ReporteTerrenoDetalleSchema = z.object({
   id: z.string().uuid().openapi({ description: "Identificador único UUID del reporte de terreno" }),
   misionId: z.string().uuid().openapi({ description: "Identificador de la misión asociada" }),
+  versionReporte: z.number().int().optional().openapi({ description: "Número correlativo de versión del reporte en esta misión (1 = inicial, 2+ = rectificaciones)", example: 1 }),
+  esRectificacion: z.boolean().optional().openapi({ description: "Indica si es una modificación/reenvío de evaluación en terreno", example: false }),
+  etiquetaReporte: z.string().optional().openapi({ description: "Etiqueta legible del número de reporte para el Centro de Mando", example: "Reporte de Evaluación #1 (Inicial)" }),
+  prioridadSugerida: PrioridadMisionEnum.nullable().optional().openapi({ description: "Prioridad sugerida por el sistema en este reporte (HU-38)" }),
+  prioridadAsignada: PrioridadMisionEnum.nullable().optional().openapi({ description: "Prioridad confirmada por la patrulla en este reporte (HU-38)" }),
+  justificacionPrioridad: z.string().nullable().optional().openapi({ description: "Justificación técnica si se modificó la prioridad sugerida (HU-38)" }),
+  detallesEvaluacion: z.record(z.string(), z.unknown()).optional().openapi({ description: "Desglose del formulario de evaluación en terreno (núcleo familiar, niños, discapacitados, mascotas, vivienda, riesgos)" }),
   evaluador: EvaluadorTerrenoSchema.openapi({ description: "Datos del funcionario o patrullero que emitió el reporte" }),
   resumenTecnico: z.string().openapi({ description: "Diagnóstico técnico consolidado de la intervención" }),
   accionesRealizadas: z.string().nullable().openapi({ description: "Labores y maniobras ejecutadas en terreno" }),
@@ -82,6 +89,7 @@ export type ReporteTerrenoDetalle = z.infer<typeof ReporteTerrenoDetalleSchema>;
 
 // Bitácora de tiempos simplificada (Opción 1 - HU-17 / Hito previo a H23)
 export const MisionBitacoraHitoSchema = z.object({
+  id: z.string().uuid().optional().openapi({ description: "UUID del registro en mision_hito si aplica" }),
   hito: z.string().openapi({ description: "Hito temporal de la misión", example: "PLANIFICACION" }),
   fecha: z.string().openapi({ description: "Fecha del hito en formato YYYY-MM-DD", example: "2026-10-02" }),
   hora: z.string().openapi({ description: "Hora del hito en formato HH:MM:SS", example: "14:30:00" }),
@@ -208,6 +216,18 @@ export const MisionDetalleCompletoSchema = z.object({
   reportesTerreno: z.array(ReporteTerrenoDetalleSchema).openapi({
     description: "Informes técnicos levantados en terreno con su respectiva evidencia multimedia (vacío si no hay reportes)",
   }),
+  evaluaciones: z
+    .object({
+      tipologiaEvaluada: z.boolean(),
+      tipologiaEvaluadaEn: z.string().nullable(),
+      prioridadEvaluada: z.boolean(),
+      prioridadEvaluadaEn: z.string().nullable(),
+      versionReportePrioridad: z.number().int().nullable(),
+    })
+    .optional()
+    .openapi({
+      description: "Estado consolidado de evaluaciones en terreno realizadas en la misión (HU-37 / HU-38)",
+    }),
 });
 
 export type MisionDetalleCompleto = z.infer<typeof MisionDetalleCompletoSchema>;
@@ -515,3 +535,102 @@ export const AsignarCuadrillaMisionResponseSchema = z
   .openapi("AsignarCuadrillaMisionResponse");
 
 export type AsignarCuadrillaMisionResponse = z.infer<typeof AsignarCuadrillaMisionResponseSchema>;
+
+// HU-69: Esquema de entrada para rechazo de misión por patrulla verificadora
+export const RechazarMisionBodySchema = z.object({
+  justificacion_rechazo: z
+    .string()
+    .min(5, "El motivo de rechazo debe contener al menos 5 caracteres.")
+    .openapi({
+      description: "Motivo obligatorio del rechazo de la misión (mínimo 5 caracteres según Regla Crítica §3.3)",
+      example: "Desperfecto mecánico en el neumático delantero del vehículo institucional.",
+    }),
+  latitud: z
+    .number()
+    .finite("La latitud debe ser un número finito.")
+    .min(-90, "La latitud debe estar entre -90 y 90.")
+    .max(90, "La latitud debe estar entre -90 y 90.")
+    .optional()
+    .openapi({ description: "Latitud WGS84 de la patrulla (-90 a 90)", example: -39.81422 }),
+  longitud: z
+    .number()
+    .finite("La longitud debe ser un número finito.")
+    .min(-180, "La longitud debe estar entre -180 y 180.")
+    .max(180, "La longitud debe estar entre -180 y 180.")
+    .optional()
+    .openapi({ description: "Longitud WGS84 de la patrulla (-180 a 180)", example: -73.24589 }),
+});
+
+export const RechazarMisionInputSchema = z
+  .object({
+    justificacion_rechazo: z.string().optional(),
+    justificacionRechazo: z.string().optional(),
+    latitud: z
+      .number()
+      .finite("La latitud debe ser un número finito.")
+      .min(-90, "La latitud debe estar entre -90 y 90.")
+      .max(90, "La latitud debe estar entre -90 y 90.")
+      .optional(),
+    longitud: z
+      .number()
+      .finite("La longitud debe ser un número finito.")
+      .min(-180, "La longitud debe estar entre -180 y 180.")
+      .max(180, "La longitud debe estar entre -180 y 180.")
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    const motivo = (data.justificacion_rechazo ?? data.justificacionRechazo ?? "").trim();
+    if (motivo.length < 5) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "El motivo de rechazo (justificacion_rechazo) debe contener al menos 5 caracteres.",
+        path: ["justificacion_rechazo"],
+      });
+    }
+  })
+  .transform((data) => ({
+    justificacionRechazo: (data.justificacion_rechazo ?? data.justificacionRechazo ?? "").trim(),
+    latitud: data.latitud,
+    longitud: data.longitud,
+  }));
+
+export type RechazarMisionInput = {
+  justificacionRechazo: string;
+  latitud?: number;
+  longitud?: number;
+};
+
+// HU-69: Respuesta de rechazo de misión
+export const RechazarMisionResponseSchema = z.object({
+  message: z.string().openapi({
+    example: "Misión rechazada exitosamente. El incidente ha vuelto a estado REPORTADO para su reasignación.",
+  }),
+  data: z.object({
+    mision: z.object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      estado: z.string(),
+      justificacionRechazo: z.string(),
+      actualizadoEn: z.string(),
+    }),
+    patrulla: z.object({
+      id: z.string().uuid(),
+      nombre: z.string(),
+      estado: z.string(),
+    }),
+    incidente: z.object({
+      id: z.string().uuid(),
+      codigo: z.string(),
+      estado: z.string(),
+      prioridad: z.string().optional(),
+    }),
+    hito: z.object({
+      id: z.string().uuid(),
+      hito: z.string(),
+      descripcion: z.string(),
+      creadoEn: z.string(),
+    }),
+  }),
+});
+
+export type RechazarMisionResponse = z.infer<typeof RechazarMisionResponseSchema>;

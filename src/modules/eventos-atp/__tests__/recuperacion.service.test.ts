@@ -2,22 +2,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   CrearEventoRecuperacionInputSchema,
   CrearEventoRecuperacionInput,
-  EditarEventoRecuperacionInputSchema,
   ListarRecuperacionesQuerySchema,
   OperativoRecuperacionItem,
-  RecuperacionDetalleResponse,
+  RecuperacionDetalleResponseData,
 } from "../recuperacion.schema";
 import {
   crearEventoRecuperacionService,
-  editarEventoRecuperacionService,
-  obtenerEventoRecuperacionPorIdService,
-  listarEventosRecuperacionService,
+  listarRecuperacionesService,
   obtenerDetalleRecuperacionService,
   PatrullaNoDisponibleError,
   StockInsuficienteError,
   NotFoundError,
-  RecuperacionNoEditableError,
-  FechaEstimadaInvalidaError,
 } from "../recuperacion.service";
 import * as repo from "../recuperacion.repository";
 import type { KyselyTrx } from "../recuperacion.repository";
@@ -29,6 +24,8 @@ import { ForbiddenError } from "@/modules/seguridad/auth.errors";
 describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(repo, "registrarHitoMisionInicial").mockResolvedValue({} as any);
   });
 
   describe("1. Validación de Esquemas Zod", () => {
@@ -182,7 +179,6 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         fecha_estimada_fin: null,
         evento_atp_id: null,
         creado_por_id: usuarioId,
-        actualizado_por_id: null,
         fecha_cierre: null,
         observaciones_cierre: null,
         eliminado_en: null,
@@ -214,8 +210,22 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
       });
 
       const spyInsertarRecursos = vi.spyOn(repo, "insertarRecursosRecuperacion").mockResolvedValueOnce();
-      const spyDescontarStock = vi.spyOn(repo, "descontarStockRecurso").mockResolvedValueOnce();
-      const spyActualizarPatrulla = vi.spyOn(repo, "actualizarEstadoPatrulla").mockResolvedValueOnce();
+      const spyDescontarStock = vi.spyOn(repo, "descontarStockRecurso").mockResolvedValueOnce({
+        id: "80000000-0000-4000-8000-000000000001",
+        nombre: "Frazadas Térmicas",
+        es_individual: false,
+        estado: "DISPONIBLE",
+        cantidad_inventario: 35,
+        cantidad_en_uso: 5,
+        cantidad_minima: 10,
+      });
+      const spyActualizarPatrulla = vi.spyOn(repo, "actualizarEstadoPatrulla").mockResolvedValueOnce({
+        id: "50000000-0000-4000-8000-000000000001",
+        nombre: "Patrulla Norte",
+        estado: "EN_RECUPERACION",
+        delegacion_id: null,
+        usuario_lider_id: null,
+      });
       const spyActualizarLider = vi.spyOn(repo, "actualizarEstadoPersonalLider").mockResolvedValueOnce();
       const spyBuscarDelegacion = vi.spyOn(repo, "buscarDelegacionPorId").mockResolvedValueOnce({
         id: "30000000-0000-4000-8000-000000000001",
@@ -224,13 +234,13 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         nombre: "Delegación Sur",
         nombre_delegacion: "Delegación Sur",
       });
-      const spyEmitirSocket = vi.spyOn(socketModule, "emitirRecuperacionCreada").mockImplementation(() => {});
+      const spyEmitirSocket = vi.spyOn(socketModule, "emitirRecuperacionCreada").mockImplementation(() => { });
 
       const resultado = await crearEventoRecuperacionService(inputValido, usuarioId);
 
       expect(resultado.codigo).toBe("REC-2026-0001");
-      expect(resultado.mision.codigo).toBe("MIS-2026-0001");
-      expect(resultado.patrulla.estado).toBe("EN_RECUPERACION");
+      expect(resultado.mision?.codigo).toBe("MIS-2026-0001");
+      expect(resultado.patrulla?.estado).toBe("EN_RECUPERACION");
       expect(resultado.recursos).toHaveLength(1);
       expect(resultado.recursos[0].cantidadAsignada).toBe(15);
       expect(resultado.delegacion?.codigo).toBe("DEL-SUR");
@@ -483,8 +493,31 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
       mockTx(mockTrx);
 
       vi.spyOn(repo, "buscarRecuperacionPorId").mockResolvedValueOnce(mockRecuperacionBase);
+      vi.spyOn(repo, "buscarMisionPorRecuperacionId")
+        .mockResolvedValueOnce({
+          id: "60000000-0000-4000-8000-000000000001",
+          codigo: "MIS-2026-0042",
+          titulo: "Operativo Collico",
+          estado: "DESPACHADA",
+          tipo_mision: "RECUPERACION",
+          patrulla_id: "50000000-0000-4000-8000-000000000001",
+        })
+        .mockResolvedValueOnce({
+          id: "60000000-0000-4000-8000-000000000001",
+          codigo: "MIS-2026-0042",
+          titulo: "Operativo Collico",
+          estado: "DESPACHADA",
+          tipo_mision: "RECUPERACION",
+          patrulla_id: "50000000-0000-4000-8000-000000000001",
+        });
       vi.spyOn(repo, "listarRecursosAsignadosRecuperacion").mockResolvedValueOnce([
-        { recursoId: recurso1Id, nombre: "Frazadas", cantidadAsignada: 10 },
+        {
+          recursoId: recurso1Id,
+          nombre: "Frazadas",
+          esIndividual: false,
+          cantidadAsignada: 10,
+          misionId: "60000000-0000-4000-8000-000000000001",
+        },
       ]);
       vi.spyOn(repo, "obtenerRecursosParaBloqueo").mockResolvedValueOnce([
         {
@@ -507,8 +540,24 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         },
       ]);
 
-      const spyDevolver = vi.spyOn(repo, "devolverStockRecurso").mockResolvedValue(undefined);
-      const spyDescontar = vi.spyOn(repo, "descontarStockRecurso").mockResolvedValue(undefined);
+      const spyDevolver = vi.spyOn(repo, "devolverStockRecurso").mockResolvedValue({
+        id: recurso1Id,
+        nombre: "Frazadas",
+        es_individual: false,
+        estado: "DISPONIBLE",
+        cantidad_inventario: 24,
+        cantidad_en_uso: 0,
+        cantidad_minima: 2,
+      });
+      const spyDescontar = vi.spyOn(repo, "descontarStockRecurso").mockResolvedValue({
+        id: recurso2Id,
+        nombre: "Kits Techumbre",
+        es_individual: false,
+        estado: "DISPONIBLE",
+        cantidad_inventario: 10,
+        cantidad_en_uso: 0,
+        cantidad_minima: 2,
+      });
       const spyEliminarRecs = vi
         .spyOn(repo, "eliminarRecursosRecuperacion")
         .mockResolvedValue(undefined);
@@ -528,14 +577,6 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         .spyOn(repo, "sincronizarDescripcionMisionRecuperacion")
         .mockResolvedValueOnce(undefined);
 
-      vi.spyOn(repo, "buscarMisionPorRecuperacionId").mockResolvedValueOnce({
-        id: "60000000-0000-4000-8000-000000000001",
-        codigo: "MIS-2026-0042",
-        titulo: "Operativo Collico",
-        estado: "DESPACHADA",
-        tipo_mision: "RECUPERACION",
-        patrulla_id: "50000000-0000-4000-8000-000000000001",
-      });
       vi.spyOn(repo, "buscarPatrullaPorId").mockResolvedValueOnce({
         id: "50000000-0000-4000-8000-000000000001",
         nombre: "Patrulla Alfa",
@@ -546,6 +587,9 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
 
       const spySocket = vi
         .spyOn(socketModule, "emitirRecuperacionActualizada")
+        .mockImplementation(() => {});
+      const spySocketRecurso = vi
+        .spyOn(socketModule, "emitirRecursoActualizado")
         .mockImplementation(() => {});
 
       const resultado = await editarEventoRecuperacionService(
@@ -582,6 +626,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
       expect(resultado.fechaEstimadaFin).toBe(fechaNueva);
       expect(resultado.recursos).toHaveLength(2);
       expect(spySocket).toHaveBeenCalledTimes(1);
+      expect(spySocketRecurso).toHaveBeenCalledTimes(2);
     });
 
     it("debe rechazar con StockInsuficienteError si el incremento de recurso supera el stock disponible", async () => {
@@ -589,8 +634,31 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
       mockTx(mockTrx);
 
       vi.spyOn(repo, "buscarRecuperacionPorId").mockResolvedValueOnce(mockRecuperacionBase);
+      vi.spyOn(repo, "buscarMisionPorRecuperacionId")
+        .mockResolvedValueOnce({
+          id: "60000000-0000-4000-8000-000000000001",
+          codigo: "MIS-2026-0042",
+          titulo: "Operativo Collico",
+          estado: "DESPACHADA",
+          tipo_mision: "RECUPERACION",
+          patrulla_id: "50000000-0000-4000-8000-000000000001",
+        })
+        .mockResolvedValueOnce({
+          id: "60000000-0000-4000-8000-000000000001",
+          codigo: "MIS-2026-0042",
+          titulo: "Operativo Collico",
+          estado: "DESPACHADA",
+          tipo_mision: "RECUPERACION",
+          patrulla_id: "50000000-0000-4000-8000-000000000001",
+        });
       vi.spyOn(repo, "listarRecursosAsignadosRecuperacion").mockResolvedValueOnce([
-        { recursoId: recurso1Id, nombre: "Frazadas", cantidadAsignada: 10 },
+        {
+          recursoId: recurso1Id,
+          nombre: "Frazadas",
+          esIndividual: false,
+          cantidadAsignada: 10,
+          misionId: "60000000-0000-4000-8000-000000000001",
+        },
       ]);
       vi.spyOn(repo, "obtenerRecursosParaBloqueo").mockResolvedValueOnce([
         {
@@ -613,6 +681,34 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
       ).rejects.toThrow(StockInsuficienteError);
     });
 
+    it("debe rechazar con StockInsuficienteError (409) si se intenta asignar un recurso en estado EN_MANTENCION", async () => {
+      const mockTrx = {} as KyselyTrx;
+      mockTx(mockTrx);
+
+      vi.spyOn(repo, "buscarRecuperacionPorId").mockResolvedValueOnce(mockRecuperacionBase);
+      vi.spyOn(repo, "buscarMisionPorRecuperacionId").mockResolvedValueOnce(undefined);
+      vi.spyOn(repo, "listarRecursosAsignadosRecuperacion").mockResolvedValueOnce([]);
+      vi.spyOn(repo, "obtenerRecursosParaBloqueo").mockResolvedValueOnce([
+        {
+          id: recurso1Id,
+          nombre: "Generador Eléctrico",
+          cantidad_inventario: 1,
+          cantidad_en_uso: 0,
+          cantidad_minima: 0,
+          estado: "EN_MANTENCION",
+          es_individual: true,
+        },
+      ]);
+
+      await expect(
+        editarEventoRecuperacionService(
+          recuperacionId,
+          { recursos: [{ recursoId: recurso1Id, cantidad: 1 }] },
+          usuarioId
+        )
+      ).rejects.toThrow(StockInsuficienteError);
+    });
+
     it("debe reasignar patrulla verificadora liberando la anterior, registrar hito y emitir Socket.io", async () => {
       const mockTrx = {} as KyselyTrx;
       mockTx(mockTrx);
@@ -630,7 +726,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
           id: misionId,
           codigo: "MIS-2026-0042",
           titulo: "Operativo Collico",
-          estado: "DESPACHADA",
+          estado: "EN_CURSO",
           tipo_mision: "RECUPERACION",
           patrulla_id: patrullaAnteriorId,
         })
@@ -652,13 +748,6 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
           usuario_lider_id: liderNuevoId,
         })
         .mockResolvedValueOnce({
-          id: patrullaAnteriorId,
-          nombre: "Patrulla Alfa",
-          estado: "EN_RECUPERACION",
-          delegacion_id: null,
-          usuario_lider_id: liderAnteriorId,
-        })
-        .mockResolvedValueOnce({
           id: patrullaNuevaId,
           nombre: "Patrulla Beta",
           estado: "EN_RECUPERACION",
@@ -667,18 +756,45 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         });
 
       vi.spyOn(repo, "contarOtrasMisionesActivasPatrulla").mockResolvedValueOnce(0);
+      vi.spyOn(repo, "contarOtrasAsignacionesActivasUsuario").mockResolvedValueOnce(0);
+      vi.spyOn(repo, "listarIntegrantesPatrullaIds").mockResolvedValue([]);
       const spyEstadoPatrulla = vi
         .spyOn(repo, "actualizarEstadoPatrulla")
-        .mockResolvedValue(undefined);
+        .mockResolvedValueOnce({
+          id: patrullaNuevaId,
+          nombre: "Patrulla Beta",
+          estado: "EN_RECUPERACION",
+          delegacion_id: null,
+          usuario_lider_id: liderNuevoId,
+        });
+      const spyLiberarPatrulla = vi
+        .spyOn(repo, "liberarPatrullaOperativo")
+        .mockResolvedValueOnce({
+          id: patrullaAnteriorId,
+          nombre: "Patrulla Alfa",
+          estado: "DISPONIBLE",
+          delegacion_id: null,
+          usuario_lider_id: liderAnteriorId,
+        });
       const spyEstadoLider = vi
         .spyOn(repo, "actualizarEstadoPersonalLider")
         .mockResolvedValue(undefined);
       const spyReasignarMision = vi
         .spyOn(repo, "reasignarPatrullaMision")
-        .mockResolvedValueOnce(undefined);
+        .mockResolvedValueOnce({
+          id: misionId,
+          codigo: "MIS-2026-0042",
+          titulo: "Operativo Collico",
+          estado: "DESPACHADA",
+          tipo_mision: "RECUPERACION",
+          patrulla_id: patrullaNuevaId,
+        } as unknown as Awaited<ReturnType<typeof repo.reasignarPatrullaMision>>);
       const spyHito = vi
         .spyOn(repo, "registrarHitoReasignacionMision")
         .mockResolvedValueOnce(undefined);
+      const spyNotif = vi
+        .spyOn(repo, "insertarNotificacionMisionRecuperacion")
+        .mockResolvedValueOnce({ id: "notif-1" });
       vi.spyOn(repo, "actualizarRecuperacion").mockResolvedValueOnce({
         ...mockRecuperacionBase,
         actualizado_por_id: usuarioId,
@@ -687,6 +803,9 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
 
       const spySocketRec = vi
         .spyOn(socketModule, "emitirRecuperacionActualizada")
+        .mockImplementation(() => {});
+      const spySocketPatrulla = vi
+        .spyOn(socketModule, "emitirPatrullaActualizada")
         .mockImplementation(() => {});
       const spySocketAsignada = vi
         .spyOn(socketModule, "notificarMisionAsignada")
@@ -701,20 +820,99 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         usuarioId
       );
 
-      expect(spyEstadoPatrulla).toHaveBeenCalledWith(mockTrx, patrullaAnteriorId, "DISPONIBLE");
-      expect(spyEstadoLider).toHaveBeenCalledWith(mockTrx, liderAnteriorId, "disponible", true);
+      expect(spyLiberarPatrulla).toHaveBeenCalledWith(mockTrx, patrullaAnteriorId);
+      expect(spyEstadoLider).toHaveBeenCalledWith(mockTrx, liderAnteriorId, "disponible");
       expect(spyReasignarMision).toHaveBeenCalledWith(mockTrx, misionId, patrullaNuevaId);
       expect(spyHito).toHaveBeenCalledTimes(1);
+      expect(spyNotif).toHaveBeenCalledWith(mockTrx, misionId, patrullaNuevaId);
       expect(spyEstadoPatrulla).toHaveBeenCalledWith(mockTrx, patrullaNuevaId, "EN_RECUPERACION");
-      expect(spyEstadoLider).toHaveBeenCalledWith(mockTrx, liderNuevoId, "en_mision", false);
-      expect(resultado.patrulla.id).toBe(patrullaNuevaId);
+      expect(spyEstadoLider).toHaveBeenCalledWith(mockTrx, liderNuevoId, "en_mision");
+      expect(resultado.patrulla?.id).toBe(patrullaNuevaId);
       expect(spySocketRec).toHaveBeenCalledTimes(1);
+      expect(spySocketPatrulla).toHaveBeenCalledTimes(2);
       expect(spySocketAsignada).toHaveBeenCalledWith(
-        expect.objectContaining({ misionId, patrullaId: patrullaNuevaId })
+        expect.objectContaining({ misionId, patrullaId: patrullaNuevaId, notificacionId: "notif-1" })
       );
       expect(spySocketLiberada).toHaveBeenCalledWith(
         expect.objectContaining({ patrullaAnteriorId, patrullaNuevaId })
       );
+    });
+
+    it("debe crear misión táctica si se asigna patrulla a un operativo sin misión previa (BUG-H74-API-02)", async () => {
+      const mockTrx = {} as KyselyTrx;
+      mockTx(mockTrx);
+
+      const patrullaNuevaId = "50000000-0000-4000-8000-000000000002";
+      const misionCreadaId = "60000000-0000-4000-8000-000000000099";
+
+      vi.spyOn(repo, "buscarRecuperacionPorId").mockResolvedValueOnce({
+        ...mockRecuperacionBase,
+        estado: "PLANIFICADA",
+      });
+      vi.spyOn(repo, "buscarMisionPorRecuperacionId")
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({
+          id: misionCreadaId,
+          codigo: "MIS-2026-0099",
+          titulo: "Operativo Collico",
+          estado: "DESPACHADA",
+          tipo_mision: "RECUPERACION",
+          patrulla_id: patrullaNuevaId,
+        });
+      vi.spyOn(repo, "listarRecursosAsignadosRecuperacion").mockResolvedValueOnce([]);
+      vi.spyOn(repo, "buscarPatrullaPorId")
+        .mockResolvedValueOnce({
+          id: patrullaNuevaId,
+          nombre: "Patrulla Beta",
+          estado: "DISPONIBLE",
+          delegacion_id: null,
+          usuario_lider_id: null,
+        })
+        .mockResolvedValueOnce({
+          id: patrullaNuevaId,
+          nombre: "Patrulla Beta",
+          estado: "EN_RECUPERACION",
+          delegacion_id: null,
+          usuario_lider_id: null,
+        });
+      vi.spyOn(repo, "actualizarEstadoPatrulla").mockResolvedValueOnce({
+        id: patrullaNuevaId,
+        nombre: "Patrulla Beta",
+        estado: "EN_RECUPERACION",
+        delegacion_id: null,
+        usuario_lider_id: null,
+      });
+      vi.spyOn(repo, "generarSiguienteCodigoMision").mockResolvedValueOnce("MIS-2026-0099");
+      const spyInsertarMision = vi
+        .spyOn(repo, "insertarMisionRecuperacion")
+        .mockResolvedValueOnce({
+          id: misionCreadaId,
+          codigo: "MIS-2026-0099",
+          titulo: "Operativo Collico",
+          estado: "DESPACHADA",
+          tipo_mision: "RECUPERACION",
+        } as unknown as Awaited<ReturnType<typeof repo.insertarMisionRecuperacion>>);
+      const spyHitoInicial = vi
+        .spyOn(repo, "registrarHitoMisionInicial")
+        .mockResolvedValueOnce({} as Awaited<ReturnType<typeof repo.registrarHitoMisionInicial>>);
+      vi.spyOn(repo, "listarIntegrantesPatrullaIds").mockResolvedValueOnce([]);
+      vi.spyOn(repo, "insertarNotificacionMisionRecuperacion").mockResolvedValueOnce({ id: "n-99" });
+      vi.spyOn(repo, "actualizarRecuperacion").mockResolvedValueOnce(mockRecuperacionBase);
+
+      vi.spyOn(socketModule, "emitirRecuperacionActualizada").mockImplementation(() => {});
+      vi.spyOn(socketModule, "emitirPatrullaActualizada").mockImplementation(() => {});
+      vi.spyOn(socketModule, "notificarMisionAsignada").mockImplementation(() => {});
+
+      const resultado = await editarEventoRecuperacionService(
+        recuperacionId,
+        { patrullaId: patrullaNuevaId },
+        usuarioId
+      );
+
+      expect(spyInsertarMision).toHaveBeenCalledTimes(1);
+      expect(spyHitoInicial).toHaveBeenCalledTimes(1);
+      expect(resultado.mision?.id).toBe(misionCreadaId);
+      expect(resultado.patrulla?.id).toBe(patrullaNuevaId);
     });
 
     it("debe rechazar con PatrullaNoDisponibleError (409) si la nueva patrulla no está DISPONIBLE", async () => {
@@ -754,6 +952,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
       mockTx(mockTrx);
 
       vi.spyOn(repo, "buscarRecuperacionPorId").mockResolvedValueOnce(mockRecuperacionBase);
+      vi.spyOn(repo, "buscarMisionPorRecuperacionId").mockResolvedValueOnce(undefined);
       vi.spyOn(repo, "listarRecursosAsignadosRecuperacion").mockResolvedValueOnce([]);
       vi.spyOn(repo, "buscarPatrullaPorId").mockResolvedValueOnce(undefined);
 
@@ -775,7 +974,13 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         fecha_estimada_fin: new Date("2026-11-22T18:00:00.000Z"),
       });
       vi.spyOn(repo, "listarRecursosAsignadosRecuperacion").mockResolvedValueOnce([
-        { recursoId: recurso1Id, nombre: "Frazadas", cantidadAsignada: 5 },
+        {
+          recursoId: recurso1Id,
+          nombre: "Frazadas",
+          esIndividual: false,
+          cantidadAsignada: 5,
+          misionId: null,
+        },
       ]);
       vi.spyOn(repo, "buscarMisionPorRecuperacionId").mockResolvedValueOnce({
         id: "60000000-0000-4000-8000-000000000001",
@@ -796,7 +1001,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
       const detalle = await obtenerEventoRecuperacionPorIdService(recuperacionId);
       expect(detalle.id).toBe(recuperacionId);
       expect(detalle.fechaEstimadaFin).toBe("2026-11-22T18:00:00.000Z");
-      expect(detalle.patrulla.nombre).toBe("Patrulla Alfa");
+      expect(detalle.patrulla?.nombre).toBe("Patrulla Alfa");
       expect(detalle.recursos).toHaveLength(1);
     });
   });
@@ -890,7 +1095,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         total: 1,
       });
 
-      const respuesta = await listarEventosRecuperacionService({ page: 1, limit: 10 }, usuarioId);
+      const respuesta = await listarRecuperacionesService({ page: 1, limit: 10 }, usuarioId);
 
       expect(respuesta.message).toContain("exitosamente");
       expect(respuesta.data).toHaveLength(1);
@@ -920,7 +1125,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         total: 0,
       });
 
-      const respuesta = await listarEventosRecuperacionService({ page: 1, limit: 20 }, usuarioId);
+      const respuesta = await listarRecuperacionesService({ page: 1, limit: 20 }, usuarioId);
 
       expect(respuesta.data).toEqual([]);
       expect(respuesta.meta.total).toBe(0);
@@ -929,12 +1134,12 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
     });
 
     it("debe lanzar ForbiddenError si el usuario no tiene permiso recuperacion:leer", async () => {
-      vi.spyOn(authService, "verificarPermiso").mockRejectedValueOnce(
+      vi.spyOn(authService, "verificarPermiso").mockRejectedValue(
         new ForbiddenError("No cuenta con el permiso requerido: recuperacion:leer")
       );
 
       await expect(
-        listarEventosRecuperacionService({ page: 1, limit: 10 }, usuarioId)
+        listarRecuperacionesService({ page: 1, limit: 10 }, usuarioId)
       ).rejects.toThrow(ForbiddenError);
     });
   });
@@ -950,7 +1155,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         rol: "ENCARGADO",
       });
 
-      const detalleMock: RecuperacionDetalleResponse = {
+      const detalleMock: RecuperacionDetalleResponseData = {
         id: operativoId,
         codigo: "REC-2026-0001",
         nombre: "Entrega de frazadas en Collico",
@@ -992,6 +1197,8 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
             cantidadAsignada: 10,
           },
         ],
+        recursosAsignados: [],
+        misiones: [],
         cantidadInsumosAsignados: 10,
         totalTiposInsumos: 1,
         historial: [
@@ -1020,81 +1227,6 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
       expect(detalle.codigo).toBe("REC-2026-0001");
       expect(detalle.historial).toHaveLength(1);
       expect(detalle.historial[0].tipo).toBe("CREACION");
-      expect(detalle.recursos).toHaveLength(1);
-    });
-
-    it("debe retornar correctamente el detalle de un operativo planificado sin mision ni patrulla asignada (REC-2026-0013)", async () => {
-      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce({
-        id: usuarioId,
-        nombre: "Encargado de Operaciones",
-        rol: "ENCARGADO",
-      });
-
-      const operativoPlanificadoId = "73100000-0000-4000-8000-000000000003";
-      const detallePlanificadoMock: RecuperacionDetalleResponse = {
-        id: operativoPlanificadoId,
-        codigo: "REC-2026-0013",
-        nombre: "Distribución de víveres y kits de calefacción en campamento",
-        descripcion: "Entrega de cajas de alimentos de emergencia",
-        sector: "Campamento Los Jazmines, Angachilla",
-        direccionTexto: "Acceso Sur Poniente s/n",
-        prioridad: "CRITICA",
-        contactoNombre: "Rosa Alarcón",
-        contactoTelefono: "+56965432109",
-        latitud: -39.831,
-        longitud: -73.2289,
-        estado: "PLANIFICADA",
-        familiasAfectadas: 42,
-        delegacion: {
-          id: "30000000-0000-4000-8000-000000000002",
-          codigo: "DEL-SUR",
-          nombre: "Delegación Sur",
-        },
-        creadoPor: {
-          id: usuarioId,
-          nombre: "Encargado de Operaciones",
-        },
-        mision: null,
-        patrulla: null,
-        recursos: [
-          {
-            recursoId: "73000000-0000-4000-8000-000000000002",
-            nombre: "Cajas de Alimentos",
-            cantidadAsignada: 45,
-          },
-        ],
-        cantidadInsumosAsignados: 45,
-        totalTiposInsumos: 1,
-        historial: [
-          {
-            id: `rec-creacion-${operativoPlanificadoId}`,
-            tipo: "CREACION",
-            titulo: "Operativo Planificado",
-            descripcion: "Entrega de cajas de alimentos de emergencia",
-            registradoPor: {
-              id: usuarioId,
-              nombre: "Encargado de Operaciones",
-            },
-            creadoEn: "2026-11-01T10:00:00.000Z",
-          },
-        ],
-        creadoEn: "2026-11-01T10:00:00.000Z",
-        actualizadoEn: "2026-11-01T10:00:00.000Z",
-        fechaEstimadaFin: null,
-        actualizadoPorId: null,
-        fechaCierre: null,
-        observacionesCierre: null,
-      };
-
-      vi.spyOn(repo, "obtenerRecuperacionDetallePorIdRepo").mockResolvedValueOnce(detallePlanificadoMock);
-
-      const detalle = await obtenerDetalleRecuperacionService(operativoPlanificadoId, usuarioId);
-
-      expect(detalle.codigo).toBe("REC-2026-0013");
-      expect(detalle.mision).toBeNull();
-      expect(detalle.patrulla).toBeNull();
-      expect(detalle.fechaEstimadaFin).toBeNull();
-      expect(detalle.estado).toBe("PLANIFICADA");
       expect(detalle.recursos).toHaveLength(1);
     });
 

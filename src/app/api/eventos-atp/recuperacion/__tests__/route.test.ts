@@ -234,24 +234,24 @@ describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73)", () => {
   });
 
   it("debe responder 401 si no hay usuario autenticado", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(null);
+    vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValueOnce(
+      new UnauthorizedError("Token no válido")
+    );
 
     const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion");
     const res = await GET(req);
 
     expect(res.status).toBe(401);
-    const body = await res.json();
-    expect(body.message).toContain("autenticación");
   });
 
   it("debe responder 403 si el usuario carece de permiso recuperacion:leer", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(recuperacionService, "listarEventosRecuperacionService").mockRejectedValueOnce(
+    vi.spyOn(recuperacionService, "listarRecuperacionesService").mockRejectedValueOnce(
       new ForbiddenError("No cuenta con el permiso requerido: recuperacion:leer")
     );
 
     const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion", {
-      headers: { "x-user-id": usuarioEncargadoId },
+      headers: { authorization: "Bearer token-valido" },
     });
     const res = await GET(req);
 
@@ -264,7 +264,7 @@ describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73)", () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
 
     const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion?limit=500", {
-      headers: { "x-user-id": usuarioEncargadoId },
+      headers: { authorization: "Bearer token-valido" },
     });
     const res = await GET(req);
 
@@ -319,12 +319,12 @@ describe("Route Handler GET /api/eventos-atp/recuperacion (HU-73)", () => {
       },
     };
 
-    vi.spyOn(recuperacionService, "listarEventosRecuperacionService").mockResolvedValueOnce(respuestaMock);
+    vi.spyOn(recuperacionService, "listarRecuperacionesService").mockResolvedValueOnce(respuestaMock);
 
     const req = new NextRequest(
       "http://localhost:3000/api/eventos-atp/recuperacion?delegacionId=30000000-0000-4000-8000-000000000001&estado=PLANIFICADA",
       {
-        headers: { "x-user-id": usuarioEncargadoId },
+        headers: { authorization: "Bearer token-valido" },
       }
     );
     const res = await GET(req);

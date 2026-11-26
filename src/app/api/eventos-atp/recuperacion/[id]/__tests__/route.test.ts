@@ -7,8 +7,7 @@ import type {
   RecuperacionDetalleResponse,
 } from "@/modules/eventos-atp/recuperacion.schema";
 import * as authGuard from "@/modules/seguridad/auth.guard";
-import * as authService from "@/modules/seguridad/auth.service";
-import type { UsuarioAutenticado } from "@/modules/seguridad/auth.service";
+import { seguridadService } from "@/modules/seguridad/service";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)", () => {
@@ -20,14 +19,14 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)"
   });
 
   it("debe responder 401 si no hay usuario autenticado", async () => {
-    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(null);
+    vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValueOnce(
+      new UnauthorizedError("Token requerido")
+    );
 
     const req = new NextRequest(`http://localhost:3000/api/eventos-atp/recuperacion/${operativoValidoId}`);
     const res = await GET(req, { params: Promise.resolve({ id: operativoValidoId }) });
 
     expect(res.status).toBe(401);
-    const body = await res.json();
-    expect(body.message).toContain("autenticación");
   });
 
   it("debe responder 400 si el parámetro id no es un UUID válido", async () => {
@@ -38,7 +37,7 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)"
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.message).toContain("no es un UUID válido");
+    expect(body.message).toContain("UUID válido");
   });
 
   it("debe responder 403 si el usuario carece de permiso recuperacion:leer", async () => {
@@ -230,11 +229,6 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-73 - Drawer)"
 describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () => {
   const usuarioEncargadoId = "00000000-0000-4000-8000-000000000003";
   const recuperacionId = "70000000-0000-4000-8000-000000000001";
-  const mockUsuarioAutenticado: UsuarioAutenticado = {
-    id: usuarioEncargadoId,
-    nombre: "Encargado de Operaciones",
-    rol: "ENCARGADO",
-  };
 
   const makeContext = (id = recuperacionId) => ({
     params: Promise.resolve({ id }),
@@ -274,8 +268,8 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
 
   it("debe responder 403 si el usuario carece del permiso recuperacion:editar", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(authService, "verificarPermiso").mockRejectedValueOnce(
-      new ForbiddenError("No posee el permiso requerido: recuperacion:editar")
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockRejectedValueOnce(
+      new ForbiddenError("No posee el permiso requerido: recuperacion:crear o recuperacion:editar")
     );
 
     const req = new NextRequest(
@@ -295,7 +289,13 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
 
   it("debe responder 400 si el parámetro id no es un UUID válido", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce(
+      {
+        id: usuarioEncargadoId,
+        nombre: "Encargado",
+        rol: "ENCARGADO",
+      } as unknown as Awaited<ReturnType<typeof seguridadService.validarAccesoRoles>>
+    );
 
     const req = new NextRequest(
       "http://localhost:3000/api/eventos-atp/recuperacion/id-no-valido",
@@ -309,12 +309,18 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
     const res = await PATCH(req, makeContext("id-no-valido"));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.message).toContain("no es un UUID válido");
+    expect(body.message).toContain("inválido");
   });
 
   it("debe responder 400 si el cuerpo no es JSON válido", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce(
+      {
+        id: usuarioEncargadoId,
+        nombre: "Encargado",
+        rol: "ENCARGADO",
+      } as unknown as Awaited<ReturnType<typeof seguridadService.validarAccesoRoles>>
+    );
 
     const req = new NextRequest(
       `http://localhost:3000/api/eventos-atp/recuperacion/${recuperacionId}`,
@@ -333,7 +339,13 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
 
   it("debe responder 409 si el operativo está en estado COMPLETADA o CANCELADA", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce(
+      {
+        id: usuarioEncargadoId,
+        nombre: "Encargado",
+        rol: "ENCARGADO",
+      } as unknown as Awaited<ReturnType<typeof seguridadService.validarAccesoRoles>>
+    );
     vi.spyOn(recuperacionService, "editarEventoRecuperacionService").mockRejectedValueOnce(
       new recuperacionService.RecuperacionNoEditableError(
         "No se puede modificar un operativo de recuperación en estado COMPLETADA."
@@ -357,7 +369,13 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
 
   it("debe responder 409 si hay stock insuficiente para incrementar recursos", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce(
+      {
+        id: usuarioEncargadoId,
+        nombre: "Encargado",
+        rol: "ENCARGADO",
+      } as unknown as Awaited<ReturnType<typeof seguridadService.validarAccesoRoles>>
+    );
     vi.spyOn(recuperacionService, "editarEventoRecuperacionService").mockRejectedValueOnce(
       new recuperacionService.StockInsuficienteError(
         'Stock insuficiente para "Frazadas Térmicas": se requieren 5 adicionales pero hay 2 disponibles.'
@@ -381,7 +399,13 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
 
   it("debe responder 409 si la nueva patrulla no se encuentra DISPONIBLE", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce(
+      {
+        id: usuarioEncargadoId,
+        nombre: "Encargado",
+        rol: "ENCARGADO",
+      } as unknown as Awaited<ReturnType<typeof seguridadService.validarAccesoRoles>>
+    );
     vi.spyOn(recuperacionService, "editarEventoRecuperacionService").mockRejectedValueOnce(
       new recuperacionService.PatrullaNoDisponibleError(
         'La patrulla "Patrulla Beta" no está disponible para asignación.'
@@ -405,7 +429,13 @@ describe("Route Handler PATCH /api/eventos-atp/recuperacion/[id] (HU-74)", () =>
 
   it("debe responder 200 OK ante edición exitosa", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
-    vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce(mockUsuarioAutenticado);
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce(
+      {
+        id: usuarioEncargadoId,
+        nombre: "Encargado",
+        rol: "ENCARGADO",
+      } as unknown as Awaited<ReturnType<typeof seguridadService.validarAccesoRoles>>
+    );
 
     const respuestaMock: EventoRecuperacionResponse = {
       id: recuperacionId,

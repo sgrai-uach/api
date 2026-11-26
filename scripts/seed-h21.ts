@@ -84,7 +84,10 @@ const RECURSOS_QA = Object.values(IDS.recursos);
 const INCIDENTES_QA = Object.values(IDS.incidentes);
 const MISIONES_VERIFICACION_QA = [IDS.misionVerificacion, IDS.misionVerificacion2];
 
-const SOLO_LIMPIEZA = process.argv.includes("--clean");
+
+const CODIGOS_MISION_QA = ["MIS-2026-9001", "MIS-2026-9101"];
+const CODIGOS_INCIDENTE_QA = ["INC-H21-QA-001", "INC-H21-QA-002", "INC-H21-QA-003"];
+const CODIGOS_PATRULLA_QA = ["PV-H21-QA-01", "PV-H21-QA-02"];
 
 /**
  * Elimina exclusivamente los registros del fixture QA de HU-21.
@@ -97,6 +100,7 @@ async function limpiarFixture(): Promise<void> {
       SELECT id FROM mision
       WHERE incidente_id IN (${sql.join(INCIDENTES_QA)})
          OR id IN (${sql.join(MISIONES_VERIFICACION_QA)})
+         OR codigo IN (${sql.join(CODIGOS_MISION_QA)})
     )
        OR registrado_por_id IN (${sql.join(USUARIOS_QA)})
   `.execute(db);
@@ -107,6 +111,7 @@ async function limpiarFixture(): Promise<void> {
       SELECT id FROM mision
       WHERE incidente_id IN (${sql.join(INCIDENTES_QA)})
          OR id IN (${sql.join(MISIONES_VERIFICACION_QA)})
+         OR codigo IN (${sql.join(CODIGOS_MISION_QA)})
     )
        OR evaluador_id IN (${sql.join(USUARIOS_QA)})
   `.execute(db);
@@ -115,6 +120,7 @@ async function limpiarFixture(): Promise<void> {
     DELETE FROM mision
     WHERE incidente_id IN (${sql.join(INCIDENTES_QA)})
        OR id IN (${sql.join(MISIONES_VERIFICACION_QA)})
+       OR codigo IN (${sql.join(CODIGOS_MISION_QA)})
        OR creado_por_id IN (${sql.join(USUARIOS_QA)})
   `.execute(db);
 
@@ -122,12 +128,24 @@ async function limpiarFixture(): Promise<void> {
   await sql`DELETE FROM cuadrilla_personal WHERE cuadrilla_id = ${IDS.cuadrilla}`.execute(db);
   await sql`
     DELETE FROM patrulla_personal
-    WHERE patrulla_id IN (${sql.join(PATRULLAS_QA)})
+    WHERE patrulla_id IN (
+      SELECT id FROM patrulla_verificadora
+      WHERE id IN (${sql.join(PATRULLAS_QA)})
+         OR codigo IN (${sql.join(CODIGOS_PATRULLA_QA)})
+    )
   `.execute(db);
 
-  await sql`DELETE FROM incidente WHERE id IN (${sql.join(INCIDENTES_QA)})`.execute(db);
+  await sql`
+    DELETE FROM incidente
+    WHERE id IN (${sql.join(INCIDENTES_QA)})
+       OR codigo IN (${sql.join(CODIGOS_INCIDENTE_QA)})
+  `.execute(db);
   await sql`DELETE FROM cuadrilla WHERE id = ${IDS.cuadrilla}`.execute(db);
-  await sql`DELETE FROM patrulla_verificadora WHERE id IN (${sql.join(PATRULLAS_QA)})`.execute(db);
+  await sql`
+    DELETE FROM patrulla_verificadora
+    WHERE id IN (${sql.join(PATRULLAS_QA)})
+       OR codigo IN (${sql.join(CODIGOS_PATRULLA_QA)})
+  `.execute(db);
   await sql`DELETE FROM personal WHERE usuario_id IN (${sql.join(USUARIOS_QA)})`.execute(db);
   await sql`DELETE FROM usuario WHERE id IN (${sql.join(USUARIOS_QA)})`.execute(db);
   await sql`DELETE FROM recurso WHERE id IN (${sql.join(RECURSOS_QA)})`.execute(db);
@@ -137,7 +155,10 @@ async function limpiarFixture(): Promise<void> {
 /**
  * Siembra el fixture completo de pruebas HU-21.
  */
-export async function sembrarFixtureH21(): Promise<void> {
+export async function sembrarFixtureH21(
+  options: { cleanOnly?: boolean } = {}
+): Promise<void> {
+  const { cleanOnly = false } = options;
   console.log("Iniciando fixture de pruebas HU-21 (asignar cuadrilla / liberar patrulla)...");
 
   // -------------------------------------------------------------------------
@@ -201,7 +222,7 @@ export async function sembrarFixtureH21(): Promise<void> {
   await limpiarFixture();
   console.log("Fixture anterior limpiado.");
 
-  if (SOLO_LIMPIEZA) {
+  if (cleanOnly) {
     console.log("Modo --clean: no se siembran datos nuevos.");
     return;
   }
@@ -668,7 +689,7 @@ export async function sembrarFixtureH21(): Promise<void> {
 }
 
 if (require.main === module || process.argv[1]?.includes("seed-h21")) {
-  sembrarFixtureH21()
+  sembrarFixtureH21({ cleanOnly: process.argv.includes("--clean") })
     .then(async () => {
       await db.destroy();
       process.exit(0);

@@ -13,8 +13,9 @@ import {
   FechaEstimadaInvalidaError,
 } from "@/modules/eventos-atp/recuperacion.service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
-import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { seguridadService } from "@/modules/seguridad/service";
 import {
+  PERMISO_CREAR_RECUPERACION,
   PERMISO_EDITAR_RECUPERACION,
 } from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
@@ -26,26 +27,13 @@ interface RouteContext {
 /**
  * GET /api/eventos-atp/recuperacion/[id]
  * Consulta el detalle estructurado de un operativo de recuperación post-desastre (H73 / H74).
- * Alimenta el drawer lateral y el modal de edición en 'sgrai-web' con recursos, patrulla e historial.
- * Requiere que el usuario posea el permiso 'recuperacion:leer' (Encargado, Administrador o Supervisor).
+ * Autentica estrictamente vía JWT (extraerUsuarioId) y requiere permiso 'recuperacion:leer'.
  */
-export async function GET(req: NextRequest, props: RouteContext) {
+export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    // 1. Extraer autenticación
-    const usuarioId =
-      (await extraerUsuarioId(req)) ||
-      req.headers.get("x-user-id")?.trim() ||
-      null;
+    const usuarioId = await extraerUsuarioId(req);
 
-    if (!usuarioId) {
-      return NextResponse.json(
-        { message: "Se requiere cabecera de autenticación Authorization: Bearer <token> o X-User-Id." },
-        { status: 401 }
-      );
-    }
-
-    // 2. Extraer y validar parámetro de ruta UUID
-    const { id } = await props.params;
+    const { id } = await context.params;
     const resultadoValidacion = RecuperacionIdParamSchema.safeParse(id);
     if (!resultadoValidacion.success) {
       return NextResponse.json(
@@ -60,7 +48,6 @@ export async function GET(req: NextRequest, props: RouteContext) {
       );
     }
 
-    // 3. Consultar servicio de negocio
     const detalle = await obtenerDetalleRecuperacionService(
       resultadoValidacion.data,
       usuarioId
@@ -82,16 +69,16 @@ export async function GET(req: NextRequest, props: RouteContext) {
       return NextResponse.json({ message: error.message }, { status: 403 });
     }
 
-    if (
-      error instanceof NotFoundError ||
-      (typeof error === "object" && error !== null && (error as { name?: string }).name === "NotFoundError")
-    ) {
-      return NextResponse.json({ message: (error as Error).message }, { status: 404 });
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ message: error.message }, { status: 404 });
     }
 
     console.error("Error al obtener detalle de operativo de recuperación:", error);
     return NextResponse.json(
-      { message: "Error interno del servidor al procesar el detalle del operativo de recuperación." },
+      {
+        message:
+          "Error interno del servidor al obtener el detalle del operativo de recuperación.",
+      },
       { status: 500 }
     );
   }
@@ -100,14 +87,18 @@ export async function GET(req: NextRequest, props: RouteContext) {
 /**
  * PATCH /api/eventos-atp/recuperacion/[id]
  * Modifica la descripción de tareas, fecha estimada de término, dotación de insumos
- * y/o patrulla verificadora asignada a un operativo de recuperación activo,
- * bloqueando estados COMPLETADA y CANCELADA (HU-74).
+ * y/o patrulla verificadora asignada a un operativo de recuperación activo (HU-74).
+ * Requiere permiso 'recuperacion:crear', 'recuperacion:editar' o rol Encargado/Administrador.
  */
 export async function PATCH(req: NextRequest, context: RouteContext) {
   try {
-    // 1. Extraer usuario autenticado y verificar permiso RBAC recuperacion:editar
+    // 1. Extraer usuario autenticado por JWT y verificar permiso RBAC (CA-5 / BUG-H74-API-03)
     const usuarioId = await extraerUsuarioId(req);
-    const usuarioAutenticado = await verificarPermiso(usuarioId, PERMISO_EDITAR_RECUPERACION);
+    await seguridadService.validarAccesoRoles(
+      usuarioId,
+      [PERMISO_CREAR_RECUPERACION, PERMISO_EDITAR_RECUPERACION],
+      "Acceso denegado. Se requiere permiso 'recuperacion:crear', 'recuperacion:editar' o rol Encargado."
+    );
 
     // 2. Validar parámetro de ruta [id]
     const { id } = await context.params;
@@ -115,7 +106,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     if (!validacionId.success) {
       return NextResponse.json(
         {
-          message: "El identificador del operativo de recuperación no es un UUID válido.",
+          message: "Identificador de operativo inválido.",
           errors: validacionId.error.issues.map((issue) => ({
             campo: "id",
             mensaje: issue.message,
@@ -152,7 +143,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     const operativoActualizado = await editarEventoRecuperacionService(
       validacionId.data,
       resultadoValidacion.data,
-      usuarioAutenticado.id
+      usuarioId!
     );
 
     return NextResponse.json(

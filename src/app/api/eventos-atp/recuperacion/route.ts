@@ -5,7 +5,7 @@ import {
 } from "@/modules/eventos-atp/recuperacion.schema";
 import {
   crearEventoRecuperacionService,
-  listarEventosRecuperacionService,
+  listarRecuperacionesService,
   PatrullaNoDisponibleError,
   StockInsuficienteError,
   NotFoundError,
@@ -18,26 +18,11 @@ import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.erro
 /**
  * GET /api/eventos-atp/recuperacion
  * Listado paginado y filtrable de operativos de recuperación post-desastre (H73).
- * Soporta contratos estándar H34 (page, limit, total, totalPages) y filtros por:
- * - delegacionId: UUID de delegación territorial
- * - estado: PLANIFICADA | EN_EJECUCION | COMPLETADA | CANCELADA
- * - prioridad: BAJA | MEDIA | ALTA | CRITICA
- * - busqueda: Búsqueda textual sobre código (REC-XXXX), nombre o sector
- * - fechaDesde, fechaHasta: Rango temporal de registro
+ * Autentica estrictamente vía JWT (extraerUsuarioId).
  */
 export async function GET(req: NextRequest) {
   try {
-    const usuarioId =
-      (await extraerUsuarioId(req)) ||
-      req.headers.get("x-user-id")?.trim() ||
-      null;
-
-    if (!usuarioId) {
-      return NextResponse.json(
-        { message: "Se requiere cabecera de autenticación Authorization: Bearer <token> o X-User-Id." },
-        { status: 401 }
-      );
-    }
+    const usuarioId = await extraerUsuarioId(req);
 
     const searchParams = req.nextUrl.searchParams;
     const queryParams: Record<string, string> = {};
@@ -59,7 +44,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const respuestaPaginada = await listarEventosRecuperacionService(
+    const respuestaPaginada = await listarRecuperacionesService(
       resultadoValidacion.data,
       usuarioId
     );

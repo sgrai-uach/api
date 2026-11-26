@@ -15,7 +15,6 @@ export const TIPOS_AFECTACION = [
   "Corte de agua potable",
   "Anegamiento de calzada",
   "Incendio estructural / forestal",
-  "Incendio",
   "Otro",
 ] as const;
 
