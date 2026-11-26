@@ -313,7 +313,7 @@ docker exec -it grupo1_backend npx tsx src/lib/db/migrator.ts
 ### 7.1 Migraciones y Semillas
 - **Motor:** `postgis/postgis:16-3.4-alpine`, con tipos geométricos espaciales SRID 4326 (WGS84).
 - **Ejecución de migraciones:** `npm run db:migrate` (gestión Kysely).
-- **Semillas de inicio:** `npm run seed` (orquestador único; ejecuta todos los módulos de seed de forma idempotente). Opciones: `npm run seed -- --only=h38`, `npm run seed -- --skip=estados`, `npm run seed -- --clean`.
+- **Semillas de inicio:** `npm run seed` (orquestador único; ejecuta todos los módulos de seed de forma idempotente). Opciones: `npm run seed -- --only=h38`, `npm run seed -- --only=h41`, `npm run seed -- --skip=estados`, `npm run seed -- --clean`.
 
 ### 7.2 Respaldos Lógicos y Restauración
 

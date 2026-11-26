@@ -768,11 +768,13 @@ Ejecuta el orquestador `scripts/seed/index.ts`, que siembra de forma idempotente
 - incidentes y misiones adicionales en todos los estados operativos;
 - puntos críticos de prevención y misión preventiva;
 - eventos de recuperación, misiones e insumos asociados;
-- fixtures QA de HU-21 (cuadrillas) y HU-38 (prioridad en terreno).
+- fixtures QA de HU-21 (cuadrillas) y HU-38 (prioridad en terreno);
+- fixture QA de HU-41 (cuadrillas con dotación y rechazo de misión).
 
 Opciones útiles:
 ```bash
 npm run seed -- --only=h38          # solo fixture HU-38
+npm run seed -- --only=h41          # solo fixture HU-41
 npm run seed -- --only=h21,h38      # fixtures QA
 npm run seed -- --skip=estados      # omitir un módulo
 npm run seed -- --clean             # limpiar y recrear fixtures QA
