@@ -302,6 +302,8 @@ export async function buscarRecuperacionPorId(
       "creado_por_id",
       "creado_en",
       "actualizado_en",
+      "fecha_cierre",
+      "observaciones_cierre",
     ])
     .where("id", "=", recuperacionId);
 

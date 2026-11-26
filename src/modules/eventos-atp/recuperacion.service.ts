@@ -567,7 +567,13 @@ export async function verificarAutorizacionLecturaRecuperacion(usuarioId?: strin
         try {
           await verificarPermiso(usuarioId, PERMISO_CREAR_RECUPERACION);
         } catch {
-          await verificarPermiso(usuarioId, PERMISO_ASIGNAR_MISION);
+          try {
+            await verificarPermiso(usuarioId, PERMISO_ASIGNAR_MISION);
+          } catch {
+            throw new ForbiddenError(
+              "No cuenta con el permiso requerido: recuperacion:leer"
+            );
+          }
         }
       }
     } else {
@@ -706,11 +712,11 @@ export async function obtenerDetalleRecuperacionService(
     creadoPorId: eventoExistente.creado_por_id,
     creadoEn: eventoExistente.creado_en instanceof Date ? eventoExistente.creado_en.toISOString() : String(eventoExistente.creado_en),
     actualizadoEn: eventoExistente.actualizado_en instanceof Date ? eventoExistente.actualizado_en.toISOString() : String(eventoExistente.actualizado_en),
-    fechaCierre: (eventoExistente as any).fecha_cierre
-      ? ((eventoExistente as any).fecha_cierre instanceof Date
-          ? (eventoExistente as any).fecha_cierre.toISOString()
-          : String((eventoExistente as any).fecha_cierre))
+    fechaCierre: eventoExistente.fecha_cierre
+      ? (eventoExistente.fecha_cierre instanceof Date
+          ? eventoExistente.fecha_cierre.toISOString()
+          : String(eventoExistente.fecha_cierre))
       : null,
-    observacionesCierre: (eventoExistente as any).observaciones_cierre ?? null,
+    observacionesCierre: eventoExistente.observaciones_cierre ?? null,
   };
 }
