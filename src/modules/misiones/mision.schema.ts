@@ -856,43 +856,63 @@ export type EnviarReporteVerificacionResponse = z.infer<
   typeof EnviarReporteVerificacionResponseSchema
 >;
 
-// HU-69: Esquema de entrada para rechazo de misión por patrulla verificadora
-export const RechazarMisionBodySchema = z.object({
-  justificacion_rechazo: z
-    .string()
-    .min(5, "El motivo de rechazo debe contener al menos 5 caracteres.")
-    .openapi({
-      description: "Motivo obligatorio del rechazo de la misión (mínimo 5 caracteres según Regla Crítica §3.3)",
-      example: "Desperfecto mecánico en el neumático delantero del vehículo institucional.",
-    }),
-  latitud: z
-    .number()
-    .finite("La latitud debe ser un número finito.")
-    .min(-90, "La latitud debe estar entre -90 y 90.")
-    .max(90, "La latitud debe estar entre -90 y 90.")
-    .optional()
-    .openapi({ description: "Latitud WGS84 de la patrulla (-90 a 90)", example: -39.81422 }),
-  longitud: z
-    .number()
-    .finite("La longitud debe ser un número finito.")
-    .min(-180, "La longitud debe estar entre -180 y 180.")
-    .max(180, "La longitud debe estar entre -180 y 180.")
-    .optional()
-    .openapi({ description: "Longitud WGS84 de la patrulla (-180 a 180)", example: -73.24589 }),
-});
+// HU-41 / HU-69: Rechazo Motivado de Misión (Cuadrilla y Patrulla, Regla §3.3)
+// ==========================================
+
+export const RechazarMisionBodySchema = z
+  .object({
+    justificacion_rechazo: z
+      .string()
+      .trim()
+      .min(5, "El motivo de rechazo (justificacion_rechazo) debe contener al menos 5 caracteres.")
+      .max(1000, "El motivo de rechazo (justificacion_rechazo) no puede exceder los 1000 caracteres.")
+      .openapi({
+        description:
+          "Justificación técnica obligatoria del rechazo de la misión (mínimo 5 caracteres según Regla §3.3)",
+        example: "Camión tolva presenta falla hidráulica en ruta de salida desde base.",
+      }),
+    latitud: z
+      .number({ message: "La latitud debe ser un número válido." })
+      .finite("La latitud debe ser un número finito.")
+      .min(-90, "La latitud debe estar entre -90 y 90.")
+      .max(90, "La latitud debe estar entre -90 y 90.")
+      .optional()
+      .openapi({
+        description: "Latitud WGS84 opcional de la unidad al momento del rechazo (-90 a 90)",
+        example: -39.81422,
+      }),
+    longitud: z
+      .number({ message: "La longitud debe ser un número válido." })
+      .finite("La longitud debe ser un número finito.")
+      .min(-180, "La longitud debe estar entre -180 y 180.")
+      .max(180, "La longitud debe estar entre -180 y 180.")
+      .optional()
+      .openapi({
+        description: "Longitud WGS84 opcional de la unidad al momento del rechazo (-180 a 180)",
+        example: -73.24589,
+      }),
+  })
+  .refine(
+    (data) => (data.latitud !== undefined) === (data.longitud !== undefined),
+    {
+      message: "Debe proporcionar tanto latitud como longitud si incluye coordenadas GPS.",
+      path: ["longitud"],
+    }
+  )
+  .openapi("RechazarMisionBody");
 
 export const RechazarMisionInputSchema = z
   .object({
     justificacion_rechazo: z.string().optional(),
     justificacionRechazo: z.string().optional(),
     latitud: z
-      .number()
+      .number({ message: "La latitud debe ser un número válido." })
       .finite("La latitud debe ser un número finito.")
       .min(-90, "La latitud debe estar entre -90 y 90.")
       .max(90, "La latitud debe estar entre -90 y 90.")
       .optional(),
     longitud: z
-      .number()
+      .number({ message: "La longitud debe ser un número válido." })
       .finite("La longitud debe ser un número finito.")
       .min(-180, "La longitud debe estar entre -180 y 180.")
       .max(180, "La longitud debe estar entre -180 y 180.")
@@ -905,6 +925,20 @@ export const RechazarMisionInputSchema = z
         code: z.ZodIssueCode.custom,
         message: "El motivo de rechazo (justificacion_rechazo) debe contener al menos 5 caracteres.",
         path: ["justificacion_rechazo"],
+      });
+    }
+    if (motivo.length > 1000) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "El motivo de rechazo (justificacion_rechazo) no puede exceder los 1000 caracteres.",
+        path: ["justificacion_rechazo"],
+      });
+    }
+    if ((data.latitud !== undefined) !== (data.longitud !== undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Debe proporcionar tanto latitud como longitud si incluye coordenadas GPS.",
+        path: ["longitud"],
       });
     }
   })
@@ -920,37 +954,62 @@ export type RechazarMisionInput = {
   longitud?: number;
 };
 
-// HU-69: Respuesta de rechazo de misión
-export const RechazarMisionResponseSchema = z.object({
-  message: z.string().openapi({
-    example: "Misión rechazada exitosamente. El incidente ha vuelto a estado REPORTADO para su reasignación.",
-  }),
-  data: z.object({
-    mision: z.object({
-      id: z.string().uuid(),
-      codigo: z.string(),
-      estado: z.string(),
-      justificacionRechazo: z.string(),
-      actualizadoEn: z.string(),
+export const RechazarMisionResponseSchema = z
+  .object({
+    message: z.string().openapi({
+      example:
+        "Misión rechazada exitosamente. La unidad ha vuelto a estado DISPONIBLE y el incidente ha retornado para su reasignación.",
     }),
-    patrulla: z.object({
-      id: z.string().uuid(),
-      nombre: z.string(),
-      estado: z.string(),
+    data: z.object({
+      mision: z.object({
+        id: z.string().uuid(),
+        codigo: z.string(),
+        tipoMision: TipoMisionEnum.optional(),
+        estado: EstadoMisionEnum.openapi({ example: "RECHAZADA" }),
+        justificacionRechazo: z.string(),
+        fechaCierre: z.string().optional(),
+        actualizadoEn: z.string(),
+      }),
+      cuadrilla: z
+        .object({
+          id: z.string().uuid(),
+          nombre: z.string(),
+          estado: z.string().openapi({ example: "DISPONIBLE" }),
+          delegacionId: z.string().uuid().nullable().optional(),
+          usuarioDelegadoId: z.string().uuid().nullable().optional(),
+        })
+        .nullable()
+        .optional(),
+      patrulla: z
+        .object({
+          id: z.string().uuid(),
+          nombre: z.string(),
+          estado: z.string().openapi({ example: "DISPONIBLE" }),
+          delegacionId: z.string().uuid().nullable().optional(),
+          usuarioLiderId: z.string().uuid().nullable().optional(),
+        })
+        .nullable()
+        .optional(),
+      incidente: z
+        .object({
+          id: z.string().uuid(),
+          codigo: z.string(),
+          estado: z.string().openapi({ example: "VERIFICANDO" }),
+          prioridad: z.string().optional(),
+        })
+        .nullable(),
+      hito: z.object({
+        id: z.string().uuid(),
+        misionId: z.string().uuid().optional(),
+        hito: z.string(),
+        descripcion: z.string(),
+        registradoPorId: z.string().uuid().nullable().optional(),
+        latitud: z.number().nullable().optional(),
+        longitud: z.number().nullable().optional(),
+        creadoEn: z.string(),
+      }),
     }),
-    incidente: z.object({
-      id: z.string().uuid(),
-      codigo: z.string(),
-      estado: z.string(),
-      prioridad: z.string().optional(),
-    }),
-    hito: z.object({
-      id: z.string().uuid(),
-      hito: z.string(),
-      descripcion: z.string(),
-      creadoEn: z.string(),
-    }),
-  }),
-});
+  })
+  .openapi("RechazarMisionResponse");
 
 export type RechazarMisionResponse = z.infer<typeof RechazarMisionResponseSchema>;

@@ -72,6 +72,14 @@ export async function sembrarDatosKanban() {
   const rolBrigadistaId =
     rolBrigadista?.id ?? "20000000-0000-4000-8000-000000000009";
 
+  const rolDelegado = await db
+    .selectFrom("rol")
+    .select("id")
+    .where("codigo", "=", "DELEGADO_CUADRILLA")
+    .executeTakeFirst();
+  const rolDelegadoId =
+    rolDelegado?.id ?? "20000000-0000-4000-8000-000000000005";
+
   // 5. Informantes Ciudadanos
   await sql`
     INSERT INTO informante (id, rut, nombre, telefono)
@@ -151,7 +159,8 @@ export async function sembrarDatosKanban() {
   `.execute(db);
 
   // 7. Equipos Operativos: Patrullas Verificadoras y Cuadrillas
-  // Brigadistas de apoyo para que las cuadrillas demo tengan dotación visible en el detalle.
+  // Dotación de apoyo y delegados reales para que las cuadrillas demo tengan
+  // personal y encargados utilizables desde la PWA de terreno.
   await sql`
     INSERT INTO usuario (
       id, rut, nombres, apellidos, email, rol_id, delegacion_id, activo, estado_operativo
@@ -166,7 +175,7 @@ export async function sembrarDatosKanban() {
         ${rolBrigadistaId},
         ${delSur ?? null},
         true,
-        'disponible'
+        'en_mision'
       ),
       (
         'd1000000-0000-4000-8000-000000000007',
@@ -177,13 +186,79 @@ export async function sembrarDatosKanban() {
         ${rolBrigadistaId},
         ${delNorte ?? null},
         true,
-        'disponible'
+        'en_mision'
+      ),
+      (
+        'd1000000-0000-4000-8000-000000000008',
+        '19.555.003-3',
+        'Delegado',
+        'Kanban Sur',
+        'delegado.kanban1@valdivia.cl',
+        ${rolDelegadoId},
+        ${delSur ?? null},
+        true,
+        'en_mision'
+      ),
+      (
+        'd1000000-0000-4000-8000-000000000009',
+        '19.555.004-4',
+        'Delegado',
+        'Kanban Norte',
+        'delegado.kanban2@valdivia.cl',
+        ${rolDelegadoId},
+        ${delNorte ?? null},
+        true,
+        'en_mision'
+      ),
+      (
+        'd1000000-0000-4000-8000-000000000010',
+        '19.555.005-5',
+        'Brigadista',
+        'Kanban Sur Dos',
+        'brigadista.kanban3@valdivia.cl',
+        ${rolBrigadistaId},
+        ${delSur ?? null},
+        true,
+        'en_mision'
+      ),
+      (
+        'd1000000-0000-4000-8000-000000000011',
+        '19.555.006-6',
+        'Brigadista',
+        'Kanban Sur Tres',
+        'brigadista.kanban4@valdivia.cl',
+        ${rolBrigadistaId},
+        ${delSur ?? null},
+        true,
+        'en_mision'
+      ),
+      (
+        'd1000000-0000-4000-8000-000000000012',
+        '19.555.007-7',
+        'Brigadista',
+        'Kanban Norte Dos',
+        'brigadista.kanban5@valdivia.cl',
+        ${rolBrigadistaId},
+        ${delNorte ?? null},
+        true,
+        'en_mision'
+      ),
+      (
+        'd1000000-0000-4000-8000-000000000013',
+        '19.555.008-8',
+        'Brigadista',
+        'Kanban Norte Tres',
+        'brigadista.kanban6@valdivia.cl',
+        ${rolBrigadistaId},
+        ${delNorte ?? null},
+        true,
+        'en_mision'
       )
     ON CONFLICT (id) DO UPDATE SET
       rol_id = EXCLUDED.rol_id,
       delegacion_id = EXCLUDED.delegacion_id,
       activo = true,
-      estado_operativo = 'disponible';
+      estado_operativo = EXCLUDED.estado_operativo;
   `.execute(db);
 
   await sql`
@@ -204,9 +279,59 @@ export async function sembrarDatosKanban() {
         'Despeje, bombeo y mitigación',
         'Brigadista Operativo',
         true
+      ),
+      (
+        'c1000000-0000-4000-8000-000000000008',
+        'd1000000-0000-4000-8000-000000000008',
+        ${delSur ?? null},
+        'Mando y coordinación de cuadrilla',
+        'Delegado de Cuadrilla',
+        true
+      ),
+      (
+        'c1000000-0000-4000-8000-000000000009',
+        'd1000000-0000-4000-8000-000000000009',
+        ${delNorte ?? null},
+        'Mando y coordinación de cuadrilla',
+        'Delegado de Cuadrilla',
+        true
+      ),
+      (
+        'c1000000-0000-4000-8000-000000000010',
+        'd1000000-0000-4000-8000-000000000010',
+        ${delSur ?? null},
+        'Control de tránsito y perímetro',
+        'Brigadista Operativo',
+        true
+      ),
+      (
+        'c1000000-0000-4000-8000-000000000011',
+        'd1000000-0000-4000-8000-000000000011',
+        ${delSur ?? null},
+        'Operación de motobomba y achique',
+        'Brigadista Operativo',
+        true
+      ),
+      (
+        'c1000000-0000-4000-8000-000000000012',
+        'd1000000-0000-4000-8000-000000000012',
+        ${delNorte ?? null},
+        'Control de tránsito y perímetro',
+        'Brigadista Operativo',
+        true
+      ),
+      (
+        'c1000000-0000-4000-8000-000000000013',
+        'd1000000-0000-4000-8000-000000000013',
+        ${delNorte ?? null},
+        'Operación de motobomba y achique',
+        'Brigadista Operativo',
+        true
       )
     ON CONFLICT (usuario_id) DO UPDATE SET
       delegacion_id = EXCLUDED.delegacion_id,
+      especialidad = EXCLUDED.especialidad,
+      cargo = EXCLUDED.cargo,
       disponible_terreno = true;
   `.execute(db);
 
@@ -266,7 +391,7 @@ export async function sembrarDatosKanban() {
         'Cuadrilla Aguas Lluvias Alfa',
         'EN_MISION',
         ${delSur ?? null},
-        ${encargadoId},
+        'd1000000-0000-4000-8000-000000000008',
         ${adminId},
         CURRENT_TIMESTAMP - interval '3 days',
         ${adminId},
@@ -279,7 +404,7 @@ export async function sembrarDatosKanban() {
         'Cuadrilla Vías y Despeje Urbano',
         'EN_MISION',
         ${delNorte ?? null},
-        ${encargadoId},
+        'd1000000-0000-4000-8000-000000000009',
         ${adminId},
         CURRENT_TIMESTAMP - interval '3 days',
         ${adminId},
@@ -302,7 +427,11 @@ export async function sembrarDatosKanban() {
     INSERT INTO cuadrilla_personal (cuadrilla_id, personal_id, activo)
     VALUES
       ('c1000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000006', true),
-      ('c1000000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000007', true)
+      ('c1000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000010', true),
+      ('c1000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000011', true),
+      ('c1000000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000007', true),
+      ('c1000000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000012', true),
+      ('c1000000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000013', true)
     ON CONFLICT (cuadrilla_id, personal_id) WHERE desvinculado_en IS NULL DO UPDATE SET
       activo = true;
   `.execute(db);

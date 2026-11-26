@@ -62,6 +62,23 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/eventos-atp"].post.security).toEqual([
       { BearerAuth: [] },
     ]);
+    expect(spec.paths["/api/misiones/{id}/rechazar"]?.post?.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+
+    // Validar que todo esquema de seguridad referenciado exista en components.securitySchemes
+    const esquemasDefinidos = new Set(Object.keys(spec.components.securitySchemes));
+    for (const methods of Object.values(spec.paths) as Array<Record<string, { security?: Array<Record<string, unknown>> }>>) {
+      for (const op of Object.values(methods)) {
+        if (op?.security) {
+          for (const secObj of op.security) {
+            for (const schemeName of Object.keys(secObj)) {
+              expect(esquemasDefinidos.has(schemeName)).toBe(true);
+            }
+          }
+        }
+      }
+    }
 
     // Rutas de Recursos y Personal
     expect(spec.paths["/api/cuadrillas"]).toBeDefined();
@@ -82,6 +99,19 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/misiones"]).toBeDefined();
     expect(spec.paths["/api/misiones"].get).toBeDefined();
     expect(spec.paths["/api/misiones"].post).toBeDefined();
+
+    // Ruta unificada de Rechazo de Misión (HU-41 Cuadrilla / HU-69 Patrulla)
+    const postRechazar = spec.paths["/api/misiones/{id}/rechazar"]?.post;
+    expect(postRechazar).toBeDefined();
+    expect(postRechazar.responses["200"]).toBeDefined();
+    expect(postRechazar.responses["400"]).toBeDefined();
+    expect(postRechazar.responses["401"]).toBeDefined();
+    expect(postRechazar.responses["403"]).toBeDefined();
+    expect(postRechazar.responses["404"]).toBeDefined();
+    expect(postRechazar.responses["409"]).toBeDefined();
+    expect(postRechazar.responses["500"]).toBeDefined();
+    expect(spec.components.schemas.RechazarMisionBody).toBeDefined();
+    expect(spec.components.schemas.RechazarMisionResponse).toBeDefined();
 
     // Rutas de Terreno - Notificaciones y ACKs (HU-35)
     expect(spec.paths["/api/terreno/notificaciones/{id}/estado"]).toBeDefined();

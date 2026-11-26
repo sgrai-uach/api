@@ -2864,13 +2864,13 @@ registry.registerPath({
   },
 });
 
-// POST /api/misiones/{id}/rechazar (HU-69: Rechazo de misión por patrulla verificadora)
+// POST /api/misiones/{id}/rechazar (HU-41 Cuadrilla / HU-69 Patrulla)
 registry.registerPath({
   method: "post",
   path: "/api/misiones/{id}/rechazar",
-  summary: "Rechazar misión de verificación por patrulla en terreno (HU-69)",
+  summary: "Rechazar asignación de misión en terreno (HU-41 / HU-69)",
   description:
-    "Permite a una patrulla verificadora rechazar una misión asignada ingresando una justificación obligatoria (mínimo 5 caracteres según Regla Crítica §3.3). Ejecuta una transacción atómica que: (1) actualiza la misión a estado RECHAZADA y persiste la justificación, (2) transiciona la patrulla a DISPONIBLE, (3) revierte el incidente a REPORTADO para su inmediata reasignación, y (4) registra el hito en mision_hito. Emite la notificación WebSocket mision:rechazada hacia la sala encargado.",
+    "Permite al Delegado de cuadrilla (permiso 'misiones:terreno:ejecutar') o a una patrulla verificadora (permiso 'misiones:terreno:verificar') rechazar una misión asignada ingresando una justificación técnica obligatoria (mínimo 5 caracteres según Regla §3.3). Ejecuta una transacción atómica que: (1) actualiza mision.estado = 'RECHAZADA' y persiste justificacion_rechazo, (2) devuelve la cuadrilla/dotación o patrulla a DISPONIBLE, (3) retorna el incidente a VERIFICANDO o REPORTADO para reasignación, y (4) registra el hito 'RECHAZADA' en mision_hito. Emite la alerta WebSocket mision:rechazada hacia la sala encargado.",
   tags: ["Misiones"],
   security: [{ BearerAuth: [] }],
   request: {
@@ -2878,6 +2878,7 @@ registry.registerPath({
       id: MisionIdParamSchema,
     }),
     body: {
+      required: true,
       content: {
         "application/json": {
           schema: RechazarMisionBodySchema,
@@ -2887,7 +2888,8 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Misión rechazada exitosamente y devuelta a estado REPORTADO para reasignación",
+      description:
+        "Misión rechazada exitosamente, unidad liberada e incidente retornado para reasignación",
       content: {
         "application/json": {
           schema: RechazarMisionResponseSchema,
@@ -2896,20 +2898,21 @@ registry.registerPath({
     },
     400: {
       description:
-        "Datos de entrada inválidos, justificación menor a 5 caracteres o coordenadas geográficas fuera de rango WGS84",
+        "Datos de entrada inválidos, justificación vacía o menor a 5 caracteres (Regla §3.3), o coordenadas WGS84 inválidas",
     },
     401: {
       description: "No autenticado, token ausente o usuario inactivo",
     },
     403: {
-      description: "Acceso denegado. Se requiere pertenecer a la patrulla asignada o rol Administrador",
+      description:
+        "Acceso denegado. Se requiere permiso 'misiones:terreno:ejecutar' (cuadrilla) o 'misiones:terreno:verificar' (patrulla) y pertenecer a la unidad asignada (o rol Administrador)",
     },
     404: {
       description: "Misión no encontrada",
     },
     409: {
       description:
-        "Conflicto: la misión ya fue rechazada, no se encuentra en estado DESPACHADA, o no es de tipo VERIFICACION / no tiene patrulla asignada",
+        "Conflicto: la misión ya fue rechazada, no está en estado DESPACHADA, o no tiene una unidad asignada compatible",
     },
     500: {
       description: "Error interno del servidor al procesar el rechazo de la misión",

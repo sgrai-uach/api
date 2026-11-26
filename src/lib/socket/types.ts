@@ -104,7 +104,9 @@ export interface MisionRechazadaPayload {
     tipoMision: string;
     motivo: string;
     justificacionRechazo?: string;
-    patrullaId: string | null;
+    cuadrillaId?: string | null;
+    cuadrillaNombre?: string | null;
+    patrullaId?: string | null;
     patrullaNombre?: string | null;
     incidenteId: string | null;
     incidenteCodigo?: string | null;

@@ -640,6 +640,7 @@ export function emitirCuadrillaCreada(payload: unknown): void {
 export function emitirCuadrillaActualizada(payload: unknown): void {
   emitirEvento("operaciones", "cuadrilla:actualizada", payload);
   emitirEvento("encargado", "cuadrilla:actualizada", payload);
+  emitirEvento("sala:encargados", "cuadrilla:actualizada", payload);
   emitirEvento("supervisor", "cuadrilla:actualizada", payload);
 }
 
@@ -1014,33 +1015,28 @@ export function notificarPatrullaLiberada(payload: {
 }
 
 /**
- * Emite una notificación en tiempo real hacia la sala 'encargado' del Centro de Mando
- * cuando una patrulla verificadora rechaza una misión asignada (HU-69).
+ * Emite una alerta prioritaria en tiempo real hacia la sala 'encargado' del Centro de Mando
+ * cuando una cuadrilla operativa (HU-41) o patrulla verificadora (HU-69) rechaza una misión asignada.
  */
 export function notificarMisionRechazada(payload: MisionRechazadaPayload): void {
+  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  if (payload.cuadrillaId) {
+    rooms.push(`cuadrilla:${payload.cuadrillaId}`);
+  }
+  if (payload.patrullaId) {
+    rooms.push(`patrulla:${payload.patrullaId}`);
+  }
+
   if (ioInstance) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("encargado") as any).emit("mision:rechazada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("sala:encargados") as any).emit("mision:rechazada", payload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance.to("supervisor") as any).emit("mision:rechazada", payload);
-    if (payload.patrullaId) {
+    for (const room of rooms) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ioInstance.to(`patrulla:${payload.patrullaId}`) as any).emit("mision:rechazada", payload);
+      (ioInstance.to(room) as any).emit("mision:rechazada", payload);
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ioInstance as any).emit("mision:rechazada", payload);
     return;
   }
 
   const publisher = getRedisPublisher();
   if (publisher) {
-    const rooms = ["encargado", "sala:encargados", "supervisor"];
-    if (payload.patrullaId) {
-      rooms.push(`patrulla:${payload.patrullaId}`);
-    }
-
     for (const room of rooms) {
       publisher
         .publish(
