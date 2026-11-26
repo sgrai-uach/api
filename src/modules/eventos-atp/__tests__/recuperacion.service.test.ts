@@ -593,10 +593,10 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
 
       const spySocket = vi
         .spyOn(socketModule, "emitirRecuperacionActualizada")
-        .mockImplementation(() => {});
+        .mockImplementation(() => { });
       const spySocketRecurso = vi
         .spyOn(socketModule, "emitirRecursoActualizado")
-        .mockImplementation(() => {});
+        .mockImplementation(() => { });
 
       const resultado = await editarEventoRecuperacionService(
         recuperacionId,
@@ -809,16 +809,16 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
 
       const spySocketRec = vi
         .spyOn(socketModule, "emitirRecuperacionActualizada")
-        .mockImplementation(() => {});
+        .mockImplementation(() => { });
       const spySocketPatrulla = vi
         .spyOn(socketModule, "emitirPatrullaActualizada")
-        .mockImplementation(() => {});
+        .mockImplementation(() => { });
       const spySocketAsignada = vi
         .spyOn(socketModule, "notificarMisionAsignada")
-        .mockImplementation(() => {});
+        .mockImplementation(() => { });
       const spySocketLiberada = vi
         .spyOn(socketModule, "emitirPatrullaLiberadaDeOperativo")
-        .mockImplementation(() => {});
+        .mockImplementation(() => { });
 
       const resultado = await editarEventoRecuperacionService(
         recuperacionId,
@@ -905,9 +905,9 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
       vi.spyOn(repo, "insertarNotificacionMisionRecuperacion").mockResolvedValueOnce({ id: "n-99" });
       vi.spyOn(repo, "actualizarRecuperacion").mockResolvedValueOnce(mockRecuperacionBase);
 
-      vi.spyOn(socketModule, "emitirRecuperacionActualizada").mockImplementation(() => {});
-      vi.spyOn(socketModule, "emitirPatrullaActualizada").mockImplementation(() => {});
-      vi.spyOn(socketModule, "notificarMisionAsignada").mockImplementation(() => {});
+      vi.spyOn(socketModule, "emitirRecuperacionActualizada").mockImplementation(() => { });
+      vi.spyOn(socketModule, "emitirPatrullaActualizada").mockImplementation(() => { });
+      vi.spyOn(socketModule, "notificarMisionAsignada").mockImplementation(() => { });
 
       const resultado = await editarEventoRecuperacionService(
         recuperacionId,
