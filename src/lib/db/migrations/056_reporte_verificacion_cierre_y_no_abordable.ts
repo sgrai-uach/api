@@ -99,16 +99,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
         (v_patrulla_rol_id, v_permiso_id, v_admin_user_id),
         (v_delegado_rol_id, v_permiso_id, v_admin_user_id)
       ON CONFLICT DO NOTHING;
-
-      -- Garantizar que Patrulla Verificadora y Delegado de Cuadrilla posean 'misiones:leer' para consultar detalle de misión
-      SELECT id INTO v_permiso_id FROM permiso WHERE codigo = 'misiones:leer';
-      IF v_permiso_id IS NOT NULL THEN
-        INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
-        VALUES
-          (v_patrulla_rol_id, v_permiso_id, v_admin_user_id),
-          (v_delegado_rol_id, v_permiso_id, v_admin_user_id)
-        ON CONFLICT DO NOTHING;
-      END IF;
     END $$;
   `.execute(db);
 }

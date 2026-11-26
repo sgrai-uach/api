@@ -249,9 +249,7 @@ describe("PrioridadRepository (HU-38 - Reglas de seguridad y concurrencia)", () 
       insertInto: vi.fn().mockReturnValue({
         values: vi.fn().mockReturnValue({
           returningAll: vi.fn().mockReturnValue({
-            executeTakeFirstOrThrow: vi
-              .fn()
-              .mockRejectedValueOnce(new Error("duplicate key uq_reporte_terreno_mision_version")),
+            executeTakeFirstOrThrow: vi.fn().mockRejectedValueOnce(new Error("duplicate key uq_reporte_terreno_mision_version")),
           }),
         }),
       }),
@@ -264,10 +262,10 @@ describe("PrioridadRepository (HU-38 - Reglas de seguridad y concurrencia)", () 
     ).rejects.toThrow("duplicate key uq_reporte_terreno_mision_version");
   });
 
-  it("debe registrar reportes versionados #1 (Inicial) y #2 (Rectificación) sin requerir FIBE en HU-38", async () => {
-    let maxVersion = 0;
+  it("debe actualizar incidente, crear reporte_terreno versionado (#1 inicial y #2 rectificación) y registrar hito en mision_hito", async () => {
+    let conteoReportesMock = 0;
 
-    mockTransaction({
+    const mockTrx = {
       selectFrom: vi.fn().mockImplementation((table: string) => {
         if (table === "incidente") {
           return createSelectChain({
@@ -277,10 +275,7 @@ describe("PrioridadRepository (HU-38 - Reglas de seguridad y concurrencia)", () 
               estado: "VERIFICANDO",
               prioridad: "MEDIA",
               prioridad_sugerida: "MEDIA",
-              justificacion_prioridad: null,
               requiere_asistencia_social: false,
-              tipo_incidente_id: null,
-              tipo_afectacion: "Inundación",
             },
           });
         }
@@ -293,65 +288,33 @@ describe("PrioridadRepository (HU-38 - Reglas de seguridad y concurrencia)", () 
                 estado: "EN_CURSO",
                 tipo_mision: "VERIFICACION",
                 patrulla_id: patrullaId,
-                fecha_inicio: new Date(),
-                patrulla_activo: true,
-                patrulla_eliminado_en: null,
                 patrulla_lider_id: usuarioId,
+                fecha_inicio: new Date("2026-11-11T20:00:00Z"),
               },
             ],
           });
         }
         if (table === "reporte_terreno") {
-          return createSelectChain({ executeTakeFirst: { max_version: maxVersion } });
+          return {
+            select: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                executeTakeFirst: vi.fn().mockImplementation(async () => ({
+                  max_version: conteoReportesMock,
+                })),
+              }),
+            }),
+          };
         }
         if (table === "usuario") {
           return createSelectChain({
-            executeTakeFirst: { nombre: "Patrullero", email: "p@valdivia.cl", rut: null },
+            executeTakeFirst: {
+              nombre: "Líder Patrulla",
+              email: "lider@valdivia.cl",
+              rut: "15.111.222-3",
+            },
           });
         }
         return {};
-      }),
-      insertInto: vi.fn().mockImplementation((table: string) => {
-        if (table === "reporte_terreno") {
-          return {
-            values: vi.fn().mockImplementation((valores: Record<string, unknown>) => ({
-              returningAll: vi.fn().mockReturnValue({
-                executeTakeFirstOrThrow: vi.fn().mockImplementation(async () => {
-                  maxVersion = Number(valores.version_reporte ?? 1);
-                  return {
-                    id: `e0000000-0000-4000-8000-00000000000${maxVersion}`,
-                    mision_id: misionId,
-                    version_reporte: valores.version_reporte,
-                    es_rectificacion: valores.es_rectificacion,
-                    prioridad_sugerida: valores.prioridad_sugerida,
-                    prioridad_asignada: valores.prioridad_asignada,
-                    justificacion_prioridad: valores.justificacion_prioridad,
-                    resumen_tecnico: valores.resumen_tecnico,
-                    personas_afectadas: valores.personas_afectadas,
-                    requiere_apoyo_adicional: valores.requiere_apoyo_adicional,
-                    observaciones: valores.observaciones,
-                    acciones_realizadas: valores.acciones_realizadas,
-                    danos_estimados: valores.danos_estimados,
-                    detalles_evaluacion: valores.detalles_evaluacion,
-                    creado_en: new Date("2026-11-11T22:00:00Z"),
-                  };
-                }),
-              }),
-            })),
-          };
-        }
-        return {
-          values: vi.fn().mockImplementation((valores: Record<string, unknown>) => ({
-            returningAll: vi.fn().mockReturnValue({
-              executeTakeFirstOrThrow: vi.fn().mockResolvedValue({
-                id: "h0000000-0000-4000-8000-000000000001",
-                hito: valores.hito,
-                descripcion: valores.descripcion,
-                creado_en: new Date("2026-11-11T22:00:00Z"),
-              }),
-            }),
-          })),
-        };
       }),
       updateTable: vi.fn().mockImplementation((table: string) => {
         if (table === "incidente") {
@@ -382,31 +345,75 @@ describe("PrioridadRepository (HU-38 - Reglas de seguridad y concurrencia)", () 
           }),
         };
       }),
-    });
+      insertInto: vi.fn().mockImplementation((table: string) => {
+        if (table === "reporte_terreno") {
+          return {
+            values: vi.fn().mockImplementation((vals: Record<string, unknown>) => ({
+              returningAll: vi.fn().mockReturnValue({
+                executeTakeFirstOrThrow: vi.fn().mockImplementation(async () => {
+                  conteoReportesMock += 1;
+                  return {
+                    id: `e0000000-0000-4000-8000-00000000000${conteoReportesMock}`,
+                    ...vals,
+                    creado_en: new Date("2026-11-11T22:00:00Z"),
+                  };
+                }),
+              }),
+            })),
+          };
+        }
+        if (table === "mision_hito") {
+          return {
+            values: vi.fn().mockImplementation((vals: Record<string, unknown>) => ({
+              returningAll: vi.fn().mockReturnValue({
+                executeTakeFirstOrThrow: vi.fn().mockResolvedValue({
+                  id: "70000000-0000-4000-8000-000000000010",
+                  ...vals,
+                  creado_en: new Date("2026-11-11T22:00:00Z"),
+                }),
+              }),
+            })),
+          };
+        }
+        return {};
+      }),
+    };
 
+    vi.spyOn(db, "transaction").mockReturnValue({
+      execute: vi.fn().mockImplementation(async (cb: (trx: unknown) => Promise<unknown>) => {
+        return await cb(mockTrx);
+      }),
+    } as unknown as ReturnType<typeof db.transaction>);
+
+    // 1er envío: Reporte #1 (Inicial) modificando prioridad sugerida MEDIA a ALTA con justificación
     const res1 = await repo.actualizarPrioridadIncidente(incidenteId, usuarioId, false, {
       prioridad: "ALTA",
-      justificacion: "Requiere atención prioritaria por vulnerabilidad",
+      justificacionPrioridad:
+        "Aumento rápido del caudal hacia acceso principal de vivienda con niños.",
       evaluacion: {
         nucleoFamiliarTotal: 3,
         cantidadNinos: 1,
+        mascotasAfectadas: 2,
         nivelCompromisoVivienda: "LEVE",
+        detallesAdicionales: "Se requiere monitoreo y sacos de arena.",
       },
     });
 
     expect(res1.incidente.prioridad).toBe("ALTA");
+    expect(res1.incidente.prioridadSugerida).toBe("MEDIA");
     expect(res1.incidente.modificoPrioridadSugerida).toBe(true);
     expect(res1.incidente.requiereAsistenciaSocial).toBe(false);
     expect(res1.reporteTerreno.versionReporte).toBe(1);
     expect(res1.reporteTerreno.esRectificacion).toBe(false);
     expect(res1.hito.hito).toBe("PRIORIDAD_ASIGNADA");
 
+    // 2do envío (modificación y reenvío al Centro de Mando): Reporte #2 (Rectificación)
     const res2 = await repo.actualizarPrioridadIncidente(incidenteId, usuarioId, false, {
       prioridad: "CRITICA",
       evaluacion: {
         nucleoFamiliarTotal: 4,
         cantidadNinos: 1,
-        personasElectrodependientes: 1,
+        personasElectrodependientes: 1, // Dispara prioridad sugerida CRITICA
         mascotasAfectadas: 2,
         nivelCompromisoVivienda: "MODERADO",
         detallesAdicionales: "Se identificó paciente electrodependiente en dormitorio interior.",

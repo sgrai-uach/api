@@ -83,6 +83,7 @@ describe("Migración 056 - Informe técnico de verificación, cierre de misión 
     expect(sqlEjecutado).toContain("idx_reporte_terreno_tipo_reporte");
     expect(sqlEjecutado).toContain("reportes:crear");
     expect(sqlEjecutado).toContain("20000000-0000-4000-8000-000000000004");
+    expect(sqlEjecutado).not.toContain("misiones:leer");
   });
 
   it("debe revertir columnas, restricción, índice y permiso en down", async () => {

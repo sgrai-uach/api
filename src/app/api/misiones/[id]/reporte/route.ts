@@ -4,7 +4,7 @@ import {
   CrearReporteVerificacionInputSchema,
 } from "@/modules/misiones/mision.schema";
 import { enviarReporteVerificacionService } from "@/modules/misiones/mision.service";
-import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
+import { exigirUsuarioId } from "@/modules/seguridad/auth.guard";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
 import { PERMISO_CREAR_REPORTE } from "@/modules/seguridad/permisos.constants";
 import {
@@ -39,10 +39,8 @@ interface RouteContext {
  */
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    // 1. Validar autenticación y permiso RBAC `reportes:crear`
-    const tokenUserId = await extraerUsuarioId(request);
-    const headerUserId = request.headers.get("x-user-id");
-    const usuarioId = tokenUserId || headerUserId;
+    // 1. Validar autenticación JWT Bearer estricta y permiso RBAC `reportes:crear`
+    const usuarioId = await exigirUsuarioId(request);
 
     const usuarioAutenticado = await verificarPermiso(
       usuarioId,

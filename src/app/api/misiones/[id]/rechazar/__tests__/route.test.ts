@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "../route";
 import * as authGuard from "@/modules/seguridad/auth.guard";
@@ -28,11 +28,9 @@ vi.mock("@/modules/misiones/mision.service", () => ({
   rechazarMisionService: vi.fn(),
 }));
 
-describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-69 Patrulla)", () => {
-  const misionCuadrillaId = "70000000-0000-4000-8000-000000000001";
-  const misionPatrullaId = "60000000-0000-4000-8000-000000000050";
+describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 / HU-69)", () => {
+  const misionIdCuadrilla = "70000000-0000-4000-8000-000000000001";
   const delegadoIdValido = "d0000000-0000-4000-8000-000000000001";
-
   const delegadoUsuarioMock: authService.UsuarioAutenticadoConPermisos = {
     id: delegadoIdValido,
     nombre: "Delegado Cuadrilla",
@@ -40,6 +38,7 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
     permisos: [PERMISO_EJECUTAR_MISION_TERRENO],
   };
 
+  const misionIdPatrulla = "60000000-0000-4000-8000-000000000050";
   const patrullaUsuarioMock: authService.UsuarioAutenticadoConPermisos = {
     id: "00000000-0000-4000-8000-000000000004",
     nombre: "Patrullero Juan",
@@ -48,15 +47,19 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
   };
 
   const contextCuadrilla = {
-    params: Promise.resolve({ id: misionCuadrillaId }),
+    params: Promise.resolve({ id: misionIdCuadrilla }),
   };
 
   const contextPatrulla = {
-    params: Promise.resolve({ id: misionPatrullaId }),
+    params: Promise.resolve({ id: misionIdPatrulla }),
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("debe responder 401 Unauthorized si no hay token de autenticación", async () => {
@@ -65,12 +68,13 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
       new UnauthorizedError("Se requiere cabecera de autenticación Authorization: Bearer <token>.")
     );
 
-    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionPatrullaId}/rechazar`, {
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdCuadrilla}/rechazar`, {
       method: "POST",
-      body: JSON.stringify({ justificacion_rechazo: "Desperfecto mecánico" }),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ justificacion_rechazo: "Falla mecánica grave" }),
     });
 
-    const res = await POST(req, contextPatrulla);
+    const res = await POST(req, contextCuadrilla);
     expect(res.status).toBe(401);
     const body = await res.json();
     expect(body.message).toContain("autenticación");
@@ -82,7 +86,7 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
       new UnauthorizedError("El usuario especificado se encuentra inactivo en la institución.")
     );
 
-    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionPatrullaId}/rechazar`, {
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdPatrulla}/rechazar`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ justificacion_rechazo: "Desperfecto mecánico" }),
@@ -94,15 +98,15 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
     expect(body.message).toContain("inactivo en la institución");
   });
 
-  it("debe responder 403 Forbidden si el usuario carece de permisos de terreno (ejecutar/verificar)", async () => {
+  it("debe responder 403 Forbidden si el usuario carece de permisos de terreno (cuadrilla o patrulla)", async () => {
     vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce("usuario-sin-permiso");
     vi.mocked(authService.verificarAlgunPermiso).mockRejectedValueOnce(
       new ForbiddenError(
-        `No cuenta con ninguno de los permisos requeridos: ${PERMISO_EJECUTAR_MISION_TERRENO}, ${PERMISO_VERIFICAR_MISION_TERRENO}`
+        "No cuenta con ninguno de los permisos requeridos: misiones:terreno:ejecutar, misiones:terreno:verificar"
       )
     );
 
-    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionCuadrillaId}/rechazar`, {
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdCuadrilla}/rechazar`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ justificacion_rechazo: "Falla mecánica grave" }),
@@ -120,6 +124,7 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
 
     const req = new NextRequest("http://localhost:3000/api/misiones/no-es-uuid/rechazar", {
       method: "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ justificacion_rechazo: "Desperfecto mecánico" }),
     });
 
@@ -133,7 +138,7 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
     vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUsuarioMock.id);
     vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(patrullaUsuarioMock);
 
-    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionPatrullaId}/rechazar`, {
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdPatrulla}/rechazar`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "json-invalido-{{{",
@@ -145,37 +150,37 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
     expect(body.message).toContain("formato JSON válido");
   });
 
-  it("debe responder 400 Bad Request si la justificación tiene menos de 5 caracteres (ej. 4 caracteres)", async () => {
-    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUsuarioMock.id);
-    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(patrullaUsuarioMock);
+  it("debe responder 400 Bad Request si la justificación está vacía o tiene menos de 5 caracteres (Regla §3.3)", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(delegadoIdValido);
+    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(delegadoUsuarioMock);
 
-    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionPatrullaId}/rechazar`, {
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdCuadrilla}/rechazar`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ justificacion_rechazo: "Pana" }),
     });
 
-    const res = await POST(req, contextPatrulla);
+    const res = await POST(req, contextCuadrilla);
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.message).toContain("Datos de entrada inválidos");
+    expect(body.errors[0].campo).toBe("justificacion_rechazo");
     expect(body.errors[0].mensaje).toContain("al menos 5 caracteres");
   });
 
-  it("debe responder 400 Bad Request si se envía justificación vacía", async () => {
-    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(delegadoIdValido);
-    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(delegadoUsuarioMock);
+  it("debe responder 400 Bad Request si se envían espacios en blanco sin 5 caracteres útiles", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUsuarioMock.id);
+    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(patrullaUsuarioMock);
 
-    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionCuadrillaId}/rechazar`, {
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdPatrulla}/rechazar`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ justificacion_rechazo: "    " }),
     });
 
-    const res = await POST(req, contextCuadrilla);
+    const res = await POST(req, contextPatrulla);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.errors[0].campo).toBe("justificacion_rechazo");
     expect(body.errors[0].mensaje).toContain("al menos 5 caracteres");
   });
 
@@ -183,7 +188,7 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
     vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUsuarioMock.id);
     vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(patrullaUsuarioMock);
 
-    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionPatrullaId}/rechazar`, {
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdPatrulla}/rechazar`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -200,19 +205,19 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
   });
 
   it("debe responder 404 Not Found si la misión no existe", async () => {
-    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(delegadoIdValido);
-    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(delegadoUsuarioMock);
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUsuarioMock.id);
+    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(patrullaUsuarioMock);
     vi.mocked(misionService.rechazarMisionService).mockRejectedValueOnce(
       new NotFoundError("No se encontró ninguna misión con el identificador proporcionado.")
     );
 
-    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionCuadrillaId}/rechazar`, {
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdPatrulla}/rechazar`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ justificacion_rechazo: "Falla mecánica grave" }),
+      body: JSON.stringify({ justificacion_rechazo: "Desperfecto mecánico en vehículo" }),
     });
 
-    const res = await POST(req, contextCuadrilla);
+    const res = await POST(req, contextPatrulla);
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.message).toContain("No se encontró ninguna misión");
@@ -225,7 +230,7 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
       new ConflictError("La misión ya ha sido rechazada previamente.")
     );
 
-    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionPatrullaId}/rechazar`, {
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdPatrulla}/rechazar`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ justificacion_rechazo: "Desperfecto mecánico en vehículo" }),
@@ -246,7 +251,7 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
         "Misión rechazada exitosamente. La cuadrilla ha vuelto a estado DISPONIBLE y el incidente ha retornado a VERIFICANDO para su reasignación.",
       data: {
         mision: {
-          id: misionCuadrillaId,
+          id: misionIdCuadrilla,
           codigo: "MIS-2026-0005",
           tipoMision: "ATENCION_CUADRILLA",
           estado: "RECHAZADA",
@@ -269,7 +274,7 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
         },
         hito: {
           id: "80000000-0000-4000-8000-000000000099",
-          misionId: misionCuadrillaId,
+          misionId: misionIdCuadrilla,
           hito: "RECHAZADA",
           descripcion: "Misión rechazada por cuadrilla: Falla hidráulica en camión tolva",
           registradoPorId: delegadoIdValido,
@@ -282,7 +287,7 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
 
     vi.mocked(misionService.rechazarMisionService).mockResolvedValueOnce(respuestaMock);
 
-    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionCuadrillaId}/rechazar`, {
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdCuadrilla}/rechazar`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -300,7 +305,7 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
     expect(body.data.hito.hito).toBe("RECHAZADA");
   });
 
-  it("debe responder 200 OK cuando la Patrulla Verificadora rechaza la misión exitosamente (HU-69)", async () => {
+  it("debe responder 200 OK cuando una Patrulla Verificadora rechaza la misión con justificación válida (HU-69)", async () => {
     vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(patrullaUsuarioMock.id);
     vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(patrullaUsuarioMock);
     vi.mocked(misionService.rechazarMisionService).mockResolvedValueOnce({
@@ -308,8 +313,9 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
         "Misión rechazada exitosamente. El incidente ha vuelto a estado REPORTADO para su reasignación.",
       data: {
         mision: {
-          id: misionPatrullaId,
+          id: misionIdPatrulla,
           codigo: "MIS-2026-8341",
+          tipoMision: "VERIFICACION",
           estado: "RECHAZADA",
           justificacionRechazo: "Desperfecto mecánico en vehículo de patrulla",
           actualizadoEn: "2026-11-03T18:45:00.000Z",
@@ -334,7 +340,7 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
       },
     });
 
-    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionPatrullaId}/rechazar`, {
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdPatrulla}/rechazar`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -349,5 +355,87 @@ describe("Route Handler POST /api/misiones/[id]/rechazar (HU-41 Cuadrilla / HU-6
     expect(body.data.mision.estado).toBe("RECHAZADA");
     expect(body.data.patrulla.estado).toBe("DISPONIBLE");
     expect(body.data.incidente.estado).toBe("REPORTADO");
+  });
+
+  it("debe responder 400 Bad Request con mensaje en español cuando el body JSON está vacío (BUG-H41-API-04)", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(delegadoIdValido);
+    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(delegadoUsuarioMock);
+
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdCuadrilla}/rechazar`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "",
+    });
+
+    const res = await POST(req, contextCuadrilla);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("Datos de entrada inválidos");
+    expect(body.errors[0].campo).toBe("justificacion_rechazo");
+    expect(body.errors[0].mensaje).toContain("obligatorio");
+    expect(body.errors[0].mensaje).not.toContain("Invalid input");
+  });
+
+  it("debe responder 400 Bad Request si solo se envía latitud sin longitud en el body (BUG-H41-API-04)", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(delegadoIdValido);
+    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(delegadoUsuarioMock);
+
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdCuadrilla}/rechazar`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        justificacion_rechazo: "Falla mecánica grave en camión",
+        latitud: -39.81422,
+      }),
+    });
+
+    const res = await POST(req, contextCuadrilla);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.errors[0].campo).toBe("longitud");
+    expect(body.errors[0].mensaje).toContain("latitud como longitud");
+  });
+
+  it("debe responder 403 Forbidden si rechazarMisionService lanza ForbiddenError por unidad ajena (BUG-H41-API-05)", async () => {
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(delegadoIdValido);
+    vi.mocked(authService.verificarAlgunPermiso).mockResolvedValueOnce(delegadoUsuarioMock);
+    vi.mocked(misionService.rechazarMisionService).mockRejectedValueOnce(
+      new ForbiddenError("No está autorizado para rechazar una misión asignada a otra cuadrilla operativa.")
+    );
+
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdCuadrilla}/rechazar`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ justificacion_rechazo: "Falla hidráulica en ruta" }),
+    });
+
+    const res = await POST(req, contextCuadrilla);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.message).toContain("otra cuadrilla operativa");
+  });
+
+  it("debe ignorar la cabecera x-user-id cuando NODE_ENV es production (BUG-H41-API-05)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.mocked(authGuard.extraerUsuarioId).mockResolvedValueOnce(null);
+    vi.mocked(authService.verificarAlgunPermiso).mockRejectedValueOnce(
+      new UnauthorizedError("Se requiere cabecera de autenticación Authorization: Bearer <token>.")
+    );
+
+    const req = new NextRequest(`http://localhost:3000/api/misiones/${misionIdCuadrilla}/rechazar`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-user-id": delegadoIdValido,
+      },
+      body: JSON.stringify({ justificacion_rechazo: "Intento con x-user-id en prod" }),
+    });
+
+    const res = await POST(req, contextCuadrilla);
+    expect(res.status).toBe(401);
+    expect(authService.verificarAlgunPermiso).toHaveBeenCalledWith(null, [
+      PERMISO_EJECUTAR_MISION_TERRENO,
+      PERMISO_VERIFICAR_MISION_TERRENO,
+    ]);
   });
 });

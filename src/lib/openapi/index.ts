@@ -74,6 +74,8 @@ import {
 import {
   CrearMisionVerificacionSchema,
   CrearMisionResponseSchema,
+  RechazarMisionBodySchema,
+  RechazarMisionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -181,8 +183,6 @@ import {
   AceptarMisionResponseSchema,
   AsignarCuadrillaMisionInputSchema,
   AsignarCuadrillaMisionResponseSchema,
-  RechazarMisionBodySchema,
-  RechazarMisionResponseSchema,
   AdjuntoReporteInputSchema,
   CrearReporteVerificacionInputSchema,
   EnviarReporteVerificacionResponseSchema,
@@ -1582,6 +1582,7 @@ registry.registerPath({
     "Obtiene la información exhaustiva de una misión operativa específica, incluyendo el incidente asociado o punto de prevención, la cuadrilla o patrulla asignada con sus recursos, la bitácora de tiempos y los reportes de terreno levantados con su evidencia multimedia.",
   summary: "Consultar detalle completo de una misión operativa",
   tags: ["Misiones"],
+  security: [{ BearerAuth: [] }],
   request: {
     headers: z.object({
       authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
@@ -1605,8 +1606,11 @@ registry.registerPath({
       },
     },
     400: { description: "El identificador de la misión proporcionado no es un UUID válido" },
-    401: { description: "No autenticado / cabecera X-User-Id ausente o inválida" },
-    403: { description: "No cuenta con el permiso requerido: misiones:leer" },
+    401: { description: "No autenticado / cabecera Authorization ausente o inválida" },
+    403: {
+      description:
+        "No cuenta con ninguno de los permisos requeridos: misiones:leer, misiones:terreno:verificar o reportes:crear",
+    },
     404: { description: "Misión no encontrada" },
     500: { description: "Error interno del servidor" },
   },
@@ -2862,13 +2866,13 @@ registry.registerPath({
   },
 });
 
-// POST /api/misiones/{id}/rechazar (HU-69: Patrulla verificadora / HU-41: Delegado de Cuadrilla)
+// POST /api/misiones/{id}/rechazar (HU-41 Cuadrilla / HU-69 Patrulla)
 registry.registerPath({
   method: "post",
   path: "/api/misiones/{id}/rechazar",
-  summary: "Rechazar misión asignada desde terreno (HU-69 Patrulla / HU-41 Cuadrilla)",
+  summary: "Rechazar asignación de misión en terreno (HU-41 / HU-69)",
   description:
-    "Permite a una patrulla verificadora (permiso 'misiones:terreno:verificar') o a un delegado de cuadrilla (permiso 'misiones:terreno:ejecutar') rechazar una misión asignada ingresando una justificación técnica obligatoria (mínimo 5 caracteres según Regla §3.3). Ejecuta una transacción atómica que: (1) actualiza mision.estado = 'RECHAZADA' y persiste justificacion_rechazo, (2) devuelve la unidad (patrulla o cuadrilla y su dotación) a DISPONIBLE, (3) retorna el incidente a REPORTADO o VERIFICANDO para reasignación, y (4) registra el hito 'RECHAZADA' en mision_hito. Emite la alerta WebSocket mision:rechazada hacia la sala encargado.",
+    "Permite al Delegado de cuadrilla (permiso 'misiones:terreno:ejecutar') o a una patrulla verificadora (permiso 'misiones:terreno:verificar') rechazar una misión asignada ingresando una justificación técnica obligatoria (mínimo 5 caracteres según Regla §3.3). Ejecuta una transacción atómica que: (1) actualiza mision.estado = 'RECHAZADA' y persiste justificacion_rechazo, (2) devuelve la cuadrilla/dotación o patrulla a DISPONIBLE, (3) retorna el incidente a VERIFICANDO o REPORTADO para reasignación, y (4) registra el hito 'RECHAZADA' en mision_hito. Emite la alerta WebSocket mision:rechazada hacia la sala encargado.",
   tags: ["Misiones"],
   security: [{ BearerAuth: [] }],
   request: {
@@ -2886,7 +2890,8 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Misión rechazada exitosamente, unidad liberada e incidente retornado para reasignación",
+      description:
+        "Misión rechazada exitosamente, unidad liberada e incidente retornado para reasignación",
       content: {
         "application/json": {
           schema: RechazarMisionResponseSchema,
@@ -2902,14 +2907,14 @@ registry.registerPath({
     },
     403: {
       description:
-        "Acceso denegado. Se requiere permiso 'misiones:terreno:verificar' o 'misiones:terreno:ejecutar' y pertenecer a la unidad asignada (o rol Administrador)",
+        "Acceso denegado. Se requiere permiso 'misiones:terreno:ejecutar' (cuadrilla) o 'misiones:terreno:verificar' (patrulla) y pertenecer a la unidad asignada (o rol Administrador)",
     },
     404: {
       description: "Misión no encontrada",
     },
     409: {
       description:
-        "Conflicto: la misión ya fue rechazada, no está en estado DESPACHADA, o no corresponde al tipo/unidad habilitada para el operador",
+        "Conflicto: la misión ya fue rechazada, no está en estado DESPACHADA, o no tiene una unidad asignada compatible",
     },
     500: {
       description: "Error interno del servidor al procesar el rechazo de la misión",
@@ -2988,7 +2993,7 @@ registry.registerPath({
   description:
     "Registra el marco oficial de un Evento ATP, persiste su alcance territorial en evento_atp_delegacion dentro de una sola transacción PostgreSQL y emite el evento WebSocket evento_atp:creado a las salas administrativas, operativas y del mapa. Requiere rol Administrador o el permiso eventos_atp:crear.",
   tags: ["Eventos ATP"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     body: {
       description: "Datos requeridos para crear el Evento ATP",
@@ -3125,7 +3130,7 @@ registry.registerPath({
   description:
     "Permite a la patrulla verificadora enviar el informe técnico consolidado de terreno con dictamen operativo ('REQUIERE_CUADRILLA' o 'NO_ABORDABLE'), resumen técnico (>= 10 caracteres), estado del terreno, estimación de personas damnificadas (rescatable desde el reporte previo de prioridad HU-38 y modificable), daños estimados, observaciones, indicador de Ficha FIBE (requiere_asistencia_social) y sección de evidencia multimedia (HU-43). Ejecuta una transacción atómica que: (1) persiste el reporte en reporte_terreno con evaluador_id = usuario.id, (2) cierra la misión (COMPLETADA con fecha_cierre), (3) libera la patrulla a DISPONIBLE, (4) si es NO_ABORDABLE (exige motivo_no_abordable >= 15 caracteres), transiciona el incidente a NO_ABORDABLE con fecha_cierre y motivo, o si solicita Ficha FIBE marca incidente.requiere_asistencia_social = true, y (5) registra el hito VERIFICACION_COMPLETADA en mision_hito. Emite eventos WebSocket 'mision:actualizada', 'incidente:actualizado' y 'patrulla:actualizada' / 'patrulla:liberada'. Requiere permiso RBAC 'reportes:crear'.",
   tags: ["Misiones", "Incidentes"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: MisionIdParamSchema,
@@ -3160,7 +3165,7 @@ registry.registerPath({
     404: { description: "Misión no encontrada" },
     409: {
       description:
-        "Conflicto: la misión no se encuentra en estado EN_CURSO (ej. está DESPACHADA o ya fue COMPLETADA)",
+        "Conflicto: la misión no es de tipo VERIFICACION con patrulla asignada, no está en estado EN_CURSO, la patrulla no está activa en EN_VERIFICACION, el incidente asociado no está en REPORTADO/VERIFICANDO o un adjunto ya pertenece a otro reporte",
     },
     500: { description: "Error interno del servidor" },
   },

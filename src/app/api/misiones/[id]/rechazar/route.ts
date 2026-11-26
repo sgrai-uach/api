@@ -28,12 +28,20 @@ interface RouteContext {
  * Permite al Delegado de cuadrilla (permiso `misiones:terreno:ejecutar`) o a una
  * patrulla verificadora (permiso `misiones:terreno:verificar`) rechazar una misión
  * asignada ingresando una justificación técnica obligatoria (>= 5 caracteres, Regla §3.3).
+ *
+ * Ejecuta una transacción atómica:
+ * 1. Actualiza `mision.estado = 'RECHAZADA'`, registra `justificacion_rechazo` y `fecha_cierre`.
+ * 2. Devuelve la unidad (cuadrilla + dotación, o patrulla verificadora) a estado `DISPONIBLE`.
+ * 3. Retorna el incidente asociado a `VERIFICANDO` (cuadrilla tras verificación) o `REPORTADO`.
+ * 4. Inserta el hito `'RECHAZADA'` con la justificación en `mision_hito`.
+ * 5. Emite la alerta WebSocket `mision:rechazada` hacia la sala `encargado`.
  */
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     // 1. Extraer usuario autenticado y verificar permiso RBAC de terreno (cuadrilla o patrulla)
     const tokenUserId = await extraerUsuarioId(request);
-    const headerUserId = request.headers.get("x-user-id");
+    const headerUserId =
+      process.env.NODE_ENV !== "production" ? request.headers.get("x-user-id") : null;
     const usuarioId = tokenUserId || headerUserId;
 
     const usuarioAutenticado = await verificarAlgunPermiso(usuarioId, [
@@ -83,7 +91,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
     }
 
-    // 4. Validar cuerpo con Zod (Regla §3.3: mínimo 5 caracteres en justificacion_rechazo)
+    // 4. Validar cuerpo no vacío y esquema Zod (Regla §3.3: mínimo 5 caracteres en justificacion_rechazo)
+    if (!bodyRaw || typeof bodyRaw !== "object" || Array.isArray(bodyRaw)) {
+      return NextResponse.json(
+        {
+          message: "Datos de entrada inválidos para el rechazo de la misión.",
+          errors: [
+            {
+              campo: "justificacion_rechazo",
+              mensaje:
+                "El cuerpo de la solicitud es obligatorio y debe contener justificacion_rechazo (mínimo 5 caracteres).",
+            },
+          ],
+        },
+        { status: 400 }
+      );
+    }
+
     const validacionBody = RechazarMisionInputSchema.safeParse(bodyRaw);
     if (!validacionBody.success) {
       return NextResponse.json(

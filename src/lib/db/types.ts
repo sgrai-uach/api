@@ -519,7 +519,7 @@ export interface IncidenteTable {
   aviso_id?: string | null;
   fecha_cierre?: ColumnType<Date | null, Date | string | null | undefined, Date | string | null>;
   motivo_no_abordable?: ColumnType<string | null, string | null | undefined, string | null>;
-  evento_atp_id?: string | null;
+  evento_atp_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }

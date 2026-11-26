@@ -46,10 +46,10 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 | `POST` | `/api/misiones` | `misiones:asignar` | Despacho y asignación de misión operativa a terreno: verificación primaria con patrulla (HU-20) o atención técnica con cuadrilla liberando la patrulla previa (HU-21 / Regla ICS §3.2). |
 | `POST` | `/api/misiones/{id}/rechazar` | `misiones:terreno:verificar` | Rechazo motivado de una misión de verificación desde terreno, liberando la patrulla a `DISPONIBLE` y revirtiendo el incidente a `REPORTADO` (HU-69). |
 | `POST` | `/api/misiones/{id}/aceptar` | `misiones:terreno:verificar` | Confirmar y aceptar misión asignada desde terreno (PWA), transicionando de `DESPACHADA` a `EN_CURSO`, registrando `fecha_inicio` y el hito `'Misión Aceptada por Patrulla'` en `mision_hito` (HU-36). |
-| `POST` | `/api/misiones/{id}/rechazar` | `misiones:terreno:ejecutar` | Rechazar asignación de misión por Delegado de Cuadrilla con justificación técnica obligatoria (≥ 5 caracteres, Regla §3.3), devolviendo la cuadrilla a `DISPONIBLE` y el incidente a `VERIFICANDO` o `REPORTADO` (HU-41). |
 | `POST` | `/api/incidentes/{id}/prioridad/calcular` | `misiones:terreno:verificar` | Calcular la `prioridad_sugerida` y factores gatillantes en base al formulario de evaluación técnica en terreno de la patrulla verificadora (HU-38). |
 | `PATCH` | `/api/incidentes/{id}/prioridad` | `misiones:terreno:verificar` | Confirmar o modificar la prioridad del incidente y enviar el reporte de evaluación en terreno versionado (`versionReporte: 1, 2...`) al Centro de Mando, registrando el hito `PRIORIDAD_ASIGNADA` o `PRIORIDAD_RECTIFICADA` en `mision_hito` (HU-38). |
 | `POST` | `/api/misiones/{id}/reporte` | `reportes:crear` | Enviar el informe técnico consolidado de verificación en terreno (`VERIFICACION_CIERRE`), cerrar la misión (`COMPLETADA`), liberar la patrulla (`DISPONIBLE`), gestionar la solicitud de Ficha FIBE (`requiere_asistencia_social`) y ejecutar el descarte fundado (`NO_ABORDABLE`) si corresponde (HU-39). |
+| `POST` | `/api/misiones/{id}/rechazar` | `misiones:terreno:ejecutar` | Rechazar asignación de misión por Delegado de Cuadrilla con justificación técnica obligatoria (≥ 5 caracteres, Regla §3.3), devolviendo la cuadrilla a `DISPONIBLE` y el incidente a `VERIFICANDO` o `REPORTADO` (HU-41). |
 | `PATCH` | `/api/terreno/notificaciones/{id}/estado` | `misiones:terreno:verificar` | Confirmar de forma idempotente acuse de recibo técnico ('RECIBIDA') o lectura operativa ('LEIDA') desde terreno (HU-35). |
 | `GET` | `/api/terreno/misiones/pendientes` | `misiones:terreno:verificar` | Consultar misiones asignadas con notificaciones en PENDIENTE_ENVIO o ENVIADA para reconciliación offline (HU-35). |
 
@@ -531,7 +531,7 @@ Permite al **Encargado de Operaciones** (o Administrador) desplegar una cuadrill
 }
 ```
 
-### 3.5. `POST /api/misiones/{id}/aceptar` (HU-36: Aceptación de Misión por Patrulla Verificadora en PWA)
+### 3.6. `POST /api/misiones/{id}/aceptar` (HU-36: Aceptación de Misión por Patrulla Verificadora en PWA)
 
 Permite a la patrulla verificadora en terreno confirmar desde su dispositivo móvil (`sgrai-pwa`) que ha tomado conocimiento de la misión asignada y se dirige al lugar para iniciar la evaluación primaria.
 
@@ -688,82 +688,11 @@ Permite al cliente móvil (`sgrai-pwa`) consultar las misiones asignadas cuyas n
 
 ---
 
-### 3.5. `POST /api/misiones/{id}/aceptar` (HU-36: Aceptación de Misión por Patrulla Verificadora en PWA)
-
-Permite a la patrulla verificadora en terreno confirmar desde su dispositivo móvil (`sgrai-pwa`) que ha tomado conocimiento de la misión asignada y se dirige al lugar para iniciar la evaluación primaria.
-
-- **Autenticación requerida:** `Authorization: Bearer <token_jwt>`
-- **Permiso RBAC requerido:** `misiones:terreno:verificar`
-
-#### Reglas de Negocio y Transición Atómica
-1. **Validación de Estado Inicial (`DESPACHADA`):** Solo se pueden aceptar misiones que se encuentren actualmente en estado `DESPACHADA`. Si la misión ya está `EN_CURSO` o en otro estado, responde `409 Conflict`.
-2. **Transición Atómica (Kysely Transaction):**
-   - Actualiza `mision.estado` de `DESPACHADA` a `EN_CURSO`.
-   - Fija `mision.fecha_inicio = CURRENT_TIMESTAMP` y `mision.actualizado_en = CURRENT_TIMESTAMP`.
-   - Inserta en la tabla `mision_hito` el registro con código `hito = 'MISION_ACEPTADA'`, glosa `descripcion = 'Misión Aceptada por Patrulla'`, `registrado_por_id` del funcionario en sesión y coordenadas GPS opcionales (`latitud`, `longitud`).
-3. **Invariantes del Sistema de Comando de Incidentes (ICS):**
-   - El estado de la patrulla verificadora se mantiene en `EN_VERIFICACION`.
-   - El estado del incidente permanece en `VERIFICANDO` (nunca se utiliza el estado ambiguo no canónico `'En camino'`).
-4. **Tiempo Real (Socket.io / Redis):**
-   - Emite el evento `mision:actualizada` hacia la sala `encargado` del Centro de Mando.
-
-#### Cuerpo de la Petición (Opcional)
-```json
-{
-  "latitud": -39.819588,
-  "longitud": -73.245209
-}
-```
-
-#### Ejemplo de Respuesta Exitosa (`HTTP 200 OK`)
-```json
-{
-  "message": "Misión aceptada exitosamente. La patrulla se encuentra en trayecto para iniciar la evaluación.",
-  "data": {
-    "mision": {
-      "id": "60000000-0000-4000-8000-000000000001",
-      "codigo": "MIS-2026-0001",
-      "titulo": "Verificación de Incidente INC-2026-001",
-      "descripcion": "Evaluar caída de árbol y riesgo eléctrico",
-      "tipoMision": "VERIFICACION",
-      "estado": "EN_CURSO",
-      "prioridad": "ALTA",
-      "incidenteId": "a0000000-0000-4000-8000-000000000001",
-      "patrullaId": "f1000000-0000-4000-8000-000000000001",
-      "fechaInicio": "2026-11-01T21:00:00.000Z",
-      "actualizadoEn": "2026-11-01T21:00:00.000Z"
-    },
-    "patrulla": {
-      "id": "f1000000-0000-4000-8000-000000000001",
-      "nombre": "Patrulla Rápida Costa-1",
-      "estado": "EN_VERIFICACION"
-    },
-    "incidente": {
-      "id": "a0000000-0000-4000-8000-000000000001",
-      "codigo": "INC-2026-001",
-      "estado": "VERIFICANDO"
-    },
-    "hito": {
-      "id": "70000000-0000-4000-8000-000000000001",
-      "misionId": "60000000-0000-4000-8000-000000000001",
-      "hito": "MISION_ACEPTADA",
-      "descripcion": "Misión Aceptada por Patrulla",
-      "registradoPorId": "00000000-0000-4000-8000-000000000004",
-      "latitud": -39.819588,
-      "longitud": -73.245209,
-      "creadoEn": "2026-11-01T21:00:00.000Z"
-    }
-  }
-}
-```
-
----
-
-### 3.6. `POST /api/misiones/{id}/reporte` (HU-39 / HU-86: Enviar Informe Técnico de Verificación y Cerrar Misión)
+### 3.9. `POST /api/misiones/{id}/reporte` (HU-39 / HU-86: Enviar Informe Técnico de Verificación y Cerrar Misión)
 
 Permite a la patrulla verificadora enviar el informe técnico consolidado de verificación en terreno y cerrar su misión inicial de patrullaje. Absorbe la declaración fundada de no abordabilidad (fusión H39/H86).
 
-- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `X-User-Id` en entorno interno/QA)
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>`
 - **Permiso RBAC requerido:** `reportes:crear`
 
 #### Reglas de Negocio y Transición Atómica
@@ -789,20 +718,21 @@ Permite a la patrulla verificadora enviar el informe técnico consolidado de ver
 
 ---
 
-### 3.8. `POST /api/misiones/{id}/rechazar` (HU-41: Rechazo Motivado de Misión por Cuadrilla)
+### 3.10. `POST /api/misiones/{id}/rechazar` (HU-41 Cuadrilla / HU-69 Patrulla)
 
-Permite al **Delegado de Cuadrilla** rechazar la solicitud de asignación a una misión ingresando una justificación técnica obligatoria cuando existan motivos de fuerza mayor que impidan la atención.
+Permite al **Delegado de Cuadrilla** (`misiones:terreno:ejecutar`) o a la **Patrulla Verificadora** (`misiones:terreno:verificar`) rechazar la solicitud de asignación a una misión en estado `DESPACHADA`, ingresando una justificación técnica obligatoria cuando existan motivos de fuerza mayor que impidan la atención.
 
-- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (o `x-user-id` en entorno de pruebas)
-- **Permiso RBAC requerido:** `misiones:terreno:ejecutar` (asignado a `DELEGADO_CUADRILLA` y `ADMIN` mediante migración `057_permiso_misiones_terreno_ejecutar.ts`).
-- **Control de Pertenencia:** El usuario autenticado debe ser el delegado asignado a la cuadrilla (`cuadrilla.usuario_delegado_id`) o un integrante activo en `cuadrilla_personal` (salvo rol `ADMIN`).
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (fallback `x-user-id` únicamente en entornos no productivos).
+- **Permiso RBAC requerido:** `misiones:terreno:ejecutar` (para misiones con `cuadrilla_id`) o `misiones:terreno:verificar` (para misiones `VERIFICACION` con `patrulla_id`), o rol `ADMIN`.
+- **Control de Pertenencia:** Para cuadrilla, el usuario autenticado debe ser `cuadrilla.usuario_delegado_id` o integrante activo en `cuadrilla_personal`; para patrulla, `patrulla_verificadora.usuario_lider_id` o integrante en `patrulla_personal` (salvo rol `ADMIN`).
 
 #### Regla de Negocio §3.3 y Transacción Atómica
-1. **Validación estricta de justificación:** El campo `justificacion_rechazo` (o `justificacionRechazo`) debe contener al menos **5 caracteres útiles** tras aplicar `.trim()`. De lo contrario, la API responde `400 Bad Request`.
+1. **Validación estricta de justificación y GPS:** El campo `justificacion_rechazo` (o `justificacionRechazo`) es obligatorio y debe contener entre **5 y 1000 caracteres útiles** tras aplicar `.trim()`. Si se informan coordenadas GPS (`latitud`/`longitud`), ambas deben proporcionarse en paridad y dentro de rangos WGS84.
 2. **Transacción Atómica Kysely (`FOR UPDATE OF mision`):**
+   - Bloquea con `409 Conflict` si la misión no está en `DESPACHADA` o si el incidente asociado ya se encuentra en estado terminal (`RESUELTO` o `NO_ABORDABLE`).
    - Actualiza `mision.estado = 'RECHAZADA'`, persiste `justificacion_rechazo` y estampa `fecha_cierre = CURRENT_TIMESTAMP`.
-   - Devuelve la cuadrilla activa a estado `DISPONIBLE` (si no posee otra misión activa) y restaura `usuario.estado_operativo = 'disponible'` para su dotación.
-   - Retorna el incidente asociado a `VERIFICANDO` (si contaba con una misión previa `VERIFICACION` en estado `COMPLETADA`) o a `REPORTADO` (si fue despacho directo) para habilitar su reasignación inmediata en el Centro de Mando.
+   - Devuelve la cuadrilla activa a estado `DISPONIBLE` (si no posee otra misión activa) y restaura `usuario.estado_operativo = 'disponible'` solo si ningún integrante o delegado participa en otra cuadrilla o patrulla activa; o devuelve la patrulla activa a `DISPONIBLE`.
+   - Si el incidente no cuenta con otra misión activa (`DESPACHADA`/`EN_CURSO`), lo retorna a `VERIFICANDO` (cuadrilla tras verificación `COMPLETADA`) o `REPORTADO` para habilitar su reasignación inmediata en el Centro de Mando.
    - Registra el hito `'RECHAZADA'` con la justificación y coordenadas GPS opcionales en `mision_hito`.
 
 #### Cuerpo de la Petición (Request Body)
@@ -821,17 +751,17 @@ Permite al **Delegado de Cuadrilla** rechazar la solicitud de asignación a una 
 - **`400 Bad Request`:**
   - En `GET /api/misiones`: Parámetros de consulta no conformes al esquema Zod (ej. `page < 1`, `limit > 100`, valores de enum desconocidos o `delegacionId` no UUID).
   - En `GET /api/misiones/{id}` y `POST /api/misiones/{id}/aceptar`: El parámetro `id` no cumple el estándar UUID versión 4 o se envía una coordenada GPS incompleta (`latitud` sin `longitud` o viceversa).
-  - En `POST /api/misiones/{id}/rechazar`: `justificacion_rechazo` ausente, vacía o con menos de 5 caracteres útiles (Regla §3.3), UUID no válido, JSON malformado o coordenadas GPS fuera de rango WGS84 / sin paridad.
+  - En `POST /api/misiones/{id}/rechazar`: Body vacío o no-objeto, `justificacion_rechazo` ausente, vacía, con menos de 5 caracteres útiles o más de 1000 caracteres (Regla §3.3), UUID no válido, JSON malformado o coordenadas GPS fuera de rango WGS84 / sin paridad.
   - En `GET /api/misiones/{id}`: El parámetro `id` no cumple el estándar UUID versión 4.
   - En `PATCH /api/terreno/notificaciones/{id}/estado`: El parámetro `id` no cumple el estándar UUID versión 4; el body no es JSON válido o el estado no es `"RECIBIDA"` ni `"LEIDA"`.
   - En `POST /api/misiones`: Body no es JSON válido o los identificadores no son UUIDs válidos.
 - **`401 Unauthorized`:**
-  - Petición sin token JWT Bearer o sesión expirada.
+  - Petición sin token JWT Bearer, sesión expirada o usuario inactivo.
 - **`403 Forbidden`:**
-  - El usuario no cuenta con el permiso requerido (`misiones:leer` para consulta, `misiones:asignar` para despacho, `reportes:crear` para el envío de informe técnico en `POST /api/misiones/{id}/reporte`, `misiones:terreno:verificar` para patrulla en terreno y endpoints de notificaciones, `misiones:terreno:ejecutar` para rechazo/ejecución de cuadrilla), o intenta operar sobre una misión asignada a otra patrulla o cuadrilla.
-  - Pertenencia a patrulla ajena: En `PATCH /api/terreno/notificaciones/{id}/estado`, si la notificación pertenece a otra patrulla y el usuario no es `ADMIN`.
+  - El usuario no cuenta con el permiso requerido (`misiones:leer` para consulta, `misiones:asignar` para despacho, `reportes:crear` para el envío de informe técnico en `POST /api/misiones/{id}/reporte`, `misiones:terreno:verificar` para aceptación/rechazo de patrulla y endpoints de terreno `PATCH /api/terreno/notificaciones/{id}/estado` y `GET /api/terreno/misiones/pendientes`, `misiones:terreno:ejecutar` para rechazo de cuadrilla en `POST /api/misiones/{id}/rechazar`), o intenta operar sobre una misión asignada a otra unidad.
+  - Pertenencia a unidad ajena: En `POST /api/misiones/{id}/aceptar`, `POST /api/misiones/{id}/rechazar`, `POST /api/misiones/{id}/reporte` y `PATCH /api/terreno/notificaciones/{id}/estado`, si la misión o notificación pertenece a otra cuadrilla/patrulla y el usuario no es `ADMIN`.
 - **`404 Not Found`:**
-  - En `GET /api/misiones/{id}`, `POST /api/misiones/{id}/aceptar` y `POST /api/misiones/{id}/reporte`: No existe ninguna misión con el UUID proporcionado.
+  - En `GET /api/misiones/{id}`, `POST /api/misiones/{id}/aceptar`, `POST /api/misiones/{id}/rechazar` y `POST /api/misiones/{id}/reporte`: No existe ninguna misión con el UUID proporcionado.
   - En `PATCH /api/terreno/notificaciones/{id}/estado`: No existe ninguna notificación con el UUID proporcionado.
   - En `POST /api/misiones`: El `incidenteId`, la `patrullaId` o la `cuadrillaId` proporcionada no existe en la base de datos o ha sido desactivada lógicamente.
 - **`409 Conflict`:**
@@ -857,6 +787,9 @@ Permite al **Delegado de Cuadrilla** rechazar la solicitud de asignación a una 
   - En `POST /api/misiones/{id}/aceptar`:
     1. La misión no se encuentra en estado `DESPACHADA` (ej. ya está `EN_CURSO` o `COMPLETADA`) o no tiene una patrulla verificadora asignada.
     2. La patrulla verificadora fue desactivada o no está en estado `EN_VERIFICACION`, o el incidente asociado no se encuentra en estado `VERIFICANDO`.
+  - En `POST /api/misiones/{id}/rechazar`:
+    1. La misión ya fue rechazada previamente, no se encuentra en estado `DESPACHADA`, sufrió una actualización concurrente o no tiene una unidad compatible asignada.
+    2. El incidente asociado ya se encuentra en un estado terminal (`RESUELTO` o `NO_ABORDABLE`).
   - En `PATCH /api/terreno/notificaciones/{id}/estado`:
     1. **Notificación en estado terminal:** En `PATCH /api/terreno/notificaciones/{id}/estado` no se bloquea el acuse por retroceso de estado: un `RECIBIDA` tardío sobre una notificación en `LEIDA` se ignora y responde `200 OK` manteniendo el estado original (idempotencia por `COALESCE` de timestamps).
 - **`500 Internal Server Error`:**
@@ -866,7 +799,7 @@ Permite al **Delegado de Cuadrilla** rechazar la solicitud de asignación a una 
 
 ## 5. Eventos en Tiempo Real (Socket.io & Broker Redis)
 
-Al confirmarse la asignación de misiones operativas mediante `POST /api/misiones`, el backend emite los siguientes eventos:
+Al confirmarse la asignación o rechazo de misiones operativas mediante `POST /api/misiones` y `POST /api/misiones/{id}/rechazar`, el backend emite los siguientes eventos:
 
 1. **`mision:asignada`**:
    - **Salas destino:** `patrulla:{patrullaId}` (app PWA del líder de patrulla en terreno) o `cuadrilla:{cuadrillaId}`, `sala:encargados`, `encargado`, `supervisor` y `mapa`.
@@ -881,21 +814,22 @@ Al confirmarse la asignación de misiones operativas mediante `POST /api/misione
    - **Payload:** `{ notificacionId, estado: "RECIBIDA" | "LEIDA" }`.
    - **Propósito:** Permite enviar el acuse en tiempo real con callback de respuesta sin requerir llamada HTTP REST adicional.
 4. **`cuadrilla:actualizada`**:
-   - **Salas destino:** `operaciones`, `encargado` y `supervisor`.
-   - **Propósito:** Informar el cambio de estado de la cuadrilla a `EN_MISION`.
+   - **Salas destino:** `operaciones`, `encargado`, `sala:encargados` y `supervisor`.
+   - **Propósito:** Informar el cambio de estado de la cuadrilla a `EN_MISION` o su liberación a `DISPONIBLE`.
 5. **`patrulla:liberada`** y **`patrulla:actualizada`**:
    - **Salas destino:** `patrulla:{patrullaId}`, `encargado`, `supervisor` y `mapa`.
    - **Propósito:** Notificar el relevo y la disponibilidad operativa (`DISPONIBLE`) de la patrulla verificadora previa.
 6. **`incidente:actualizado`**:
-   - **Salas destino:** `encargado` y `mapa`.
-   - **Propósito:** Mover automáticamente la tarjeta del incidente en el tablero Kanban (`VERIFICANDO` o `EN_ATENCION`) sin recarga.
+   - **Salas destino:** `sala:encargados`, `encargado` y `mapa`.
+   - **Propósito:** Mover automáticamente la tarjeta del incidente en el tablero Kanban (`VERIFICANDO`, `EN_ATENCION` o `REPORTADO`) sin recarga.
 7. **`mision:actualizada`**:
    - **Salas destino:** `encargado`, `sala:encargados` y `supervisor`.
    - **Propósito:** Notificar al Centro de Mando la aceptación en terreno de una misión (`DESPACHADA` → `EN_CURSO`, hito `MISION_ACEPTADA`, HU-36) o su cierre con informe técnico de verificación (`EN_CURSO` → `COMPLETADA`, `reporteTerreno`, HU-39).
+
 8. **`mision:rechazada` (HU-41 / HU-69)**:
-   - **Salas destino:** `encargado`, `sala:encargados`, `supervisor`, `cuadrilla:{cuadrillaId}` y/o `patrulla:{patrullaId}`.
+   - **Salas destino:** `encargado`, `sala:encargados`, `supervisor`, `cuadrilla:{cuadrillaId}` (si aplica) y `patrulla:{patrullaId}` (si aplica).
    - **Payload:** `{ misionId, codigo, tipoMision, motivo, justificacionRechazo, cuadrillaId, cuadrillaNombre, patrullaId, patrullaNombre, incidenteId, incidenteCodigo, rechazadoPorId, rechazadoEn }`.
-   - **Propósito:** Emitir alerta prioritaria inmediata al Centro de Mando cuando una cuadrilla (HU-41) o patrulla verificadora (HU-69) rechaza una asignación, permitiendo la reasignación inmediata del incidente.
+   - **Propósito:** Emitir alerta prioritaria inmediata al Centro de Mando cuando una cuadrilla operativa o patrulla verificadora rechaza una asignación, habilitando la reasignación inmediata del incidente.
 
 ---
 

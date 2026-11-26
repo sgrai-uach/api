@@ -1,11 +1,25 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
+  Kysely,
+  DummyDriver,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler,
+} from "kysely";
+import {
   rechazarMisionCuadrillaRepo,
   rechazarMisionPatrullaRepo,
+  rechazarMisionRepo,
+  liberarDotacionCuadrillaDeMision,
 } from "../mision.repository";
+import type { Database } from "@/lib/db/types";
 import { db } from "@/lib/db";
 import { NotFoundError, ConflictError, ForbiddenError } from "@/modules/seguridad/errors";
+import {
+  PERMISO_EJECUTAR_MISION_TERRENO,
+  PERMISO_VERIFICAR_MISION_TERRENO,
+} from "@/modules/seguridad/permisos.constants";
 
 const mockTrx: any = {
   selectFrom: vi.fn(),
@@ -32,6 +46,26 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+function resetMockTrx() {
+  mockTrx.selectFrom.mockReturnValue(mockTrx);
+  mockTrx.leftJoin.mockReturnValue(mockTrx);
+  mockTrx.innerJoin.mockReturnValue(mockTrx);
+  mockTrx.select.mockReturnValue(mockTrx);
+  mockTrx.where.mockReturnValue(mockTrx);
+  mockTrx.forUpdate.mockReturnValue(mockTrx);
+  mockTrx.updateTable.mockReturnValue(mockTrx);
+  mockTrx.set.mockReturnValue(mockTrx);
+  mockTrx.returning.mockReturnValue(mockTrx);
+  mockTrx.insertInto.mockReturnValue(mockTrx);
+  mockTrx.values.mockReturnValue(mockTrx);
+  mockTrx.returningAll.mockReturnValue(mockTrx);
+  mockTrx.execute.mockResolvedValue([]);
+
+  vi.mocked(db.transaction).mockReturnValue({
+    execute: (cb: (trx: typeof mockTrx) => Promise<unknown>) => cb(mockTrx),
+  } as any);
+}
+
 describe("HU-41: mision.repository - rechazarMisionCuadrillaRepo", () => {
   const misionId = "70000000-0000-4000-8000-000000000001";
   const delegadoId = "d0000000-0000-4000-8000-000000000001";
@@ -41,24 +75,7 @@ describe("HU-41: mision.repository - rechazarMisionCuadrillaRepo", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-
-    mockTrx.selectFrom.mockReturnValue(mockTrx);
-    mockTrx.leftJoin.mockReturnValue(mockTrx);
-    mockTrx.innerJoin.mockReturnValue(mockTrx);
-    mockTrx.select.mockReturnValue(mockTrx);
-    mockTrx.where.mockReturnValue(mockTrx);
-    mockTrx.forUpdate.mockReturnValue(mockTrx);
-    mockTrx.updateTable.mockReturnValue(mockTrx);
-    mockTrx.set.mockReturnValue(mockTrx);
-    mockTrx.returning.mockReturnValue(mockTrx);
-    mockTrx.insertInto.mockReturnValue(mockTrx);
-    mockTrx.values.mockReturnValue(mockTrx);
-    mockTrx.returningAll.mockReturnValue(mockTrx);
-    mockTrx.execute.mockResolvedValue([]);
-
-    vi.mocked(db.transaction).mockReturnValue({
-      execute: (cb: (trx: typeof mockTrx) => Promise<unknown>) => cb(mockTrx),
-    } as any);
+    resetMockTrx();
   });
 
   it("debe lanzar NotFoundError si la misión no existe", async () => {
@@ -172,6 +189,7 @@ describe("HU-41: mision.repository - rechazarMisionCuadrillaRepo", () => {
         delegacion_id: delegacionId,
         usuario_delegado_id: delegadoId,
       })
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce({ id: "verif-mision-id" })
       .mockResolvedValueOnce({
         id: incidenteId,
@@ -246,6 +264,7 @@ describe("HU-41: mision.repository - rechazarMisionCuadrillaRepo", () => {
         usuario_delegado_id: delegadoId,
       })
       .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce({
         id: incidenteId,
         codigo: "INC-2026-0001",
@@ -274,6 +293,375 @@ describe("HU-41: mision.repository - rechazarMisionCuadrillaRepo", () => {
     expect(resultado.incidente?.estado).toBe("REPORTADO");
     expect(resultado.cuadrilla.estado).toBe("DISPONIBLE");
   });
+
+  it("debe permitir rechazo por ADMIN aunque no sea delegado ni integrante de la cuadrilla (BUG-H41-API-05)", async () => {
+    const ahora = new Date("2026-11-16T23:15:00.000Z");
+
+    mockTrx.executeTakeFirst
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        estado: "DESPACHADA",
+        tipo_mision: "ATENCION_CUADRILLA",
+        cuadrilla_id: cuadrillaId,
+        incidente_id: null,
+        cuadrilla_nombre: "Cuadrilla Norte",
+        cuadrilla_estado: "EN_MISION",
+        cuadrilla_activo: true,
+        cuadrilla_eliminado_en: null,
+        cuadrilla_delegacion_id: delegacionId,
+        cuadrilla_delegado_id: "otro-delegado",
+      })
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        tipo_mision: "ATENCION_CUADRILLA",
+        estado: "RECHAZADA",
+        justificacion_rechazo: "Rechazo administrativo por reasignación",
+        fecha_cierre: ahora,
+        actualizado_en: ahora,
+      })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        id: cuadrillaId,
+        nombre: "Cuadrilla Norte",
+        estado: "DISPONIBLE",
+        delegacion_id: delegacionId,
+        usuario_delegado_id: "otro-delegado",
+      });
+
+    mockTrx.executeTakeFirstOrThrow.mockResolvedValueOnce({
+      id: "80000000-0000-4000-8000-000000000099",
+      mision_id: misionId,
+      hito: "RECHAZADA",
+      descripcion: "Misión rechazada por cuadrilla: Rechazo administrativo por reasignación",
+      registrado_por_id: "admin-user-id",
+      latitud: null,
+      longitud: null,
+      creado_en: ahora,
+    });
+
+    const resultado = await rechazarMisionCuadrillaRepo(
+      misionId,
+      "admin-user-id",
+      "Rechazo administrativo por reasignación",
+      true
+    );
+
+    expect(resultado.mision.estado).toBe("RECHAZADA");
+    expect(resultado.cuadrilla.estado).toBe("DISPONIBLE");
+    expect(resultado.incidente).toBeNull();
+  });
+
+  it("debe autorizar a un integrante activo registrado en cuadrilla_personal aunque no sea el delegado directo (BUG-H41-API-05)", async () => {
+    const ahora = new Date("2026-11-16T23:15:00.000Z");
+
+    mockTrx.executeTakeFirst
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        estado: "DESPACHADA",
+        tipo_mision: "ATENCION_CUADRILLA",
+        cuadrilla_id: cuadrillaId,
+        incidente_id: null,
+        cuadrilla_nombre: "Cuadrilla Sur",
+        cuadrilla_estado: "EN_MISION",
+        cuadrilla_activo: true,
+        cuadrilla_eliminado_en: null,
+        cuadrilla_delegacion_id: delegacionId,
+        cuadrilla_delegado_id: "otro-delegado",
+      })
+      .mockResolvedValueOnce({ id: "cp-1" })
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        tipo_mision: "ATENCION_CUADRILLA",
+        estado: "RECHAZADA",
+        justificacion_rechazo: "Falla mecánica reportada por integrante",
+        fecha_cierre: ahora,
+        actualizado_en: ahora,
+      })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        id: cuadrillaId,
+        nombre: "Cuadrilla Sur",
+        estado: "DISPONIBLE",
+        delegacion_id: delegacionId,
+        usuario_delegado_id: "otro-delegado",
+      });
+
+    mockTrx.executeTakeFirstOrThrow.mockResolvedValueOnce({
+      id: "80000000-0000-4000-8000-000000000099",
+      mision_id: misionId,
+      hito: "RECHAZADA",
+      descripcion: "Misión rechazada por cuadrilla: Falla mecánica reportada por integrante",
+      registrado_por_id: delegadoId,
+      latitud: null,
+      longitud: null,
+      creado_en: ahora,
+    });
+
+    const resultado = await rechazarMisionCuadrillaRepo(
+      misionId,
+      delegadoId,
+      "Falla mecánica reportada por integrante",
+      false
+    );
+
+    expect(resultado.mision.estado).toBe("RECHAZADA");
+    expect(resultado.cuadrilla.estado).toBe("DISPONIBLE");
+  });
+
+  it("debe mantener la cuadrilla en EN_MISION y no liberar dotación cuando tiene otraMisionActiva (BUG-H41-API-05)", async () => {
+    const ahora = new Date("2026-11-16T23:15:00.000Z");
+
+    mockTrx.executeTakeFirst
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        estado: "DESPACHADA",
+        tipo_mision: "ATENCION_CUADRILLA",
+        cuadrilla_id: cuadrillaId,
+        incidente_id: null,
+        cuadrilla_nombre: "Cuadrilla Norte",
+        cuadrilla_estado: "EN_MISION",
+        cuadrilla_activo: true,
+        cuadrilla_eliminado_en: null,
+        cuadrilla_delegacion_id: delegacionId,
+        cuadrilla_delegado_id: delegadoId,
+      })
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        tipo_mision: "ATENCION_CUADRILLA",
+        estado: "RECHAZADA",
+        justificacion_rechazo: "No podemos atender dos frentes",
+        fecha_cierre: ahora,
+        actualizado_en: ahora,
+      })
+      .mockResolvedValueOnce({ id: "otra-mision-activa-cuadrilla" });
+
+    mockTrx.executeTakeFirstOrThrow.mockResolvedValueOnce({
+      id: "80000000-0000-4000-8000-000000000099",
+      mision_id: misionId,
+      hito: "RECHAZADA",
+      descripcion: "Misión rechazada por cuadrilla: No podemos atender dos frentes",
+      registrado_por_id: delegadoId,
+      latitud: null,
+      longitud: null,
+      creado_en: ahora,
+    });
+
+    const resultado = await rechazarMisionCuadrillaRepo(
+      misionId,
+      delegadoId,
+      "No podemos atender dos frentes",
+      false
+    );
+
+    expect(resultado.cuadrilla.estado).toBe("EN_MISION");
+    expect(mockTrx.updateTable).not.toHaveBeenCalledWith("cuadrilla");
+    expect(mockTrx.updateTable).not.toHaveBeenCalledWith("usuario");
+  });
+
+  it("no debe reactivar a DISPONIBLE una cuadrilla inactiva o eliminada lógicamente (BUG-H41-API-05)", async () => {
+    const ahora = new Date("2026-11-16T23:15:00.000Z");
+
+    mockTrx.executeTakeFirst
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        estado: "DESPACHADA",
+        tipo_mision: "ATENCION_CUADRILLA",
+        cuadrilla_id: cuadrillaId,
+        incidente_id: null,
+        cuadrilla_nombre: "Cuadrilla Baja",
+        cuadrilla_estado: "NO_DISPONIBLE",
+        cuadrilla_activo: false,
+        cuadrilla_eliminado_en: ahora,
+        cuadrilla_delegacion_id: delegacionId,
+        cuadrilla_delegado_id: delegadoId,
+      })
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        tipo_mision: "ATENCION_CUADRILLA",
+        estado: "RECHAZADA",
+        justificacion_rechazo: "Cuadrilla desactivada en sistema",
+        fecha_cierre: ahora,
+        actualizado_en: ahora,
+      });
+
+    mockTrx.executeTakeFirstOrThrow.mockResolvedValueOnce({
+      id: "80000000-0000-4000-8000-000000000099",
+      mision_id: misionId,
+      hito: "RECHAZADA",
+      descripcion: "Misión rechazada por cuadrilla: Cuadrilla desactivada en sistema",
+      registrado_por_id: delegadoId,
+      latitud: null,
+      longitud: null,
+      creado_en: ahora,
+    });
+
+    const resultado = await rechazarMisionCuadrillaRepo(
+      misionId,
+      delegadoId,
+      "Cuadrilla desactivada en sistema",
+      false
+    );
+
+    expect(resultado.cuadrilla.estado).toBe("NO_DISPONIBLE");
+    expect(mockTrx.updateTable).not.toHaveBeenCalledWith("cuadrilla");
+  });
+
+  it("debe lanzar ConflictError ante actualización concurrente si UPDATE mision no retorna filas (BUG-H41-API-05)", async () => {
+    mockTrx.executeTakeFirst
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        estado: "DESPACHADA",
+        tipo_mision: "ATENCION_CUADRILLA",
+        cuadrilla_id: cuadrillaId,
+        cuadrilla_delegado_id: delegadoId,
+        incidente_id: incidenteId,
+        incidente_estado: "EN_ATENCION",
+      })
+      .mockResolvedValueOnce(undefined);
+
+    await expect(
+      rechazarMisionCuadrillaRepo(misionId, delegadoId, "Falla mecánica concurrente", false)
+    ).rejects.toThrow("actualización concurrente");
+  });
+
+  it("debe lanzar ConflictError si el incidente asociado ya está en estado terminal RESUELTO o NO_ABORDABLE (BUG-H41-API-03)", async () => {
+    for (const estadoTerminal of ["RESUELTO", "NO_ABORDABLE"] as const) {
+      mockTrx.executeTakeFirst.mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        estado: "DESPACHADA",
+        tipo_mision: "ATENCION_CUADRILLA",
+        cuadrilla_id: cuadrillaId,
+        cuadrilla_delegado_id: delegadoId,
+        incidente_id: incidenteId,
+        incidente_estado: estadoTerminal,
+      });
+
+      await expect(
+        rechazarMisionCuadrillaRepo(misionId, delegadoId, "Falla mecánica tardía", false)
+      ).rejects.toThrow(`estado terminal '${estadoTerminal}'`);
+    }
+  });
+
+  it("no debe revertir el incidente si existe otra misión activa (DESPACHADA/EN_CURSO) asociada al mismo incidente (BUG-H41-API-03)", async () => {
+    const ahora = new Date("2026-11-16T23:15:00.000Z");
+
+    mockTrx.executeTakeFirst
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        estado: "DESPACHADA",
+        tipo_mision: "ATENCION_CUADRILLA",
+        cuadrilla_id: cuadrillaId,
+        incidente_id: incidenteId,
+        cuadrilla_nombre: "Cuadrilla 1",
+        cuadrilla_estado: "EN_MISION",
+        cuadrilla_activo: true,
+        cuadrilla_eliminado_en: null,
+        cuadrilla_delegacion_id: delegacionId,
+        cuadrilla_delegado_id: delegadoId,
+        incidente_codigo: "INC-2026-0001",
+        incidente_estado: "EN_ATENCION",
+        incidente_prioridad: "ALTA",
+      })
+      .mockResolvedValueOnce({
+        id: misionId,
+        codigo: "MIS-2026-0005",
+        tipo_mision: "ATENCION_CUADRILLA",
+        estado: "RECHAZADA",
+        justificacion_rechazo: "Falla en motobomba",
+        fecha_cierre: ahora,
+        actualizado_en: ahora,
+      })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        id: cuadrillaId,
+        nombre: "Cuadrilla 1",
+        estado: "DISPONIBLE",
+        delegacion_id: delegacionId,
+        usuario_delegado_id: delegadoId,
+      })
+      .mockResolvedValueOnce({ id: "otra-mision-activa-incidente" });
+
+    mockTrx.executeTakeFirstOrThrow.mockResolvedValueOnce({
+      id: "80000000-0000-4000-8000-000000000099",
+      mision_id: misionId,
+      hito: "RECHAZADA",
+      descripcion: "Misión rechazada por cuadrilla: Falla en motobomba",
+      registrado_por_id: delegadoId,
+      latitud: null,
+      longitud: null,
+      creado_en: ahora,
+    });
+
+    const resultado = await rechazarMisionCuadrillaRepo(
+      misionId,
+      delegadoId,
+      "Falla en motobomba",
+      false
+    );
+
+    expect(resultado.incidente?.estado).toBe("EN_ATENCION");
+    expect(resultado.incidenteActualizado).toBe(false);
+    expect(mockTrx.updateTable).not.toHaveBeenCalledWith("incidente");
+  });
+
+  it("liberarDotacionCuadrillaDeMision debe excluir usuarios que pertenezcan a otra cuadrilla o patrulla activa (BUG-H41-API-02)", async () => {
+    const sqlQueries: string[] = [];
+    const baseDriver = new DummyDriver();
+    const kyselyDummy = new Kysely<Database>({
+      dialect: {
+        createAdapter: () => new PostgresAdapter(),
+        createDriver: () => ({
+          init: () => baseDriver.init(),
+          acquireConnection: async () => {
+            const conn = await baseDriver.acquireConnection();
+            return {
+              ...conn,
+              executeQuery: async (compiledQuery) => {
+                if (compiledQuery.sql.startsWith("update")) {
+                  sqlQueries.push(compiledQuery.sql);
+                }
+                return conn.executeQuery(compiledQuery);
+              },
+              streamQuery: (compiledQuery, chunkSize) =>
+                conn.streamQuery(compiledQuery, chunkSize),
+            };
+          },
+          beginTransaction: () => baseDriver.beginTransaction(),
+          commitTransaction: () => baseDriver.commitTransaction(),
+          rollbackTransaction: () => baseDriver.rollbackTransaction(),
+          releaseConnection: () => baseDriver.releaseConnection(),
+          destroy: () => baseDriver.destroy(),
+        }),
+        createIntrospector: (dbInstance) => new PostgresIntrospector(dbInstance),
+        createQueryCompiler: () => new PostgresQueryCompiler(),
+      },
+    });
+
+    await kyselyDummy.transaction().execute(async (trx) => {
+      await liberarDotacionCuadrillaDeMision(trx as any, cuadrillaId, delegadoId);
+    });
+
+    expect(sqlQueries).toHaveLength(2);
+    for (const sqlText of sqlQueries) {
+      expect(sqlText).toContain("not exists");
+      expect(sqlText).toContain('"cuadrilla" as "c_otra"');
+      expect(sqlText).toContain('"cuadrilla_personal" as "cp_otra"');
+      expect(sqlText).toContain('"patrulla_verificadora" as "pv_l"');
+      expect(sqlText).toContain('"patrulla_personal" as "pp_o"');
+      expect(sqlText).toContain('"mision"');
+    }
+  });
 });
 
 describe("HU-69: mision.repository - rechazarMisionPatrullaRepo", () => {
@@ -284,24 +672,7 @@ describe("HU-69: mision.repository - rechazarMisionPatrullaRepo", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-
-    mockTrx.selectFrom.mockReturnValue(mockTrx);
-    mockTrx.leftJoin.mockReturnValue(mockTrx);
-    mockTrx.innerJoin.mockReturnValue(mockTrx);
-    mockTrx.select.mockReturnValue(mockTrx);
-    mockTrx.where.mockReturnValue(mockTrx);
-    mockTrx.forUpdate.mockReturnValue(mockTrx);
-    mockTrx.updateTable.mockReturnValue(mockTrx);
-    mockTrx.set.mockReturnValue(mockTrx);
-    mockTrx.returning.mockReturnValue(mockTrx);
-    mockTrx.insertInto.mockReturnValue(mockTrx);
-    mockTrx.values.mockReturnValue(mockTrx);
-    mockTrx.returningAll.mockReturnValue(mockTrx);
-    mockTrx.execute.mockResolvedValue([]);
-
-    vi.mocked(db.transaction).mockReturnValue({
-      execute: (cb: (trx: typeof mockTrx) => Promise<unknown>) => cb(mockTrx),
-    } as any);
+    resetMockTrx();
   });
 
   it("debe lanzar NotFoundError si la misión no existe", async () => {
@@ -448,6 +819,7 @@ describe("HU-69: mision.repository - rechazarMisionPatrullaRepo", () => {
       .mockResolvedValueOnce(misionMock)
       .mockResolvedValueOnce(misionActualizadaMock)
       .mockResolvedValueOnce(patrullaActualizadaMock)
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(incidenteActualizadoMock);
 
     mockTrx.executeTakeFirstOrThrow.mockResolvedValueOnce(hitoCreadoMock);
@@ -516,6 +888,7 @@ describe("HU-69: mision.repository - rechazarMisionPatrullaRepo", () => {
     mockTrx.executeTakeFirst
       .mockResolvedValueOnce(misionMock)
       .mockResolvedValueOnce(misionActualizadaMock)
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(incidenteActualizadoMock);
 
     mockTrx.executeTakeFirstOrThrow.mockResolvedValueOnce(hitoCreadoMock);
@@ -529,5 +902,58 @@ describe("HU-69: mision.repository - rechazarMisionPatrullaRepo", () => {
 
     expect(resultado.patrulla.estado).toBe("NO_DISPONIBLE");
     expect(resultado.mision.estado).toBe("RECHAZADA");
+  });
+});
+
+describe("rechazarMisionRepo unificado - Validación cruzada de permisos (HU-41 / HU-69)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMockTrx();
+  });
+
+  it("debe rechazar con ForbiddenError si un usuario con permiso de patrulla intenta rechazar una misión de cuadrilla", async () => {
+    mockTrx.executeTakeFirst.mockResolvedValueOnce({
+      id: "70000000-0000-4000-8000-000000000001",
+      codigo: "MIS-2026-0005",
+      estado: "DESPACHADA",
+      tipo_mision: "ATENCION_CUADRILLA",
+      cuadrilla_id: "50000000-0000-4000-8000-000000000001",
+      patrulla_id: null,
+      incidente_id: "30000000-0000-4000-8000-000000000001",
+    });
+
+    await expect(
+      rechazarMisionRepo(
+        "70000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000004",
+        "Intento cruzado no autorizado",
+        false,
+        undefined,
+        [PERMISO_VERIFICAR_MISION_TERRENO]
+      )
+    ).rejects.toThrow(ForbiddenError);
+  });
+
+  it("debe rechazar con ForbiddenError si un usuario con permiso de cuadrilla intenta rechazar una misión de patrulla", async () => {
+    mockTrx.executeTakeFirst.mockResolvedValueOnce({
+      id: "60000000-0000-4000-8000-000000000050",
+      codigo: "MIS-2026-8341",
+      estado: "DESPACHADA",
+      tipo_mision: "VERIFICACION",
+      cuadrilla_id: null,
+      patrulla_id: "f1000000-0000-4000-8000-000000000001",
+      incidente_id: "50000000-0000-4000-8000-000000000001",
+    });
+
+    await expect(
+      rechazarMisionRepo(
+        "60000000-0000-4000-8000-000000000050",
+        "d0000000-0000-4000-8000-000000000001",
+        "Intento cruzado no autorizado",
+        false,
+        undefined,
+        [PERMISO_EJECUTAR_MISION_TERRENO]
+      )
+    ).rejects.toThrow(ForbiddenError);
   });
 });

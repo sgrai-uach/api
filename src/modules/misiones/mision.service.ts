@@ -2,17 +2,10 @@ import {
   obtenerMisionDetallePorIdRepo,
   crearMisionVerificacionRepo,
   aceptarMisionPatrullaRepo,
-  rechazarMisionPatrullaRepo,
+  rechazarMisionRepo,
   asignarCuadrillaIncidenteRepo,
-  rechazarMisionCuadrillaRepo,
-  obtenerTipoAsignacionMisionRepo,
   crearReporteVerificacionYCerrarMisionRepo,
 } from "./mision.repository";
-import {
-  PERMISO_EJECUTAR_MISION_TERRENO,
-  PERMISO_VERIFICAR_MISION_TERRENO,
-} from "@/modules/seguridad/permisos.constants";
-import { NotFoundError } from "@/modules/seguridad/errors";
 import type {
   MisionDetalleCompleto,
   MisionBitacoraHito,
@@ -24,10 +17,10 @@ import type {
   AceptarMisionResponse,
   AsignarCuadrillaMisionInput,
   AsignarCuadrillaMisionResponse,
-  RechazarMisionInput,
-  RechazarMisionResponse,
   CrearReporteVerificacionInput,
   EnviarReporteVerificacionResponse,
+  RechazarMisionInput,
+  RechazarMisionResponse,
 } from "./mision.schema";
 import {
   notificarMisionAsignada,
@@ -279,66 +272,66 @@ export async function obtenerDetalleMisionService(
   // 4. Mapeo de Punto Crítico Preventivo (si aplica para misiones sin incidente formal)
   const prevencion = mision.prevencion_id
     ? {
-        id: mision.prevencion_id,
-        codigo: mision.prevencion_codigo ?? "",
-        nombre: mision.prevencion_nombre ?? "",
-        descripcion: mision.prevencion_descripcion ?? null,
-        latitud: Number(mision.prevencion_latitud ?? -39.819588),
-        longitud: Number(mision.prevencion_longitud ?? -73.245209),
-        delegacionNombre: mision.prevencion_delegacion_nombre ?? null,
-      }
+      id: mision.prevencion_id,
+      codigo: mision.prevencion_codigo ?? "",
+      nombre: mision.prevencion_nombre ?? "",
+      descripcion: mision.prevencion_descripcion ?? null,
+      latitud: Number(mision.prevencion_latitud ?? -39.819588),
+      longitud: Number(mision.prevencion_longitud ?? -73.245209),
+      delegacionNombre: mision.prevencion_delegacion_nombre ?? null,
+    }
     : null;
 
   // 5. Mapeo de Cuadrilla Asignada
   const cuadrilla = mision.cuadrilla_id
     ? {
-        id: mision.cuadrilla_id,
-        nombre: mision.cuadrilla_nombre ?? "Cuadrilla Operativa",
-        estado: mision.cuadrilla_estado ?? "DISPONIBLE",
-        delegacionNombre: mision.cuadrilla_delegacion_nombre ?? null,
-        delegado: mision.delegado_id
-          ? {
-              id: mision.delegado_id,
-              nombre: mision.delegado_nombre ?? "Delegado de Cuadrilla",
-              email: mision.delegado_email ?? "",
-            }
-          : null,
-        recursos: recursosCuadrilla,
-      }
+      id: mision.cuadrilla_id,
+      nombre: mision.cuadrilla_nombre ?? "Cuadrilla Operativa",
+      estado: mision.cuadrilla_estado ?? "DISPONIBLE",
+      delegacionNombre: mision.cuadrilla_delegacion_nombre ?? null,
+      delegado: mision.delegado_id
+        ? {
+          id: mision.delegado_id,
+          nombre: mision.delegado_nombre ?? "Delegado de Cuadrilla",
+          email: mision.delegado_email ?? "",
+        }
+        : null,
+      recursos: recursosCuadrilla,
+    }
     : null;
 
   // 6. Mapeo de Patrulla Asignada
   const patrulla = mision.patrulla_id
     ? {
-        id: mision.patrulla_id,
-        nombre: mision.patrulla_nombre ?? "Patrulla Verificadora",
-        estado: mision.patrulla_estado ?? "DISPONIBLE",
-        delegacionNombre: mision.patrulla_delegacion_nombre ?? null,
-        lider: mision.lider_id
-          ? {
-              id: mision.lider_id,
-              nombre: mision.lider_nombre ?? "Líder de Patrulla",
-              email: mision.lider_email ?? "",
-            }
-          : null,
-      }
+      id: mision.patrulla_id,
+      nombre: mision.patrulla_nombre ?? "Patrulla Verificadora",
+      estado: mision.patrulla_estado ?? "DISPONIBLE",
+      delegacionNombre: mision.patrulla_delegacion_nombre ?? null,
+      lider: mision.lider_id
+        ? {
+          id: mision.lider_id,
+          nombre: mision.lider_nombre ?? "Líder de Patrulla",
+          email: mision.lider_email ?? "",
+        }
+        : null,
+    }
     : null;
 
   // 7. Mapeo de Creador y Encargado
   const creadoPor = mision.creador_id
     ? {
-        id: mision.creador_id,
-        nombre: mision.creador_nombre ?? "Operador",
-        email: mision.creador_email ?? "",
-      }
+      id: mision.creador_id,
+      nombre: mision.creador_nombre ?? "Operador",
+      email: mision.creador_email ?? "",
+    }
     : null;
 
   const encargado = mision.encargado_id_res
     ? {
-        id: mision.encargado_id_res,
-        nombre: mision.encargado_nombre ?? "Encargado de Operaciones",
-        email: mision.encargado_email ?? "",
-      }
+      id: mision.encargado_id_res,
+      nombre: mision.encargado_nombre ?? "Encargado de Operaciones",
+      email: mision.encargado_email ?? "",
+    }
     : null;
 
   const hitosTipologia = (hitos || []).filter(
@@ -368,8 +361,8 @@ export async function obtenerDetalleMisionService(
     codigo: mision.codigo,
     titulo:
       mision.tipo_mision === "VERIFICACION" &&
-      mision.incidente_tipo_afectacion &&
-      mision.incidente_codigo
+        mision.incidente_tipo_afectacion &&
+        mision.incidente_codigo
         ? `Verificación: ${mision.incidente_tipo_afectacion} - ${mision.incidente_codigo}`
         : mision.titulo,
     descripcion: mision.descripcion,
@@ -379,9 +372,9 @@ export async function obtenerDetalleMisionService(
     justificacionRechazo: mision.justificacion_rechazo,
     ...(mision.trazabilidad_notificacion
       ? {
-          trazabilidadNotificacion:
-            mision.trazabilidad_notificacion as MisionDetalleCompleto["trazabilidadNotificacion"],
-        }
+        trazabilidadNotificacion:
+          mision.trazabilidad_notificacion as MisionDetalleCompleto["trazabilidadNotificacion"],
+      }
       : {}),
     fechaInicio: formatearFechaIso(mision.fecha_inicio),
     fechaCierre: formatearFechaIso(mision.fecha_cierre),
@@ -648,173 +641,6 @@ export async function aceptarMisionService(
 }
 
 /**
- * HU-41 / HU-69 - Servicio de negocio polimórfico para rechazar una misión asignada
- * desde terreno por Delegado de Cuadrilla (HU-41) o Patrulla Verificadora (HU-69).
- */
-export async function rechazarMisionService(
-  misionId: string,
-  usuarioId: string,
-  esAdmin: boolean,
-  input: RechazarMisionInput,
-  permisos?: string[]
-): Promise<RechazarMisionResponse> {
-  const tieneVerificar = permisos?.includes(PERMISO_VERIFICAR_MISION_TERRENO) ?? false;
-  const tieneEjecutar = permisos?.includes(PERMISO_EJECUTAR_MISION_TERRENO) ?? false;
-
-  let usarFlujoCuadrilla: boolean;
-  if (!esAdmin && permisos && permisos.length > 0) {
-    if (tieneVerificar && !tieneEjecutar) {
-      usarFlujoCuadrilla = false;
-    } else if (tieneEjecutar && !tieneVerificar) {
-      usarFlujoCuadrilla = true;
-    } else {
-      const misionMeta = await obtenerTipoAsignacionMisionRepo(misionId);
-      if (!misionMeta) {
-        throw new NotFoundError("No se encontró ninguna misión con el identificador proporcionado.");
-      }
-      usarFlujoCuadrilla = Boolean(misionMeta.cuadrilla_id) && misionMeta.tipo_mision !== "VERIFICACION";
-    }
-  } else if (esAdmin) {
-    const misionMeta = await obtenerTipoAsignacionMisionRepo(misionId);
-    if (!misionMeta) {
-      throw new NotFoundError("No se encontró ninguna misión con el identificador proporcionado.");
-    }
-    usarFlujoCuadrilla = Boolean(misionMeta.cuadrilla_id) && !(misionMeta.tipo_mision === "VERIFICACION" && misionMeta.patrulla_id);
-  } else {
-    const misionMeta = await obtenerTipoAsignacionMisionRepo(misionId);
-    if (!misionMeta) {
-      throw new NotFoundError("No se encontró ninguna misión con el identificador proporcionado.");
-    }
-    usarFlujoCuadrilla = Boolean(misionMeta.cuadrilla_id) && misionMeta.tipo_mision !== "VERIFICACION";
-  }
-
-  if (usarFlujoCuadrilla) {
-    const resultado = await rechazarMisionCuadrillaRepo(
-      misionId,
-      usuarioId,
-      input.justificacionRechazo,
-      esAdmin,
-      {
-        latitud: input.latitud,
-        longitud: input.longitud,
-      }
-    );
-
-    try {
-      notificarMisionRechazada({
-        misionId: resultado.mision.id,
-        codigo: resultado.mision.codigo,
-        tipoMision: resultado.mision.tipoMision,
-        motivo: resultado.mision.justificacionRechazo,
-        justificacionRechazo: resultado.mision.justificacionRechazo,
-        cuadrillaId: resultado.cuadrilla.id,
-        cuadrillaNombre: resultado.cuadrilla.nombre,
-        patrullaId: null,
-        patrullaNombre: null,
-        incidenteId: resultado.incidente?.id ?? null,
-        incidenteCodigo: resultado.incidente?.codigo ?? null,
-        rechazadoPorId: usuarioId,
-        rechazadoEn: resultado.mision.actualizadoEn,
-      });
-
-      if (resultado.incidente) {
-        notificarIncidenteActualizado({
-          id: resultado.incidente.id,
-          codigo: resultado.incidente.codigo,
-          nuevoEstado: resultado.incidente.estado,
-          prioridad: resultado.incidente.prioridad,
-          actualizadoEn: resultado.mision.actualizadoEn,
-        });
-      }
-
-      emitirCuadrillaActualizada({
-        id: resultado.cuadrilla.id,
-        nombre: resultado.cuadrilla.nombre,
-        estado: resultado.cuadrilla.estado,
-        delegacionId: resultado.cuadrilla.delegacionId ?? null,
-      });
-    } catch (error) {
-      console.error("Error al emitir eventos WebSocket tras rechazar misión:", error);
-    }
-
-    const estadoIncidente = resultado.incidente?.estado ?? "REPORTADO";
-
-    return {
-      message: `Misión rechazada exitosamente. La cuadrilla ha vuelto a estado DISPONIBLE y el incidente ha retornado a ${estadoIncidente} para su reasignación.`,
-      data: {
-        mision: resultado.mision,
-        cuadrilla: resultado.cuadrilla,
-        incidente: resultado.incidente,
-        hito: resultado.hito,
-      },
-    };
-  }
-
-  const resultado = await rechazarMisionPatrullaRepo(
-    misionId,
-    usuarioId,
-    input.justificacionRechazo,
-    esAdmin,
-    {
-      latitud: input.latitud,
-      longitud: input.longitud,
-    }
-  );
-
-  try {
-    notificarMisionRechazada({
-      misionId: resultado.mision.id,
-      codigo: resultado.mision.codigo,
-      tipoMision: "VERIFICACION",
-      motivo: resultado.mision.justificacionRechazo,
-      justificacionRechazo: resultado.mision.justificacionRechazo,
-      patrullaId: resultado.patrulla.id || null,
-      patrullaNombre: resultado.patrulla.nombre,
-      incidenteId: resultado.incidente.id || null,
-      incidenteCodigo: resultado.incidente.codigo,
-      rechazadoPorId: usuarioId,
-      rechazadoEn: resultado.mision.actualizadoEn,
-    });
-
-    if (resultado.incidente.id) {
-      notificarIncidenteActualizado({
-        id: resultado.incidente.id,
-        codigo: resultado.incidente.codigo,
-        nuevoEstado: resultado.incidente.estado,
-        prioridad: resultado.incidente.prioridad,
-        actualizadoEn: resultado.mision.actualizadoEn,
-      });
-    }
-
-    if (resultado.patrulla.id) {
-      notificarPatrullaActualizada({
-        patrullaId: resultado.patrulla.id,
-        nombre: resultado.patrulla.nombre,
-        estado: resultado.patrulla.estado,
-        delegacionId: resultado.patrulla.delegacionId ?? null,
-        usuarioLiderId: resultado.patrulla.usuarioLiderId ?? null,
-        misionActivaId: null,
-        incidenteId: null,
-        actualizadoEn: resultado.mision.actualizadoEn,
-      });
-    }
-  } catch (error) {
-    console.error("Error al emitir eventos WebSocket tras rechazar misión:", error);
-  }
-
-  return {
-    message:
-      "Misión rechazada exitosamente. El incidente ha vuelto a estado REPORTADO para su reasignación.",
-    data: {
-      mision: resultado.mision,
-      patrulla: resultado.patrulla,
-      incidente: resultado.incidente,
-      hito: resultado.hito,
-    },
-  };
-}
-
-/**
  * HU-39 - Servicio de negocio para enviar el informe técnico de verificación en terreno
  * y cerrar la misión inicial de patrullaje.
  *
@@ -941,6 +767,141 @@ export async function enviarReporteVerificacionService(
             estado: resultado.patrulla.estado,
           }
         : null,
+      incidente: resultado.incidente,
+      hito: resultado.hito,
+    },
+  };
+}
+
+/**
+ * HU-41 / HU-69 - Servicio de negocio unificado para rechazar una misión asignada
+ * a una cuadrilla operativa o a una patrulla verificadora.
+ *
+ * 1. Invoca la transacción atómica en repositorio (`mision.estado = 'RECHAZADA'`,
+ *    `justificacion_rechazo`, liberación de unidad a `'DISPONIBLE'`, retorno de incidente
+ *    a `'VERIFICANDO'` o `'REPORTADO'`, registro del hito `'RECHAZADA'` en `mision_hito`).
+ * 2. Emite en tiempo real vía Socket.io / Redis:
+ *    - `'mision:rechazada'` hacia `'encargado'`, `'sala:encargados'`, `'supervisor'` y sala de unidad.
+ *    - `'incidente:actualizado'` para habilitar la reasignación inmediata en el Kanban.
+ *    - `'cuadrilla:actualizada'` o `'patrulla:actualizada'` según el tipo de unidad.
+ */
+export async function rechazarMisionService(
+  misionId: string,
+  usuarioId: string,
+  esAdmin: boolean,
+  input: RechazarMisionInput,
+  permisosUsuario?: string[]
+): Promise<RechazarMisionResponse> {
+  const resultado = await rechazarMisionRepo(
+    misionId,
+    usuarioId,
+    input.justificacionRechazo,
+    esAdmin,
+    {
+      latitud: input.latitud,
+      longitud: input.longitud,
+    },
+    permisosUsuario
+  );
+
+  const cuadrillaRes = "cuadrilla" in resultado ? resultado.cuadrilla : undefined;
+  const patrullaRes = "patrulla" in resultado ? resultado.patrulla : undefined;
+
+  try {
+    notificarMisionRechazada({
+      misionId: resultado.mision.id,
+      codigo: resultado.mision.codigo,
+      tipoMision: resultado.mision.tipoMision ?? (cuadrillaRes ? "ATENCION_CUADRILLA" : "VERIFICACION"),
+      motivo: resultado.mision.justificacionRechazo,
+      justificacionRechazo: resultado.mision.justificacionRechazo,
+      cuadrillaId: cuadrillaRes ? cuadrillaRes.id : null,
+      cuadrillaNombre: cuadrillaRes ? cuadrillaRes.nombre : null,
+      patrullaId: patrullaRes ? patrullaRes.id : null,
+      patrullaNombre: patrullaRes ? patrullaRes.nombre : null,
+      incidenteId: resultado.incidente?.id ?? null,
+      incidenteCodigo: resultado.incidente?.codigo ?? null,
+      rechazadoPorId: usuarioId,
+      rechazadoEn: resultado.mision.actualizadoEn,
+    });
+
+    if (resultado.incidente?.id && resultado.incidenteActualizado !== false) {
+      notificarIncidenteActualizado({
+        id: resultado.incidente.id,
+        codigo: resultado.incidente.codigo,
+        nuevoEstado: resultado.incidente.estado,
+        prioridad: resultado.incidente.prioridad,
+        ...(cuadrillaRes && resultado.incidente.estado === "VERIFICANDO"
+          ? { verificado: true }
+          : {}),
+        actualizadoEn: resultado.mision.actualizadoEn,
+      });
+    }
+
+    if (cuadrillaRes) {
+      emitirCuadrillaActualizada({
+        id: cuadrillaRes.id,
+        nombre: cuadrillaRes.nombre,
+        estado: cuadrillaRes.estado,
+        delegacionId: cuadrillaRes.delegacionId ?? null,
+      });
+    } else if (patrullaRes?.id) {
+      notificarPatrullaActualizada({
+        patrullaId: patrullaRes.id,
+        nombre: patrullaRes.nombre,
+        estado: patrullaRes.estado,
+        delegacionId: patrullaRes.delegacionId ?? null,
+        usuarioLiderId: patrullaRes.usuarioLiderId ?? null,
+        misionActivaId: null,
+        incidenteId: null,
+        actualizadoEn: resultado.mision.actualizadoEn,
+      });
+    }
+  } catch (error) {
+    console.error("Error al emitir eventos WebSocket tras rechazar misión:", error);
+  }
+
+  const estadoIncidente = resultado.incidente?.estado ?? "REPORTADO";
+
+  if (cuadrillaRes) {
+    const parteCuadrilla =
+      cuadrillaRes.estado === "DISPONIBLE"
+        ? "La cuadrilla ha vuelto a estado DISPONIBLE"
+        : `La cuadrilla permanece en estado ${cuadrillaRes.estado}`;
+
+    let message: string;
+    if (!resultado.incidente) {
+      message = `Misión rechazada exitosamente. ${parteCuadrilla}.`;
+    } else if (resultado.incidenteActualizado === false) {
+      message = `Misión rechazada exitosamente. ${parteCuadrilla} y el incidente mantiene su estado ${estadoIncidente} al contar con otra misión activa.`;
+    } else {
+      message = `Misión rechazada exitosamente. ${parteCuadrilla} y el incidente ha retornado a ${estadoIncidente} para su reasignación.`;
+    }
+
+    return {
+      message,
+      data: {
+        mision: resultado.mision,
+        cuadrilla: cuadrillaRes,
+        incidente: resultado.incidente,
+        hito: resultado.hito,
+      },
+    };
+  }
+
+  let messagePatrulla: string;
+  if (resultado.incidenteActualizado === false) {
+    messagePatrulla = `Misión rechazada exitosamente. El incidente mantiene su estado ${estadoIncidente} al contar con otra misión activa.`;
+  } else if (patrullaRes && patrullaRes.estado !== "DISPONIBLE") {
+    messagePatrulla = `Misión rechazada exitosamente. La patrulla permanece en estado ${patrullaRes.estado} y el incidente ha vuelto a estado ${estadoIncidente} para su reasignación.`;
+  } else {
+    messagePatrulla = `Misión rechazada exitosamente. El incidente ha vuelto a estado ${estadoIncidente} para su reasignación.`;
+  }
+
+  return {
+    message: messagePatrulla,
+    data: {
+      mision: resultado.mision,
+      patrulla: patrullaRes,
       incidente: resultado.incidente,
       hito: resultado.hito,
     },

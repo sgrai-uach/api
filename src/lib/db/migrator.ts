@@ -55,6 +55,11 @@ export async function reconciliarMigracionesRenumeradas(migrationFolder: string)
               `[RECONCILIACIÓN] Migración renumerada actualizada en kysely_migration: "${fila.name}" -> "${nuevoNombre}"`
             );
           }
+        } else {
+          await sql`DELETE FROM kysely_migration WHERE name = ${fila.name}`.execute(db);
+          console.log(
+            `[RECONCILIACIÓN] Eliminada entrada huérfana en kysely_migration: "${fila.name}" (archivo ausente en la rama actual)`
+          );
         }
       }
     }

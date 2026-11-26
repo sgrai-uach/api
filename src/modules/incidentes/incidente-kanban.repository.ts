@@ -19,6 +19,7 @@ export interface FilaIncidenteResumen {
   requiere_asistencia_social: boolean;
   fecha_cierre?: Date | string | null;
   motivo_no_abordable?: string | null;
+  dictamen_terreno?: string | null;
   fuente_origen: string;
   informante_nombre: string | null;
   delegacion_nombre: string | null;
@@ -167,6 +168,15 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
             .select(sql<number>`count(reporte_terreno.id)::int`.as("count"))
             .whereRef("mision.incidente_id", "=", "incidente.id")
             .as("total_reportes_terreno"),
+        sql<string | null>`(
+          SELECT rt.dictamen
+          FROM reporte_terreno rt
+          INNER JOIN mision m ON m.id = rt.mision_id
+          WHERE m.incidente_id = incidente.id
+            AND rt.dictamen IS NOT NULL
+          ORDER BY rt.creado_en DESC
+          LIMIT 1
+        )`.as("dictamen_terreno"),
         (eb) =>
           eb
             .selectFrom("mision")

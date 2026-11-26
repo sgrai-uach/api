@@ -8,9 +8,7 @@ import {
 } from "@/modules/seguridad/permisos.constants";
 
 vi.mock("../mision.repository", () => ({
-  rechazarMisionCuadrillaRepo: vi.fn(),
-  rechazarMisionPatrullaRepo: vi.fn(),
-  obtenerTipoAsignacionMisionRepo: vi.fn(),
+  rechazarMisionRepo: vi.fn(),
   obtenerMisionDetallePorIdRepo: vi.fn(),
   crearMisionVerificacionRepo: vi.fn(),
   aceptarMisionPatrullaRepo: vi.fn(),
@@ -34,14 +32,14 @@ describe("HU-41 / HU-69: Servicio de Negocio rechazarMisionService", () => {
     vi.clearAllMocks();
   });
 
-  describe("HU-41: Rechazo de misión por Delegado de Cuadrilla", () => {
+  describe("Rechazo por Cuadrilla (HU-41)", () => {
     const misionId = "70000000-0000-4000-8000-000000000001";
     const usuarioId = "d0000000-0000-4000-8000-000000000001";
     const cuadrillaId = "50000000-0000-4000-8000-000000000001";
     const incidenteId = "30000000-0000-4000-8000-000000000001";
     const delegacionId = "30000000-0000-4000-8000-000000000002";
 
-    const repoResultMock: misionRepository.RechazarMisionCuadrillaResult = {
+    const repoResultCuadrillaMock: misionRepository.RechazarMisionCuadrillaResult = {
       mision: {
         id: misionId,
         codigo: "MIS-2026-0005",
@@ -77,7 +75,9 @@ describe("HU-41 / HU-69: Servicio de Negocio rechazarMisionService", () => {
     };
 
     it("debe orquestar la transacción y emitir alerta mision:rechazada junto a incidente y cuadrilla actualizados", async () => {
-      vi.mocked(misionRepository.rechazarMisionCuadrillaRepo).mockResolvedValueOnce(repoResultMock);
+      vi.mocked(misionRepository.rechazarMisionRepo).mockResolvedValueOnce(
+        repoResultCuadrillaMock
+      );
 
       const input = {
         justificacionRechazo: "Falla hidráulica en camión tolva",
@@ -85,16 +85,21 @@ describe("HU-41 / HU-69: Servicio de Negocio rechazarMisionService", () => {
         longitud: -73.24589,
       };
 
-      const respuesta = await rechazarMisionService(misionId, usuarioId, false, input, [
-        PERMISO_EJECUTAR_MISION_TERRENO,
-      ]);
+      const respuesta = await rechazarMisionService(
+        misionId,
+        usuarioId,
+        false,
+        input,
+        [PERMISO_EJECUTAR_MISION_TERRENO]
+      );
 
-      expect(misionRepository.rechazarMisionCuadrillaRepo).toHaveBeenCalledWith(
+      expect(misionRepository.rechazarMisionRepo).toHaveBeenCalledWith(
         misionId,
         usuarioId,
         input.justificacionRechazo,
         false,
-        { latitud: input.latitud, longitud: input.longitud }
+        { latitud: input.latitud, longitud: input.longitud },
+        [PERMISO_EJECUTAR_MISION_TERRENO]
       );
 
       expect(socketModule.notificarMisionRechazada).toHaveBeenCalledWith(
@@ -135,14 +140,10 @@ describe("HU-41 / HU-69: Servicio de Negocio rechazarMisionService", () => {
       expect(respuesta.data.incidente?.estado).toBe("VERIFICANDO");
     });
 
-    it("no debe revertir ni fallar la respuesta HTTP si ocurre un error al emitir eventos WebSocket (admin cuadrilla)", async () => {
-      vi.mocked(misionRepository.obtenerTipoAsignacionMisionRepo).mockResolvedValueOnce({
-        id: misionId,
-        tipo_mision: "ATENCION_CUADRILLA",
-        cuadrilla_id: cuadrillaId,
-        patrulla_id: null,
-      });
-      vi.mocked(misionRepository.rechazarMisionCuadrillaRepo).mockResolvedValueOnce(repoResultMock);
+    it("no debe revertir ni fallar la respuesta HTTP si ocurre un error al emitir eventos WebSocket", async () => {
+      vi.mocked(misionRepository.rechazarMisionRepo).mockResolvedValueOnce(
+        repoResultCuadrillaMock
+      );
       vi.mocked(socketModule.notificarMisionRechazada).mockImplementationOnce(() => {
         throw new Error("Redis offline");
       });
@@ -153,18 +154,64 @@ describe("HU-41 / HU-69: Servicio de Negocio rechazarMisionService", () => {
 
       expect(respuesta.data.mision.estado).toBe("RECHAZADA");
     });
+
+    it("debe construir message dinámico y no emitir incidente:actualizado si la cuadrilla sigue EN_MISION o el incidente mantiene otra misión activa (BUG-H41-API-03)", async () => {
+      vi.mocked(misionRepository.rechazarMisionRepo).mockResolvedValueOnce({
+        ...repoResultCuadrillaMock,
+        cuadrilla: {
+          ...repoResultCuadrillaMock.cuadrilla,
+          estado: "EN_MISION",
+        },
+        incidente: {
+          ...repoResultCuadrillaMock.incidente!,
+          estado: "EN_ATENCION",
+        },
+        incidenteActualizado: false,
+      });
+
+      const respuesta = await rechazarMisionService(misionId, usuarioId, false, {
+        justificacionRechazo: "Falla hidráulica en camión tolva",
+      });
+
+      expect(socketModule.notificarIncidenteActualizado).not.toHaveBeenCalled();
+      expect(respuesta.message).toContain("permanece en estado EN_MISION");
+      expect(respuesta.message).toContain("mantiene su estado EN_ATENCION");
+      expect(respuesta.message).not.toContain("vuelto a estado DISPONIBLE");
+    });
+
+    it("debe construir message dinámico cuando la misión de cuadrilla no tiene incidente asociado (BUG-H41-API-03)", async () => {
+      vi.mocked(misionRepository.rechazarMisionRepo).mockResolvedValueOnce({
+        ...repoResultCuadrillaMock,
+        cuadrilla: {
+          ...repoResultCuadrillaMock.cuadrilla,
+          estado: "NO_DISPONIBLE",
+        },
+        incidente: null,
+        incidenteActualizado: false,
+      });
+
+      const respuesta = await rechazarMisionService(misionId, usuarioId, false, {
+        justificacionRechazo: "Unidad desactivada en base",
+      });
+
+      expect(socketModule.notificarIncidenteActualizado).not.toHaveBeenCalled();
+      expect(respuesta.message).toBe(
+        "Misión rechazada exitosamente. La cuadrilla permanece en estado NO_DISPONIBLE."
+      );
+    });
   });
 
-  describe("HU-69: Rechazo de misión por Patrulla Verificadora", () => {
+  describe("Rechazo por Patrulla Verificadora (HU-69)", () => {
     const misionId = "60000000-0000-4000-8000-000000000050";
     const usuarioId = "00000000-0000-4000-8000-000000000004";
     const patrullaId = "f1000000-0000-4000-8000-000000000001";
     const incidenteId = "50000000-0000-4000-8000-000000000001";
 
-    const repoResultMock: misionRepository.RechazarMisionPatrullaResult = {
+    const repoResultPatrullaMock: misionRepository.RechazarMisionPatrullaResult = {
       mision: {
         id: misionId,
         codigo: "MIS-2026-8341",
+        tipoMision: "VERIFICACION",
         estado: "RECHAZADA",
         justificacionRechazo: "Falla eléctrica grave en el vehículo de la patrulla",
         actualizadoEn: "2026-11-03T18:45:00.000Z",
@@ -192,7 +239,9 @@ describe("HU-41 / HU-69: Servicio de Negocio rechazarMisionService", () => {
     };
 
     it("debe orquestar la transacción de persistencia y emitir eventos Socket.io", async () => {
-      vi.mocked(misionRepository.rechazarMisionPatrullaRepo).mockResolvedValueOnce(repoResultMock);
+      vi.mocked(misionRepository.rechazarMisionRepo).mockResolvedValueOnce(
+        repoResultPatrullaMock
+      );
 
       const input = {
         justificacionRechazo: "Falla eléctrica grave en el vehículo de la patrulla",
@@ -200,16 +249,21 @@ describe("HU-41 / HU-69: Servicio de Negocio rechazarMisionService", () => {
         longitud: -73.245,
       };
 
-      const respuesta = await rechazarMisionService(misionId, usuarioId, false, input, [
-        PERMISO_VERIFICAR_MISION_TERRENO,
-      ]);
+      const respuesta = await rechazarMisionService(
+        misionId,
+        usuarioId,
+        false,
+        input,
+        [PERMISO_VERIFICAR_MISION_TERRENO]
+      );
 
-      expect(misionRepository.rechazarMisionPatrullaRepo).toHaveBeenCalledWith(
+      expect(misionRepository.rechazarMisionRepo).toHaveBeenCalledWith(
         misionId,
         usuarioId,
         input.justificacionRechazo,
         false,
-        { latitud: input.latitud, longitud: input.longitud }
+        { latitud: input.latitud, longitud: input.longitud },
+        [PERMISO_VERIFICAR_MISION_TERRENO]
       );
 
       expect(socketModule.notificarMisionRechazada).toHaveBeenCalledWith(
@@ -249,14 +303,10 @@ describe("HU-41 / HU-69: Servicio de Negocio rechazarMisionService", () => {
       expect(respuesta.data.incidente?.estado).toBe("REPORTADO");
     });
 
-    it("no debe interrumpir la respuesta si falla la emisión de websockets (admin patrulla)", async () => {
-      vi.mocked(misionRepository.obtenerTipoAsignacionMisionRepo).mockResolvedValueOnce({
-        id: misionId,
-        tipo_mision: "VERIFICACION",
-        cuadrilla_id: null,
-        patrulla_id: patrullaId,
-      });
-      vi.mocked(misionRepository.rechazarMisionPatrullaRepo).mockResolvedValueOnce(repoResultMock);
+    it("no debe interrumpir la respuesta si falla la emisión de websockets", async () => {
+      vi.mocked(misionRepository.rechazarMisionRepo).mockResolvedValueOnce(
+        repoResultPatrullaMock
+      );
       vi.mocked(socketModule.notificarMisionRechazada).mockImplementationOnce(() => {
         throw new Error("Redis connection offline");
       });

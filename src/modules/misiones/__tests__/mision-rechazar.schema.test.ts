@@ -51,7 +51,9 @@ describe("HU-41 / HU-69: Esquemas Zod para Rechazo de Misión en Terreno", () =>
       });
       expect(resultado.success).toBe(true);
       if (resultado.success) {
-        expect(resultado.data.justificacionRechazo).toBe("Falla hidráulica en camión tolva");
+        expect(resultado.data.justificacionRechazo).toBe(
+          "Falla hidráulica en camión tolva"
+        );
       }
     });
 
@@ -61,7 +63,9 @@ describe("HU-41 / HU-69: Esquemas Zod para Rechazo de Misión en Terreno", () =>
       });
       expect(resultado.success).toBe(true);
       if (resultado.success) {
-        expect(resultado.data.justificacionRechazo).toBe("Acceso bloqueado por deslizamiento");
+        expect(resultado.data.justificacionRechazo).toBe(
+          "Acceso bloqueado por deslizamiento"
+        );
       }
     });
 
@@ -92,7 +96,7 @@ describe("HU-41 / HU-69: Esquemas Zod para Rechazo de Misión en Terreno", () =>
       expect(soloLng.success).toBe(false);
     });
 
-    it("debe fallar si las coordenadas están fuera de rango WGS84", () => {
+    it("debe fallar si la latitud o longitud están fuera de rango WGS84", () => {
       const latInf = RechazarMisionInputSchema.safeParse({
         justificacion_rechazo: "Motivo válido de rechazo",
         latitud: -90.1,
@@ -163,6 +167,24 @@ describe("HU-41 / HU-69: Esquemas Zod para Rechazo de Misión en Terreno", () =>
         justificacion_rechazo: "1234",
       });
       expect(resultado.success).toBe(false);
+    });
+
+    it("debe rechazar si solo se envía latitud sin longitud en OpenAPI body (BUG-H41-API-04)", () => {
+      const resultado = RechazarMisionBodySchema.safeParse({
+        justificacion_rechazo: "Corte de puente de acceso al sector",
+        latitud: -39.82,
+      });
+      expect(resultado.success).toBe(false);
+    });
+
+    it("debe rechazar una justificación que exceda los 1000 caracteres (BUG-H41-API-04)", () => {
+      const textoLargo = "a".repeat(1001);
+      expect(
+        RechazarMisionBodySchema.safeParse({ justificacion_rechazo: textoLargo }).success
+      ).toBe(false);
+      expect(
+        RechazarMisionInputSchema.safeParse({ justificacion_rechazo: textoLargo }).success
+      ).toBe(false);
     });
   });
 

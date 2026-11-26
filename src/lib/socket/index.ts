@@ -641,6 +641,7 @@ export function emitirCuadrillaCreada(payload: unknown): void {
 export function emitirCuadrillaActualizada(payload: unknown): void {
   emitirEvento("operaciones", "cuadrilla:actualizada", payload);
   emitirEvento("encargado", "cuadrilla:actualizada", payload);
+  emitirEvento("sala:encargados", "cuadrilla:actualizada", payload);
   emitirEvento("supervisor", "cuadrilla:actualizada", payload);
 }
 
@@ -1015,9 +1016,8 @@ export function notificarPatrullaLiberada(payload: {
 }
 
 /**
- * Emite una alerta prioritaria en tiempo real hacia las salas del Centro de Mando
- * y la unidad involucrada cuando una cuadrilla (HU-41) o patrulla verificadora (HU-69)
- * rechaza una misión asignada.
+ * Emite una alerta prioritaria en tiempo real hacia la sala 'encargado' del Centro de Mando
+ * cuando una cuadrilla operativa (HU-41) o patrulla verificadora (HU-69) rechaza una misión asignada.
  */
 export function notificarMisionRechazada(payload: MisionRechazadaPayload): void {
   const rooms = ["encargado", "sala:encargados", "supervisor"];
