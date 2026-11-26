@@ -1,6 +1,10 @@
 import { db } from "@/lib/db";
 import { seguridadService } from "@/modules/seguridad/service";
-import { PERMISO_VINCULAR_EVENTO_ATP } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_CREAR_EVENTO_PREVENCION,
+  PERMISO_LEER_MISION,
+  PERMISO_VINCULAR_EVENTO_ATP,
+} from "@/modules/seguridad/permisos.constants";
 import type {
   CrearEventoPrevencionInput,
   EventoPrevencionResponse,
@@ -127,6 +131,7 @@ export async function crearEventoPrevencionService(
         .selectFrom("evento_atp")
         .select(["id", "codigo", "estado"])
         .where("id", "=", input.eventoAtpId)
+        .forShare()
         .executeTakeFirst();
 
       if (!eventoAtp) {
@@ -266,9 +271,15 @@ export async function listarEventosPrevencionService(
   query: ListarEventosPrevencionQuery,
   usuarioId: string
 ): Promise<ListarEventosPrevencionResponse> {
-  await seguridadService.validarAccesoRoles(usuarioId, [
-    PERMISO_VINCULAR_EVENTO_ATP,
-  ]);
+  await seguridadService.validarAccesoRoles(
+    usuarioId,
+    [
+      PERMISO_VINCULAR_EVENTO_ATP,
+      PERMISO_LEER_MISION,
+      PERMISO_CREAR_EVENTO_PREVENCION,
+    ],
+    "Acceso denegado. Se requiere el permiso 'eventos_atp:vincular' o un permiso de consulta del módulo Eventos ATP."
+  );
 
   const { pagina, limite, ...filtros } = query;
   const { filas, total } = await repo.listarEventosPrevencionPaginados(filtros, {

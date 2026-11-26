@@ -13,12 +13,24 @@ export interface FilaIncidenteResumen {
   longitud: number | string;
   estado: string;
   prioridad: string;
+  prioridad_sugerida?: string | null;
+  justificacion_prioridad?: string | null;
+  total_reportes_terreno?: number | string;
   requiere_asistencia_social: boolean;
+  fecha_cierre?: Date | string | null;
+  motivo_no_abordable?: string | null;
+  dictamen_terreno?: string | null;
   fuente_origen: string;
+  evento_atp_id: string | null;
   informante_nombre: string | null;
   delegacion_nombre: string | null;
   total_misiones: number | string;
-  evento_atp_id: string | null;
+  tiene_mision_despachada?: boolean;
+  tiene_mision_en_curso?: boolean;
+  trazabilidad_notificacion?: string | null;
+  verificado?: boolean | number;
+  reclasificado_en_terreno?: boolean | number;
+  justificacion_reclasificacion?: string | null;
   creado_en: Date | string;
   actualizado_en: Date | string;
 }
@@ -122,36 +134,149 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
   const total = Number(resultadoConteo?.total ?? 0);
 
   // Obtener filas paginadas
-  const filas = await consultaBase
-    .select([
-      "incidente.id",
-      "incidente.codigo",
-      "incidente.codigo_seguimiento",
-      "incidente.tipo_afectacion",
-      "incidente.descripcion",
-      "incidente.direccion_texto",
-      "incidente.latitud",
-      "incidente.longitud",
-      "incidente.estado",
-      "incidente.prioridad",
-      "incidente.requiere_asistencia_social",
-      "incidente.fuente_origen",
-      "incidente.evento_atp_id",
-      "informante.nombre as informante_nombre",
-      "delegacion.nombre as delegacion_nombre",
-      "incidente.creado_en",
-      "incidente.actualizado_en",
-      (eb) =>
-        eb
-          .selectFrom("mision")
-          .select(sql<number>`count(mision.id)::int`.as("count"))
-          .whereRef("mision.incidente_id", "=", "incidente.id")
-          .as("total_misiones"),
-    ])
-    .orderBy("incidente.creado_en", "desc")
-    .limit(filtros.limit)
-    .offset((filtros.page - 1) * filtros.limit)
-    .execute();
+  const ejecutarConsultaFilas = () =>
+    consultaBase
+      .select([
+        "incidente.id",
+        "incidente.codigo",
+        "incidente.codigo_seguimiento",
+        "incidente.tipo_afectacion",
+        "incidente.descripcion",
+        "incidente.direccion_texto",
+        "incidente.latitud",
+        "incidente.longitud",
+        "incidente.estado",
+        "incidente.prioridad",
+        "incidente.prioridad_sugerida",
+        "incidente.justificacion_prioridad",
+        "incidente.requiere_asistencia_social",
+        "incidente.fecha_cierre",
+        "incidente.motivo_no_abordable",
+        "incidente.fuente_origen",
+        "incidente.evento_atp_id",
+        "informante.nombre as informante_nombre",
+        "delegacion.nombre as delegacion_nombre",
+        "incidente.creado_en",
+        "incidente.actualizado_en",
+        (eb) =>
+          eb
+            .selectFrom("mision")
+            .select(sql<number>`count(mision.id)::int`.as("count"))
+            .whereRef("mision.incidente_id", "=", "incidente.id")
+            .as("total_misiones"),
+        sql<string | null>`(
+          SELECT nm.estado
+          FROM notificaciones_mision nm
+          INNER JOIN mision m ON m.id = nm.mision_id
+          WHERE m.incidente_id = incidente.id
+          ORDER BY nm.creada_at DESC
+          LIMIT 1
+        )`.as("trazabilidad_notificacion"),
+        (eb) =>
+          eb
+            .selectFrom("mision")
+            .innerJoin("reporte_terreno", "reporte_terreno.mision_id", "mision.id")
+            .select(sql<number>`count(reporte_terreno.id)::int`.as("count"))
+            .whereRef("mision.incidente_id", "=", "incidente.id")
+            .as("total_reportes_terreno"),
+        sql<string | null>`(
+          SELECT rt.dictamen
+          FROM reporte_terreno rt
+          INNER JOIN mision m ON m.id = rt.mision_id
+          WHERE m.incidente_id = incidente.id
+            AND rt.dictamen IS NOT NULL
+          ORDER BY rt.creado_en DESC
+          LIMIT 1
+        )`.as("dictamen_terreno"),
+        (eb) =>
+          eb
+            .selectFrom("mision")
+            .select(
+              sql<boolean>`case when count(mision.id) > 0 then true else false end`.as(
+                "tiene_mision_despachada"
+              )
+            )
+            .whereRef("mision.incidente_id", "=", "incidente.id")
+            .where("mision.estado", "in", ["PLANIFICADA", "DESPACHADA"])
+            .as("tiene_mision_despachada"),
+        (eb) =>
+          eb
+            .selectFrom("mision")
+            .select(
+              sql<boolean>`case when count(mision.id) > 0 then true else false end`.as(
+                "tiene_mision_en_curso"
+              )
+            )
+            .whereRef("mision.incidente_id", "=", "incidente.id")
+            .where("mision.estado", "=", "EN_CURSO")
+            .as("tiene_mision_en_curso"),
+        (eb) =>
+          eb
+            .selectFrom("mision")
+            .leftJoin("mision_hito", "mision_hito.mision_id", "mision.id")
+            .select(
+              sql<boolean>`case when count(mision.id) > 0 then true else false end`.as("verificado")
+            )
+            .whereRef("mision.incidente_id", "=", "incidente.id")
+            .where("mision.tipo_mision", "=", "VERIFICACION")
+            .where((ebOr) =>
+              ebOr.or([
+                ebOr("mision.estado", "=", "COMPLETADA"),
+                ebOr("mision_hito.hito", "in", [
+                  "TIPOLOGIA_RECLASIFICADA",
+                  "PRIORIDAD_ASIGNADA",
+                  "PRIORIDAD_RECTIFICADA",
+                ]),
+              ])
+            )
+            .as("verificado"),
+        (eb) =>
+          eb
+            .selectFrom("mision")
+            .leftJoin("mision_hito", "mision_hito.mision_id", "mision.id")
+            .select(
+              sql<boolean>`case when count(mision.id) > 0 then true else false end`.as("reclasificado_en_terreno")
+            )
+            .whereRef("mision.incidente_id", "=", "incidente.id")
+            .where("mision.tipo_mision", "=", "VERIFICACION")
+            .where((ebOr) =>
+              ebOr.or([
+                ebOr("mision.estado", "=", "COMPLETADA"),
+                ebOr("mision_hito.hito", "in", [
+                  "TIPOLOGIA_RECLASIFICADA",
+                  "PRIORIDAD_ASIGNADA",
+                  "PRIORIDAD_RECTIFICADA",
+                ]),
+              ])
+            )
+            .as("reclasificado_en_terreno"),
+        (eb) =>
+          eb
+            .selectFrom("mision")
+            .innerJoin("mision_hito", "mision_hito.mision_id", "mision.id")
+            .select("mision_hito.descripcion")
+            .whereRef("mision.incidente_id", "=", "incidente.id")
+            .where("mision_hito.hito", "=", "TIPOLOGIA_RECLASIFICADA")
+            .orderBy("mision_hito.creado_en", "desc")
+            .limit(1)
+            .as("justificacion_reclasificacion"),
+      ])
+      .orderBy(
+        sql`case when exists (
+          select 1 from mision m 
+          left join mision_hito mh on mh.mision_id = m.id
+          where m.incidente_id = incidente.id 
+            and m.tipo_mision = 'VERIFICACION' 
+            and (m.estado = 'COMPLETADA' or mh.hito = 'TIPOLOGIA_RECLASIFICADA')
+        ) then 1 else 0 end`,
+        "desc"
+      )
+      .orderBy("incidente.creado_en", "desc")
+      .limit(filtros.limit ?? 20)
+      .offset(((filtros.page ?? 1) - 1) * (filtros.limit ?? 20))
+      .execute();
+
+  const filas = await ejecutarConsultaFilas();
 
   return {
     filas: filas as unknown as FilaIncidenteResumen[],
@@ -163,46 +288,53 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
  * Consulta los datos detallados de un incidente junto a sus misiones y recursos asociados.
  */
 export async function obtenerIncidenteDetallePorIdRepo(id: string) {
-  const incidente = await db
-    .selectFrom("incidente")
-    .leftJoin("informante", "informante.id", "incidente.informante_id")
-    .leftJoin("delegacion", "delegacion.id", "incidente.delegacion_id")
-    .leftJoin("usuario as creador", "creador.id", "incidente.creado_por_id")
-    .leftJoin("usuario as encargado", "encargado.id", "incidente.encargado_id")
-    .select([
-      "incidente.id",
-      "incidente.codigo",
-      "incidente.codigo_seguimiento",
-      "incidente.tipo_afectacion",
-      "incidente.descripcion",
-      "incidente.direccion_texto",
-      "incidente.latitud",
-      "incidente.longitud",
-      "incidente.estado",
-      "incidente.prioridad",
-      "incidente.requiere_asistencia_social",
-      "incidente.fuente_origen",
-      "incidente.evento_atp_id",
-      "incidente.asterisk_call_id",
-      "incidente.asterisk_caller_phone",
-      "incidente.creado_en",
-      "incidente.actualizado_en",
-      "informante.id as informante_id",
-      "informante.rut as informante_rut",
-      "informante.nombre as informante_nombre",
-      "informante.telefono as informante_telefono",
-      "delegacion.id as delegacion_id",
-      "delegacion.nombre as delegacion_nombre",
-      "delegacion.descripcion as delegacion_descripcion",
-      "creador.id as creador_id",
-      "creador.nombre as creador_nombre",
-      "creador.email as creador_email",
-      "encargado.id as encargado_id",
-      "encargado.nombre as encargado_nombre",
-      "encargado.email as encargado_email",
-    ])
-    .where("incidente.id", "=", id)
-    .executeTakeFirst();
+  const ejecutarConsultaIncidente = () =>
+    db
+      .selectFrom("incidente")
+      .leftJoin("informante", "informante.id", "incidente.informante_id")
+      .leftJoin("delegacion", "delegacion.id", "incidente.delegacion_id")
+      .leftJoin("usuario as creador", "creador.id", "incidente.creado_por_id")
+      .leftJoin("usuario as encargado", "encargado.id", "incidente.encargado_id")
+      .select([
+        "incidente.id",
+        "incidente.codigo",
+        "incidente.codigo_seguimiento",
+        "incidente.tipo_afectacion",
+        "incidente.descripcion",
+        "incidente.direccion_texto",
+        "incidente.latitud",
+        "incidente.longitud",
+        "incidente.estado",
+        "incidente.prioridad",
+        "incidente.prioridad_sugerida",
+        "incidente.justificacion_prioridad",
+        "incidente.requiere_asistencia_social",
+        "incidente.fecha_cierre",
+        "incidente.motivo_no_abordable",
+        "incidente.fuente_origen",
+        "incidente.evento_atp_id",
+        "incidente.asterisk_call_id",
+        "incidente.asterisk_caller_phone",
+        "incidente.creado_en",
+        "incidente.actualizado_en",
+        "informante.id as informante_id",
+        "informante.rut as informante_rut",
+        "informante.nombre as informante_nombre",
+        "informante.telefono as informante_telefono",
+        "delegacion.id as delegacion_id",
+        "delegacion.nombre as delegacion_nombre",
+        "delegacion.descripcion as delegacion_descripcion",
+        "creador.id as creador_id",
+        "creador.nombre as creador_nombre",
+        "creador.email as creador_email",
+        "encargado.id as encargado_id",
+        "encargado.nombre as encargado_nombre",
+        "encargado.email as encargado_email",
+      ])
+      .where("incidente.id", "=", id)
+      .executeTakeFirst();
+
+  const incidente = await ejecutarConsultaIncidente();
 
   if (!incidente) {
     return null;
@@ -231,6 +363,13 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
       "cuadrilla.id as cuadrilla_id",
       "cuadrilla.nombre as cuadrilla_nombre",
       "cuadrilla.estado as cuadrilla_estado",
+      sql<string | null>`(
+        SELECT nm.estado
+        FROM notificaciones_mision nm
+        WHERE nm.mision_id = mision.id
+        ORDER BY nm.creada_at DESC
+        LIMIT 1
+      )`.as("trazabilidad_notificacion"),
     ])
     .where("mision.incidente_id", "=", id)
     .orderBy("mision.creado_en", "asc")
@@ -276,9 +415,204 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     }));
   }
 
+  // Consultar hito de reclasificación técnica si existiese
+  const hitoReclasificacion = await db
+    .selectFrom("mision")
+    .innerJoin("mision_hito", "mision_hito.mision_id", "mision.id")
+    .select("mision_hito.descripcion")
+    .where("mision.incidente_id", "=", id)
+    .where("mision_hito.hito", "in", [
+      "TIPOLOGIA_RECLASIFICADA",
+      "PRIORIDAD_ASIGNADA",
+      "PRIORIDAD_RECTIFICADA",
+    ])
+    .orderBy("mision_hito.creado_en", "desc")
+    .limit(1)
+    .executeTakeFirst();
+
+  // Consultar detalle estructurado del último cambio de tipología (TIPOLOGIA_RECLASIFICADA)
+  let reclasificacionTipologiaRaw: {
+    hito_id: string;
+    mision_id: string;
+    mision_codigo: string;
+    descripcion: string;
+    metadatos?: Record<string, unknown> | string | null;
+    registrador_nombre: string | null;
+    creado_en: Date | string;
+  } | null = null;
+
+  try {
+    const filaReclasif = await db
+      .selectFrom("mision")
+      .innerJoin("mision_hito", "mision_hito.mision_id", "mision.id")
+      .leftJoin("usuario as registrador", "registrador.id", "mision_hito.registrado_por_id")
+      .select([
+        "mision_hito.id as hito_id",
+        "mision.id as mision_id",
+        "mision.codigo as mision_codigo",
+        "mision_hito.descripcion",
+        "mision_hito.metadatos",
+        "registrador.nombre as registrador_nombre",
+        "mision_hito.creado_en",
+      ])
+      .where("mision.incidente_id", "=", id)
+      .where("mision_hito.hito", "=", "TIPOLOGIA_RECLASIFICADA")
+      .orderBy("mision_hito.creado_en", "desc")
+      .limit(1)
+      .executeTakeFirst();
+
+    reclasificacionTipologiaRaw = filaReclasif ?? null;
+  } catch {
+    reclasificacionTipologiaRaw = null;
+  }
+
+  // Consultar historial de reportes de evaluación en terreno asociados a las misiones del incidente (HU-38 / HU-39)
+  let reportesEvaluacionTerreno: Array<{
+    id: string;
+    mision_id: string;
+    evaluador_id: string;
+    tipo_reporte?: string | null;
+    dictamen?: string | null;
+    motivo_no_abordable?: string | null;
+    requiere_asistencia_social?: boolean | null;
+    estado_terreno?: string | null;
+    version_reporte?: number | null;
+    es_rectificacion?: boolean | null;
+    prioridad_sugerida?: string | null;
+    prioridad_asignada?: string | null;
+    justificacion_prioridad?: string | null;
+    resumen_tecnico: string;
+    acciones_realizadas: string | null;
+    danos_estimados: string | null;
+    observaciones: string | null;
+    personas_afectadas: number;
+    requiere_apoyo_adicional: boolean;
+    detalles_evaluacion?: Record<string, unknown> | string | null;
+    evaluador_nombre: string | null;
+    evaluador_email: string | null;
+    evaluador_rut: string | null;
+    creado_en: Date | string;
+    adjuntos?: Array<{
+      id: string;
+      nombre_archivo: string;
+      url: string;
+      tipo_mime: string;
+      tamano_bytes: number | string | bigint;
+      creado_en: Date | string;
+    }>;
+  }> = [];
+
+  try {
+    const misionIds = misiones.map((m) => m.id);
+    if (misionIds.length > 0) {
+      const ejecutarConsultaReportesInc = () =>
+        db
+          .selectFrom("reporte_terreno")
+          .leftJoin("usuario as evaluador", "evaluador.id", "reporte_terreno.evaluador_id")
+          .select([
+            "reporte_terreno.id",
+            "reporte_terreno.mision_id",
+            "reporte_terreno.evaluador_id",
+            "reporte_terreno.tipo_reporte",
+            "reporte_terreno.dictamen",
+            "reporte_terreno.motivo_no_abordable",
+            "reporte_terreno.requiere_asistencia_social",
+            "reporte_terreno.estado_terreno",
+            "reporte_terreno.version_reporte",
+            "reporte_terreno.es_rectificacion",
+            "reporte_terreno.prioridad_sugerida",
+            "reporte_terreno.prioridad_asignada",
+            "reporte_terreno.justificacion_prioridad",
+            "reporte_terreno.resumen_tecnico",
+            "reporte_terreno.acciones_realizadas",
+            "reporte_terreno.danos_estimados",
+            "reporte_terreno.observaciones",
+            "reporte_terreno.personas_afectadas",
+            "reporte_terreno.requiere_apoyo_adicional",
+            "reporte_terreno.detalles_evaluacion",
+            "evaluador.nombre as evaluador_nombre",
+            "evaluador.email as evaluador_email",
+            "evaluador.rut as evaluador_rut",
+            "reporte_terreno.creado_en",
+          ])
+          .where("reporte_terreno.mision_id", "in", misionIds)
+          .orderBy("reporte_terreno.version_reporte", "desc")
+          .orderBy("reporte_terreno.creado_en", "desc")
+          .execute();
+
+      const filasRep = await ejecutarConsultaReportesInc();
+
+      const repIds = filasRep.map((r) => r.id);
+      let adjFilas: Array<{
+        id: string;
+        nombre_archivo: string;
+        url: string;
+        tipo_mime: string;
+        tamano_bytes: number | string | bigint;
+        reporte_terreno_id?: string | null;
+        creado_en: Date | string;
+      }> = [];
+
+      if (repIds.length > 0) {
+        try {
+          adjFilas = await db
+            .selectFrom("adjunto")
+            .select([
+              "id",
+              "nombre_archivo",
+              "url",
+              "tipo_mime",
+              "tamano_bytes",
+              "reporte_terreno_id",
+              "creado_en",
+            ])
+            .where("reporte_terreno_id", "in", repIds)
+            .orderBy("creado_en", "asc")
+            .execute();
+        } catch {
+          adjFilas = [];
+        }
+      }
+
+      reportesEvaluacionTerreno = filasRep.map((rep) => ({
+        ...rep,
+        adjuntos: adjFilas
+          .filter((a) => a.reporte_terreno_id === rep.id)
+          .map((a) => ({
+            id: a.id,
+            nombre_archivo: a.nombre_archivo,
+            url: a.url,
+            tipo_mime: a.tipo_mime,
+            tamano_bytes: a.tamano_bytes,
+            creado_en: a.creado_en,
+          })),
+      }));
+    }
+  } catch {
+    // Si la tabla o columnas no están presentes en mocks de pruebas aisladas, retornar vacío
+  }
+
   return {
     incidente,
     misiones,
     recursosAsociados,
+    reportesEvaluacionTerreno,
+    justificacionReclasificacion: hitoReclasificacion?.descripcion ?? null,
+    reclasificacionTipologiaRaw,
+  } as {
+    incidente: Omit<
+      typeof incidente,
+      "prioridad_sugerida" | "justificacion_prioridad" | "fecha_cierre" | "motivo_no_abordable"
+    > & {
+      prioridad_sugerida?: typeof incidente.prioridad_sugerida;
+      justificacion_prioridad?: typeof incidente.justificacion_prioridad;
+      fecha_cierre?: Date | string | null;
+      motivo_no_abordable?: string | null;
+    };
+    misiones: typeof misiones;
+    recursosAsociados: typeof recursosAsociados;
+    reportesEvaluacionTerreno?: typeof reportesEvaluacionTerreno;
+    justificacionReclasificacion: string | null;
+    reclasificacionTipologiaRaw?: typeof reclasificacionTipologiaRaw;
   };
 }

@@ -91,6 +91,24 @@ describe("Route /api/eventos-atp/[id]/vinculos (H60)", () => {
     expect(res.status).toBe(400);
   });
 
+  it("POST responde 400 con formato { message, errors } ante payload Zod inválido", async () => {
+    const res = await POST(
+      crearRequest("POST", { incidenteIds: ["no-es-uuid"] }),
+      contexto
+    );
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.message).toBeDefined();
+    expect(Array.isArray(json.errors)).toBe(true);
+    expect(json.errors[0]).toEqual(
+      expect.objectContaining({
+        campo: "incidenteIds.0",
+        mensaje: expect.any(String),
+      })
+    );
+  });
+
   it("POST vincula y responde 200", async () => {
     vi.spyOn(
       vinculacionService,

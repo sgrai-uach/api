@@ -1,6 +1,9 @@
-import { sql } from "kysely";
+import { sql, type Kysely } from "kysely";
 import { db } from "@/lib/db";
+import type { Database } from "@/lib/db/types";
 import type { PrioridadEventoAsistenciaSocial, EstadoEventoAsistenciaSocial } from "./asistencia-social.schema";
+
+type DbExecutor = Kysely<Database>;
 
 export interface DatosInsertarEventoAsistenciaSocialRepo {
   codigo: string;
@@ -64,11 +67,13 @@ export interface OpcionesPaginacion {
 /**
  * Genera el siguiente código correlativo anual institucional con formato AS-YYYY-0001 (H28).
  */
-export async function generarSiguienteCodigoAsistenciaSocial(): Promise<string> {
+export async function generarSiguienteCodigoAsistenciaSocial(
+  executor: DbExecutor = db
+): Promise<string> {
   const anio = new Date().getFullYear();
   const prefijo = `AS-${anio}-`;
 
-  const conteo = await db
+  const conteo = await executor
     .selectFrom("evento_asistencia_social")
     .where("codigo", "like", `${prefijo}%`)
     .select(sql<number>`count(*)::int`.as("total"))
@@ -82,9 +87,10 @@ export async function generarSiguienteCodigoAsistenciaSocial(): Promise<string> 
  * Inserta un nuevo evento de asistencia social en PostgreSQL con geometría PostGIS.
  */
 export async function insertarEventoAsistenciaSocial(
-  datos: DatosInsertarEventoAsistenciaSocialRepo
+  datos: DatosInsertarEventoAsistenciaSocialRepo,
+  executor: DbExecutor = db
 ): Promise<FilaEventoAsistenciaSocialConRelaciones> {
-  const [insertado] = await db
+  const [insertado] = await executor
     .insertInto("evento_asistencia_social")
     .values({
       codigo: datos.codigo,
@@ -109,7 +115,10 @@ export async function insertarEventoAsistenciaSocial(
     .returning("id")
     .execute();
 
-  const eventoDetalle = await buscarEventoAsistenciaSocialPorId(insertado.id);
+  const eventoDetalle = await buscarEventoAsistenciaSocialPorId(
+    insertado.id,
+    executor
+  );
   if (!eventoDetalle) {
     throw new Error("No se pudo recuperar el evento de asistencia social recién creado.");
   }
@@ -121,9 +130,10 @@ export async function insertarEventoAsistenciaSocial(
  * Busca un evento de asistencia social por su UUID con los nombres de delegación, creador y asistente social.
  */
 export async function buscarEventoAsistenciaSocialPorId(
-  id: string
+  id: string,
+  executor: DbExecutor = db
 ): Promise<FilaEventoAsistenciaSocialConRelaciones | null> {
-  const fila = await db
+  const fila = await executor
     .selectFrom("evento_asistencia_social")
     .leftJoin("delegacion", "delegacion.id", "evento_asistencia_social.delegacion_id")
     .innerJoin("usuario as creador", "creador.id", "evento_asistencia_social.creado_por_id")

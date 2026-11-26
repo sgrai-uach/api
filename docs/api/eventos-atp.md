@@ -54,6 +54,14 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
     - El evento se persiste en estado `ACTIVO` junto a sus delegaciones afectadas en la tabla puente `evento_atp_delegacion`, dentro de una sola transacción PostgreSQL. Un arreglo vacío de delegaciones representa **alcance comunal centralizado**.
     - El correlativo `ATP-AAAA-####` se genera de forma atómica mediante un advisory lock anual; también se admite un código manual único normalizado a mayúsculas.
     - La creación emite el evento WebSocket `evento_atp:creado` a las salas operativas y administrativas.
+14. **Vinculación y Desvinculación de Entidades (H60):**
+    - Incidentes, eventos de prevención, operativos de recuperación y casos de asistencia social pueden vincularse a un Evento ATP **ACTIVO**. La relación es opcional, reversible y se almacena en `evento_atp_id`.
+    - Una entidad puede reasignarse desde otro Evento ATP; la respuesta la informa en `reasignadas`.
+    - La desvinculación establece `evento_atp_id = NULL` y **nunca elimina** el registro. Solo afecta entidades que pertenecen al Evento ATP indicado; el resto se informa en `noDesvinculadas`.
+    - Los identificadores inexistentes se informan en `noEncontradas` con el tipo real del grupo solicitado (`INCIDENTE`, `EVENTO_PREVENCION`, `RECUPERACION`, `EVENTO_ASISTENCIA_SOCIAL`), sin abortar la operación.
+    - Las filas objetivo se bloquean con `FOR UPDATE` en orden determinista y `actualizado_en` se refresca en las cuatro tablas. La respuesta se construye desde los `UPDATE ... RETURNING` reales.
+    - Solo se emite `evento_atp:vinculado` cuando hubo filas modificadas, hacia las salas `encargado`, `sala:encargados`, `supervisor` y `mapa`.
+    - Estados válidos del Evento ATP: `ACTIVO`, `FINALIZADO`, `CANCELADO`. Solo `ACTIVO` admite nuevas vinculaciones; la desvinculación se permite también en eventos finalizados para corregir asociaciones históricas.
 
 ---
 
@@ -65,12 +73,27 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `POST` | `/api/puntos-criticos` | Registrar un nuevo punto crítico con coordenadas PostGIS, código autogenerado y emisión en tiempo real vía Socket.io (HU-58). |
 | `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
+| `GET` | `/api/eventos-atp/recuperacion` | Listar todos los eventos de recuperación territoriales registrados con sus misiones tácticas, patrulla asignada y recursos para el mapa operativo. |
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
+| `GET` | `/api/eventos-atp/recuperacion/{id}` | Obtener el detalle estructurado de un evento de recuperación comunal, sus misiones operativas e insumos asignados (HU-32). |
+| `POST` | `/api/eventos-atp/recuperacion/{id}/asignar` | Asignar patrulla verificadora y recursos de bodega a un evento de recuperación con bloqueo transaccional `FOR UPDATE` (§3.6) y RBAC `misiones:asignar` (HU-32). |
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
 | `POST` | `/api/eventos-atp` | Registrar el marco oficial de un Evento de Alerta Temprana Preventiva con alcance territorial, estado `ACTIVO` y notificación Socket.io (H61). |
+| `GET` | `/api/eventos-atp` | Listar Eventos ATP con filtros por estado, delegación y búsqueda, incluyendo el total de entidades vinculadas (H60). |
+| `GET` | `/api/eventos-atp/{id}` | Obtener el detalle de un Evento ATP y sus entidades vinculadas agrupadas por tipo (H60). |
+| `POST` | `/api/eventos-atp/{id}/vinculos` | Vincular o reasignar entidades a un Evento ATP ACTIVO (H60). |
+| `DELETE` | `/api/eventos-atp/{id}/vinculos` | Desvincular entidades de un Evento ATP sin eliminar sus registros (H60). |
+| `GET` | `/api/eventos-atp/prevencion` | Listar eventos de prevención con filtro `eventoAtpId`, estado y delegación (H60). |
+| `GET` | `/api/eventos-atp/recuperacion` | Listar operativos de recuperación; admite filtros `eventoAtpId`, estado, delegación y `limite` (H60). |
 
 > Nota: Los contratos OpenAPI 3.0 se autogeneran a partir de los esquemas Zod y están expuestos públicamente en `GET /openapi.json`.
+
+### Permisos de consulta y vinculación (H60)
+
+- `POST` y `DELETE /api/eventos-atp/{id}/vinculos` requieren exclusivamente `eventos_atp:vincular`.
+- Los `GET` de Eventos ATP, prevención y recuperación aceptan `eventos_atp:vincular` o permisos de consulta del módulo (`misiones:leer`, `incidentes:kanban`, `asistencia_social:leer`, `prevencion:eventos:crear`, `recuperacion:crear`), de modo que perfiles como **SUPERVISOR** puedan consultar sin recibir `403`.
+- Cuando falta autorización, el mensaje cita explícitamente el permiso requerido (`eventos_atp:vincular`).
 
 ---
 
@@ -976,18 +999,19 @@ Registra el marco oficial de un **Evento de Alerta Temprana Preventiva** y su al
 
 ### Reglas de Negocio del Endpoint
 
-1. **Control de acceso:** requiere un usuario autenticado con rol **Administrador** o el permiso explícito **`eventos_atp:crear`**. La validación se realiza con `validarAccesoAdministrador(usuarioId, [PERMISO_CREAR_EVENTO_ATP])`.
+1. **Control de acceso:** requiere un usuario autenticado con rol **Administrador** o el permiso explícito **`eventos_atp:crear`**. La validación se realiza con `validarAccesoRoles(usuarioId, [PERMISO_CREAR_EVENTO_ATP], "Acceso denegado. Se requiere el perfil de Administrador o el permiso eventos_atp:crear.")`.
 2. **Estado inicial:** todo evento nuevo se persiste como **`ACTIVO`**; el cliente no puede enviar otro estado.
 3. **Código único:**
-   - Si se omite `codigo`, el backend genera el correlativo anual `ATP-AAAA-####` (ej. `ATP-2026-0001`).
+   - Si se omite `codigo` (o se envía vacío, en blanco o `null`), el backend genera el correlativo anual `ATP-AAAA-####` (ej. `ATP-2026-0001`).
    - Si se envía manualmente, se normaliza a mayúsculas, debe cumplir `^[A-Za-z0-9-]+$` y ser único. Un duplicado retorna `409 Conflict`.
-   - La generación automática usa un advisory lock por año para evitar colisiones concurrentes.
+   - La generación automática usa un advisory lock por año y considera **solo** los códigos con sufijo numérico de al menos cuatro dígitos (`^ATP-AAAA-[0-9]{4,}$`), de modo que códigos manuales como `ATP-2026-MAYO` o `ATP-2026-99` no alteran la secuencia.
+   - La unicidad se verifica **dentro de la misma transacción** (advisory lock por código) y la violación `SQLSTATE 23505` sobre `evento_atp_codigo_key` se traduce a `409 Conflict` en lugar de `500 Internal Server Error`.
 4. **Alcance territorial:** `delegacionIds` es opcional. Un arreglo vacío u omitido representa alcance comunal centralizado. Se permiten una, varias o ninguna delegación, sin duplicados.
-5. **Validación de delegaciones:** todos los UUID enviados deben existir en la tabla `delegacion`; de lo contrario se retorna `400 Bad Request` con el listado de IDs faltantes.
-6. **Vigencia:** `fechaTermino` debe ser mayor o igual a `fechaInicio`. Ambas fechas se aceptan en formato ISO-8601 o `datetime-local` y se normalizan a `Date` en la capa de servicio.
+5. **Validación de delegaciones:** todos los UUID enviados deben existir **y estar activos** (`delegacion.activo = true`) en la tabla `delegacion`; la comprobación se ejecuta dentro de la misma transacción de inserción. De lo contrario se retorna `400 Bad Request` con el listado de IDs faltantes.
+6. **Vigencia:** `fechaTermino` debe ser mayor o igual a `fechaInicio`. Ambas fechas deben cumplir el formato ISO-8601 estricto `YYYY-MM-DDTHH:mm[:ss[.sss]][Z|±HH:mm]` con **fecha calendario real** (se rechazan textos arbitrarios como `"abc 1"`, fechas sin hora como `"2026"` y fechas inexistentes como `"2026-02-30"`). Se normalizan a `Date` en la capa de servicio.
 7. **Transacción:** el evento (`evento_atp`) y sus delegaciones (`evento_atp_delegacion`) se insertan en una única transacción PostgreSQL. Si falla cualquier inserción, se revierte todo el conjunto.
 8. **Auditoría:** se registra `creado_por_id` con el UUID del usuario autenticado.
-9. **Tiempo real:** tras el commit se emite `evento_atp:creado` a las salas operativas y administrativas.
+9. **Tiempo real:** tras el commit se emite `evento_atp:creado` **exclusivamente** a las salas `sala:encargados`, `encargado`, `supervisor`, `mapa`, `admin` y `administrador` (sin broadcast global ni entregas duplicadas).
 
 ### Cabeceras Requeridas
 
@@ -999,14 +1023,14 @@ Registra el marco oficial de un **Evento de Alerta Temprana Preventiva** y su al
 
 | Campo | Tipo | Obligatorio | Reglas |
 |---|---|---|---|
-| `codigo` | `string` | No | 3–30 caracteres, solo letras, números y guiones. Si se omite, se autogenera `ATP-AAAA-####`. |
+| `codigo` | `string` | No | 3–30 caracteres, solo letras, números y guiones. Si se omite, se envía vacío o `null`, se autogenera `ATP-AAAA-####`. |
 | `nombre` | `string` | Sí | 3–150 caracteres. |
 | `descripcion` | `string` | Sí | 10–2.000 caracteres. |
 | `tipoAmenaza` | `string` | Sí | `METEOROLOGICA`, `MAREJADAS`, `REMOCION_EN_MASA`, `INUNDACION`, `INCENDIO_FORESTAL`, `SISMICA` u `OTRO`. |
 | `nivelAlerta` | `string` | Sí | `VERDE`, `AMARILLA` o `ROJA`. |
-| `fechaInicio` | `string` | Sí | Fecha/hora parseable; se recomienda ISO-8601. |
-| `fechaTermino` | `string` | Sí | Fecha/hora parseable; debe ser `>= fechaInicio`. |
-| `delegacionIds` | `string[]` | No | UUIDs de delegaciones existentes, sin duplicados. Vacío u omitido = alcance comunal. |
+| `fechaInicio` | `string` | Sí | ISO-8601 estricto `YYYY-MM-DDTHH:mm[:ss[.sss]][Z|±HH:mm]` con fecha calendario real. |
+| `fechaTermino` | `string` | Sí | Mismo formato ISO-8601 estricto; debe ser `>= fechaInicio`. |
+| `delegacionIds` | `string[]` | No | UUIDs de delegaciones existentes y activas, sin duplicados. Vacío u omitido = alcance comunal. |
 
 #### Ejemplo de Petición
 
@@ -1147,7 +1171,7 @@ Content-Type: application/json
 Al completar exitosamente la transacción, el backend emite:
 
 - **Evento:** `evento_atp:creado`
-- **Salas:** `sala:encargados`, `encargado`, `supervisor`, `mapa`, `admin`, `administrador`, además del broadcast global.
+- **Salas:** `sala:encargados`, `encargado`, `supervisor`, `mapa`, `admin` y `administrador`. La emisión se realiza en una sola llamada multi-sala, **sin broadcast global** y **sin entregas duplicadas** para los sockets que pertenecen a más de una sala.
 - **Payload:** objeto idéntico a la propiedad `data` de la respuesta `201 Created`.
 - **Propósito en Frontend (`sgrai-web`):**
   - Incorporar el nuevo evento ATP a los tableros operativos y administrativos sin recargar la página.
@@ -1173,3 +1197,321 @@ La ruta y sus esquemas quedan publicados en `GET /openapi.json`:
 - Seguridad: `security: [{ bearerAuth: [] }]`.
 - Esquemas: `CrearEventoAtpInput`, `EventoAtpResponse` y `CrearEventoAtpResponse`.
 - Respuestas documentadas: `201`, `400`, `401`, `403`, `409` y `500`.
+
+---
+
+## 12. Detalle de Endpoint: `GET /api/eventos-atp/recuperacion/{id}` (HU-32)
+
+Permite consultar la ficha completa y consolidada de un evento de recuperación comunal, incluyendo sus coordenadas geográficas, estado operativo, delegación municipal, misiones tácticas desplegadas y el historial de recursos logísticos asignados.
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `Authorization` | `string` | Sí | Token Bearer JWT (`Bearer <token>`). Requiere permiso `misiones:leer`, `recuperacion:crear` o `misiones:asignar` (Encargado, Administrador o Supervisor). |
+
+### Respuestas HTTP
+
+#### `200 OK` — Consulta Exitosa
+```json
+{
+  "message": "Detalle del evento de recuperación obtenido exitosamente.",
+  "data": {
+    "id": "70000000-0000-4000-8000-000000000001",
+    "codigo": "REC-2026-0001",
+    "nombre": "Entrega de frazadas y techumbre en Sector Collico",
+    "descripcion": "Familias afectadas por temporal de viento",
+    "sector": "Collico",
+    "direccionTexto": "Calle Balmaceda 1245 con Las Palmeras",
+    "prioridad": "ALTA",
+    "contactoNombre": "Juan Pérez (Presidente JJVV)",
+    "contactoTelefono": "+56912345678",
+    "latitud": -39.8142,
+    "longitud": -73.2459,
+    "estado": "PLANIFICADA",
+    "familiasAfectadas": 4,
+    "delegacion": {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "codigo": "DEL-SUR",
+      "nombre": "Delegación Sur"
+    },
+    "misiones": [
+      {
+        "id": "60000000-0000-4000-8000-000000000001",
+        "codigo": "MIS-2026-0045",
+        "titulo": "Despacho operativo: Entrega de frazadas",
+        "estado": "DESPACHADA",
+        "tipoMision": "RECUPERACION",
+        "patrulla": {
+          "id": "50000000-0000-4000-8000-000000000001",
+          "nombre": "Patrulla Verificadora Alfa",
+          "estado": "EN_RECUPERACION"
+        },
+        "creadoEn": "2026-10-04T12:30:00.000Z"
+      }
+    ],
+    "recursosAsignados": [
+      {
+        "id": "90000000-0000-4000-8000-000000000001",
+        "recursoId": "80000000-0000-4000-8000-000000000001",
+        "nombre": "Frazadas Térmicas",
+        "esIndividual": false,
+        "cantidadAsignada": 10,
+        "misionId": "60000000-0000-4000-8000-000000000001",
+        "creadoEn": "2026-10-04T12:30:00.000Z"
+      }
+    ],
+    "creadoPorId": "00000000-0000-4000-8000-000000000003",
+    "creadoEn": "2026-10-04T12:00:00.000Z",
+    "actualizadoEn": "2026-10-04T12:30:00.000Z"
+  }
+}
+```
+
+---
+
+## 13. Detalle de Endpoint: `POST /api/eventos-atp/recuperacion/{id}/asignar` (HU-32)
+
+Permite al **Encargado de Operaciones** asignar una patrulla verificadora disponible y materiales/herramientas del inventario logístico a un evento de recuperación previamente planificado.
+
+### Reglas de Negocio Aplicadas (§3.6 y Operaciones)
+
+1. **Permiso RBAC:** Requiere estrictamente el permiso `misiones:asignar` (asignado a los roles `Encargado de Operaciones` y `Administrador`).
+2. **Bloqueo Transaccional Concurrente (`SELECT ... FOR UPDATE`):**
+   - La API bloquea a nivel de fila todos los registros involucrados de la tabla `recurso` dentro de una transacción atómica de Kysely, impidiendo que peticiones concurrentes generen sobregiro de stock (colisiones de carrera).
+3. **Insumos a Granel (`es_individual = false`):**
+   - Se valida que exista stock disponible real: `cantidad_inventario - cantidad_en_uso >= cantidad_solicitada`.
+   - Si no alcanza, la transacción aborta inmediatamente retornando `409 Conflict`.
+   - Al confirmar, incrementa `cantidad_en_uso` en la tabla `recurso`. Si el remanente disponible llega a 0, transiciona a `NO_DISPONIBLE`; si es $\le$ `cantidad_minima`, transiciona a `BAJO_STOCK`.
+4. **Activos Individuales (`es_individual = true`, vehículos, bombas, motosierras):**
+   - La cantidad asignada debe ser exactamente 1 (`400 Bad Request` si es mayor).
+   - Se prohíbe la asignación si el activo se encuentra en estado `EN_MANTENCION`, `NO_DISPONIBLE` o `ASIGNADO` (`409 Conflict`), o si `cantidad_inventario - cantidad_en_uso < 1`.
+   - Al asignarse, incrementa `cantidad_en_uso` en 1. Si el stock disponible remanente llega a 0, transiciona a estado `ASIGNADO` o `NO_DISPONIBLE`.
+5. **Transición Táctica de Misión y Patrulla:**
+   - La patrulla verificadora seleccionada debe estar en estado `'DISPONIBLE'` (`409 Conflict` si está ocupada o no disponible).
+   - Se genera una misión táctica con `tipo_mision = 'RECUPERACION'` en estado `'DESPACHADA'` con `fecha_inicio = null` (inicia al arribar a terreno), registrando el hito inicial en `mision_hito`.
+   - La patrulla transiciona automáticamente al estado `'EN_RECUPERACION'`.
+   - El funcionario líder pasa a `usuario.estado_operativo = 'en_mision'`.
+   - Los materiales asignados se persisten en la tabla `recuperacion_recurso` vinculados a la `mision_id`.
+   - El evento de recuperación permanece en estado `PLANIFICADA` hasta que la patrulla confirme la llegada a terreno.
+6. **Sincronización en Tiempo Real:**
+   - Emite el evento WebSocket `recuperacion:actualizada` hacia las salas `"sala:encargados"`, `"encargado"` y `"mapa"`.
+   - Emite el evento WebSocket `recurso:actualizado` por cada recurso modificado en bodega hacia `"encargado"` y `"supervisor"` (payload con nomenclatura camelCase y `cantidadDisponible`).
+   - Emite el evento WebSocket `patrulla:actualizada` con el estado `EN_RECUPERACION`.
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `Authorization` | `string` | Sí | Token Bearer JWT (`Bearer <token>`). Requiere permiso `misiones:asignar`. |
+
+### Cuerpo de la Petición (Request Body JSON)
+
+```json
+{
+  "patrullaId": "50000000-0000-4000-8000-000000000001",
+  "recursos": [
+    {
+      "recursoId": "80000000-0000-4000-8000-000000000001",
+      "cantidad": 10
+    },
+    {
+      "recursoId": "80000000-0000-4000-8000-000000000002",
+      "cantidad": 1
+    }
+  ]
+}
+```
+
+### Respuestas HTTP
+
+#### `200 OK` — Asignación Exitosa y Misión Creada
+```json
+{
+  "message": "Patrulla y recursos logísticos asignados exitosamente al evento de recuperación.",
+  "data": {
+    "evento": {
+      "id": "70000000-0000-4000-8000-000000000001",
+      "codigo": "REC-2026-0001",
+      "nombre": "Entrega de frazadas y techumbre en Sector Collico",
+      "estado": "PLANIFICADA"
+    },
+    "mision": {
+      "id": "60000000-0000-4000-8000-000000000001",
+      "codigo": "MIS-2026-0045",
+      "titulo": "Despacho operativo: Entrega de frazadas y techumbre en Sector Collico",
+      "estado": "DESPACHADA",
+      "tipoMision": "RECUPERACION"
+    },
+    "patrulla": {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "nombre": "Patrulla Verificadora Alfa",
+      "estado": "EN_RECUPERACION"
+    },
+    "recursos": [
+      {
+        "recursoId": "80000000-0000-4000-8000-000000000001",
+        "nombre": "Frazadas Térmicas",
+        "esIndividual": false,
+        "cantidadAsignada": 10,
+        "cantidadEnUso": 15,
+        "estadoRecurso": "DISPONIBLE"
+      },
+      {
+        "recursoId": "80000000-0000-4000-8000-000000000002",
+        "nombre": "Camioneta 4x4 Patrulla",
+        "esIndividual": true,
+        "cantidadAsignada": 1,
+        "cantidadEnUso": 1,
+        "estadoRecurso": "ASIGNADO"
+      }
+    ],
+    "asignadoEn": "2026-10-04T12:30:00.000Z"
+  }
+}
+```
+
+#### `400 Bad Request` — Datos de Entrada Inválidos
+```json
+{
+  "message": "El activo individual o vehículo \"Camioneta 4x4 Patrulla\" solo admite una cantidad asignada de 1 unidad."
+}
+```
+
+#### `401 Unauthorized` — No Autenticado
+```json
+{
+  "message": "Se requiere cabecera de autenticación Authorization: Bearer <token>."
+}
+```
+
+#### `403 Forbidden` — Permiso Insuficiente
+```json
+{
+  "message": "No posee el permiso requerido: misiones:asignar"
+}
+```
+
+#### `404 Not Found` — Entidad No Encontrada
+```json
+{
+  "message": "El evento de recuperación indicado no fue encontrado."
+}
+```
+
+#### `409 Conflict` — Conflicto Operativo de Stock o Estado
+* **Stock insuficiente a granel (§3.6):**
+```json
+{
+  "message": "Stock insuficiente para el recurso \"Frazadas Térmicas\". Solicitado: 10, Disponible: 3."
+}
+```
+* **Activo individual en mantención o no disponible (§3.6):**
+```json
+{
+  "message": "El activo individual \"Camioneta 4x4 Patrulla\" se encuentra en mantención y no puede ser asignado."
+}
+```
+* **Patrulla no disponible:**
+```json
+{
+  "message": "La patrulla \"Patrulla Verificadora Alfa\" no está disponible para asignación (estado actual: EN_VERIFICACION)."
+}
+```
+
+
+---
+
+## 12. Detalle de Endpoints de Vinculación (H60)
+
+### `POST /api/eventos-atp/{id}/vinculos`
+
+Vincula en lote una o más entidades al Evento ATP indicado. Si una entidad ya pertenecía a otro Evento ATP, se reasigna y se informa en `reasignadas`.
+
+**Permiso:** `eventos_atp:vincular`.
+
+**Cuerpo de la petición:**
+
+```json
+{
+  "incidenteIds": ["a0000000-0000-4000-8000-000000000001"],
+  "eventoPrevencionIds": [],
+  "recuperacionIds": [],
+  "eventoAsistenciaSocialIds": []
+}
+```
+
+Al menos uno de los cuatro arreglos debe contener identificadores. Cada arreglo admite hasta 200 UUIDs.
+
+**Respuesta `200 OK`:**
+
+```json
+{
+  "message": "Entidades vinculadas al Evento ATP exitosamente.",
+  "data": {
+    "eventoAtpId": "50000000-0000-4000-8000-000000000001",
+    "accion": "VINCULADO",
+    "entidades": {
+      "incidentes": [
+        {
+          "tipo": "INCIDENTE",
+          "id": "a0000000-0000-4000-8000-000000000001",
+          "codigo": "INC-2026-0001",
+          "nombre": "Inundación",
+          "eventoAtpIdAnterior": null
+        }
+      ],
+      "eventosPrevencion": [],
+      "recuperaciones": [],
+      "eventosAsistenciaSocial": []
+    },
+    "reasignadas": [],
+    "noEncontradas": [
+      {
+        "tipo": "EVENTO_PREVENCION",
+        "id": "99999999-9999-4999-8999-999999999991"
+      }
+    ],
+    "noDesvinculadas": [],
+    "vinculadoPorId": "00000000-0000-4000-8000-000000000003",
+    "ocurridoEn": "2026-11-26T12:00:00.000Z"
+  }
+}
+```
+
+**Errores esperados:**
+
+| Código | Causa |
+|---|---|
+| `400` | UUID inválido, cuerpo JSON inválido, sin entidades o más de 200 identificadores por grupo. La respuesta incluye `{ message, errors: [{ campo, mensaje }] }`. |
+| `401` | Sin autenticación. |
+| `403` | El usuario no posee `eventos_atp:vincular`; el mensaje cita el permiso. |
+| `404` | El Evento ATP indicado no existe. |
+| `409` | El Evento ATP está `FINALIZADO` o `CANCELADO` y no admite nuevas vinculaciones. |
+
+### `DELETE /api/eventos-atp/{id}/vinculos`
+
+Establece `evento_atp_id = NULL` en las entidades indicadas que pertenezcan al Evento ATP. Las entidades vinculadas a otro evento se informan en `noDesvinculadas` y no se modifican.
+
+**Permiso:** `eventos_atp:vincular`.
+
+La estructura del cuerpo y de la respuesta es la misma que en `POST`, con `accion: "DESVINCULADO"` y `reasignadas: []`. La desvinculación se permite incluso si el Evento ATP está `FINALIZADO`, para corregir asociaciones históricas.
+
+Solamente se emite `evento_atp:vinculado` cuando al menos una fila fue modificada.
+
+### `GET /api/eventos-atp` y `GET /api/eventos-atp/{id}`
+
+- El listado admite `estado`, `delegacionId`, `busqueda`, `page` y `limit`. Cada elemento incluye `totalVinculados`, calculado con una consulta agrupada por tabla para evitar N+1.
+- El detalle devuelve `vinculos` agrupados en `incidentes`, `eventosPrevencion`, `recuperaciones` y `eventosAsistenciaSocial`, además de `totalVinculados`.
+- Ambos endpoints aceptan `eventos_atp:vincular` o un permiso de consulta del módulo.
+
+---
+
+## 13. Filtros por Evento ATP en Prevención y Recuperación (H60)
+
+| Endpoint | Parámetros | Respuesta |
+|---|---|---|
+| `GET /api/eventos-atp/prevencion` | `eventoAtpId`, `estado`, `delegacionId`, `pagina`, `limite` | Listado paginado con `eventoAtpId` por fila. |
+| `GET /api/eventos-atp/recuperacion` | `eventoAtpId`, `estado`, `delegacionId`, `pagina`, `limite` | Listado de operativos con sus misiones, patrulla, recursos y `eventoAtpId`. |
+
+El filtro `eventoAtpId` se combina con el resto de criterios mediante `AND`. Si no se envía, se retornan todos los registros permitidos por el rol.

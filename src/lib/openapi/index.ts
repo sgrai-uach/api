@@ -50,6 +50,8 @@ import {
   DetalleCuadrillaResponseSchema,
   CuadrillaIdParamSchema,
   DesactivarCuadrillaResponseSchema,
+  MisionActivaCuadrillaSchema,
+  MisionActivaIncidenteSchema,
 } from "@/modules/recursos-y-personal/cuadrilla.schema";
 
 import {
@@ -70,7 +72,16 @@ import {
 import {
   CrearMisionVerificacionSchema,
   CrearMisionResponseSchema,
+  RechazarMisionBodySchema,
+  RechazarMisionResponseSchema,
 } from "@/modules/misiones/mision.schema";
+
+import {
+  NotificacionIdParamSchema,
+  ActualizarEstadoNotificacionInputSchema,
+  ActualizarEstadoNotificacionResponseSchema,
+  ListarMisionesPendientesResponseSchema,
+} from "@/modules/misiones/notificacion-mision.schema";
 
 import {
   CrearAvisoIncidenteInputSchema,
@@ -88,6 +99,26 @@ import {
   IncidenteDetalleResponseSchema,
   ListarIncidentesQuerySchema,
 } from "@/modules/incidentes/incidente-kanban.schema";
+
+import {
+  TipoIncidenteCatalogoItemSchema,
+  ListarTiposIncidenteResponseSchema,
+  ReclasificarTipologiaInputSchema,
+  ReclasificarTipologiaResponseSchema,
+  IncidenteReclasificadoResumenSchema,
+  MisionHitoTipologiaSchema,
+} from "@/modules/incidentes/tipologia.schema";
+
+import {
+  EvaluacionTerrenoInputSchema,
+  CalcularPrioridadInputSchema,
+  CalcularPrioridadResponseSchema,
+  ActualizarPrioridadIncidenteInputSchema,
+  ActualizarPrioridadIncidenteResponseSchema,
+  ReporteEvaluacionTerrenoItemSchema,
+  IncidentePrioridadActualizadaResumenSchema,
+  MisionHitoPrioridadSchema,
+} from "@/modules/incidentes/prioridad.schema";
 
 import {
   IncidentesKpisQuerySchema,
@@ -134,14 +165,26 @@ import {
 import {
   CrearEventoRecuperacionInputSchema,
   CrearEventoRecuperacionResponseSchema,
+  ListarEventosRecuperacionResponseSchema,
   EventoRecuperacionResponseSchema,
+  AsignarRecursosRecuperacionInputSchema,
+  AsignarRecursosRecuperacionResponseSchema,
+  RecuperacionDetalleResponseSchema,
+  RecuperacionIdParamSchema,
   ListarRecuperacionesQuerySchema,
-  ListarRecuperacionesResponseSchema,
 } from "@/modules/eventos-atp/recuperacion.schema";
 
 import {
   MisionDetalleResponseSchema,
   MisionIdParamSchema,
+  AceptarMisionInputSchema,
+  MisionHitoRegistradoSchema,
+  AceptarMisionResponseSchema,
+  AsignarCuadrillaMisionInputSchema,
+  AsignarCuadrillaMisionResponseSchema,
+  AdjuntoReporteInputSchema,
+  CrearReporteVerificacionInputSchema,
+  EnviarReporteVerificacionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -174,6 +217,13 @@ extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
 
+registry.registerComponent("securitySchemes", "BearerAuth", {
+  type: "http",
+  scheme: "bearer",
+  bearerFormat: "JWT",
+  description: "Token JWT en cabecera Authorization: Bearer <token>",
+});
+
 // Registrar esquemas de Recursos y Personal
 registry.register("CrearRecursoInput", CrearRecursoInputSchema);
 registry.register("ActualizarRecursoInput", ActualizarRecursoInputSchema);
@@ -195,13 +245,16 @@ registry.register("MisionItem", MisionItemSchema);
 registry.register("DetalleEmpleadoResponse", DetalleEmpleadoResponseSchema);
 registry.register("EliminarEmpleadoResponse", EliminarEmpleadoResponseSchema);
 
-// Registrar esquemas de Cuadrillas Operativas (H79 / H81)
+// Registrar esquemas de Cuadrillas Operativas (H80 / H79 / H81)
 registry.register("CrearCuadrillaInput", CrearCuadrillaInputSchema);
 registry.register("CrearCuadrillaResponse", CrearCuadrillaResponseSchema);
 registry.register("EditarCuadrillaInput", EditarCuadrillaInputSchema);
 registry.register("EditarCuadrillaResponse", EditarCuadrillaResponseSchema);
 registry.register("DetalleCuadrillaResponse", DetalleCuadrillaResponseSchema);
+registry.register("ListarCuadrillasQuery", ListarCuadrillasQuerySchema);
 registry.register("ListarCuadrillasResponse", ListarCuadrillasResponseSchema);
+registry.register("MisionActivaIncidente", MisionActivaIncidenteSchema);
+registry.register("MisionActivaCuadrilla", MisionActivaCuadrillaSchema);
 
 
 // Registrar esquemas de Seguridad
@@ -234,6 +287,17 @@ registry.register("VerificarDuplicadoInput", VerificarDuplicadoInputSchema);
 registry.register("VerificarDuplicadoResponse", VerificarDuplicadoResponseSchema);
 registry.register("IncidenteResponse", IncidenteResponseSchema);
 registry.register("IncidentesKpisResponse", IncidentesKpisResponseSchema);
+registry.register("EvaluacionTerrenoInput", EvaluacionTerrenoInputSchema);
+registry.register("CalcularPrioridadInput", CalcularPrioridadInputSchema);
+registry.register("CalcularPrioridadResponse", CalcularPrioridadResponseSchema);
+registry.register("ActualizarPrioridadIncidenteInput", ActualizarPrioridadIncidenteInputSchema);
+registry.register("ActualizarPrioridadIncidenteResponse", ActualizarPrioridadIncidenteResponseSchema);
+registry.register("ReporteEvaluacionTerrenoItem", ReporteEvaluacionTerrenoItemSchema);
+registry.register("IncidentePrioridadActualizadaResumen", IncidentePrioridadActualizadaResumenSchema);
+registry.register("MisionHitoPrioridad", MisionHitoPrioridadSchema);
+registry.register("AdjuntoReporteInput", AdjuntoReporteInputSchema);
+registry.register("CrearReporteVerificacionInput", CrearReporteVerificacionInputSchema);
+registry.register("EnviarReporteVerificacionResponse", EnviarReporteVerificacionResponseSchema);
 
 // Registrar esquemas de Eventos ATP (Puntos Críticos y Asistencia Social)
 registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
@@ -248,13 +312,37 @@ registry.register("ListarEventosAsistenciaSocialResponse", ListarEventosAsistenc
 registry.register("CrearEventoAtpInput", CrearEventoAtpInputSchema);
 registry.register("EventoAtpResponse", EventoAtpResponseSchema);
 registry.register("CrearEventoAtpResponse", CrearEventoAtpResponseSchema);
-registry.register("ListarEventosAtpQuery", ListarEventosAtpQuerySchema);
-registry.register("ListarEventosAtpResponse", ListarEventosAtpResponseSchema);
-registry.register("ObtenerEventoAtpResponse", ObtenerEventoAtpResponseSchema);
-registry.register("VincularEntidadesInput", VincularEntidadesInputSchema);
-registry.register("VincularEntidadesResponse", VincularEntidadesResponseSchema);
-registry.register("ListarEventosPrevencionResponse", ListarEventosPrevencionResponseSchema);
-registry.register("ListarRecuperacionesResponse", ListarRecuperacionesResponseSchema);
+
+// Registrar esquemas de Misiones (HU-20 / HU-21)
+registry.register("CrearMisionVerificacionInput", CrearMisionVerificacionSchema);
+registry.register("CrearMisionResponse", CrearMisionResponseSchema);
+registry.register("AsignarCuadrillaMisionInput", AsignarCuadrillaMisionInputSchema);
+registry.register("AsignarCuadrillaMisionResponse", AsignarCuadrillaMisionResponseSchema);
+
+// ==========================================
+// RUTAS SISTEMA / SALUD
+// ==========================================
+
+registry.registerPath({
+  method: "get",
+  path: "/api/health",
+  summary: "Verificar estado operativo de la API",
+  description: "Endpoint de health check para monitoreo de disponibilidad y liveness probe.",
+  tags: ["Sistema"],
+  responses: {
+    200: {
+      description: "Servicio operativo",
+      content: {
+        "application/json": {
+          schema: z.object({
+            status: z.string().openapi({ example: "ok" }),
+            timestamp: z.string().datetime(),
+          }),
+        },
+      },
+    },
+  },
+});
 
 // ==========================================
 // RUTAS RECURSOS Y PERSONAL
@@ -267,10 +355,8 @@ registry.registerPath({
   description: "Crear un nuevo recurso en el inventario logístico del SGRAI.",
   summary: "Crear recurso",
   tags: ["Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
   request: {
-    headers: z.object({
-      "x-user-id": z.string().uuid().describe("ID del usuario administrador autenticado"),
-    }),
     body: {
       description: "Datos del nuevo recurso a registrar",
       content: {
@@ -293,7 +379,7 @@ registry.registerPath({
       },
     },
     400: { description: "Datos de entrada inválidos" },
-    401: { description: "No autenticado / cabecera X-User-Id ausente" },
+    401: { description: "No autenticado / token Bearer ausente o inválido" },
     403: { description: "No cuenta con el permiso requerido: recursos:crear" },
     500: { description: "Error interno del servidor" },
   },
@@ -436,11 +522,7 @@ registry.registerPath({
   description:
     "Retorna el listado completo de perfiles/roles registrados con sus respectivos permisos asignados y metadatos de auditoría.",
   tags: ["Seguridad / Roles y Permisos"],
-  request: {
-    headers: z.object({
-      "x-user-id": z.string().uuid().describe("UUID del usuario administrador autenticado"),
-    }),
-  },
+  security: [{ BearerAuth: [] }],
   responses: {
     200: {
       description: "Listado completo de roles y permisos",
@@ -450,7 +532,7 @@ registry.registerPath({
         },
       },
     },
-    401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
+    401: { description: "Token de autenticación Bearer ausente o inválido" },
     403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
   },
 });
@@ -463,12 +545,10 @@ registry.registerPath({
   description:
     "Despliega claramente los permisos, módulos y acciones a los que tiene acceso un perfil específico.",
   tags: ["Seguridad / Roles y Permisos"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: z.string().uuid().describe("UUID del rol/perfil a consultar"),
-    }),
-    headers: z.object({
-      "x-user-id": z.string().uuid().describe("UUID del usuario administrador autenticado"),
     }),
   },
   responses: {
@@ -481,7 +561,7 @@ registry.registerPath({
       },
     },
     400: { description: "Identificador de rol no válido (debe ser UUID)" },
-    401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
+    401: { description: "Token de autenticación Bearer ausente o inválido" },
     403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
     404: { description: "Perfil no encontrado" },
   },
@@ -495,11 +575,7 @@ registry.registerPath({
   description:
     "Retorna el catálogo completo de permisos registrados en la base de datos clasificados por módulo funcional.",
   tags: ["Seguridad / Roles y Permisos"],
-  request: {
-    headers: z.object({
-      "x-user-id": z.string().uuid().describe("UUID del usuario administrador autenticado"),
-    }),
-  },
+  security: [{ BearerAuth: [] }],
   responses: {
     200: {
       description: "Catálogo completo de permisos clasificados por módulo",
@@ -509,7 +585,7 @@ registry.registerPath({
         },
       },
     },
-    401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
+    401: { description: "Token de autenticación Bearer ausente o inválido" },
     403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
   },
 });
@@ -522,12 +598,10 @@ registry.registerPath({
   description:
     "Actualiza masiva y atómicamente los permisos asignados a un rol institucional específico mediante una lista de UUIDs.",
   tags: ["Seguridad / Roles y Permisos"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: z.string().uuid().describe("UUID del rol/perfil a actualizar"),
-    }),
-    headers: z.object({
-      "x-user-id": z.string().uuid().describe("UUID del usuario administrador autenticado"),
     }),
     body: {
       description: "Lista de identificadores de permisos a asociar al perfil",
@@ -551,7 +625,7 @@ registry.registerPath({
       description:
         "Identificador de rol no válido (debe ser UUID), payload inválido, permisos inexistentes o intento de revocar permiso crítico al Administrador",
     },
-    401: { description: "Cabecera de autenticación X-User-Id ausente o usuario no válido" },
+    401: { description: "Token de autenticación Bearer ausente o inválido" },
     403: { description: "Acceso denegado. Se requiere perfil de Administrador" },
     404: { description: "Perfil no encontrado" },
   },
@@ -565,11 +639,7 @@ registry.registerPath({
   description:
     "Retorna los datos del usuario en sesión, su rol y la lista de todos los códigos de permisos asignados dinámicamente en tiempo real.",
   tags: ["Seguridad / Roles y Permisos"],
-  request: {
-    headers: z.object({
-      "x-user-id": z.string().uuid().describe("UUID del usuario autenticado"),
-    }),
-  },
+  security: [{ BearerAuth: [] }],
   responses: {
     200: {
       description: "Datos del usuario activo y sus permisos dinámicos obtenidos exitosamente",
@@ -579,7 +649,7 @@ registry.registerPath({
         },
       },
     },
-    401: { description: "Cabecera de autenticación ausente o usuario no registrado" },
+    401: { description: "Token de autenticación Bearer ausente o usuario no registrado" },
     403: { description: "Acceso denegado o usuario inactivo en el sistema" },
     500: { description: "Error interno del servidor" },
   },
@@ -771,10 +841,8 @@ registry.registerPath({
     "Permite a operadores de Call Center y funcionarios ingresar un incidente directamente en estado REPORTADO con autoverificación implícita.",
   summary: "Ingreso manual de incidente (Call Center / Terreno)",
   tags: ["Incidentes"],
+  security: [{ BearerAuth: [] }],
   request: {
-    headers: z.object({
-      "x-user-id": z.string().uuid().describe("UUID del operador autenticado"),
-    }),
     body: {
       description: "Datos del incidente ingresado manualmente",
       content: {
@@ -794,7 +862,7 @@ registry.registerPath({
       },
     },
     400: { description: "Datos de entrada inválidos" },
-    401: { description: "No autenticado / cabecera X-User-Id ausente" },
+    401: { description: "No autenticado / token Bearer ausente o inválido" },
     403: { description: "No cuenta con el permiso requerido: crear_incidente_manual" },
     409: { description: "Conflicto por duplicados cercanos" },
     500: { description: "Error interno del servidor" },
@@ -809,10 +877,8 @@ registry.registerPath({
     "Permite al Call Center consultar incidentes cercanos activos en un radio espacial para alertar visualmente antes de enviar el formulario.",
   summary: "Consultar duplicados para ingreso manual",
   tags: ["Incidentes"],
+  security: [{ BearerAuth: [] }],
   request: {
-    headers: z.object({
-      "x-user-id": z.string().uuid().describe("UUID del operador autenticado"),
-    }),
     body: {
       description: "Parámetros de búsqueda espacial de incidentes cercanos",
       content: {
@@ -832,7 +898,7 @@ registry.registerPath({
       },
     },
     400: { description: "Datos de entrada inválidos" },
-    401: { description: "No autenticado / cabecera X-User-Id ausente" },
+    401: { description: "No autenticado / token Bearer ausente o inválido" },
     403: { description: "No cuenta con el permiso requerido: crear_incidente_manual" },
     500: { description: "Error interno del servidor" },
   },
@@ -870,25 +936,44 @@ registry.registerPath({
 });
 
 // 13. GET /api/incidentes/tipos
+registry.register("TipoIncidenteCatalogoItem", TipoIncidenteCatalogoItemSchema);
+registry.register("ListarTiposIncidenteResponse", ListarTiposIncidenteResponseSchema);
+
 registry.registerPath({
   method: "get",
   path: "/api/incidentes/tipos",
   description:
-    "Retorna el listado de opciones de afectación válidas para poblar los botones de respuesta rápida en el chatbot.",
+    "Retorna el listado de opciones de afectación válidas para poblar los botones de respuesta rápida en el chatbot, o el catálogo detallado de la tabla tipo_incidente si se envía ?catalogo=true o ?detallado=true.",
   summary: "Obtener catálogo de tipos de afectación",
   tags: ["Incidentes"],
+  request: {
+    query: z.object({
+      catalogo: z
+        .enum(["true", "false"])
+        .optional()
+        .describe("Si es 'true', retorna los registros completos de la tabla tipo_incidente"),
+      detallado: z
+        .enum(["true", "false"])
+        .optional()
+        .describe("Alias de catalogo=true; retorna los registros completos de tipo_incidente"),
+    }),
+  },
   responses: {
     200: {
-      description: "Listado de tipos de afectación",
+      description: "Listado de tipos de afectación o catálogo detallado de tipos de incidente",
       content: {
         "application/json": {
-          schema: z.object({
-            message: z.string(),
-            data: z.array(z.string()),
-          }),
+          schema: z.union([
+            z.object({
+              message: z.string(),
+              data: z.array(z.string()),
+            }),
+            ListarTiposIncidenteResponseSchema,
+          ]),
         },
       },
     },
+    500: { description: "Error interno del servidor" },
   },
 });
 
@@ -900,10 +985,8 @@ registry.registerPath({
     "Retorna el listado paginado de incidentes registrados en el SGRAI con filtros opcionales para el tablero Kanban del Encargado.",
   summary: "Listar incidentes para tablero Kanban (Encargado)",
   tags: ["Incidentes"],
+  security: [{ BearerAuth: [] }],
   request: {
-    headers: z.object({
-      "x-user-id": z.string().uuid().describe("ID del usuario Encargado o Administrador autenticado"),
-    }),
     query: ListarIncidentesQuerySchema,
   },
   responses: {
@@ -916,7 +999,7 @@ registry.registerPath({
       },
     },
     400: { description: "Parámetros de consulta no válidos" },
-    401: { description: "No autenticado / cabecera X-User-Id ausente o inválida" },
+    401: { description: "No autenticado / token Bearer ausente o inválido" },
     403: { description: "No cuenta con el permiso requerido: incidentes:kanban" },
     500: { description: "Error interno del servidor" },
   },
@@ -930,10 +1013,8 @@ registry.registerPath({
     "Obtiene la información exhaustiva de un incidente específico, incluyendo informante, delegación, misiones operativas y recursos asociados.",
   summary: "Consultar detalle completo de un incidente",
   tags: ["Incidentes"],
+  security: [{ BearerAuth: [] }],
   request: {
-    headers: z.object({
-      "x-user-id": z.string().uuid().describe("ID del usuario Encargado o Administrador autenticado"),
-    }),
     params: z.object({
       id: z.string().uuid().describe("Identificador UUID del incidente"),
     }),
@@ -951,6 +1032,51 @@ registry.registerPath({
     401: { description: "No autenticado" },
     403: { description: "No autorizado / falta permiso incidentes:kanban" },
     404: { description: "Incidente no encontrado" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 15b. PATCH /api/incidentes/{id}/tipologia (HU-37: Reclasificación tipológica en terreno)
+registry.register("ReclasificarTipologiaInput", ReclasificarTipologiaInputSchema);
+registry.register("IncidenteReclasificadoResumen", IncidenteReclasificadoResumenSchema);
+registry.register("MisionHitoTipologia", MisionHitoTipologiaSchema);
+registry.register("ReclasificarTipologiaResponse", ReclasificarTipologiaResponseSchema);
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/incidentes/{id}/tipologia",
+  summary: "Reclasificar tipología de incidente en terreno (HU-37)",
+  description:
+    "Permite a la patrulla verificadora reclasificar técnicamente la tipología del incidente tras la evaluación presencial en terreno, corrigiendo tipificaciones ciudadanas inexactas. Requiere que la misión asignada haya sido aceptada previamente (estado EN_CURSO) y justificación obligatoria del cambio. Actualiza atómicamente incidente.tipo_incidente_id y sincroniza incidente.tipo_afectacion, registra el hito en mision_hito ('Tipología reclasificada en terreno a: [Nombre del Tipo]. Justificación: [Motivo]') y emite el evento WebSocket 'incidente:actualizado' a la sala 'sala:encargados'. Requiere el permiso RBAC 'misiones:terreno:verificar'.",
+  tags: ["Incidentes"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("Identificador UUID del incidente"),
+    }),
+    body: {
+      description: "Datos requeridos para la reclasificación: nuevo tipo de incidente y justificación técnica",
+      content: {
+        "application/json": {
+          schema: ReclasificarTipologiaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Tipología del incidente reclasificada exitosamente en terreno",
+      content: {
+        "application/json": {
+          schema: ReclasificarTipologiaResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada inválidos o tipo de incidente inactivo" },
+    401: { description: "No autenticado" },
+    403: { description: "No autorizado / falta permiso misiones:terreno:verificar o pertenece a otra patrulla" },
+    404: { description: "Incidente, tipo de incidente o misión no encontrados" },
+    409: { description: "Conflicto: la misión no ha sido aceptada todavía (debe encontrarse en estado EN_CURSO)" },
     500: { description: "Error interno del servidor" },
   },
 });
@@ -1284,6 +1410,70 @@ registry.registerPath({
   },
 });
 
+// POST /api/misiones (HU-20: Patrulla Verificadora | HU-21: Cuadrilla Operativa y liberación de patrulla)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones",
+  summary: "Despachar misión operativa a patrulla verificadora (HU-20) o cuadrilla operativa (HU-21)",
+  description:
+    "Crea y despacha una misión en estado DESPACHADA. Si recibe `patrullaId` (HU-20), despacha una patrulla verificadora disponible sobre un incidente REPORTADO (cambiando el incidente a VERIFICANDO y la patrulla a EN_VERIFICACION). Si recibe `cuadrillaId` o `tipoMision: 'ATENCION_CUADRILLA'` (HU-21), despacha una cuadrilla disponible cambiando el incidente a EN_ATENCION y aplicando la Regla §3.2 ICS para concluir la verificación previa y liberar la patrulla a DISPONIBLE.",
+  tags: ["Misiones"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .describe("UUID del usuario autenticado con permiso misiones:asignar (entorno pruebas)"),
+    }),
+    body: {
+      required: true,
+      content: {
+        "application/json": {
+          schema: z.union([CrearMisionVerificacionSchema, AsignarCuadrillaMisionInputSchema]),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Misión despachada exitosamente (verificación por patrulla o atención por cuadrilla)",
+      content: {
+        "application/json": {
+          schema: z.union([CrearMisionResponseSchema, AsignarCuadrillaMisionResponseSchema]),
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada inválidos o formato JSON malformado",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
+    },
+    401: {
+      description: "No autenticado / token ausente o inválido",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
+    },
+    403: {
+      description: "Permisos insuficientes (requiere misiones:asignar)",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
+    },
+    404: {
+      description: "Incidente, patrulla o cuadrilla no encontrados",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
+    },
+    409: {
+      description:
+        "Conflicto: la patrulla o cuadrilla no está disponible o el incidente no se encuentra en estado compatible",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
+    },
+    500: {
+      description: "Error interno del servidor al procesar la misión",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
+    },
+  },
+});
+
 // 21. DELETE /api/recursos/{id} (HU-9)
 registry.registerPath({
   method: "delete",
@@ -1333,6 +1523,65 @@ registry.registerPath({
 });
 
 // 22. GET /api/misiones/{id} (HU-17: Detalle Completo de Misión)
+registry.register("RechazarMisionBody", RechazarMisionBodySchema);
+registry.register("RechazarMisionResponse", RechazarMisionResponseSchema);
+registry.register("AceptarMisionInput", AceptarMisionInputSchema);
+registry.register("MisionHitoRegistrado", MisionHitoRegistradoSchema);
+registry.register("AceptarMisionResponse", AceptarMisionResponseSchema);
+
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/aceptar",
+  summary: "Confirmar y aceptar misión asignada desde terreno (HU-36)",
+  description:
+    "Permite a la patrulla verificadora confirmar y aceptar la misión asignada desde su dispositivo móvil (PWA). Ejecuta una transición atómica actualizando mision.estado de DESPACHADA a EN_CURSO, fijando mision.fecha_inicio = CURRENT_TIMESTAMP y registrando el hito 'Misión Aceptada por Patrulla' (código 'MISION_ACEPTADA') en mision_hito. Mantiene patrulla_verificadora.estado en EN_VERIFICACION e incidente.estado en VERIFICANDO, y emite el evento WebSocket 'mision:actualizada' hacia la sala 'encargado'. Requiere el permiso RBAC 'misiones:terreno:verificar'.",
+  tags: ["Misiones"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión de la patrulla verificadora"),
+      "x-user-id": z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({ description: "UUID del usuario autenticado con permiso misiones:terreno:verificar" }),
+    }),
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      required: false,
+      description: "Coordenadas GPS opcionales al momento de confirmar la salida en la PWA",
+      content: {
+        "application/json": {
+          schema: AceptarMisionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Misión aceptada exitosamente y hito registrado en bitácora",
+      content: {
+        "application/json": {
+          schema: AceptarMisionResponseSchema,
+        },
+      },
+    },
+    400: { description: "El identificador de la misión no es un UUID válido o las coordenadas son inválidas" },
+    401: { description: "No autenticado o token de sesión inválido/expirado" },
+    403: {
+      description:
+        "Acceso denegado. Se requiere el permiso 'misiones:terreno:verificar' y pertenecer a la patrulla asignada",
+    },
+    404: { description: "No se encontró ninguna misión con el identificador proporcionado" },
+    409: {
+      description:
+        "Conflicto de estado: la misión no se encuentra en estado 'DESPACHADA' (ej. ya fue aceptada o cancelada)",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
 registry.registerPath({
   method: "get",
   path: "/api/misiones/{id}",
@@ -1340,6 +1589,7 @@ registry.registerPath({
     "Obtiene la información exhaustiva de una misión operativa específica, incluyendo el incidente asociado o punto de prevención, la cuadrilla o patrulla asignada con sus recursos, la bitácora de tiempos y los reportes de terreno levantados con su evidencia multimedia.",
   summary: "Consultar detalle completo de una misión operativa",
   tags: ["Misiones"],
+  security: [{ BearerAuth: [] }],
   request: {
     headers: z.object({
       authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
@@ -1363,8 +1613,11 @@ registry.registerPath({
       },
     },
     400: { description: "El identificador de la misión proporcionado no es un UUID válido" },
-    401: { description: "No autenticado / cabecera X-User-Id ausente o inválida" },
-    403: { description: "No cuenta con el permiso requerido: misiones:leer" },
+    401: { description: "No autenticado / cabecera Authorization ausente o inválida" },
+    403: {
+      description:
+        "No cuenta con ninguno de los permisos requeridos: misiones:leer, misiones:terreno:verificar o reportes:crear",
+    },
     404: { description: "Misión no encontrada" },
     500: { description: "Error interno del servidor" },
   },
@@ -1670,6 +1923,45 @@ registry.registerPath({
 registry.register("CrearEventoRecuperacionInput", CrearEventoRecuperacionInputSchema);
 registry.register("EventoRecuperacion", EventoRecuperacionResponseSchema);
 registry.register("CrearEventoRecuperacionResponse", CrearEventoRecuperacionResponseSchema);
+registry.register("ListarEventosRecuperacionResponse", ListarEventosRecuperacionResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion",
+  summary: "Listar eventos de recuperación territorial para el mapa operativo",
+  description:
+    "Consulta todos los eventos de recuperación comunales registrados con sus misiones tácticas desplegadas, patrullas asignadas y recursos para su renderizado táctico georreferenciado en el mapa operativo. Admite filtros opcionales por Evento ATP, estado y delegación (H60).",
+  tags: ["Eventos ATP / Recuperación"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    headers: z.object({
+      authorization: z.string().openapi({
+        description: "Token JWT en formato 'Bearer <token>'",
+        example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      }),
+    }),
+    query: ListarRecuperacionesQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado de eventos de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarEventosRecuperacionResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:leer', 'recuperacion:crear' o 'misiones:asignar'",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
 
 registry.registerPath({
   method: "post",
@@ -1721,6 +2013,78 @@ registry.registerPath({
     500: {
       description: "Error interno del servidor",
     },
+  },
+});
+
+// 27. GET /api/eventos-atp/recuperacion/{id} (HU-32)
+registry.register("RecuperacionDetalleResponse", RecuperacionDetalleResponseSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion/{id}",
+  summary: "Obtener detalle completo de un evento de recuperación comunal (HU-32)",
+  description:
+    "Permite consultar la información integral de un evento de recuperación territorial, incluyendo su localización, misiones tácticas desplegadas y el listado de insumos y recursos asignados.",
+  tags: ["Eventos ATP / Recuperación"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: RecuperacionIdParamSchema,
+  },
+  responses: {
+    200: {
+      description: "Detalle del evento de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: RecuperacionDetalleResponseSchema,
+        },
+      },
+    },
+    400: { description: "Identificador de evento inválido" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado" },
+    404: { description: "Evento de recuperación no encontrado" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// 28. POST /api/eventos-atp/recuperacion/{id}/asignar (HU-32)
+registry.register("AsignarRecursosRecuperacionInput", AsignarRecursosRecuperacionInputSchema);
+registry.register("AsignarRecursosRecuperacionResponse", AsignarRecursosRecuperacionResponseSchema);
+
+registry.registerPath({
+  method: "post",
+  path: "/api/eventos-atp/recuperacion/{id}/asignar",
+  summary: "Asignar patrulla y recursos logísticos a evento de recuperación (HU-32)",
+  description:
+    "Permite al Encargado asignar una patrulla verificadora disponible y recursos de bodega con control transaccional estricto FOR UPDATE (§3.6), creando una misión táctica de recuperación y transicionando la patrulla a EN_RECUPERACION.",
+  tags: ["Eventos ATP / Recuperación"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: RecuperacionIdParamSchema,
+    body: {
+      description: "Patrulla verificadora a despachar y listado de recursos logísticos solicitados",
+      content: {
+        "application/json": {
+          schema: AsignarRecursosRecuperacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Patrulla y recursos logísticos asignados exitosamente al evento de recuperación",
+      content: {
+        "application/json": {
+          schema: AsignarRecursosRecuperacionResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada inválidos o activo individual con cantidad distinta de 1" },
+    401: { description: "No autenticado" },
+    403: { description: "Acceso denegado. Se requiere permiso 'misiones:asignar'" },
+    404: { description: "Evento de recuperación, patrulla o recurso no encontrado" },
+    409: { description: "Conflicto operativo: Patrulla no disponible, activo individual en mantención/asignado, o sobregiro de stock a granel" },
+    500: { description: "Error interno del servidor" },
   },
 });
 
@@ -1810,6 +2174,11 @@ registry.registerPath({
     400: { description: "Datos de entrada inválidos o campos obligatorios faltantes" },
     401: { description: "No autenticado" },
     403: { description: "Acceso denegado. Se requiere permiso 'asistencia_social:crear'" },
+    404: { description: "El Evento ATP indicado no existe" },
+    409: {
+      description:
+        "El Evento ATP indicado no está ACTIVO y no admite nuevas vinculaciones",
+    },
     500: { description: "Error interno del servidor" },
   },
 });
@@ -1829,7 +2198,7 @@ registry.registerPath({
   description:
     "Registra un nuevo evento preventivo georreferenciado sobre un punto crítico o coordenadas libres en una delegación de Valdivia, asigna recursos opcionales del inventario, despacha una misión operativa a una patrulla verificadora disponible (actualizando su estado a EN_PREVENCION) y emite notificaciones WebSocket en tiempo real.",
   tags: ["Eventos ATP"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     body: {
       content: {
@@ -1888,7 +2257,7 @@ registry.registerPath({
   description:
     "Registra una nueva patrulla verificadora en estado inicial canónico DISPONIBLE, validando la unicidad del código identificador, la existencia de la delegación base, la disponibilidad del vehículo institucional individual asignado y la adscripción de dotación de personal con rol PATRULLA_VERIFICADORA. Emite el evento en tiempo real 'patrulla:creada' para el Centro de Mando.",
   tags: ["Recursos y Personal"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     body: {
       content: {
@@ -1935,7 +2304,7 @@ registry.registerPath({
   description:
     "Retorna la dotación de patrullas verificadoras de terreno con su estado operativo en tiempo real, funcionario líder, funcionarios de terreno (integrantes), delegación adscrita y misión/incidente activo si se encuentra en terreno. Admite filtros por delegacionId, estado y búsqueda textual.",
   tags: ["Recursos y Personal"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     query: ListarPatrullasQuerySchema,
   },
@@ -1970,7 +2339,7 @@ registry.registerPath({
   description:
     "Obtiene la ficha exhaustiva de una patrulla verificadora incluyendo su dotación de personal de terreno, líder asignado, misión activa y coordenadas.",
   tags: ["Recursos y Personal"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: PatrullaIdParamSchema,
@@ -2010,7 +2379,54 @@ registry.registerPath({
   description:
     "Modifica el estado operativo canónico (DISPONIBLE, EN_VERIFICACION, EN_PREVENCION, EN_RECUPERACION, EN_MISION, NO_DISPONIBLE) y/o las coordenadas de la patrulla, notificando en tiempo real a las salas WebSocket 'encargado' y 'supervisor'.",
   tags: ["Recursos y Personal"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: PatrullaIdParamSchema,
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: ActualizarEstadoPatrullaInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Estado de la patrulla actualizado exitosamente",
+      content: {
+        "application/json": {
+          schema: ActualizarEstadoPatrullaResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Datos de entrada o identificador inválidos",
+    },
+    401: {
+      description: "No autenticado o token inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:leer'",
+    },
+    404: {
+      description: "Patrulla verificadora no encontrada",
+    },
+    500: {
+      description: "Error interno del servidor",
+    },
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/patrullas/{id}/estado",
+  summary: "Actualizar estado operativo de una patrulla (alias directo)",
+  description:
+    "Alias directo hacia PATCH /api/patrullas/{id} para mutación de estado operativo y/o geolocalización de una patrulla verificadora.",
+  tags: ["Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: PatrullaIdParamSchema,
@@ -2057,7 +2473,7 @@ registry.registerPath({
   description:
     "Modifica la delegación municipal base, vehículo institucional asignado y dotación de personal operativo adscrito a una patrulla verificadora. Bloquea con HTTP 409 Conflict si la patrulla se encuentra en estado EN_VERIFICACION o cuenta con una misión táctica activa en terreno.",
   tags: ["Recursos y Personal"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: PatrullaIdParamSchema,
@@ -2107,7 +2523,7 @@ registry.registerPath({
   description:
     "Desactiva una patrulla verificadora marcándola inactiva (eliminado_en), liberando de forma atómica su vehículo institucional y funcionarios de dotación a estado disponible. Bloquea con 409 Conflict si está desplegada en terreno o con misión activa.",
   tags: ["Recursos y Personal"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: PatrullaIdParamSchema,
@@ -2151,20 +2567,17 @@ registry.registerPath({
   },
 });
 
-// H81 / H79: Listar Cuadrillas Operativas Paginadas con Filtros
+// H80 / H79 / H81: Listar Cuadrillas Operativas Paginadas con Filtros (H34)
 registry.registerPath({
   method: "get",
   path: "/api/cuadrillas",
-  summary: "Listar cuadrillas operativas con paginación y filtros (H81 / H79)",
+  summary: "Listar cuadrillas operativas con paginación y filtros (H80 / H34)",
   description:
-    "Retorna el listado paginado de cuadrillas operativas con soporte para filtros de texto, delegación y estado.",
+    "Retorna el listado paginado de cuadrillas operativas con soporte para filtros de texto (busqueda/q), delegación municipal (delegacionId), estado operativo y vigencia bajo el estándar H34.",
   tags: ["Cuadrillas", "Recursos y Personal"],
   security: [{ BearerAuth: [] }],
   request: {
     query: ListarCuadrillasQuerySchema,
-    headers: z.object({
-      authorization: z.string().describe("Token Bearer JWT de sesión"),
-    }),
   },
   responses: {
     200: {
@@ -2239,19 +2652,20 @@ registry.registerPath({
   },
 });
 
-// H81 / H79: Detalle Unitario de Cuadrilla
+// H81 / H79 / H22: Detalle Unitario de Cuadrilla
 registry.registerPath({
   method: "get",
   path: "/api/cuadrillas/{id}",
-  summary: "Obtener detalle unitario de una cuadrilla operativa (H81 / H79)",
+  summary: "Obtener detalle unitario de una cuadrilla operativa (H81 / H79 / H22)",
   description:
-    "Retorna la información detallada de una cuadrilla consolidando su delegación, delegado, recursos y trabajadores.",
+    "Retorna la información detallada de una cuadrilla consolidando su delegación, delegado, nómina completa de integrantes (con RUT, cargo, especialidad y teléfono de contacto), recursos y herramientas con especificaciones técnicas, y detalle de la misión en ejecución con tiempo transcurrido e incidente asociado si se encuentra EN_MISION.",
   tags: ["Cuadrillas", "Recursos y Personal"],
   security: [{ BearerAuth: [] }],
   request: {
     params: CuadrillaIdParamSchema,
     headers: z.object({
-      authorization: z.string().describe("Token Bearer JWT de sesión"),
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z.string().optional().describe("UUID del usuario autenticado (entorno pruebas)"),
     }),
   },
   responses: {
@@ -2292,9 +2706,6 @@ registry.registerPath({
   security: [{ BearerAuth: [] }],
   request: {
     params: CuadrillaIdParamSchema,
-    headers: z.object({
-      authorization: z.string().describe("Token Bearer JWT de sesión"),
-    }),
     body: {
       description: "Datos actualizados de la cuadrilla y dotación logística",
       content: {
@@ -2346,7 +2757,8 @@ registry.registerPath({
   request: {
     params: CuadrillaIdParamSchema,
     headers: z.object({
-      authorization: z.string().describe("Token Bearer JWT de sesión"),
+      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
+      "x-user-id": z.string().optional().describe("UUID del usuario autenticado (entorno pruebas)"),
     }),
   },
   responses: {
@@ -2360,75 +2772,166 @@ registry.registerPath({
     },
     400: {
       description: "Identificador de cuadrilla inválido",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     401: {
       description: "No autenticado o token inválido",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     403: {
       description: "Acceso denegado. Se requiere permiso 'cuadrillas:eliminar' o rol Administrador",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     404: {
       description: "Cuadrilla operativa no encontrada o ya desactivada",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     409: {
       description: "Conflicto: la cuadrilla se encuentra en misión activa o posee misiones en curso",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
     500: {
       description: "Error interno del servidor",
+      content: { "application/json": { schema: MensajeGenericoResponseSchema } },
     },
   },
 });
 
-// POST /api/misiones (HU-20: Asignar y despachar patrulla verificadora)
+// PATCH /api/terreno/notificaciones/{id}/estado (HU-35: Confirmar acuse de recibo o lectura)
 registry.registerPath({
-  method: "post",
-  path: "/api/misiones",
-  summary: "Asignar y despachar patrulla verificadora a un incidente (HU-20)",
+  method: "patch",
+  path: "/api/terreno/notificaciones/{id}/estado",
+  summary: "Confirmar acuse de recibo o lectura de notificación de misión (HU-35)",
   description:
-    "Despacha una patrulla verificadora disponible a un incidente formal en estado REPORTADO. Ejecuta una transacción atómica que: (1) crea la misión con tipo VERIFICACION y estado DESPACHADA, (2) actualiza el incidente a estado VERIFICANDO, (3) actualiza la patrulla a estado EN_VERIFICACION, y (4) registra el hito inicial en mision_hito. Emite eventos WebSocket a las salas 'patrulla:{id}', 'encargado' y 'mapa'. Requiere permiso 'misiones:asignar'.",
+    "Registra de forma idempotente la confirmación técnica automática ('RECIBIDA') o la interacción operativa ('LEIDA') emitida por sgrai-pwa. Emite el evento WebSocket 'notificacion:trazabilidad_actualizada' hacia la Central de Operaciones. Requiere permiso 'misiones:terreno:verificar' y pertenencia a la patrulla destinataria (salvo rol Administrador).",
   tags: ["Misiones"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
-    headers: z.object({
-      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
-      "x-user-id": z.string().optional().describe("Identificador del usuario autenticado"),
+    params: z.object({
+      id: NotificacionIdParamSchema,
     }),
     body: {
-      required: true,
       content: {
         "application/json": {
-          schema: CrearMisionVerificacionSchema,
+          schema: ActualizarEstadoNotificacionInputSchema,
         },
       },
     },
   },
   responses: {
-    201: {
-      description: "Misión de verificación creada y patrulla despachada exitosamente",
+    200: {
+      description: "Estado de notificación actualizado exitosamente de forma idempotente",
       content: {
         "application/json": {
-          schema: CrearMisionResponseSchema,
+          schema: ActualizarEstadoNotificacionResponseSchema,
         },
       },
     },
     400: {
-      description: "Datos de entrada inválidos o formato JSON malformado",
+      description: "Identificador no es UUID válido o cuerpo con estado distinto a 'RECIBIDA' o 'LEIDA'",
     },
     401: {
       description: "No autenticado o token ausente",
     },
     403: {
-      description: "Acceso denegado. Se requiere permiso 'misiones:asignar'.",
+      description: "Acceso denegado. Se requiere permiso 'misiones:terreno:verificar' y pertenecer a la patrulla asignada",
     },
     404: {
-      description: "Incidente o patrulla no encontrado",
+      description: "Notificación no encontrada",
+    },
+    500: {
+      description: "Error interno del servidor al actualizar acuse de notificación",
+    },
+  },
+});
+
+// GET /api/terreno/misiones/pendientes (HU-35: Reconciliación offline de misiones asignadas)
+registry.registerPath({
+  method: "get",
+  path: "/api/terreno/misiones/pendientes",
+  summary: "Consultar órdenes de misión pendientes de acuse para terreno (HU-35)",
+  description:
+    "Consulta las misiones asignadas a la patrulla del usuario autenticado cuyas notificaciones se encuentran en 'PENDIENTE_ENVIO' o 'ENVIADA'. Utilizado por sgrai-pwa al recuperar conectividad tras operar fuera de cobertura (Arquitectura Offline-First). Requiere permiso 'misiones:terreno:verificar'.",
+  tags: ["Misiones"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    query: z.object({
+      patrullaId: z.string().uuid().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Listado de misiones pendientes obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarMisionesPendientesResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: "No autenticado o token ausente",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:terreno:verificar' y pertenecer a una patrulla activa",
+    },
+    500: {
+      description: "Error interno del servidor al consultar misiones pendientes",
+    },
+  },
+});
+
+// POST /api/misiones/{id}/rechazar (HU-41 Cuadrilla / HU-69 Patrulla)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/rechazar",
+  summary: "Rechazar asignación de misión en terreno (HU-41 / HU-69)",
+  description:
+    "Permite al Delegado de cuadrilla (permiso 'misiones:terreno:ejecutar') o a una patrulla verificadora (permiso 'misiones:terreno:verificar') rechazar una misión asignada ingresando una justificación técnica obligatoria (mínimo 5 caracteres según Regla §3.3). Ejecuta una transacción atómica que: (1) actualiza mision.estado = 'RECHAZADA' y persiste justificacion_rechazo, (2) devuelve la cuadrilla/dotación o patrulla a DISPONIBLE, (3) retorna el incidente a VERIFICANDO o REPORTADO para reasignación, y (4) registra el hito 'RECHAZADA' en mision_hito. Emite la alerta WebSocket mision:rechazada hacia la sala encargado.",
+  tags: ["Misiones"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      required: true,
+      content: {
+        "application/json": {
+          schema: RechazarMisionBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description:
+        "Misión rechazada exitosamente, unidad liberada e incidente retornado para reasignación",
+      content: {
+        "application/json": {
+          schema: RechazarMisionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos de entrada inválidos, justificación vacía o menor a 5 caracteres (Regla §3.3), o coordenadas WGS84 inválidas",
+    },
+    401: {
+      description: "No autenticado, token ausente o usuario inactivo",
+    },
+    403: {
+      description:
+        "Acceso denegado. Se requiere permiso 'misiones:terreno:ejecutar' (cuadrilla) o 'misiones:terreno:verificar' (patrulla) y pertenecer a la unidad asignada (o rol Administrador)",
+    },
+    404: {
+      description: "Misión no encontrada",
     },
     409: {
       description:
-        "Conflicto: la patrulla seleccionada ya no se encuentra DISPONIBLE o el incidente no está en estado REPORTADO",
+        "Conflicto: la misión ya fue rechazada, no está en estado DESPACHADA, o no tiene una unidad asignada compatible",
     },
     500: {
-      description: "Error interno del servidor al crear y despachar la misión",
+      description: "Error interno del servidor al procesar el rechazo de la misión",
     },
   },
 });
@@ -2441,7 +2944,7 @@ registry.registerPath({
   description:
     "Registra el marco oficial de un Evento ATP, persiste su alcance territorial en evento_atp_delegacion dentro de una sola transacción PostgreSQL y emite el evento WebSocket evento_atp:creado a las salas administrativas, operativas y del mapa. Requiere rol Administrador o el permiso eventos_atp:crear.",
   tags: ["Eventos ATP"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     body: {
       description: "Datos requeridos para crear el Evento ATP",
@@ -2482,15 +2985,25 @@ registry.registerPath({
   },
 });
 
-// 29. GET /api/eventos-atp (H60)
+// ==========================================
+// RUTAS EVENTOS ATP - VINCULACIÓN (H60)
+// ==========================================
+
+registry.register("ListarEventosAtpResponse", ListarEventosAtpResponseSchema);
+registry.register("ObtenerEventoAtpResponse", ObtenerEventoAtpResponseSchema);
+registry.register("VincularEntidadesInput", VincularEntidadesInputSchema);
+registry.register("VincularEntidadesResponse", VincularEntidadesResponseSchema);
+registry.register("ListarEventosPrevencionResponse", ListarEventosPrevencionResponseSchema);
+
+// GET /api/eventos-atp (H60)
 registry.registerPath({
   method: "get",
   path: "/api/eventos-atp",
   summary: "Listar Eventos ATP",
   description:
-    "Lista los Eventos ATP con filtros por estado, delegación y búsqueda textual. Alimenta los selectores de vinculación y el listado administrativo. Requiere el permiso eventos_atp:vincular.",
+    "Lista los Eventos ATP con filtros por estado, delegación y búsqueda textual. Alimenta los selectores de vinculación y el listado administrativo. Requiere el permiso eventos_atp:vincular o un permiso de consulta del módulo.",
   tags: ["Eventos ATP"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     query: ListarEventosAtpQuerySchema,
   },
@@ -2503,20 +3016,23 @@ registry.registerPath({
     },
     400: { description: "Parámetros de consulta inválidos" },
     401: { description: "No autenticado" },
-    403: { description: "Acceso denegado. Requiere permiso eventos_atp:vincular" },
+    403: {
+      description:
+        "Acceso denegado. Requiere permiso eventos_atp:vincular o un permiso de consulta del módulo",
+    },
     500: { description: "Error interno del servidor" },
   },
 });
 
-// 30. GET /api/eventos-atp/{id} (H60)
+// GET /api/eventos-atp/{id} (H60)
 registry.registerPath({
   method: "get",
   path: "/api/eventos-atp/{id}",
   summary: "Detalle de Evento ATP",
   description:
-    "Obtiene el detalle de un Evento ATP junto con las entidades vinculadas agrupadas por tipo (incidentes, prevención, recuperación y asistencia social). Requiere el permiso eventos_atp:vincular.",
+    "Obtiene el detalle de un Evento ATP junto con las entidades vinculadas agrupadas por tipo (incidentes, prevención, recuperación y asistencia social). Requiere el permiso eventos_atp:vincular o un permiso de consulta del módulo.",
   tags: ["Eventos ATP"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: z.string().uuid().openapi({ description: "UUID del Evento ATP" }),
@@ -2531,21 +3047,24 @@ registry.registerPath({
     },
     400: { description: "Identificador inválido" },
     401: { description: "No autenticado" },
-    403: { description: "Acceso denegado. Requiere permiso eventos_atp:vincular" },
+    403: {
+      description:
+        "Acceso denegado. Requiere permiso eventos_atp:vincular o un permiso de consulta del módulo",
+    },
     404: { description: "Evento ATP no encontrado" },
     500: { description: "Error interno del servidor" },
   },
 });
 
-// 31. POST /api/eventos-atp/{id}/vinculos (H60)
+// POST /api/eventos-atp/{id}/vinculos (H60)
 registry.registerPath({
   method: "post",
   path: "/api/eventos-atp/{id}/vinculos",
   summary: "Vincular entidades a un Evento ATP",
   description:
-    "Vincula en lote incidentes, eventos de prevención, operativos de recuperación y casos de asistencia social a un Evento ATP ACTIVO. Reasigna entidades que pertenecían a otro Evento ATP y las reporta en reasignadas. Emite evento_atp:vinculado a las salas encargado, supervisor y mapa. Requiere el permiso eventos_atp:vincular.",
+    "Vincula en lote incidentes, eventos de prevención, operativos de recuperación y casos de asistencia social a un Evento ATP ACTIVO. Reasigna entidades que pertenecían a otro Evento ATP y las reporta en reasignadas. Emite evento_atp:vinculado a las salas encargado, sala:encargados, supervisor y mapa. Requiere el permiso eventos_atp:vincular.",
   tags: ["Eventos ATP"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: z.string().uuid().openapi({ description: "UUID del Evento ATP" }),
@@ -2566,14 +3085,16 @@ registry.registerPath({
     },
     400: { description: "Solicitud inválida o sin entidades" },
     401: { description: "No autenticado" },
-    403: { description: "Acceso denegado. Requiere permiso eventos_atp:vincular" },
+    403: {
+      description: "Acceso denegado. Requiere permiso eventos_atp:vincular",
+    },
     404: { description: "Evento ATP no encontrado" },
     409: { description: "El Evento ATP no está ACTIVO" },
     500: { description: "Error interno del servidor" },
   },
 });
 
-// 32. DELETE /api/eventos-atp/{id}/vinculos (H60)
+// DELETE /api/eventos-atp/{id}/vinculos (H60)
 registry.registerPath({
   method: "delete",
   path: "/api/eventos-atp/{id}/vinculos",
@@ -2581,7 +3102,7 @@ registry.registerPath({
   description:
     "Establece evento_atp_id = NULL en las entidades indicadas sin eliminar sus registros. Solo desvincula registros que pertenecen al Evento ATP señalado y reporta el resto en noDesvinculadas. Emite evento_atp:vinculado con acción DESVINCULADO. Requiere el permiso eventos_atp:vincular.",
   tags: ["Eventos ATP"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: z.string().uuid().openapi({ description: "UUID del Evento ATP" }),
@@ -2602,21 +3123,23 @@ registry.registerPath({
     },
     400: { description: "Solicitud inválida o sin entidades" },
     401: { description: "No autenticado" },
-    403: { description: "Acceso denegado. Requiere permiso eventos_atp:vincular" },
+    403: {
+      description: "Acceso denegado. Requiere permiso eventos_atp:vincular",
+    },
     404: { description: "Evento ATP no encontrado" },
     500: { description: "Error interno del servidor" },
   },
 });
 
-// 33. GET /api/eventos-atp/prevencion (H60)
+// GET /api/eventos-atp/prevencion (H60)
 registry.registerPath({
   method: "get",
   path: "/api/eventos-atp/prevencion",
   summary: "Listar eventos de prevención",
   description:
-    "Lista los eventos de prevención con filtro opcional por Evento ATP, estado y delegación. Requiere el permiso eventos_atp:vincular.",
+    "Lista los eventos de prevención con filtro opcional por Evento ATP, estado y delegación. Requiere el permiso eventos_atp:vincular o un permiso de consulta del módulo.",
   tags: ["Eventos ATP"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: { query: ListarEventosPrevencionQuerySchema },
   responses: {
     200: {
@@ -2627,31 +3150,147 @@ registry.registerPath({
     },
     400: { description: "Parámetros de consulta inválidos" },
     401: { description: "No autenticado" },
-    403: { description: "Acceso denegado" },
+    403: {
+      description:
+        "Acceso denegado. Requiere permiso eventos_atp:vincular o un permiso de consulta del módulo",
+    },
     500: { description: "Error interno del servidor" },
   },
 });
 
-// 34. GET /api/eventos-atp/recuperacion (H60)
+// POST /api/incidentes/{id}/prioridad/calcular (HU-38: Pre-cálculo de prioridad sugerida)
 registry.registerPath({
-  method: "get",
-  path: "/api/eventos-atp/recuperacion",
-  summary: "Listar operativos de recuperación",
+  method: "post",
+  path: "/api/incidentes/{id}/prioridad/calcular",
+  summary: "Calcular prioridad sugerida del incidente según formulario de evaluación en terreno (HU-38)",
   description:
-    "Lista los operativos de recuperación con filtro opcional por Evento ATP, estado y delegación. Requiere el permiso eventos_atp:vincular.",
-  tags: ["Eventos ATP"],
-  security: [{ bearerAuth: [] }],
-  request: { query: ListarRecuperacionesQuerySchema },
-  responses: {
-    200: {
-      description: "Listado paginado de operativos de recuperación",
+    "Calcula determinísticamente la prioridad_sugerida (BAJA, MEDIA, ALTA, CRITICA), el puntaje acumulado y los factores gatillantes a partir de los datos demográficos, vulnerabilidad (niños, adultos mayores, discapacitados, electrodependientes, mascotas), compromiso de vivienda y riesgos activos constatados por la patrulla verificadora. Requiere permiso 'misiones:terreno:verificar'.",
+  tags: ["Incidentes", "Misiones"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del incidente a evaluar"),
+    }),
+    body: {
+      description: "Datos del formulario de evaluación en terreno",
       content: {
-        "application/json": { schema: ListarRecuperacionesResponseSchema },
+        "application/json": {
+          schema: CalcularPrioridadInputSchema,
+        },
       },
     },
-    400: { description: "Parámetros de consulta inválidos" },
+  },
+  responses: {
+    200: {
+      description: "Prioridad sugerida calculada exitosamente",
+      content: {
+        "application/json": {
+          schema: CalcularPrioridadResponseSchema,
+        },
+      },
+    },
+    400: { description: "Datos de entrada o UUID inválidos" },
     401: { description: "No autenticado" },
-    403: { description: "Acceso denegado" },
+    403: { description: "Sin permiso requerido: misiones:terreno:verificar" },
+    404: { description: "Incidente no encontrado" },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// PATCH /api/incidentes/{id}/prioridad (HU-38: Asignar o modificar prioridad y enviar reporte de evaluación en terreno)
+registry.registerPath({
+  method: "patch",
+  path: "/api/incidentes/{id}/prioridad",
+  summary: "Asignar o modificar la prioridad del incidente y emitir reporte de evaluación en terreno al Centro de Mando (HU-38)",
+  description:
+    "Permite a la patrulla verificadora confirmar o modificar la prioridad del incidente basándose en la evaluación técnica en terreno y la prioridad_sugerida por el sistema. Si la prioridad asignada difiere de la sugerida, exige justificacion_prioridad (mínimo 5 caracteres). Ejecuta en una transacción atómica: (1) inserta un nuevo reporte versionado en reporte_terreno (version_reporte = N + 1, preservando reportes anteriores), (2) actualiza incidente.prioridad, incidente.prioridad_sugerida e incidente.justificacion_prioridad, y (3) registra el hito PRIORIDAD_ASIGNADA o PRIORIDAD_RECTIFICADA en mision_hito. Emite los eventos WebSocket 'incidente:actualizado' y 'mision:actualizada' al Centro de Mando. Requiere permiso 'misiones:terreno:verificar' y misión en estado EN_CURSO.",
+  tags: ["Incidentes", "Misiones"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: z.string().uuid().describe("UUID del incidente a priorizar"),
+    }),
+    body: {
+      description: "Evaluación de terreno, prioridad seleccionada y justificación técnica",
+      content: {
+        "application/json": {
+          schema: ActualizarPrioridadIncidenteInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Prioridad actualizada y reporte de evaluación emitido exitosamente",
+      content: {
+        "application/json": {
+          schema: ActualizarPrioridadIncidenteResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos inválidos o cambio de prioridad sugerida sin justificación técnica de al menos 5 caracteres",
+    },
+    401: { description: "No autenticado" },
+    403: {
+      description:
+        "Sin permiso 'misiones:terreno:verificar' o el usuario no pertenece a la patrulla asignada",
+    },
+    404: { description: "Incidente o misión no encontrada" },
+    409: {
+      description:
+        "Conflicto: la misión no ha sido aceptada por la patrulla (debe estar en estado EN_CURSO)",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// POST /api/misiones/{id}/reporte (HU-39 / HU-86: Enviar informe técnico de verificación y cerrar misión)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/reporte",
+  summary: "Enviar informe técnico de verificación en terreno y cerrar misión inicial de patrullaje (HU-39 / HU-86)",
+  description:
+    "Permite a la patrulla verificadora enviar el informe técnico consolidado de terreno con dictamen operativo ('REQUIERE_CUADRILLA' o 'NO_ABORDABLE'), resumen técnico (>= 10 caracteres), estado del terreno, estimación de personas damnificadas (rescatable desde el reporte previo de prioridad HU-38 y modificable), daños estimados, observaciones, indicador de Ficha FIBE (requiere_asistencia_social) y sección preparada para evidencia fotográfica (HU-43). Ejecuta una transacción atómica que: (1) persiste el reporte en reporte_terreno con evaluador_id = usuario.id, (2) cierra la misión (COMPLETADA con fecha_cierre), (3) libera la patrulla a DISPONIBLE, (4) si es NO_ABORDABLE (exige motivo_no_abordable >= 15 caracteres), transiciona el incidente a NO_ABORDABLE con fecha_cierre y motivo, o si solicita Ficha FIBE marca incidente.requiere_asistencia_social = true, y (5) registra el hito VERIFICACION_COMPLETADA en mision_hito. Emite eventos WebSocket 'mision:actualizada', 'incidente:actualizado' y 'patrulla:actualizada' / 'patrulla:liberada'. Requiere permiso RBAC 'reportes:crear'.",
+  tags: ["Misiones", "Incidentes"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      description: "Informe técnico de verificación en terreno y dictamen de cierre",
+      content: {
+        "application/json": {
+          schema: CrearReporteVerificacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Informe técnico registrado y misión de verificación cerrada exitosamente",
+      content: {
+        "application/json": {
+          schema: EnviarReporteVerificacionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos de entrada inválidos (ej. resumen_tecnico < 10 caracteres o dictamen NO_ABORDABLE sin motivo_no_abordable >= 15 caracteres)",
+    },
+    401: { description: "No autenticado o token inválido" },
+    403: {
+      description:
+        "Sin permiso 'reportes:crear' o el usuario no pertenece a la patrulla asignada a la misión",
+    },
+    404: { description: "Misión no encontrada" },
+    409: {
+      description:
+        "Conflicto: la misión no es de tipo VERIFICACION con patrulla asignada, no está en estado EN_CURSO, la patrulla no está activa en EN_VERIFICACION, el incidente asociado no está en REPORTADO/VERIFICANDO o un adjunto ya pertenece a otro reporte",
+    },
     500: { description: "Error interno del servidor" },
   },
 });
@@ -2662,7 +3301,7 @@ export function generarOpenAPISpec() {
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.10.0",
+      version: "0.12.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",

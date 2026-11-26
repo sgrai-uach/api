@@ -66,6 +66,19 @@ function aResumen(fila: FilaEntidadVinculable): EntidadResumen {
   };
 }
 
+/**
+ * Resumen de una entidad ya modificada. No expone `eventoAtpIdAnterior`
+ * porque el `RETURNING` refleja el nuevo vínculo, no el estado previo.
+ */
+function aResumenActualizada(fila: FilaEntidadVinculable): EntidadResumen {
+  return {
+    tipo: fila.tipo,
+    id: fila.id,
+    codigo: fila.codigo,
+    nombre: fila.nombre,
+  };
+}
+
 function normalizarGrupos(input: VincularEntidadesInput): GruposEntidades {
   const unicos = (ids: string[]) => Array.from(new Set(ids));
   return {
@@ -77,22 +90,75 @@ function normalizarGrupos(input: VincularEntidadesInput): GruposEntidades {
 }
 
 /**
+ * Detecta los identificadores no encontrados validando cada grupo contra las
+ * filas de su propio tipo. Evita enmascaramientos entre tablas que compartan
+ * un mismo UUID y reporta siempre el tipo real solicitado.
+ */
+function construirNoEncontradas(
+  grupos: GruposEntidades,
+  existentes: FilaEntidadVinculable[]
+): Array<{ tipo: TipoEntidadVinculable; id: string }> {
+  const idsPorTipo = (tipo: TipoEntidadVinculable) =>
+    new Set(
+      existentes
+        .filter((fila) => fila.tipo === tipo)
+        .map((fila) => fila.id)
+    );
+
+  const detectar = (
+    ids: string[],
+    tipo: TipoEntidadVinculable
+  ): Array<{ tipo: TipoEntidadVinculable; id: string }> => {
+    const encontrados = idsPorTipo(tipo);
+    return ids
+      .filter((id) => !encontrados.has(id))
+      .map((id) => ({ tipo, id }));
+  };
+
+  return [
+    ...detectar(grupos.incidenteIds, "INCIDENTE"),
+    ...detectar(grupos.eventoPrevencionIds, "EVENTO_PREVENCION"),
+    ...detectar(grupos.recuperacionIds, "RECUPERACION"),
+    ...detectar(
+      grupos.eventoAsistenciaSocialIds,
+      "EVENTO_ASISTENCIA_SOCIAL"
+    ),
+  ];
+}
+
+/**
+ * Cantidad de entidades realmente afectadas por la operación, construida
+ * desde las filas devueltas por los UPDATE.
+ */
+function contarEntidadesAfectadas(resultado: ResultadoVinculacion): number {
+  return (
+    resultado.entidades.incidentes.length +
+    resultado.entidades.eventosPrevencion.length +
+    resultado.entidades.recuperaciones.length +
+    resultado.entidades.eventosAsistenciaSocial.length
+  );
+}
+
+/**
  * Vincula entidades a un Evento ATP activo (H60).
  *
  * - Requiere el permiso `eventos_atp:vincular`.
  * - Valida que el Evento ATP exista y esté ACTIVO.
  * - Actualiza `evento_atp_id` en una sola transacción en las cuatro tablas.
  * - Reasigna entidades que ya pertenecían a otro Evento ATP y las reporta.
- * - Emite `evento_atp:vinculado` a las salas encargado, supervisor y mapa.
+ * - Emite `evento_atp:vinculado` a las salas encargado, sala:encargados,
+ *   supervisor y mapa, solo si hubo filas modificadas.
  */
 export async function vincularEntidadesEventoAtpService(
   eventoAtpId: string,
   input: VincularEntidadesInput,
   usuarioId: string
 ): Promise<ResultadoVinculacion> {
-  const usuario = await seguridadService.validarAccesoRoles(usuarioId, [
-    PERMISO_VINCULAR_EVENTO_ATP,
-  ]);
+  const usuario = await seguridadService.validarAccesoRoles(
+    usuarioId,
+    [PERMISO_VINCULAR_EVENTO_ATP],
+    "Acceso denegado. Se requiere el permiso 'eventos_atp:vincular' para vincular o desvincular entidades de un Evento ATP."
+  );
 
   const datos = VincularEntidadesInputSchema.parse(input);
   const grupos = normalizarGrupos(datos);
@@ -113,27 +179,20 @@ export async function vincularEntidadesEventoAtpService(
     }
 
     const existentes = await obtenerEntidadesExistentes(trx, grupos);
-    const idsSolicitados = new Set([
-      ...grupos.incidenteIds,
-      ...grupos.eventoPrevencionIds,
-      ...grupos.recuperacionIds,
-      ...grupos.eventoAsistenciaSocialIds,
-    ]);
-    const idsEncontrados = new Set(existentes.map((fila) => fila.id));
-
-    const noEncontradas = Array.from(idsSolicitados)
-      .filter((id) => !idsEncontrados.has(id))
-      .map((id) => ({ tipo: "INCIDENTE" as TipoEntidadVinculable, id }));
+    const noEncontradas = construirNoEncontradas(grupos, existentes);
 
     const reasignadas = existentes.filter(
       (fila) =>
         fila.evento_atp_id !== null && fila.evento_atp_id !== eventoAtpId
     );
 
-    await actualizarEventoAtpDeEntidades(trx, eventoAtpId, grupos);
+    const actualizadas = await actualizarEventoAtpDeEntidades(
+      trx,
+      eventoAtpId,
+      grupos
+    );
 
-    const afectadas = existentes.map(aResumen);
-    const agrupadas = agruparEntidades(afectadas);
+    const agrupadas = agruparEntidades(actualizadas.map(aResumenActualizada));
 
     return {
       eventoAtpId,
@@ -152,7 +211,16 @@ export async function vincularEntidadesEventoAtpService(
     };
   });
 
-  emitirEventoAtpVinculado(resultado);
+  if (contarEntidadesAfectadas(resultado) > 0) {
+    try {
+      emitirEventoAtpVinculado(resultado);
+    } catch (error) {
+      console.error(
+        "Error al emitir evento_atp:vinculado tras la vinculación:",
+        error
+      );
+    }
+  }
 
   return resultado;
 }
@@ -170,9 +238,11 @@ export async function desvincularEntidadesEventoAtpService(
   input: VincularEntidadesInput,
   usuarioId: string
 ): Promise<ResultadoVinculacion> {
-  const usuario = await seguridadService.validarAccesoRoles(usuarioId, [
-    PERMISO_VINCULAR_EVENTO_ATP,
-  ]);
+  const usuario = await seguridadService.validarAccesoRoles(
+    usuarioId,
+    [PERMISO_VINCULAR_EVENTO_ATP],
+    "Acceso denegado. Se requiere el permiso 'eventos_atp:vincular' para vincular o desvincular entidades de un Evento ATP."
+  );
 
   const datos = VincularEntidadesInputSchema.parse(input);
   const grupos = normalizarGrupos(datos);
@@ -187,28 +257,21 @@ export async function desvincularEntidadesEventoAtpService(
     }
 
     const existentes = await obtenerEntidadesExistentes(trx, grupos);
-    const idsSolicitados = new Set([
-      ...grupos.incidenteIds,
-      ...grupos.eventoPrevencionIds,
-      ...grupos.recuperacionIds,
-      ...grupos.eventoAsistenciaSocialIds,
-    ]);
-    const idsEncontrados = new Set(existentes.map((fila) => fila.id));
-
-    const noEncontradas = Array.from(idsSolicitados)
-      .filter((id) => !idsEncontrados.has(id))
-      .map((id) => ({ tipo: "INCIDENTE" as TipoEntidadVinculable, id }));
+    const noEncontradas = construirNoEncontradas(grupos, existentes);
 
     const noDesvinculadas = existentes.filter(
       (fila) => fila.evento_atp_id !== eventoAtpId
     );
-    const desvinculadas = existentes.filter(
-      (fila) => fila.evento_atp_id === eventoAtpId
+
+    const desvinculadas = await desvincularEntidadesDelEvento(
+      trx,
+      eventoAtpId,
+      grupos
     );
 
-    await desvincularEntidadesDelEvento(trx, eventoAtpId, grupos);
-
-    const agrupadas = agruparEntidades(desvinculadas.map(aResumen));
+    const agrupadas = agruparEntidades(
+      desvinculadas.map(aResumenActualizada)
+    );
 
     return {
       eventoAtpId,
@@ -227,7 +290,16 @@ export async function desvincularEntidadesEventoAtpService(
     };
   });
 
-  emitirEventoAtpVinculado(resultado);
+  if (contarEntidadesAfectadas(resultado) > 0) {
+    try {
+      emitirEventoAtpVinculado(resultado);
+    } catch (error) {
+      console.error(
+        "Error al emitir evento_atp:vinculado tras la desvinculación:",
+        error
+      );
+    }
+  }
 
   return resultado;
 }

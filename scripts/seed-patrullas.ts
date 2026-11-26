@@ -139,14 +139,28 @@ export async function sembrarPatrullasVerificadoras() {
 
   console.log("Vehículos individuales asignables creados.");
 
-  // 4. Actualizar patrulla preexistente para asegurar estado DISPONIBLE y código
+  // 4. Actualizar patrullas preexistentes para asegurar estado DISPONIBLE y código
+  await sql`
+    UPDATE patrulla_verificadora
+    SET
+      codigo = 'PV-COSTA-01',
+      estado = 'EN_VERIFICACION',
+      delegacion_id = ${delCosta},
+      activo = true,
+      eliminado_en = NULL,
+      actualizado_en = CURRENT_TIMESTAMP
+    WHERE id = 'f1000000-0000-4000-8000-000000000001';
+  `.execute(db);
+
   await sql`
     UPDATE patrulla_verificadora
     SET
       codigo = 'PV-SUR-01',
       estado = 'DISPONIBLE',
       delegacion_id = ${delSur},
-      eliminado_en = NULL
+      activo = true,
+      eliminado_en = NULL,
+      actualizado_en = CURRENT_TIMESTAMP
     WHERE id = 'f1000000-0000-4000-8000-000000000002';
   `.execute(db);
 
@@ -238,7 +252,9 @@ export async function sembrarPatrullasVerificadoras() {
         latitud = EXCLUDED.latitud,
         longitud = EXCLUDED.longitud,
         ubicacion = EXCLUDED.ubicacion,
-        eliminado_en = NULL;
+        activo = true,
+        eliminado_en = NULL,
+        actualizado_en = CURRENT_TIMESTAMP;
     `.execute(db);
   }
 

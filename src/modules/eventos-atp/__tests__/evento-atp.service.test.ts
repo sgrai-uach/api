@@ -1,24 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { crearEventoAtpService } from "../evento-atp.service";
+import {
+  crearEventoAtpService,
+  listarEventosAtpService,
+  obtenerEventoAtpDetalleService,
+  MENSAJE_ACCESO_DENEGADO_EVENTO_ATP,
+} from "../evento-atp.service";
 import { seguridadService } from "@/modules/seguridad/service";
+import { PERMISO_CREAR_EVENTO_ATP } from "@/modules/seguridad/permisos.constants";
 import * as repository from "../evento-atp.repository";
 import * as socket from "@/lib/socket";
 import {
   BadRequestError,
   ConflictError,
   ForbiddenError,
+  NotFoundError,
 } from "@/modules/seguridad/errors";
 
 vi.mock("@/modules/seguridad/service", () => ({
   seguridadService: {
-    validarAccesoAdministrador: vi.fn(),
+    validarAccesoRoles: vi.fn(),
   },
 }));
 
 vi.mock("../evento-atp.repository", () => ({
-  existeCodigoEventoAtp: vi.fn(),
-  verificarDelegacionesExisten: vi.fn(),
   insertarEventoAtpConDelegaciones: vi.fn(),
+  listarEventosAtpPaginadosRepo: vi.fn(),
+  obtenerEventoAtpPorId: vi.fn(),
+  obtenerVinculosEventoAtp: vi.fn(),
+  contarVinculosPorEventoAtp: vi.fn(),
 }));
 
 vi.mock("@/lib/socket", () => ({
@@ -71,14 +80,7 @@ describe("evento-atp.service - Creación y RBAC (H61)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    vi.mocked(seguridadService.validarAccesoAdministrador).mockResolvedValue(
-      admin
-    );
-    vi.mocked(repository.existeCodigoEventoAtp).mockResolvedValue(false);
-    vi.mocked(repository.verificarDelegacionesExisten).mockResolvedValue({
-      existentes: inputValido.delegacionIds,
-      faltantes: [],
-    });
+    vi.mocked(seguridadService.validarAccesoRoles).mockResolvedValue(admin);
     vi.mocked(repository.insertarEventoAtpConDelegaciones).mockResolvedValue({
       evento: eventoGuardado,
       delegaciones: [delegacionGuardada],
@@ -86,13 +88,23 @@ describe("evento-atp.service - Creación y RBAC (H61)", () => {
   });
 
   it("debe rechazar con ForbiddenError si el usuario no tiene acceso", async () => {
-    vi.mocked(seguridadService.validarAccesoAdministrador).mockRejectedValueOnce(
-      new ForbiddenError("Acceso denegado")
+    vi.mocked(seguridadService.validarAccesoRoles).mockRejectedValueOnce(
+      new ForbiddenError(MENSAJE_ACCESO_DENEGADO_EVENTO_ATP)
     );
 
     await expect(
       crearEventoAtpService(inputValido, "usuario-sin-permiso")
     ).rejects.toThrow(ForbiddenError);
+  });
+
+  it("debe validar el acceso con el permiso eventos_atp:crear y el mensaje institucional", async () => {
+    await crearEventoAtpService(inputValido, admin.id);
+
+    expect(seguridadService.validarAccesoRoles).toHaveBeenCalledWith(
+      admin.id,
+      [PERMISO_CREAR_EVENTO_ATP],
+      "Acceso denegado. Se requiere el perfil de Administrador o el permiso eventos_atp:crear."
+    );
   });
 
   it("debe crear el Evento ATP, mapear la respuesta y emitir el WebSocket", async () => {
@@ -131,8 +143,12 @@ describe("evento-atp.service - Creación y RBAC (H61)", () => {
     );
   });
 
-  it("debe rechazar con ConflictError un código manual duplicado", async () => {
-    vi.mocked(repository.existeCodigoEventoAtp).mockResolvedValueOnce(true);
+  it("debe propagar el ConflictError cuando el repositorio detecta un código duplicado", async () => {
+    vi.mocked(repository.insertarEventoAtpConDelegaciones).mockRejectedValueOnce(
+      new ConflictError(
+        "Ya existe un Evento ATP registrado con el código 'ATP-2026-0001'."
+      )
+    );
 
     await expect(
       crearEventoAtpService(
@@ -141,24 +157,21 @@ describe("evento-atp.service - Creación y RBAC (H61)", () => {
       )
     ).rejects.toThrow(ConflictError);
 
-    expect(
-      repository.insertarEventoAtpConDelegaciones
-    ).not.toHaveBeenCalled();
+    expect(socket.emitirEventoAtpCreado).not.toHaveBeenCalled();
   });
 
-  it("debe rechazar con BadRequestError delegaciones inexistentes", async () => {
-    vi.mocked(repository.verificarDelegacionesExisten).mockResolvedValueOnce({
-      existentes: [],
-      faltantes: ["30000000-0000-4000-8000-000000000099"],
-    });
+  it("debe propagar el BadRequestError cuando existen delegaciones inexistentes o inactivas", async () => {
+    vi.mocked(repository.insertarEventoAtpConDelegaciones).mockRejectedValueOnce(
+      new BadRequestError(
+        "Las siguientes delegaciones no existen en el sistema: 30000000-0000-4000-8000-000000000099."
+      )
+    );
 
-    await expect(
-      crearEventoAtpService(inputValido, admin.id)
-    ).rejects.toThrow(BadRequestError);
+    await expect(crearEventoAtpService(inputValido, admin.id)).rejects.toThrow(
+      BadRequestError
+    );
 
-    expect(
-      repository.insertarEventoAtpConDelegaciones
-    ).not.toHaveBeenCalled();
+    expect(socket.emitirEventoAtpCreado).not.toHaveBeenCalled();
   });
 
   it("debe permitir alcance comunal sin delegaciones", async () => {
@@ -175,5 +188,79 @@ describe("evento-atp.service - Creación y RBAC (H61)", () => {
     expect(
       repository.insertarEventoAtpConDelegaciones
     ).toHaveBeenCalledWith(expect.objectContaining({ delegacionIds: [] }));
+  });
+});
+
+describe("evento-atp.service - Listado y detalle (H60)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(seguridadService.validarAccesoRoles).mockResolvedValue(admin);
+  });
+
+  it("lista Eventos ATP usando un conteo agrupado y sin N+1", async () => {
+    vi.mocked(repository.listarEventosAtpPaginadosRepo).mockResolvedValueOnce({
+      eventos: [eventoGuardado],
+      delegaciones: new Map([
+        [eventoGuardado.id, [delegacionGuardada]],
+      ]),
+      total: 1,
+    });
+    vi.mocked(repository.contarVinculosPorEventoAtp).mockResolvedValueOnce(
+      new Map([[eventoGuardado.id, 3]])
+    );
+
+    const resultado = await listarEventosAtpService(
+      { page: 1, limit: 10 },
+      admin.id
+    );
+
+    expect(repository.contarVinculosPorEventoAtp).toHaveBeenCalledWith([
+      eventoGuardado.id,
+    ]);
+    expect(resultado.data).toHaveLength(1);
+    expect(resultado.data[0].totalVinculados).toBe(3);
+    expect(resultado.data[0].delegaciones).toEqual([delegacionGuardada]);
+  });
+
+  it("obtiene el detalle con sus vínculos y el total consolidado", async () => {
+    vi.mocked(repository.obtenerEventoAtpPorId).mockResolvedValueOnce({
+      evento: eventoGuardado,
+      delegaciones: [delegacionGuardada],
+    });
+    vi.mocked(repository.obtenerVinculosEventoAtp).mockResolvedValueOnce({
+      incidentes: [
+        {
+          id: "a0000000-0000-4000-8000-000000000001",
+          codigo: "INC-2026-0001",
+          nombre: "Inundación",
+          estado: "REPORTADO",
+          creadoEn: "2026-05-01T10:00:00.000Z",
+        },
+      ],
+      eventosPrevencion: [],
+      recuperaciones: [],
+      eventosAsistenciaSocial: [],
+    });
+
+    const resultado = await obtenerEventoAtpDetalleService(
+      eventoGuardado.id,
+      admin.id
+    );
+
+    expect(resultado.totalVinculados).toBe(1);
+    expect(resultado.vinculos.incidentes).toHaveLength(1);
+    expect(seguridadService.validarAccesoRoles).toHaveBeenCalledWith(
+      admin.id,
+      expect.any(Array),
+      expect.stringContaining("eventos_atp:vincular")
+    );
+  });
+
+  it("lanza NotFoundError si el Evento ATP no existe", async () => {
+    vi.mocked(repository.obtenerEventoAtpPorId).mockResolvedValueOnce(null);
+
+    await expect(
+      obtenerEventoAtpDetalleService(eventoGuardado.id, admin.id)
+    ).rejects.toBeInstanceOf(NotFoundError);
   });
 });

@@ -18,6 +18,21 @@ import {
 
 const UuidParamSchema = z.string().uuid();
 
+interface ErrorValidacion {
+  campo: string;
+  mensaje: string;
+}
+
+class SolicitudValidacionError extends BadRequestError {
+  constructor(
+    message: string,
+    public readonly errors: ErrorValidacion[]
+  ) {
+    super(message);
+    this.name = "SolicitudValidacionError";
+  }
+}
+
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
@@ -35,8 +50,12 @@ async function leerSolicitud(req: NextRequest, props: RouteContext) {
   const validacionId = UuidParamSchema.safeParse(id);
 
   if (!validacionId.success) {
-    throw new BadRequestError(
-      "El identificador del Evento ATP proporcionado no es un UUID válido."
+    throw new SolicitudValidacionError(
+      "El identificador del Evento ATP proporcionado no es un UUID válido.",
+      validacionId.error.issues.map((issue) => ({
+        campo: "id",
+        mensaje: issue.message,
+      }))
     );
   }
 
@@ -44,14 +63,21 @@ async function leerSolicitud(req: NextRequest, props: RouteContext) {
   try {
     bodyJson = await req.json();
   } catch {
-    throw new BadRequestError("El cuerpo de la solicitud no es un JSON válido.");
+    throw new SolicitudValidacionError(
+      "El cuerpo de la solicitud no es un JSON válido.",
+      []
+    );
   }
 
   const validacionBody = VincularEntidadesInputSchema.safeParse(bodyJson);
 
   if (!validacionBody.success) {
-    throw new BadRequestError(
-      validacionBody.error.issues.map((issue) => issue.message).join(" ")
+    throw new SolicitudValidacionError(
+      "Datos de entrada inválidos.",
+      validacionBody.error.issues.map((issue) => ({
+        campo: issue.path.join(".") || "cuerpo",
+        mensaje: issue.message,
+      }))
     );
   }
 
@@ -71,8 +97,18 @@ function responderError(error: unknown, contexto: string) {
     return NextResponse.json({ message: error.message }, { status: 403 });
   }
 
+  if (error instanceof SolicitudValidacionError) {
+    return NextResponse.json(
+      { message: error.message, errors: error.errors },
+      { status: 400 }
+    );
+  }
+
   if (error instanceof BadRequestError) {
-    return NextResponse.json({ message: error.message }, { status: 400 });
+    return NextResponse.json(
+      { message: error.message, errors: [] },
+      { status: 400 }
+    );
   }
 
   if (error instanceof NotFoundError) {

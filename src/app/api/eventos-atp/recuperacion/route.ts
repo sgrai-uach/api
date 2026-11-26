@@ -5,7 +5,7 @@ import {
 } from "@/modules/eventos-atp/recuperacion.schema";
 import {
   crearEventoRecuperacionService,
-  listarRecuperacionesService,
+  listarEventosRecuperacionService,
   PatrullaNoDisponibleError,
   StockInsuficienteError,
   NotFoundError,
@@ -13,23 +13,34 @@ import {
 } from "@/modules/eventos-atp/recuperacion.service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
-import { PERMISO_CREAR_RECUPERACION } from "@/modules/seguridad/permisos.constants";
+import { seguridadService } from "@/modules/seguridad/service";
+import {
+  PERMISO_CREAR_RECUPERACION,
+  PERMISO_LEER_MISION,
+  PERMISO_ASIGNAR_MISION,
+  PERMISO_VINCULAR_EVENTO_ATP,
+} from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 /**
  * GET /api/eventos-atp/recuperacion
- * Lista operativos de recuperación con filtro por Evento ATP (H60).
+ * Endpoint operativo para listar todos los eventos de recuperación territoriales
+ * con sus misiones tácticas, patrulla asignada y recursos para el mapa operativo.
  */
 export async function GET(req: NextRequest) {
   try {
     const usuarioId = await extraerUsuarioId(req);
 
-    if (!usuarioId) {
-      return NextResponse.json(
-        { message: "Se requiere autenticación para consultar los operativos de recuperación." },
-        { status: 401 }
-      );
-    }
+    await seguridadService.validarAccesoRoles(
+      usuarioId,
+      [
+        PERMISO_VINCULAR_EVENTO_ATP,
+        PERMISO_LEER_MISION,
+        PERMISO_CREAR_RECUPERACION,
+        PERMISO_ASIGNAR_MISION,
+      ],
+      "Acceso denegado. Se requiere el permiso 'eventos_atp:vincular' o un permiso de consulta del módulo Eventos ATP."
+    );
 
     const queryParams: Record<string, string> = {};
     req.nextUrl.searchParams.forEach((valor, clave) => {
@@ -51,12 +62,16 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const respuesta = await listarRecuperacionesService(
-      validacion.data,
-      usuarioId
-    );
+    const eventos = await listarEventosRecuperacionService(validacion.data);
 
-    return NextResponse.json(respuesta, { status: 200 });
+    return NextResponse.json(
+      {
+        message: "Eventos de recuperación obtenidos exitosamente.",
+        total: eventos.length,
+        data: eventos,
+      },
+      { status: 200 }
+    );
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ message: error.message }, { status: 401 });
@@ -66,9 +81,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ message: error.message }, { status: 403 });
     }
 
-    console.error("Error al listar operativos de recuperación:", error);
+    console.error("Error al listar eventos de recuperación:", error);
     return NextResponse.json(
-      { message: "Error interno del servidor al listar los operativos de recuperación." },
+      { message: "Error interno del servidor al consultar eventos de recuperación." },
       { status: 500 }
     );
   }
@@ -134,11 +149,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: error.message }, { status: 404 });
     }
 
-    if (error instanceof PatrullaNoDisponibleError || error instanceof StockInsuficienteError) {
-      return NextResponse.json({ message: error.message }, { status: 409 });
-    }
-
-    if (error instanceof EventoAtpNoActivoError) {
+    if (
+      error instanceof PatrullaNoDisponibleError ||
+      error instanceof StockInsuficienteError ||
+      error instanceof EventoAtpNoActivoError
+    ) {
       return NextResponse.json({ message: error.message }, { status: 409 });
     }
 

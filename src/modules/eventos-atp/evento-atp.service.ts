@@ -1,37 +1,40 @@
 import { seguridadService } from "@/modules/seguridad/service";
 import {
   PERMISO_CREAR_EVENTO_ATP,
+  PERMISO_LEER_ASISTENCIA_SOCIAL,
+  PERMISO_LEER_MISION,
+  PERMISO_KANBAN_INCIDENTES,
   PERMISO_VINCULAR_EVENTO_ATP,
 } from "@/modules/seguridad/permisos.constants";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-} from "@/modules/seguridad/errors";
+import { NotFoundError } from "@/modules/seguridad/errors";
 import { emitirEventoAtpCreado } from "@/lib/socket";
 import { buildPaginationMeta } from "@/lib/shared/pagination.schema";
 import {
   CrearEventoAtpInputSchema,
   ListarEventosAtpQuerySchema,
   type CrearEventoAtpInput,
+  type EventoAtpDetalle,
   type EventoAtpResponse,
   type EventoAtpResumen,
-  type EventoAtpDetalle,
   type ListarEventosAtpQuery,
   type ListarEventosAtpResponse,
 } from "./evento-atp.schema";
 import {
-  existeCodigoEventoAtp,
+  contarVinculosPorEventoAtp,
   insertarEventoAtpConDelegaciones,
-  verificarDelegacionesExisten,
   listarEventosAtpPaginadosRepo,
   obtenerEventoAtpPorId,
   obtenerVinculosEventoAtp,
-  contarVinculosEventoAtp,
   type DatosCrearEventoAtpRepo,
   type FilaEventoAtp,
   type FilaDelegacionEventoAtp,
 } from "./evento-atp.repository";
+
+/**
+ * Mensaje institucional de denegación de acceso al módulo de Eventos ATP.
+ */
+export const MENSAJE_ACCESO_DENEGADO_EVENTO_ATP =
+  "Acceso denegado. Se requiere el perfil de Administrador o el permiso eventos_atp:crear.";
 
 function aISO(fecha: Date | string): string {
   return fecha instanceof Date
@@ -81,33 +84,24 @@ export async function crearEventoAtpService(
   usuarioId?: string | null
 ): Promise<EventoAtpResponse> {
   // 1. Control de acceso RBAC
-  const usuario = await seguridadService.validarAccesoAdministrador(usuarioId, [
-    PERMISO_CREAR_EVENTO_ATP,
-  ]);
+  const usuario = await seguridadService.validarAccesoRoles(
+    usuarioId,
+    [PERMISO_CREAR_EVENTO_ATP],
+    MENSAJE_ACCESO_DENEGADO_EVENTO_ATP
+  );
 
   // 2. Validación estricta del contrato de entrada
   const datosValidados = CrearEventoAtpInputSchema.parse(input);
 
   const codigoManual = datosValidados.codigo?.trim().toUpperCase();
 
-  // 3. Verificar duplicidad del código manual antes de insertar
-  if (codigoManual && (await existeCodigoEventoAtp(codigoManual))) {
-    throw new ConflictError(
-      `Ya existe un Evento ATP registrado con el código '${codigoManual}'.`
-    );
-  }
-
-  // 4. Verificar que todas las delegaciones seleccionadas existan
+  // 3. Normalizar las delegaciones seleccionadas (sin duplicados)
   const delegacionIds = Array.from(new Set(datosValidados.delegacionIds ?? []));
-  const { faltantes } = await verificarDelegacionesExisten(delegacionIds);
 
-  if (faltantes.length > 0) {
-    throw new BadRequestError(
-      `Las siguientes delegaciones no existen en el sistema: ${faltantes.join(", ")}.`
-    );
-  }
-
-  // 5. Preparar payload de persistencia transaccional
+  // 4. Preparar payload de persistencia transaccional.
+  //    La unicidad del código y la existencia de las delegaciones activas se
+  //    validan dentro de la misma transacción en el repositorio, evitando
+  //    condiciones de carrera (TOCTOU) entre la verificación y el INSERT.
   const datosParaInsertar: DatosCrearEventoAtpRepo = {
     codigo: codigoManual,
     nombre: datosValidados.nombre,
@@ -125,7 +119,7 @@ export async function crearEventoAtpService(
 
   const respuesta = mapearEventoAtp(evento, delegaciones);
 
-  // 6. Notificar en tiempo real a las salas operativas y administrativas
+  // 5. Notificar en tiempo real a las salas operativas y administrativas
   emitirEventoAtpCreado(respuesta);
 
   return respuesta;
@@ -136,17 +130,36 @@ export async function crearEventoAtpService(
    ========================================================================== */
 
 /**
+ * Permisos que habilitan la consulta estratégica/operativa de Eventos ATP.
+ * `eventos_atp:vincular` es el permiso principal del módulo; los demás
+ * permiten que perfiles como SUPERVISOR, Encargado o Asistente Social
+ * consulten el catálogo sin recibir un 403 indebido.
+ */
+const PERMISOS_CONSULTA_EVENTO_ATP = [
+  PERMISO_VINCULAR_EVENTO_ATP,
+  PERMISO_LEER_MISION,
+  PERMISO_KANBAN_INCIDENTES,
+  PERMISO_LEER_ASISTENCIA_SOCIAL,
+  PERMISO_CREAR_EVENTO_ATP,
+];
+
+const MENSAJE_ACCESO_DENEGADO_CONSULTA_ATP =
+  "Acceso denegado. Se requiere el permiso 'eventos_atp:vincular' o un permiso de consulta del módulo Eventos ATP.";
+
+/**
  * Lista Eventos ATP con filtros y paginación.
- * Requiere el permiso `eventos_atp:vincular` porque alimenta los selectores
- * de vinculación y el detalle operativo del evento.
+ * El conteo de entidades vinculadas se obtiene con una consulta agrupada,
+ * evitando el patrón N+1.
  */
 export async function listarEventosAtpService(
   query: ListarEventosAtpQuery,
   usuarioId: string
 ): Promise<ListarEventosAtpResponse> {
-  await seguridadService.validarAccesoRoles(usuarioId, [
-    PERMISO_VINCULAR_EVENTO_ATP,
-  ]);
+  await seguridadService.validarAccesoRoles(
+    usuarioId,
+    PERMISOS_CONSULTA_EVENTO_ATP,
+    MENSAJE_ACCESO_DENEGADO_CONSULTA_ATP
+  );
 
   const filtros = ListarEventosAtpQuerySchema.parse(query);
   const { page, limit, ...filtrosRepo } = filtros;
@@ -156,13 +169,13 @@ export async function listarEventosAtpService(
     { page, limit }
   );
 
-  const conteos = await Promise.all(
-    eventos.map((evento) => contarVinculosEventoAtp(evento.id))
+  const conteos = await contarVinculosPorEventoAtp(
+    eventos.map((evento) => evento.id)
   );
 
-  const data: EventoAtpResumen[] = eventos.map((evento, indice) => ({
+  const data: EventoAtpResumen[] = eventos.map((evento) => ({
     ...mapearEventoAtp(evento, delegaciones.get(evento.id) ?? []),
-    totalVinculados: conteos[indice],
+    totalVinculados: conteos.get(evento.id) ?? 0,
   }));
 
   return {
@@ -179,9 +192,11 @@ export async function obtenerEventoAtpDetalleService(
   id: string,
   usuarioId: string
 ): Promise<EventoAtpDetalle> {
-  await seguridadService.validarAccesoRoles(usuarioId, [
-    PERMISO_VINCULAR_EVENTO_ATP,
-  ]);
+  await seguridadService.validarAccesoRoles(
+    usuarioId,
+    PERMISOS_CONSULTA_EVENTO_ATP,
+    MENSAJE_ACCESO_DENEGADO_CONSULTA_ATP
+  );
 
   const registro = await obtenerEventoAtpPorId(id);
 

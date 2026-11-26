@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { POST } from "../route";
+import { POST, GET } from "../route";
 import * as recuperacionService from "@/modules/eventos-atp/recuperacion.service";
 import type { EventoRecuperacionResponse } from "@/modules/eventos-atp/recuperacion.schema";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import * as authService from "@/modules/seguridad/auth.service";
+import { seguridadService } from "@/modules/seguridad/service";
 import type { UsuarioAutenticado } from "@/modules/seguridad/auth.service";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
@@ -221,5 +222,144 @@ describe("Route Handler POST /api/eventos-atp/recuperacion (HU-29)", () => {
     expect(body.message).toContain("exitosamente");
     expect(body.data.codigo).toBe("REC-2026-0001");
     expect(body.data.patrulla.estado).toBe("EN_RECUPERACION");
+  });
+});
+
+describe("Route Handler GET /api/eventos-atp/recuperacion", () => {
+  it("debe responder 401 si no hay usuario autenticado", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockRejectedValueOnce(
+      new UnauthorizedError("Token no válido")
+    );
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion", {
+      method: "GET",
+    });
+
+    const res = await GET(req);
+    expect(res.status).toBe(401);
+  });
+
+  it("debe responder 200 con la lista de eventos para el mapa operativo", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce("00000000-0000-4000-8000-000000000003");
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({
+      id: "00000000-0000-4000-8000-000000000003",
+      nombre: "Encargado",
+      rolNombre: "Encargado",
+    } as never);
+
+    const mockEventos: EventoRecuperacionResponse[] = [
+      {
+        id: "70000000-0000-4000-8000-000000000001",
+        codigo: "REC-2026-0001",
+        nombre: "Entrega de planchas de zinc en Las Ánimas",
+        descripcion: "Damnificados por temporal",
+        sector: "Las Ánimas",
+        direccionTexto: "Avenida Pedro Aguirre Cerda 1420",
+        prioridad: "ALTA",
+        contactoNombre: "Marta Gómez",
+        contactoTelefono: "+56987654321",
+        latitud: -39.8052,
+        longitud: -73.2295,
+        estado: "EN_EJECUCION",
+        familiasAfectadas: 6,
+        delegacion: {
+          id: "30000000-0000-4000-8000-000000000001",
+          codigo: "DEL_NORTE",
+          nombre: "Delegación Norte",
+        },
+        mision: {
+          id: "60000000-0000-4000-8000-000000000101",
+          codigo: "MIS-2026-0101",
+          titulo: "Distribución de Techumbre",
+          estado: "EN_CURSO",
+          tipoMision: "RECUPERACION",
+        },
+        patrulla: {
+          id: "50000000-0000-4000-8000-000000000001",
+          nombre: "Patrulla Verificadora Las Ánimas",
+          estado: "EN_RECUPERACION",
+        },
+        recursos: [
+          {
+            recursoId: "80000000-0000-4000-8000-000000000001",
+            nombre: "Planchas de Zinc",
+            cantidadAsignada: 24,
+          },
+        ],
+        eventoAtpId: null,
+        creadoPorId: "00000000-0000-4000-8000-000000000003",
+        creadoEn: "2026-10-04T12:00:00.000Z",
+        actualizadoEn: "2026-10-04T12:00:00.000Z",
+      },
+    ];
+
+    vi.spyOn(recuperacionService, "listarEventosRecuperacionService").mockResolvedValueOnce(mockEventos);
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp/recuperacion", {
+      method: "GET",
+      headers: { "x-user-id": "00000000-0000-4000-8000-000000000003" },
+    });
+
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.total).toBe(1);
+    expect(body.data[0].codigo).toBe("REC-2026-0001");
+    expect(body.data[0].latitud).toBe(-39.8052);
+    expect(body.data[0].longitud).toBe(-73.2295);
+    expect(body.data[0].patrulla.nombre).toBe("Patrulla Verificadora Las Ánimas");
+  });
+
+  it("debe validar el filtro eventoAtpId y los parámetros de paginación", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(
+      "00000000-0000-4000-8000-000000000010"
+    );
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({
+      id: "00000000-0000-4000-8000-000000000010",
+      nombre: "Supervisor",
+      rolNombre: "SUPERVISOR",
+    } as never);
+    vi.spyOn(
+      recuperacionService,
+      "listarEventosRecuperacionService"
+    ).mockResolvedValueOnce([]);
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp/recuperacion?eventoAtpId=50000000-0000-4000-8000-000000000001&pagina=1&limite=100",
+      { method: "GET" }
+    );
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    expect(
+      recuperacionService.listarEventosRecuperacionService
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventoAtpId: "50000000-0000-4000-8000-000000000001",
+        pagina: 1,
+        limite: 100,
+      })
+    );
+  });
+
+  it("debe responder 400 si los parámetros de consulta son inválidos", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(
+      "00000000-0000-4000-8000-000000000003"
+    );
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({
+      id: "00000000-0000-4000-8000-000000000003",
+      nombre: "Encargado",
+      rolNombre: "Encargado",
+    } as never);
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp/recuperacion?eventoAtpId=no-es-uuid",
+      { method: "GET" }
+    );
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.errors).toBeDefined();
   });
 });

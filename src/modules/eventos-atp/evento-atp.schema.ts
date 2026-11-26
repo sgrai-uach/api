@@ -43,23 +43,116 @@ export const EstadoEventoAtpSchema = z.enum(["ACTIVO", "FINALIZADO", "CANCELADO"
 export type EstadoEventoAtp = z.infer<typeof EstadoEventoAtpSchema>;
 
 /**
- * Fecha/hora flexible para formularios web (datetime-local) y clientes API.
- * Se acepta cualquier representación parseable por Date y se normaliza a Date
- * en la capa de servicio.
+ * Patrón ISO-8601 estricto para fecha y hora.
+ *
+ * Acepta `YYYY-MM-DDTHH:mm`, con segundos y/o milisegundos opcionales y con
+ * zona horaria opcional (`Z` o `±HH:mm`). No acepta fechas sin hora, textos
+ * arbitrarios ni fechas calendario inexistentes (por ejemplo `2026-02-30`).
+ */
+const REGEX_FECHA_HORA_ISO =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2})?$/;
+
+/**
+ * Verifica que una fecha/hora cumpla el formato ISO-8601 estricto y que
+ * represente una fecha calendario real (sin rollover silencioso de V8).
+ */
+export function esFechaHoraEventoAtpValida(valor: string): boolean {
+  const coincidencia = REGEX_FECHA_HORA_ISO.exec(valor.trim());
+
+  if (!coincidencia) {
+    return false;
+  }
+
+  const [, anio, mes, dia, hora, minuto, segundo, milisegundo, zona] =
+    coincidencia;
+
+  const anioNum = Number(anio);
+  const mesNum = Number(mes);
+  const diaNum = Number(dia);
+  const horaNum = Number(hora);
+  const minutoNum = Number(minuto);
+  const segundoNum = segundo === undefined ? 0 : Number(segundo);
+  const milisegundoNum =
+    milisegundo === undefined ? 0 : Number(milisegundo.padEnd(3, "0"));
+
+  if (mesNum < 1 || mesNum > 12) return false;
+  if (diaNum < 1 || diaNum > 31) return false;
+  if (horaNum > 23 || minutoNum > 59 || segundoNum > 59) return false;
+
+  if (zona && zona !== "Z") {
+    const offsetHora = Number(zona.slice(1, 3));
+    const offsetMinuto = Number(zona.slice(4, 6));
+    if (offsetHora > 23 || offsetMinuto > 59) return false;
+  }
+
+  const fecha = new Date(
+    Date.UTC(
+      anioNum,
+      mesNum - 1,
+      diaNum,
+      horaNum,
+      minutoNum,
+      segundoNum,
+      milisegundoNum
+    )
+  );
+
+  return (
+    fecha.getUTCFullYear() === anioNum &&
+    fecha.getUTCMonth() === mesNum - 1 &&
+    fecha.getUTCDate() === diaNum
+  );
+}
+
+/**
+ * Fecha/hora estricta para formularios web (datetime-local) y clientes API.
+ *
+ * Rechaza cualquier cadena que no sea ISO-8601 válido con fecha calendario
+ * real. Se normaliza a Date en la capa de servicio.
  */
 const FechaHoraEventoAtpSchema = z
   .string()
   .trim()
   .min(1, "La fecha y hora es obligatoria")
   .refine(
-    (valor) => !Number.isNaN(Date.parse(valor)),
+    (valor) => esFechaHoraEventoAtpValida(valor),
     "El formato de fecha y hora no es válido"
   )
   .openapi({
     type: "string",
     format: "date-time",
-    description: "Fecha y hora en formato ISO-8601",
+    description:
+      "Fecha y hora en formato ISO-8601 (YYYY-MM-DDTHH:mm[:ss[.sss]][Z|±HH:mm])",
     example: "2026-05-01T10:00",
+  });
+
+/**
+ * Código identificador opcional del Evento ATP.
+ *
+ * Los valores `null`, `""` o solo espacios se normalizan a `undefined` para
+ * disparar la autogeneración del correlativo `ATP-AAAA-####`.
+ */
+const CodigoEventoAtpSchema = z
+  .preprocess(
+    (valor) =>
+      valor === null || (typeof valor === "string" && valor.trim() === "")
+        ? undefined
+        : valor,
+    z
+      .string()
+      .trim()
+      .min(3, "El código debe tener al menos 3 caracteres")
+      .max(30, "El código no puede superar los 30 caracteres")
+      .regex(
+        /^[A-Za-z0-9-]+$/,
+        "El código solo puede contener letras, números y guiones"
+      )
+      .optional()
+  )
+  .openapi({
+    description:
+      "Código identificador único. Si se omite (o se envía vacío), se genera automáticamente con formato ATP-YYYY-####",
+    example: "ATP-2026-0001",
   });
 
 /**
@@ -90,21 +183,7 @@ export type DelegacionEventoAtp = z.infer<typeof DelegacionEventoAtpSchema>;
  */
 export const CrearEventoAtpInputSchema = z
   .object({
-    codigo: z
-      .string()
-      .trim()
-      .min(3, "El código debe tener al menos 3 caracteres")
-      .max(30, "El código no puede superar los 30 caracteres")
-      .regex(
-        /^[A-Za-z0-9-]+$/,
-        "El código solo puede contener letras, números y guiones"
-      )
-      .optional()
-      .openapi({
-        description:
-          "Código identificador único. Si se omite, se genera automáticamente con formato ATP-YYYY-####",
-        example: "ATP-2026-0001",
-      }),
+    codigo: CodigoEventoAtpSchema,
     nombre: z
       .string()
       .trim()
@@ -155,7 +234,14 @@ export const CrearEventoAtpInputSchema = z
       }),
   })
   .superRefine((datos, ctx) => {
-    if (Date.parse(datos.fechaTermino) < Date.parse(datos.fechaInicio)) {
+    const fechasValidas =
+      esFechaHoraEventoAtpValida(datos.fechaInicio) &&
+      esFechaHoraEventoAtpValida(datos.fechaTermino);
+
+    if (
+      fechasValidas &&
+      Date.parse(datos.fechaTermino) < Date.parse(datos.fechaInicio)
+    ) {
       ctx.addIssue({
         code: "custom",
         path: ["fechaTermino"],

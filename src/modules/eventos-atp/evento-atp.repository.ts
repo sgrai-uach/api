@@ -1,5 +1,6 @@
-import { sql, type Transaction } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 import { db } from "@/lib/db";
+import { BadRequestError, ConflictError } from "@/modules/seguridad/errors";
 import type {
   Database,
   EstadoEventoAtp,
@@ -50,20 +51,25 @@ export interface ResultadoInsercionEventoAtp {
 }
 
 /**
- * Verifica cuáles delegaciones existen en el catálogo municipal.
+ * Verifica cuáles delegaciones existen y están activas en el catálogo municipal.
  * Permite entregar un error de negocio claro antes de violar la FK.
+ *
+ * Puede ejecutarse dentro de una transacción (`trx`) para evitar que una
+ * delegación sea desactivada entre la validación y el INSERT.
  */
 export async function verificarDelegacionesExisten(
-  delegacionIds: string[]
+  delegacionIds: string[],
+  trx?: Transaction<Database>
 ): Promise<{ existentes: string[]; faltantes: string[] }> {
   if (delegacionIds.length === 0) {
     return { existentes: [], faltantes: [] };
   }
 
-  const filas = await db
+  const filas = await (trx ?? db)
     .selectFrom("delegacion")
     .select("id")
     .where("id", "in", delegacionIds)
+    .where("activo", "=", true)
     .execute();
 
   const existentes = filas.map((fila) => fila.id);
@@ -91,10 +97,39 @@ export async function existeCodigoEventoAtp(
 }
 
 /**
+ * Detecta la violación de unicidad del código del Evento ATP
+ * (`SQLSTATE 23505` sobre `evento_atp_codigo_key`).
+ */
+export function esViolacionCodigoEventoAtpUnico(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const detalle = error as {
+    code?: string;
+    constraint?: string;
+  };
+
+  if (detalle.code !== "23505") {
+    return false;
+  }
+
+  if (detalle.constraint) {
+    return detalle.constraint === "evento_atp_codigo_key";
+  }
+
+  return true;
+}
+
+/**
  * Genera el siguiente correlativo anual ATP-YYYY-#### dentro de una transacción.
  *
  * Se usa un advisory lock por año para serializar la generación y evitar
  * colisiones cuando dos administradores crean eventos concurrentemente.
+ *
+ * Solo se consideran los códigos con sufijo estrictamente numérico de al menos
+ * cuatro dígitos (`ATP-AAAA-####`), de modo que códigos manuales como
+ * `ATP-2026-MAYO` o `ATP-2026-99` no alteran la secuencia ni colisionan.
  */
 export async function generarSiguienteCodigoEventoAtp(
   trx: Transaction<Database>,
@@ -105,53 +140,107 @@ export async function generarSiguienteCodigoEventoAtp(
   `.execute(trx);
 
   const prefijo = `ATP-${anio}-`;
+  const patron = `^${prefijo}[0-9]{4,15}$`;
 
-  const ultimaFila = await trx
-    .selectFrom("evento_atp")
-    .select("codigo")
-    .where("codigo", "like", `${prefijo}%`)
-    .orderBy("codigo", "desc")
-    .limit(1)
-    .executeTakeFirst();
+  const resultado = await sql<{ maximo: string | null }>`
+    SELECT COALESCE(MAX(SUBSTRING(codigo FROM ${prefijo.length + 1})::bigint), 0) AS maximo
+    FROM evento_atp
+    WHERE codigo ~ ${patron}
+  `.execute(trx);
 
-  const ultimaSecuencia = ultimaFila
-    ? Number.parseInt(ultimaFila.codigo.slice(prefijo.length), 10)
-    : 0;
+  const maximo = Number(resultado.rows[0]?.maximo ?? 0);
+  let secuencia = Number.isSafeInteger(maximo) && maximo > 0 ? maximo + 1 : 1;
 
-  const siguienteSecuencia = Number.isNaN(ultimaSecuencia)
-    ? 1
-    : ultimaSecuencia + 1;
+  let candidato = `${prefijo}${String(secuencia).padStart(4, "0")}`;
 
-  return `${prefijo}${String(siguienteSecuencia).padStart(4, "0")}`;
+  // Defensa final: si el correlativo calculado ya existe (por ejemplo porque fue
+  // registrado manualmente con el mismo formato), se avanza hasta obtener uno
+  // libre dentro de la misma transacción.
+  while (await existeCodigoEventoAtp(candidato, trx)) {
+    secuencia += 1;
+    candidato = `${prefijo}${String(secuencia).padStart(4, "0")}`;
+  }
+
+  return candidato;
 }
 
 /**
  * Inserta un Evento ATP y sus delegaciones afectadas en una sola transacción
  * PostgreSQL. Si falla cualquier inserción, se revierte todo el conjunto.
+ *
+ * Dentro de la misma transacción se:
+ * - validan las delegaciones activas existentes;
+ * - verifica la unicidad del código manual (con advisory lock por código);
+ * - genera el correlativo automático (con advisory lock por año);
+ * - captura `SQLSTATE 23505` para responder `409 Conflict` en vez de `500`.
  */
 export async function insertarEventoAtpConDelegaciones(
   datos: DatosCrearEventoAtpRepo
 ): Promise<ResultadoInsercionEventoAtp> {
   return await db.transaction().execute(async (trx) => {
-    const codigo =
-      datos.codigo?.trim().toUpperCase() ??
-      (await generarSiguienteCodigoEventoAtp(trx));
+    const codigoManual = datos.codigo?.trim().toUpperCase() || undefined;
 
-    const evento = await trx
-      .insertInto("evento_atp")
-      .values({
-        codigo,
-        nombre: datos.nombre,
-        descripcion: datos.descripcion,
-        tipo_amenaza: datos.tipoAmenaza,
-        nivel_alerta: datos.nivelAlerta,
-        fecha_inicio: datos.fechaInicio,
-        fecha_termino: datos.fechaTermino,
-        estado: "ACTIVO",
-        creado_por_id: datos.creadoPorId,
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow();
+    // 1. Validar que las delegaciones seleccionadas existan y estén activas
+    const { faltantes } = await verificarDelegacionesExisten(
+      datos.delegacionIds,
+      trx
+    );
+
+    if (faltantes.length > 0) {
+      throw new BadRequestError(
+        `Las siguientes delegaciones no existen en el sistema: ${faltantes.join(", ")}.`
+      );
+    }
+
+    // 2. Determinar el código único del evento dentro de la transacción
+    let codigo: string;
+
+    if (codigoManual) {
+      await sql`
+        SELECT pg_advisory_xact_lock(hashtext(${`evento_atp_codigo_${codigoManual}`})::bigint);
+      `.execute(trx);
+
+      if (await existeCodigoEventoAtp(codigoManual, trx)) {
+        throw new ConflictError(
+          `Ya existe un Evento ATP registrado con el código '${codigoManual}'.`
+        );
+      }
+
+      codigo = codigoManual;
+    } else {
+      codigo = await generarSiguienteCodigoEventoAtp(trx);
+    }
+
+    // 3. Insertar el evento capturando la violación de unicidad por código
+    let evento: FilaEventoAtp;
+
+    try {
+      const fila = await trx
+        .insertInto("evento_atp")
+        .values({
+          codigo,
+          nombre: datos.nombre,
+          descripcion: datos.descripcion,
+          tipo_amenaza: datos.tipoAmenaza,
+          nivel_alerta: datos.nivelAlerta,
+          fecha_inicio: datos.fechaInicio,
+          fecha_termino: datos.fechaTermino,
+          estado: "ACTIVO",
+          creado_por_id: datos.creadoPorId,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+
+      evento = fila as unknown as FilaEventoAtp;
+    } catch (error) {
+      if (esViolacionCodigoEventoAtpUnico(error)) {
+        throw new ConflictError(
+          `Ya existe un Evento ATP registrado con el código '${codigo}'.`
+        );
+      }
+
+      throw error;
+    }
 
     if (datos.delegacionIds.length > 0) {
       await trx
@@ -178,8 +267,8 @@ export async function insertarEventoAtpConDelegaciones(
       .execute();
 
     return {
-      evento: evento as unknown as FilaEventoAtp,
-      delegaciones: delegaciones as FilaDelegacionEventoAtp[],
+      evento,
+      delegaciones: delegaciones as unknown as FilaDelegacionEventoAtp[],
     };
   });
 }
@@ -210,7 +299,7 @@ export async function obtenerEventoAtpPorId(
 
   return {
     evento: evento as unknown as FilaEventoAtp,
-    delegaciones: delegaciones as FilaDelegacionEventoAtp[],
+    delegaciones: delegaciones as unknown as FilaDelegacionEventoAtp[],
   };
 }
 
@@ -327,42 +416,83 @@ export async function listarEventosAtpPaginadosRepo(
 }
 
 /**
+ * Cuenta las entidades vinculadas para un conjunto de Eventos ATP en una sola
+ * pasada por tabla (GROUP BY), evitando el patrón N+1 del listado.
+ */
+export async function contarVinculosPorEventoAtp(
+  eventoAtpIds: string[]
+): Promise<Map<string, number>> {
+  const conteos = new Map<string, number>();
+
+  if (eventoAtpIds.length === 0) {
+    return conteos;
+  }
+
+  const [incidentes, prevencion, recuperaciones, asistencia] =
+    await Promise.all([
+      db
+        .selectFrom("incidente")
+        .select([
+          "evento_atp_id",
+          sql<number>`count(*)::int`.as("total"),
+        ])
+        .where("evento_atp_id", "in", eventoAtpIds)
+        .groupBy("evento_atp_id")
+        .execute(),
+      db
+        .selectFrom("evento_prevencion")
+        .select([
+          "evento_atp_id",
+          sql<number>`count(*)::int`.as("total"),
+        ])
+        .where("evento_atp_id", "in", eventoAtpIds)
+        .groupBy("evento_atp_id")
+        .execute(),
+      db
+        .selectFrom("recuperacion")
+        .select([
+          "evento_atp_id",
+          sql<number>`count(*)::int`.as("total"),
+        ])
+        .where("evento_atp_id", "in", eventoAtpIds)
+        .groupBy("evento_atp_id")
+        .execute(),
+      db
+        .selectFrom("evento_asistencia_social")
+        .select([
+          "evento_atp_id",
+          sql<number>`count(*)::int`.as("total"),
+        ])
+        .where("evento_atp_id", "in", eventoAtpIds)
+        .where("eliminado_en", "is", null)
+        .groupBy("evento_atp_id")
+        .execute(),
+    ]);
+
+  for (const fila of [
+    ...incidentes,
+    ...prevencion,
+    ...recuperaciones,
+    ...asistencia,
+  ]) {
+    if (!fila.evento_atp_id) continue;
+    conteos.set(
+      fila.evento_atp_id,
+      (conteos.get(fila.evento_atp_id) ?? 0) + Number(fila.total ?? 0)
+    );
+  }
+
+  return conteos;
+}
+
+/**
  * Cuenta las entidades vinculadas a un Evento ATP.
  */
 export async function contarVinculosEventoAtp(
   eventoAtpId: string
 ): Promise<number> {
-  const [incidentes, prevencion, recuperaciones, asistencia] =
-    await Promise.all([
-      db
-        .selectFrom("incidente")
-        .select(sql<number>`count(*)::int`.as("total"))
-        .where("evento_atp_id", "=", eventoAtpId)
-        .executeTakeFirst(),
-      db
-        .selectFrom("evento_prevencion")
-        .select(sql<number>`count(*)::int`.as("total"))
-        .where("evento_atp_id", "=", eventoAtpId)
-        .executeTakeFirst(),
-      db
-        .selectFrom("recuperacion")
-        .select(sql<number>`count(*)::int`.as("total"))
-        .where("evento_atp_id", "=", eventoAtpId)
-        .executeTakeFirst(),
-      db
-        .selectFrom("evento_asistencia_social")
-        .select(sql<number>`count(*)::int`.as("total"))
-        .where("evento_atp_id", "=", eventoAtpId)
-        .where("eliminado_en", "is", null)
-        .executeTakeFirst(),
-    ]);
-
-  return (
-    Number(incidentes?.total ?? 0) +
-    Number(prevencion?.total ?? 0) +
-    Number(recuperaciones?.total ?? 0) +
-    Number(asistencia?.total ?? 0)
-  );
+  const conteos = await contarVinculosPorEventoAtp([eventoAtpId]);
+  return conteos.get(eventoAtpId) ?? 0;
 }
 
 /**
@@ -437,12 +567,14 @@ export async function obtenerVinculosEventoAtp(
  * Se usa al crear entidades que pueden vincularse opcionalmente a un ATP.
  */
 export async function obtenerEstadoEventoAtp(
-  id: string
+  id: string,
+  executor: Kysely<Database> = db
 ): Promise<{ id: string; codigo: string; estado: EstadoEventoAtp } | null> {
-  const fila = await db
+  const fila = await executor
     .selectFrom("evento_atp")
     .select(["id", "codigo", "estado"])
     .where("id", "=", id)
+    .forShare()
     .executeTakeFirst();
 
   return fila ?? null;

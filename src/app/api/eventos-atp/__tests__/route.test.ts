@@ -4,6 +4,8 @@ import { POST, GET } from "../route";
 import * as eventoAtpService from "@/modules/eventos-atp/evento-atp.service";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import {
+  BadRequestError,
+  ConflictError,
   ForbiddenError,
 } from "@/modules/seguridad/errors";
 import type {
@@ -132,6 +134,81 @@ describe("Route Handler POST /api/eventos-atp (H61)", () => {
       codigo: "ATP-2026-0001",
       estado: "ACTIVO",
     });
+  });
+
+  it("debe responder 409 cuando el código del Evento ATP ya existe", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+    vi.spyOn(eventoAtpService, "crearEventoAtpService").mockRejectedValueOnce(
+      new ConflictError(
+        "Ya existe un Evento ATP registrado con el código 'ATP-2026-0001'."
+      )
+    );
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp", {
+      method: "POST",
+      body: JSON.stringify(payloadValido),
+    });
+
+    const res = await POST(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(json.message).toContain("Ya existe un Evento ATP");
+  });
+
+  it("debe responder 400 cuando las delegaciones no existen o están inactivas", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+    vi.spyOn(eventoAtpService, "crearEventoAtpService").mockRejectedValueOnce(
+      new BadRequestError(
+        "Las siguientes delegaciones no existen en el sistema: 30000000-0000-4000-8000-999999999999."
+      )
+    );
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp", {
+      method: "POST",
+      body: JSON.stringify(payloadValido),
+    });
+
+    const res = await POST(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.message).toContain("no existen en el sistema");
+  });
+
+  it("debe responder 400 cuando las fechas no cumplen el formato ISO-8601 estricto", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp", {
+      method: "POST",
+      body: JSON.stringify({
+        ...payloadValido,
+        fechaInicio: "2026-02-30T10:00",
+      }),
+    });
+
+    const res = await POST(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.errors.length).toBeGreaterThan(0);
+  });
+
+  it("debe aceptar un código vacío y delegar la autogeneración del correlativo", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(adminId);
+    const spy = vi
+      .spyOn(eventoAtpService, "crearEventoAtpService")
+      .mockResolvedValueOnce(respuestaEvento);
+
+    const req = new NextRequest("http://localhost:3000/api/eventos-atp", {
+      method: "POST",
+      body: JSON.stringify({ ...payloadValido, codigo: "" }),
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(201);
+    expect(spy.mock.calls[0][0].codigo).toBeUndefined();
   });
 });
 

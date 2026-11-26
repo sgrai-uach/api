@@ -85,6 +85,7 @@ describe("Route Handler GET /api/incidentes (Tablero Kanban)", () => {
           estado: "REPORTADO",
           prioridad: "ALTA",
           requiereAsistenciaSocial: false,
+          verificado: false,
           fuenteOrigen: "CHATBOT",
           informanteNombre: "Vecino",
           delegacionNombre: "Sur",

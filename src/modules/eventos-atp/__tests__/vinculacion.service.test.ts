@@ -7,6 +7,7 @@ import { seguridadService } from "@/modules/seguridad/service";
 import * as repo from "../vinculacion.repository";
 import * as socket from "@/lib/socket";
 import { ConflictError, NotFoundError } from "@/modules/seguridad/errors";
+import { PERMISO_VINCULAR_EVENTO_ATP } from "@/modules/seguridad/permisos.constants";
 import type { FilaEntidadVinculable } from "../vinculacion.repository";
 
 vi.mock("@/modules/seguridad/service", () => ({
@@ -75,11 +76,16 @@ describe("vinculacion.service - Vinculación de entidades (H60)", () => {
     vi.mocked(repo.buscarEventoAtpParaVinculacion).mockResolvedValue(
       eventoCreado as never
     );
+    vi.mocked(repo.actualizarEventoAtpDeEntidades).mockResolvedValue([]);
+    vi.mocked(repo.desvincularEntidadesDelEvento).mockResolvedValue([]);
   });
 
   it("vincula una entidad y emite evento_atp:vinculado", async () => {
     vi.mocked(repo.obtenerEntidadesExistentes).mockResolvedValue([
       fila("INCIDENTE", incidenteId, null),
+    ]);
+    vi.mocked(repo.actualizarEventoAtpDeEntidades).mockResolvedValueOnce([
+      fila("INCIDENTE", incidenteId, eventoAtpId),
     ]);
 
     const resultado = await vincularEntidadesEventoAtpService(
@@ -103,6 +109,10 @@ describe("vinculacion.service - Vinculación de entidades (H60)", () => {
     vi.mocked(repo.obtenerEntidadesExistentes).mockResolvedValue([
       fila("INCIDENTE", incidenteId, otroEventoAtpId),
       fila("EVENTO_PREVENCION", prevencionId, null),
+    ]);
+    vi.mocked(repo.actualizarEventoAtpDeEntidades).mockResolvedValueOnce([
+      fila("INCIDENTE", incidenteId, eventoAtpId),
+      fila("EVENTO_PREVENCION", prevencionId, eventoAtpId),
     ]);
 
     const resultado = await vincularEntidadesEventoAtpService(
@@ -176,6 +186,32 @@ describe("vinculacion.service - Vinculación de entidades (H60)", () => {
         usuario.id
       )
     ).rejects.toBe(error);
+
+    expect(seguridadService.validarAccesoRoles).toHaveBeenCalledWith(
+      usuario.id,
+      [PERMISO_VINCULAR_EVENTO_ATP],
+      expect.stringContaining("eventos_atp:vincular")
+    );
+  });
+
+  it("no falla si la emisión WebSocket lanza un error después del commit", async () => {
+    vi.mocked(repo.obtenerEntidadesExistentes).mockResolvedValue([
+      fila("INCIDENTE", incidenteId, null),
+    ]);
+    vi.mocked(repo.actualizarEventoAtpDeEntidades).mockResolvedValueOnce([
+      fila("INCIDENTE", incidenteId, eventoAtpId),
+    ]);
+    vi.mocked(socket.emitirEventoAtpVinculado).mockImplementationOnce(() => {
+      throw new Error("Redis caído");
+    });
+
+    const resultado = await vincularEntidadesEventoAtpService(
+      eventoAtpId,
+      { incidenteIds: [incidenteId] } as never,
+      usuario.id
+    );
+
+    expect(resultado.entidades.incidentes).toHaveLength(1);
   });
 });
 
@@ -192,12 +228,17 @@ describe("vinculacion.service - Desvinculación de entidades (H60)", () => {
     vi.mocked(repo.buscarEventoAtpParaVinculacion).mockResolvedValue(
       eventoCreado as never
     );
+    vi.mocked(repo.actualizarEventoAtpDeEntidades).mockResolvedValue([]);
+    vi.mocked(repo.desvincularEntidadesDelEvento).mockResolvedValue([]);
   });
 
   it("desvincula solo las entidades del Evento ATP indicado", async () => {
     vi.mocked(repo.obtenerEntidadesExistentes).mockResolvedValue([
       fila("INCIDENTE", incidenteId, eventoAtpId),
       fila("EVENTO_PREVENCION", prevencionId, otroEventoAtpId),
+    ]);
+    vi.mocked(repo.desvincularEntidadesDelEvento).mockResolvedValueOnce([
+      fila("INCIDENTE", incidenteId, null),
     ]);
 
     const resultado = await desvincularEntidadesEventoAtpService(
@@ -236,6 +277,41 @@ describe("vinculacion.service - Desvinculación de entidades (H60)", () => {
     expect(resultado.entidades.incidentes).toHaveLength(0);
   });
 
+  it("clasifica noEncontradas por tipo sin enmascarar cruces entre tablas", async () => {
+    const recuperacionId = "c0000000-0000-4000-8000-000000000001";
+    vi.mocked(repo.obtenerEntidadesExistentes).mockResolvedValue([
+      fila("INCIDENTE", incidenteId, null),
+    ]);
+
+    const resultado = await desvincularEntidadesEventoAtpService(
+      eventoAtpId,
+      {
+        eventoPrevencionIds: [prevencionId],
+        recuperacionIds: [recuperacionId],
+      } as never,
+      usuario.id
+    );
+
+    expect(resultado.noEncontradas).toEqual([
+      { tipo: "EVENTO_PREVENCION", id: prevencionId },
+      { tipo: "RECUPERACION", id: recuperacionId },
+    ]);
+  });
+
+  it("no emite evento_atp:vinculado cuando no hay filas actualizadas", async () => {
+    vi.mocked(repo.obtenerEntidadesExistentes).mockResolvedValue([]);
+    vi.mocked(repo.desvincularEntidadesDelEvento).mockResolvedValueOnce([]);
+
+    const resultado = await desvincularEntidadesEventoAtpService(
+      eventoAtpId,
+      { incidenteIds: [incidenteId] } as never,
+      usuario.id
+    );
+
+    expect(resultado.entidades.incidentes).toHaveLength(0);
+    expect(socket.emitirEventoAtpVinculado).not.toHaveBeenCalled();
+  });
+
   it("permite desvincular de un Evento ATP finalizado", async () => {
     vi.mocked(repo.buscarEventoAtpParaVinculacion).mockResolvedValue({
       ...eventoCreado,
@@ -243,6 +319,9 @@ describe("vinculacion.service - Desvinculación de entidades (H60)", () => {
     } as never);
     vi.mocked(repo.obtenerEntidadesExistentes).mockResolvedValue([
       fila("INCIDENTE", incidenteId, eventoAtpId),
+    ]);
+    vi.mocked(repo.desvincularEntidadesDelEvento).mockResolvedValueOnce([
+      fila("INCIDENTE", incidenteId, null),
     ]);
 
     const resultado = await desvincularEntidadesEventoAtpService(

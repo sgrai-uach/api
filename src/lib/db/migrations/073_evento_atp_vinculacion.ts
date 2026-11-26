@@ -57,6 +57,37 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     WHERE p.codigo = 'eventos_atp:vincular'
     ON CONFLICT DO NOTHING;
   `.execute(db);
+
+  // 3. Garantizar el permiso de lectura de misiones usado por los GET de H60.
+  //    La migración 011 ya lo crea; este bloque idempotente protege entornos
+  //    reconciliados o bases parcialmente inicializadas.
+  await sql`
+    INSERT INTO permiso (id, codigo, nombre, descripcion, modulo)
+    VALUES (
+      gen_random_uuid(),
+      'misiones:leer',
+      'Visualizar Detalle de Misiones',
+      'Permite consultar el detalle de misiones operativas y alimenta los listados de solo lectura del módulo Eventos ATP',
+      'Misiones'
+    )
+    ON CONFLICT (codigo) DO NOTHING;
+  `.execute(db);
+
+  await sql`
+    INSERT INTO rol_permiso (rol_id, permiso_id, asignado_por_id)
+    SELECT
+      rol.id,
+      p.id,
+      '00000000-0000-4000-8000-000000000001'
+    FROM (VALUES
+      ('20000000-0000-4000-8000-000000000001'::uuid),
+      ('20000000-0000-4000-8000-000000000003'::uuid),
+      ('20000000-0000-4000-8000-000000000010'::uuid)
+    ) AS rol(id)
+    CROSS JOIN permiso p
+    WHERE p.codigo = 'misiones:leer'
+    ON CONFLICT DO NOTHING;
+  `.execute(db);
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {

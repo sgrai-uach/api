@@ -103,6 +103,19 @@ describe("Migración 073 - Vinculación a Eventos ATP (H60)", () => {
     );
   });
 
+  it("debe garantizar el permiso misiones:leer y su asignación de consulta", async () => {
+    const { db, sql } = crearDbDePruebas();
+
+    await up(db);
+
+    const sqlEjecutado = sql().toLowerCase();
+
+    expect(sqlEjecutado).toContain("misiones:leer");
+    expect(sqlEjecutado).toContain(
+      "20000000-0000-4000-8000-000000000010"
+    );
+  });
+
   it("down debe restaurar CERRADO y eliminar el permiso", async () => {
     const { db, sql } = crearDbDePruebas();
 

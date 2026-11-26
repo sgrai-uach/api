@@ -1,5 +1,4 @@
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
-import { seguridadService } from "@/modules/seguridad/service";
 import {
   PERMISO_LEER_MISION,
   PERMISO_CREAR_RECURSO,
