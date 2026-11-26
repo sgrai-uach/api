@@ -2,17 +2,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   CrearEventoRecuperacionInputSchema,
   CrearEventoRecuperacionInput,
+  EditarEventoRecuperacionInputSchema,
   ListarRecuperacionesQuerySchema,
   OperativoRecuperacionItem,
-  RecuperacionDetalleResponseData,
+  RecuperacionDetalleResponse,
 } from "../recuperacion.schema";
 import {
   crearEventoRecuperacionService,
+  editarEventoRecuperacionService,
+  obtenerEventoRecuperacionPorIdService,
   listarRecuperacionesService,
   obtenerDetalleRecuperacionService,
   PatrullaNoDisponibleError,
   StockInsuficienteError,
   NotFoundError,
+  RecuperacionNoEditableError,
+  FechaEstimadaInvalidaError,
 } from "../recuperacion.service";
 import * as repo from "../recuperacion.repository";
 import type { KyselyTrx } from "../recuperacion.repository";
@@ -179,6 +184,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         fecha_estimada_fin: null,
         evento_atp_id: null,
         creado_por_id: usuarioId,
+        actualizado_por_id: null,
         fecha_cierre: null,
         observaciones_cierre: null,
         eliminado_en: null,
@@ -1155,7 +1161,7 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         rol: "ENCARGADO",
       });
 
-      const detalleMock: RecuperacionDetalleResponseData = {
+      const detalleMock: RecuperacionDetalleResponse = {
         id: operativoId,
         codigo: "REC-2026-0001",
         nombre: "Entrega de frazadas en Collico",
@@ -1197,8 +1203,6 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
             cantidadAsignada: 10,
           },
         ],
-        recursosAsignados: [],
-        misiones: [],
         cantidadInsumosAsignados: 10,
         totalTiposInsumos: 1,
         historial: [
