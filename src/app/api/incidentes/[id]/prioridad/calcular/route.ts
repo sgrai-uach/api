@@ -33,7 +33,8 @@ interface RouteContext {
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const tokenUserId = await extraerUsuarioId(request);
-    const headerUserId = request.headers.get("x-user-id");
+    const headerUserId =
+      process.env.NODE_ENV !== "production" ? request.headers.get("x-user-id") : null;
     const usuarioId = tokenUserId || headerUserId;
 
     const usuarioAutenticado = await verificarPermiso(

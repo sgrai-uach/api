@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     if (rolCodigo?.toUpperCase() === "ASISTENTE_SOCIAL") {
       const usuarioId =
         (await extraerUsuarioId(request)) ||
-        request.headers.get("x-user-id")?.trim() ||
+        (process.env.NODE_ENV !== "production" ? request.headers.get("x-user-id")?.trim() : null) ||
         null;
 
       if (!usuarioId) {
