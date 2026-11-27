@@ -1,6 +1,9 @@
-import { sql } from "kysely";
+import { sql, type Kysely } from "kysely";
 import { db } from "@/lib/db";
+import type { Database } from "@/lib/db/types";
 import type { PrioridadEventoAsistenciaSocial, EstadoEventoAsistenciaSocial } from "./asistencia-social.schema";
+
+type DbExecutor = Kysely<Database>;
 
 export interface DatosInsertarEventoAsistenciaSocialRepo {
   codigo: string;
@@ -17,6 +20,7 @@ export interface DatosInsertarEventoAsistenciaSocialRepo {
   contactoRut?: string | null;
   delegacionId?: string | null;
   incidenteId?: string | null;
+  eventoAtpId?: string | null;
   creadoPorId: string;
 }
 
@@ -38,6 +42,7 @@ export interface FilaEventoAsistenciaSocialConRelaciones {
   delegacion_id: string | null;
   delegacion_nombre: string | null;
   incidente_id: string | null;
+  evento_atp_id: string | null;
   asistente_social_id: string | null;
   asistente_social_nombre: string | null;
   creado_por_id: string;
@@ -51,6 +56,7 @@ export interface FiltrosListarEventosAsistenciaSocial {
   delegacionId?: string;
   prioridad?: PrioridadEventoAsistenciaSocial;
   busqueda?: string;
+  eventoAtpId?: string;
 }
 
 export interface OpcionesPaginacion {
@@ -61,11 +67,13 @@ export interface OpcionesPaginacion {
 /**
  * Genera el siguiente código correlativo anual institucional con formato AS-YYYY-0001 (H28).
  */
-export async function generarSiguienteCodigoAsistenciaSocial(): Promise<string> {
+export async function generarSiguienteCodigoAsistenciaSocial(
+  executor: DbExecutor = db
+): Promise<string> {
   const anio = new Date().getFullYear();
   const prefijo = `AS-${anio}-`;
 
-  const conteo = await db
+  const conteo = await executor
     .selectFrom("evento_asistencia_social")
     .where("codigo", "like", `${prefijo}%`)
     .select(sql<number>`count(*)::int`.as("total"))
@@ -79,9 +87,10 @@ export async function generarSiguienteCodigoAsistenciaSocial(): Promise<string> 
  * Inserta un nuevo evento de asistencia social en PostgreSQL con geometría PostGIS.
  */
 export async function insertarEventoAsistenciaSocial(
-  datos: DatosInsertarEventoAsistenciaSocialRepo
+  datos: DatosInsertarEventoAsistenciaSocialRepo,
+  executor: DbExecutor = db
 ): Promise<FilaEventoAsistenciaSocialConRelaciones> {
-  const [insertado] = await db
+  const [insertado] = await executor
     .insertInto("evento_asistencia_social")
     .values({
       codigo: datos.codigo,
@@ -100,12 +109,16 @@ export async function insertarEventoAsistenciaSocial(
       contacto_rut: datos.contactoRut ?? null,
       delegacion_id: datos.delegacionId ?? null,
       incidente_id: datos.incidenteId ?? null,
+      evento_atp_id: datos.eventoAtpId ?? null,
       creado_por_id: datos.creadoPorId,
     })
     .returning("id")
     .execute();
 
-  const eventoDetalle = await buscarEventoAsistenciaSocialPorId(insertado.id);
+  const eventoDetalle = await buscarEventoAsistenciaSocialPorId(
+    insertado.id,
+    executor
+  );
   if (!eventoDetalle) {
     throw new Error("No se pudo recuperar el evento de asistencia social recién creado.");
   }
@@ -117,9 +130,10 @@ export async function insertarEventoAsistenciaSocial(
  * Busca un evento de asistencia social por su UUID con los nombres de delegación, creador y asistente social.
  */
 export async function buscarEventoAsistenciaSocialPorId(
-  id: string
+  id: string,
+  executor: DbExecutor = db
 ): Promise<FilaEventoAsistenciaSocialConRelaciones | null> {
-  const fila = await db
+  const fila = await executor
     .selectFrom("evento_asistencia_social")
     .leftJoin("delegacion", "delegacion.id", "evento_asistencia_social.delegacion_id")
     .innerJoin("usuario as creador", "creador.id", "evento_asistencia_social.creado_por_id")
@@ -142,6 +156,7 @@ export async function buscarEventoAsistenciaSocialPorId(
       "evento_asistencia_social.delegacion_id",
       sql<string | null>`COALESCE(delegacion.nombre, delegacion.nombre_delegacion)`.as("delegacion_nombre"),
       "evento_asistencia_social.incidente_id",
+      "evento_asistencia_social.evento_atp_id",
       "evento_asistencia_social.asistente_social_id",
       "asistente.nombre as asistente_social_nombre",
       "evento_asistencia_social.creado_por_id",
@@ -189,6 +204,7 @@ export async function listarEventosAsistenciaSocialPaginados(
       "evento_asistencia_social.delegacion_id",
       sql<string | null>`COALESCE(delegacion.nombre, delegacion.nombre_delegacion)`.as("delegacion_nombre"),
       "evento_asistencia_social.incidente_id",
+      "evento_asistencia_social.evento_atp_id",
       "evento_asistencia_social.asistente_social_id",
       "asistente.nombre as asistente_social_nombre",
       "evento_asistencia_social.creado_por_id",
@@ -208,6 +224,14 @@ export async function listarEventosAsistenciaSocialPaginados(
 
   if (filtros.prioridad) {
     query = query.where("evento_asistencia_social.prioridad", "=", filtros.prioridad);
+  }
+
+  if (filtros.eventoAtpId) {
+    query = query.where(
+      "evento_asistencia_social.evento_atp_id",
+      "=",
+      filtros.eventoAtpId
+    );
   }
 
   if (filtros.busqueda && filtros.busqueda.trim() !== "") {
@@ -252,6 +276,14 @@ export async function contarEventosAsistenciaSocial(
 
   if (filtros.prioridad) {
     query = query.where("evento_asistencia_social.prioridad", "=", filtros.prioridad);
+  }
+
+  if (filtros.eventoAtpId) {
+    query = query.where(
+      "evento_asistencia_social.evento_atp_id",
+      "=",
+      filtros.eventoAtpId
+    );
   }
 
   if (filtros.busqueda && filtros.busqueda.trim() !== "") {

@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { CrearEventoRecuperacionInputSchema } from "@/modules/eventos-atp/recuperacion.schema";
+import {
+  CrearEventoRecuperacionInputSchema,
+  ListarRecuperacionesQuerySchema,
+} from "@/modules/eventos-atp/recuperacion.schema";
 import {
   crearEventoRecuperacionService,
   listarEventosRecuperacionService,
   PatrullaNoDisponibleError,
   StockInsuficienteError,
   NotFoundError,
+  EventoAtpNoActivoError,
 } from "@/modules/eventos-atp/recuperacion.service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import { seguridadService } from "@/modules/seguridad/service";
 import {
   PERMISO_CREAR_RECUPERACION,
   PERMISO_LEER_MISION,
   PERMISO_ASIGNAR_MISION,
+  PERMISO_VINCULAR_EVENTO_ATP,
 } from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
@@ -25,21 +31,38 @@ export async function GET(req: NextRequest) {
   try {
     const usuarioId = await extraerUsuarioId(req);
 
-    try {
-      await verificarPermiso(usuarioId, PERMISO_LEER_MISION);
-    } catch (err) {
-      if (err instanceof ForbiddenError) {
-        try {
-          await verificarPermiso(usuarioId, PERMISO_CREAR_RECUPERACION);
-        } catch {
-          await verificarPermiso(usuarioId, PERMISO_ASIGNAR_MISION);
-        }
-      } else {
-        throw err;
-      }
+    await seguridadService.validarAccesoRoles(
+      usuarioId,
+      [
+        PERMISO_VINCULAR_EVENTO_ATP,
+        PERMISO_LEER_MISION,
+        PERMISO_CREAR_RECUPERACION,
+        PERMISO_ASIGNAR_MISION,
+      ],
+      "Acceso denegado. Se requiere el permiso 'eventos_atp:vincular' o un permiso de consulta del módulo Eventos ATP."
+    );
+
+    const queryParams: Record<string, string> = {};
+    req.nextUrl.searchParams.forEach((valor, clave) => {
+      queryParams[clave] = valor;
+    });
+
+    const validacion = ListarRecuperacionesQuerySchema.safeParse(queryParams);
+
+    if (!validacion.success) {
+      return NextResponse.json(
+        {
+          message: "Parámetros de consulta inválidos.",
+          errors: validacion.error.issues.map((issue) => ({
+            campo: issue.path.join("."),
+            mensaje: issue.message,
+          })),
+        },
+        { status: 400 }
+      );
     }
 
-    const eventos = await listarEventosRecuperacionService();
+    const eventos = await listarEventosRecuperacionService(validacion.data);
 
     return NextResponse.json(
       {
@@ -126,7 +149,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: error.message }, { status: 404 });
     }
 
-    if (error instanceof PatrullaNoDisponibleError || error instanceof StockInsuficienteError) {
+    if (
+      error instanceof PatrullaNoDisponibleError ||
+      error instanceof StockInsuficienteError ||
+      error instanceof EventoAtpNoActivoError
+    ) {
       return NextResponse.json({ message: error.message }, { status: 409 });
     }
 

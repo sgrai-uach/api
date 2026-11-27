@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { db } from "@/lib/db";
 import {
+  contarVinculosPorEventoAtp,
   esViolacionCodigoEventoAtpUnico,
   generarSiguienteCodigoEventoAtp,
   insertarEventoAtpConDelegaciones,
@@ -21,18 +22,23 @@ const sqlEjecutado: string[] = [];
 vi.mock("kysely", async (importOriginal) => {
   const original = await importOriginal<typeof import("kysely")>();
 
-  const sqlMock = (strings: TemplateStringsArray) => ({
-    execute: async () => {
-      const texto = strings.join(" ");
-      sqlEjecutado.push(texto);
+  const sqlMock = (strings: TemplateStringsArray) => {
+    const builder = {
+      execute: async () => {
+        const texto = strings.join(" ");
+        sqlEjecutado.push(texto);
 
-      if (texto.includes("MAX(SUBSTRING")) {
-        return { rows: [{ maximo: String(maximoSecuenciaActual) }] };
-      }
+        if (texto.includes("MAX(SUBSTRING")) {
+          return { rows: [{ maximo: String(maximoSecuenciaActual) }] };
+        }
 
-      return { rows: [] };
-    },
-  });
+        return { rows: [] };
+      },
+      as: () => builder,
+    };
+
+    return builder;
+  };
 
   return { ...original, sql: sqlMock };
 });
@@ -40,6 +46,7 @@ vi.mock("kysely", async (importOriginal) => {
 vi.mock("@/lib/db", () => ({
   db: {
     transaction: vi.fn(),
+    selectFrom: vi.fn(),
   },
 }));
 
@@ -348,5 +355,48 @@ describe("evento-atp.repository - Transacción atómica (H61)", () => {
       })
     ).toBe(false);
     expect(esViolacionCodigoEventoAtpUnico(new Error("fallo"))).toBe(false);
+  });
+});
+
+describe("evento-atp.repository - Conteo agrupado de vínculos (H60)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("agrupa los conteos por Evento ATP sin consultar por cada fila", async () => {
+    const respuestas = [
+      [{ evento_atp_id: "atp-a", total: 2 }],
+      [
+        { evento_atp_id: "atp-a", total: 1 },
+        { evento_atp_id: "atp-b", total: 4 },
+      ],
+      [],
+      [{ evento_atp_id: "atp-a", total: 1 }],
+    ];
+    let indice = 0;
+
+    vi.mocked(db.selectFrom).mockImplementation((() => {
+      const filas = respuestas[indice++] ?? [];
+      const cadena = {
+        select: () => cadena,
+        where: () => cadena,
+        groupBy: () => cadena,
+        execute: async () => filas,
+      };
+      return cadena;
+    }) as any);
+
+    const conteos = await contarVinculosPorEventoAtp(["atp-a", "atp-b"]);
+
+    expect(db.selectFrom).toHaveBeenCalledTimes(4);
+    expect(conteos.get("atp-a")).toBe(4);
+    expect(conteos.get("atp-b")).toBe(4);
+  });
+
+  it("retorna un mapa vacío sin consultar si no hay eventos", async () => {
+    const conteos = await contarVinculosPorEventoAtp([]);
+
+    expect(conteos.size).toBe(0);
+    expect(db.selectFrom).not.toHaveBeenCalled();
   });
 });

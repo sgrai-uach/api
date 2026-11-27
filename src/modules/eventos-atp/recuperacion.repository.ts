@@ -17,6 +17,7 @@ export interface DatosInsertarRecuperacionRepo {
   longitud: number;
   familiasAfectadas: number;
   delegacionId?: string | null;
+  eventoAtpId?: string | null;
   creadoPorId: string;
 }
 
@@ -132,6 +133,7 @@ export async function insertarRecuperacion(trx: KyselyTrx, datos: DatosInsertarR
       estado: "PLANIFICADA",
       familias_afectadas: datos.familiasAfectadas,
       delegacion_id: datos.delegacionId ?? null,
+      evento_atp_id: datos.eventoAtpId ?? null,
       creado_por_id: datos.creadoPorId,
     })
     .returningAll()
@@ -498,10 +500,50 @@ export async function buscarRecursosAsignadosPorRecuperacionId(recuperacionId: s
   }
 }
 
-export async function listarRecuperacionesRepo(trx: KyselyTrx | typeof db = db) {
-  return trx
+export interface FiltrosListarRecuperaciones {
+  estado?: string;
+  delegacionId?: string;
+  eventoAtpId?: string;
+  limite?: number;
+}
+
+export async function listarRecuperacionesRepo(
+  trx: KyselyTrx | typeof db = db,
+  filtros: FiltrosListarRecuperaciones = {}
+) {
+  let consulta = trx
     .selectFrom("recuperacion")
-    .leftJoin("delegacion", "delegacion.id", "recuperacion.delegacion_id")
+    .leftJoin("delegacion", "delegacion.id", "recuperacion.delegacion_id");
+
+  if (filtros.estado) {
+    consulta = consulta.where(
+      "recuperacion.estado",
+      "=",
+      filtros.estado as never
+    );
+  }
+
+  if (filtros.delegacionId) {
+    consulta = consulta.where(
+      "recuperacion.delegacion_id",
+      "=",
+      filtros.delegacionId
+    );
+  }
+
+  if (filtros.eventoAtpId) {
+    consulta = consulta.where(
+      "recuperacion.evento_atp_id",
+      "=",
+      filtros.eventoAtpId
+    );
+  }
+
+  if (filtros.limite) {
+    consulta = consulta.limit(filtros.limite);
+  }
+
+  return consulta
     .select([
       "recuperacion.id",
       "recuperacion.codigo",
@@ -517,6 +559,7 @@ export async function listarRecuperacionesRepo(trx: KyselyTrx | typeof db = db) 
       "recuperacion.estado",
       "recuperacion.familias_afectadas",
       "recuperacion.delegacion_id",
+      "recuperacion.evento_atp_id",
       "recuperacion.creado_por_id",
       "recuperacion.creado_en",
       "recuperacion.actualizado_en",

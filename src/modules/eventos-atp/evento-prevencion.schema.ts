@@ -94,6 +94,10 @@ export const CrearEventoPrevencionInputSchema = z.object({
   recursos: z.array(ItemRecursoPrevencionSchema).default([]).openapi({
     description: "Listado de insumos o herramientas asignadas para la misión preventiva",
   }),
+  eventoAtpId: z.string().uuid("El UUID de Evento ATP debe ser válido").optional().nullable().openapi({
+    description: "Evento ATP al que se vincula el evento de prevención (H60)",
+    example: "50000000-0000-4000-8000-000000000001",
+  }),
 });
 
 export type CrearEventoPrevencionInput = z.infer<typeof CrearEventoPrevencionInputSchema>;
@@ -160,6 +164,7 @@ export const EventoPrevencionResponseSchema = z.object({
   mision: MisionPrevencionResumenSchema.openapi({ description: "Misión táctica despachada a la patrulla" }),
   patrulla: PatrullaAsignadaPrevencionResumenSchema.openapi({ description: "Patrulla asignada en estado EN_PREVENCION" }),
   recursos: z.array(RecursoAsignadoPrevencionResponseSchema).openapi({ description: "Recursos asignados al evento" }),
+  eventoAtpId: z.string().uuid().nullable().openapi({ description: "Evento ATP vinculado (H60)" }),
   creadoPorId: z.string().uuid().openapi({ description: "Identificador del Encargado que creó el evento" }),
   creadoEn: z.string().openapi({ description: "Fecha de registro ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Fecha de actualización ISO 8601" }),
@@ -176,3 +181,64 @@ export const CrearEventoPrevencionResponseSchema = z.object({
 });
 
 export type CrearEventoPrevencionResponse = z.infer<typeof CrearEventoPrevencionResponseSchema>;
+
+/* ==========================================================================
+   H60 - Listado de eventos de prevención con filtro por Evento ATP
+   ========================================================================== */
+
+export const ListarEventosPrevencionQuerySchema = z.object({
+  pagina: z.coerce.number().int().min(1).default(1).openapi({
+    description: "Número de página (inicia en 1)",
+    example: 1,
+  }),
+  limite: z.coerce.number().int().min(1).max(100).default(10).openapi({
+    description: "Cantidad de elementos por página (máximo 100)",
+    example: 10,
+  }),
+  estado: EstadoEventoPrevencionSchema.optional().openapi({
+    description: "Filtrar por estado del evento de prevención",
+    example: "PLANIFICADA",
+  }),
+  delegacionId: z.string().uuid("El UUID de delegación es inválido").optional().openapi({
+    description: "Filtrar por delegación territorial",
+    example: "30000000-0000-4000-8000-000000000001",
+  }),
+  eventoAtpId: z.string().uuid("El UUID de Evento ATP es inválido").optional().openapi({
+    description: "Filtrar eventos de prevención vinculados a un Evento ATP (H60)",
+    example: "50000000-0000-4000-8000-000000000001",
+  }),
+});
+
+export type ListarEventosPrevencionQuery = z.infer<
+  typeof ListarEventosPrevencionQuerySchema
+>;
+
+export const EventoPrevencionResumenSchema = z.object({
+  id: z.string().uuid(),
+  codigo: z.string(),
+  nombre: z.string(),
+  descripcion: z.string(),
+  sector: z.string().nullable(),
+  prioridad: PrioridadEventoPrevencionSchema,
+  estado: EstadoEventoPrevencionSchema,
+  delegacionId: z.string().uuid().nullable(),
+  eventoAtpId: z.string().uuid().nullable(),
+  creadoEn: z.string(),
+});
+
+export type EventoPrevencionResumen = z.infer<
+  typeof EventoPrevencionResumenSchema
+>;
+
+export const ListarEventosPrevencionResponseSchema = z.object({
+  message: z.string(),
+  data: z.array(EventoPrevencionResumenSchema),
+  total: z.number().int(),
+  pagina: z.number().int(),
+  limite: z.number().int(),
+  totalPaginas: z.number().int(),
+});
+
+export type ListarEventosPrevencionResponse = z.infer<
+  typeof ListarEventosPrevencionResponseSchema
+>;

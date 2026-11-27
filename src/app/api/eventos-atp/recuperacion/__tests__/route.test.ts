@@ -5,6 +5,7 @@ import * as recuperacionService from "@/modules/eventos-atp/recuperacion.service
 import type { EventoRecuperacionResponse } from "@/modules/eventos-atp/recuperacion.schema";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import * as authService from "@/modules/seguridad/auth.service";
+import { seguridadService } from "@/modules/seguridad/service";
 import type { UsuarioAutenticado } from "@/modules/seguridad/auth.service";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
@@ -180,6 +181,7 @@ describe("Route Handler POST /api/eventos-atp/recuperacion (HU-29)", () => {
       latitud: payloadValido.latitud,
       longitud: payloadValido.longitud,
       estado: "PLANIFICADA",
+      eventoAtpId: null,
       familiasAfectadas: payloadValido.familiasAfectadas,
       delegacion: null,
       mision: {
@@ -239,11 +241,11 @@ describe("Route Handler GET /api/eventos-atp/recuperacion", () => {
 
   it("debe responder 200 con la lista de eventos para el mapa operativo", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce("00000000-0000-4000-8000-000000000003");
-    vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce({
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({
       id: "00000000-0000-4000-8000-000000000003",
       nombre: "Encargado",
-      rol: "ENCARGADO",
-    });
+      rolNombre: "Encargado",
+    } as never);
 
     const mockEventos: EventoRecuperacionResponse[] = [
       {
@@ -284,6 +286,7 @@ describe("Route Handler GET /api/eventos-atp/recuperacion", () => {
             cantidadAsignada: 24,
           },
         ],
+        eventoAtpId: null,
         creadoPorId: "00000000-0000-4000-8000-000000000003",
         creadoEn: "2026-10-04T12:00:00.000Z",
         actualizadoEn: "2026-10-04T12:00:00.000Z",
@@ -305,5 +308,58 @@ describe("Route Handler GET /api/eventos-atp/recuperacion", () => {
     expect(body.data[0].latitud).toBe(-39.8052);
     expect(body.data[0].longitud).toBe(-73.2295);
     expect(body.data[0].patrulla.nombre).toBe("Patrulla Verificadora Las Ánimas");
+  });
+
+  it("debe validar el filtro eventoAtpId y los parámetros de paginación", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(
+      "00000000-0000-4000-8000-000000000010"
+    );
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({
+      id: "00000000-0000-4000-8000-000000000010",
+      nombre: "Supervisor",
+      rolNombre: "SUPERVISOR",
+    } as never);
+    vi.spyOn(
+      recuperacionService,
+      "listarEventosRecuperacionService"
+    ).mockResolvedValueOnce([]);
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp/recuperacion?eventoAtpId=50000000-0000-4000-8000-000000000001&pagina=1&limite=100",
+      { method: "GET" }
+    );
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    expect(
+      recuperacionService.listarEventosRecuperacionService
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventoAtpId: "50000000-0000-4000-8000-000000000001",
+        pagina: 1,
+        limite: 100,
+      })
+    );
+  });
+
+  it("debe responder 400 si los parámetros de consulta son inválidos", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(
+      "00000000-0000-4000-8000-000000000003"
+    );
+    vi.spyOn(seguridadService, "validarAccesoRoles").mockResolvedValueOnce({
+      id: "00000000-0000-4000-8000-000000000003",
+      nombre: "Encargado",
+      rolNombre: "Encargado",
+    } as never);
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp/recuperacion?eventoAtpId=no-es-uuid",
+      { method: "GET" }
+    );
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.errors).toBeDefined();
   });
 });

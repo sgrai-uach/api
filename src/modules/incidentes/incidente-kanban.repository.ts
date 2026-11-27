@@ -21,6 +21,7 @@ export interface FilaIncidenteResumen {
   motivo_no_abordable?: string | null;
   dictamen_terreno?: string | null;
   fuente_origen: string;
+  evento_atp_id: string | null;
   informante_nombre: string | null;
   delegacion_nombre: string | null;
   total_misiones: number | string;
@@ -89,6 +90,15 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
     consultaBase = consultaBase.where("incidente.fuente_origen", "=", filtros.fuenteOrigen);
   }
 
+  // Filtro por Evento ATP (H60)
+  if (filtros.eventoAtpId) {
+    consultaBase = consultaBase.where(
+      "incidente.evento_atp_id",
+      "=",
+      filtros.eventoAtpId
+    );
+  }
+
   // Filtro Temporal por Fecha o soloHoy (Zona horaria Chile)
   if (filtros.fecha) {
     consultaBase = consultaBase
@@ -143,6 +153,7 @@ export async function listarIncidentesPaginadosRepo(filtros: ListarIncidentesQue
         "incidente.fecha_cierre",
         "incidente.motivo_no_abordable",
         "incidente.fuente_origen",
+        "incidente.evento_atp_id",
         "informante.nombre as informante_nombre",
         "delegacion.nombre as delegacion_nombre",
         "incidente.creado_en",
@@ -301,6 +312,7 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
         "incidente.fecha_cierre",
         "incidente.motivo_no_abordable",
         "incidente.fuente_origen",
+        "incidente.evento_atp_id",
         "incidente.asterisk_call_id",
         "incidente.asterisk_caller_phone",
         "incidente.creado_en",

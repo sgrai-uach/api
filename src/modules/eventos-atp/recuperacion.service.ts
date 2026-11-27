@@ -8,6 +8,7 @@ import type {
   RecursoAsignadoDetalle,
   PrioridadRecuperacion,
   EstadoRecuperacion,
+  ListarRecuperacionesQuery,
 } from "./recuperacion.schema";
 import * as repo from "./recuperacion.repository";
 import {
@@ -59,6 +60,13 @@ export class NotFoundError extends Error {
   }
 }
 
+export class EventoAtpNoActivoError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EventoAtpNoActivoError";
+  }
+}
+
 /**
  * Servicio de negocio para la creación atómica de eventos de recuperación (HU-29).
  * Valida disponibilidad de patrulla, existencia y stock de inventario, descuenta insumos
@@ -69,6 +77,26 @@ export async function crearEventoRecuperacionService(
   usuarioId: string
 ): Promise<EventoRecuperacionResponse> {
   const eventoCreado = await db.transaction().execute(async (trx) => {
+    // 0. Validar Evento ATP dentro de la transacción y compartir su bloqueo (H60)
+    if (input.eventoAtpId) {
+      const eventoAtp = await trx
+        .selectFrom("evento_atp")
+        .select(["id", "codigo", "estado"])
+        .where("id", "=", input.eventoAtpId)
+        .forShare()
+        .executeTakeFirst();
+
+      if (!eventoAtp) {
+        throw new NotFoundError("El Evento ATP indicado no fue encontrado.");
+      }
+
+      if (eventoAtp.estado !== "ACTIVO") {
+        throw new EventoAtpNoActivoError(
+          `El Evento ATP '${eventoAtp.codigo}' no está ACTIVO y no admite vinculaciones.`
+        );
+      }
+    }
+
     // 1. Validar existencia y disponibilidad de la patrulla verificadora
     const patrulla = await repo.buscarPatrullaPorId(trx, input.patrullaId);
     if (!patrulla) {
@@ -134,6 +162,7 @@ export async function crearEventoRecuperacionService(
       longitud: input.longitud,
       familiasAfectadas: input.familiasAfectadas,
       delegacionId: delegacionIdEfectiva,
+      eventoAtpId: input.eventoAtpId ?? null,
       creadoPorId: usuarioId,
     });
 
@@ -217,6 +246,7 @@ export async function crearEventoRecuperacionService(
         estado: "EN_RECUPERACION",
       },
       recursos: recursosRespuesta,
+      eventoAtpId: nuevaRecuperacion.evento_atp_id ?? null,
       creadoPorId: usuarioId,
       creadoEn: nuevaRecuperacion.creado_en instanceof Date
         ? nuevaRecuperacion.creado_en.toISOString()
@@ -546,8 +576,15 @@ export async function obtenerDetalleRecuperacionService(
  * Lista todos los eventos de recuperación territoriales registrados con sus misiones tácticas,
  * patrulla asignada y recursos logísticos despachados para visualización táctica en el mapa operativo.
  */
-export async function listarEventosRecuperacionService(): Promise<EventoRecuperacionResponse[]> {
-  const eventosDb = await repo.listarRecuperacionesRepo(db);
+export async function listarEventosRecuperacionService(
+  filtros: ListarRecuperacionesQuery = {}
+): Promise<EventoRecuperacionResponse[]> {
+  const eventosDb = await repo.listarRecuperacionesRepo(db, {
+    estado: filtros.estado,
+    delegacionId: filtros.delegacionId,
+    eventoAtpId: filtros.eventoAtpId,
+    limite: filtros.limite,
+  });
   if (eventosDb.length === 0) return [];
 
   const ids = eventosDb.map((e) => e.id);
@@ -626,6 +663,7 @@ export async function listarEventosRecuperacionService(): Promise<EventoRecupera
         nombre: r.recurso_nombre,
         cantidadAsignada: Number(r.cantidad_asignada),
       })),
+      eventoAtpId: (ev as { evento_atp_id?: string | null }).evento_atp_id ?? null,
       creadoPorId: ev.creado_por_id,
       creadoEn: ev.creado_en instanceof Date ? ev.creado_en.toISOString() : String(ev.creado_en),
       actualizadoEn: ev.actualizado_en instanceof Date ? ev.actualizado_en.toISOString() : String(ev.actualizado_en),

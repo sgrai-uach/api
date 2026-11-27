@@ -145,6 +145,15 @@ export const CrearEventoAsistenciaSocialInputSchema = z.object({
       description: "Identificador opcional de incidente previo (nulo para casos excepcionales independientes)",
       example: null,
     }),
+  eventoAtpId: z
+    .string()
+    .uuid("El UUID de Evento ATP debe ser válido si se proporciona")
+    .optional()
+    .nullable()
+    .openapi({
+      description: "Evento ATP al que se vincula el caso de asistencia social (H60)",
+      example: "50000000-0000-4000-8000-000000000001",
+    }),
 });
 
 export type CrearEventoAsistenciaSocialInput = z.infer<
@@ -187,6 +196,14 @@ export const ListarEventosAsistenciaSocialQuerySchema = z.object({
       description: "Búsqueda textual insensible a mayúsculas por código, descripción, dirección o contacto",
       example: "Collico",
     }),
+  eventoAtpId: z
+    .string()
+    .uuid("El UUID de Evento ATP es inválido")
+    .optional()
+    .openapi({
+      description: "Filtrar casos vinculados a un Evento ATP específico (H60)",
+      example: "50000000-0000-4000-8000-000000000001",
+    }),
 });
 
 export type ListarEventosAsistenciaSocialQuery = z.infer<
@@ -214,6 +231,7 @@ export const EventoAsistenciaSocialResponseSchema = z.object({
   delegacionId: z.string().uuid().nullable().openapi({ example: "30000000-0000-4000-8000-000000000001" }),
   delegacionNombre: z.string().nullable().openapi({ example: "Delegación Municipal Costa" }),
   incidenteId: z.string().uuid().nullable().openapi({ example: null }),
+  eventoAtpId: z.string().uuid().nullable().openapi({ example: null }),
   asistenteSocialId: z.string().uuid().nullable().openapi({ example: null }),
   asistenteSocialNombre: z.string().nullable().openapi({ example: null }),
   creadoPor: z

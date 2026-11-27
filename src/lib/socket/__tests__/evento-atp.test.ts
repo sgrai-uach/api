@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { emitirEventoAtpCreado, setSocketServer } from "@/lib/socket";
+import {
+  emitirEventoAtpCreado,
+  emitirEventoAtpVinculado,
+  setSocketServer,
+} from "@/lib/socket";
 
 const SALAS_ESPERADAS = [
   "sala:encargados",
@@ -35,5 +39,33 @@ describe("emitirEventoAtpCreado (H61)", () => {
     expect(emit).toHaveBeenCalledTimes(1);
     expect(emit).toHaveBeenCalledWith("evento_atp:creado", payload);
     expect(emitGlobal).not.toHaveBeenCalled();
+  });
+});
+
+describe("emitirEventoAtpVinculado (H60)", () => {
+  const emit = vi.fn();
+  const to = vi.fn(() => ({ emit }));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setSocketServer({ to } as any);
+  });
+
+  afterEach(() => {
+    setSocketServer(null as any);
+  });
+
+  it("emite a encargado, sala:encargados, supervisor y mapa", () => {
+    const payload = { eventoAtpId: "50000000-0000-4000-8000-000000000001" };
+
+    emitirEventoAtpVinculado(payload);
+
+    expect(to).toHaveBeenCalledTimes(4);
+    expect(to).toHaveBeenNthCalledWith(1, "encargado");
+    expect(to).toHaveBeenNthCalledWith(2, "sala:encargados");
+    expect(to).toHaveBeenNthCalledWith(3, "supervisor");
+    expect(to).toHaveBeenNthCalledWith(4, "mapa");
+    expect(emit).toHaveBeenCalledTimes(4);
+    expect(emit).toHaveBeenCalledWith("evento_atp:vinculado", payload);
   });
 });

@@ -92,6 +92,10 @@ export const CrearEventoRecuperacionInputSchema = z.object({
   recursos: z.array(ItemRecursoSolicitadoSchema).min(1, "Debe asignar al menos un recurso al evento de recuperación").openapi({
     description: "Listado de insumos y recursos logísticos a entregar",
   }),
+  eventoAtpId: z.string().uuid("El UUID de Evento ATP debe ser válido").optional().nullable().openapi({
+    description: "Evento ATP al que se vincula el operativo de recuperación (H60)",
+    example: "50000000-0000-4000-8000-000000000001",
+  }),
 });
 
 export type CrearEventoRecuperacionInput = z.infer<typeof CrearEventoRecuperacionInputSchema>;
@@ -150,6 +154,7 @@ export const EventoRecuperacionResponseSchema = z.object({
   mision: MisionRecuperacionResumenSchema.openapi({ description: "Misión táctica despachada a terreno" }),
   patrulla: PatrullaAsignadaResumenSchema.openapi({ description: "Patrulla asignada a la operación" }),
   recursos: z.array(RecursoAsignadoItemResponseSchema).openapi({ description: "Recursos reservados o descontados para la entrega" }),
+  eventoAtpId: z.string().uuid().nullable().openapi({ description: "Evento ATP vinculado (H60)" }),
   creadoPorId: z.string().uuid().openapi({ description: "Identificador del Encargado que creó el evento" }),
   creadoEn: z.string().openapi({ description: "Fecha de registro ISO 8601" }),
   actualizadoEn: z.string().openapi({ description: "Fecha de actualización ISO 8601" }),
@@ -177,6 +182,37 @@ export const ListarEventosRecuperacionResponseSchema = z.object({
 });
 
 export type ListarEventosRecuperacionResponse = z.infer<typeof ListarEventosRecuperacionResponseSchema>;
+
+/**
+ * Filtros de consulta para GET /api/eventos-atp/recuperacion (H60).
+ * La paginación es opcional para no romper el consumo del mapa operativo (H73).
+ */
+export const ListarRecuperacionesQuerySchema = z.object({
+  pagina: z.coerce.number().int().min(1).optional().openapi({
+    description: "Número de página (inicia en 1)",
+    example: 1,
+  }),
+  limite: z.coerce.number().int().min(1).max(100).optional().openapi({
+    description: "Cantidad máxima de elementos a retornar (máximo 100)",
+    example: 100,
+  }),
+  estado: EstadoRecuperacionSchema.optional().openapi({
+    description: "Filtrar por estado del operativo de recuperación",
+    example: "PLANIFICADA",
+  }),
+  delegacionId: z.string().uuid("El UUID de delegación es inválido").optional().openapi({
+    description: "Filtrar por delegación territorial",
+    example: "30000000-0000-4000-8000-000000000001",
+  }),
+  eventoAtpId: z.string().uuid("El UUID de Evento ATP es inválido").optional().openapi({
+    description: "Filtrar operativos de recuperación vinculados a un Evento ATP (H60)",
+    example: "50000000-0000-4000-8000-000000000001",
+  }),
+});
+
+export type ListarRecuperacionesQuery = z.infer<
+  typeof ListarRecuperacionesQuerySchema
+>;
 
 /**
  * Parámetro UUID de ruta para /api/eventos-atp/recuperacion/[id]

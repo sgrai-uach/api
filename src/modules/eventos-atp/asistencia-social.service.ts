@@ -1,3 +1,4 @@
+import { db } from "@/lib/db";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
 import {
   PERMISO_CREAR_ASISTENCIA_SOCIAL,
@@ -12,6 +13,7 @@ import {
   type FilaEventoAsistenciaSocialConRelaciones,
   type DatosInsertarEventoAsistenciaSocialRepo,
 } from "./asistencia-social.repository";
+import { obtenerEstadoEventoAtp } from "./evento-atp.repository";
 import {
   CrearEventoAsistenciaSocialInputSchema,
   ListarEventosAsistenciaSocialQuerySchema,
@@ -24,9 +26,21 @@ import {
 } from "./asistencia-social.schema";
 
 /**
- * Mapea una fila de base de datos relacional al formato canónico de respuesta de la API.
+ * Error de negocio cuando el Evento ATP solicitado no existe o no está ACTIVO (H60).
  */
-export function mapearFilaEventoAsistenciaSocial(
+export class EventoAtpVinculacionError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: 404 | 409
+  ) {
+    super(message);
+    this.name = "EventoAtpVinculacionError";
+  }
+}
+
+/**
+ * Mapea una fila de base de datos relacional al formato canónico de respuesta de la API.
+ */export function mapearFilaEventoAsistenciaSocial(
   fila: FilaEventoAsistenciaSocialConRelaciones
 ): EventoAsistenciaSocialResponse {
   return {
@@ -47,6 +61,7 @@ export function mapearFilaEventoAsistenciaSocial(
     delegacionId: fila.delegacion_id ?? null,
     delegacionNombre: fila.delegacion_nombre ?? null,
     incidenteId: fila.incidente_id ?? null,
+    eventoAtpId: fila.evento_atp_id ?? null,
     asistenteSocialId: fila.asistente_social_id ?? null,
     asistenteSocialNombre: fila.asistente_social_nombre ?? null,
     creadoPor: {
@@ -81,31 +96,62 @@ export async function crearEventoAsistenciaSocialService(
   // 2. Validar estructura de datos
   const datosValidados = CrearEventoAsistenciaSocialInputSchema.parse(input);
 
-  // 3. Generar código correlativo oficial (AS-YYYY-XXXX)
-  const codigo = await generarSiguienteCodigoAsistenciaSocial();
+  // 2.b Validar Evento ATP y persistir dentro de una única transacción (H60).
+  //     El bloqueo compartido impide que el evento pase a FINALIZADO/CANCELADO
+  //     entre la validación y el INSERT.
+  const respuesta = await db.transaction().execute(async (trx) => {
+    if (datosValidados.eventoAtpId) {
+      const eventoAtp = await obtenerEstadoEventoAtp(
+        datosValidados.eventoAtpId,
+        trx
+      );
 
-  // 4. Preparar payload de inserción
-  const datosParaInsertar: DatosInsertarEventoAsistenciaSocialRepo = {
-    codigo,
-    descripcion: datosValidados.descripcion,
-    tipoAfectacion: datosValidados.tipoAfectacion,
-    personasAfectadas: datosValidados.personasAfectadas,
-    familiasAfectadas: datosValidados.familiasAfectadas,
-    direccionTexto: datosValidados.direccionTexto,
-    latitud: datosValidados.latitud,
-    longitud: datosValidados.longitud,
-    prioridad: datosValidados.prioridad,
-    contactoNombre: datosValidados.contactoNombre,
-    contactoTelefono: datosValidados.contactoTelefono,
-    contactoRut: datosValidados.contactoRut,
-    delegacionId: datosValidados.delegacionId,
-    incidenteId: datosValidados.incidenteId ?? null,
-    creadoPorId: usuario.id,
-  };
+      if (!eventoAtp) {
+        throw new EventoAtpVinculacionError(
+          "El Evento ATP indicado no fue encontrado.",
+          404
+        );
+      }
 
-  // 5. Insertar en base de datos relacional con geometría PostGIS
-  const filaInsertada = await insertarEventoAsistenciaSocial(datosParaInsertar);
-  const respuesta = mapearFilaEventoAsistenciaSocial(filaInsertada);
+      if (eventoAtp.estado !== "ACTIVO") {
+        throw new EventoAtpVinculacionError(
+          `El Evento ATP '${eventoAtp.codigo}' no está ACTIVO y no admite vinculaciones.`,
+          409
+        );
+      }
+    }
+
+    // 3. Generar código correlativo oficial (AS-YYYY-XXXX)
+    const codigo = await generarSiguienteCodigoAsistenciaSocial(trx);
+
+    // 4. Preparar payload de inserción
+    const datosParaInsertar: DatosInsertarEventoAsistenciaSocialRepo = {
+      codigo,
+      descripcion: datosValidados.descripcion,
+      tipoAfectacion: datosValidados.tipoAfectacion,
+      personasAfectadas: datosValidados.personasAfectadas,
+      familiasAfectadas: datosValidados.familiasAfectadas,
+      direccionTexto: datosValidados.direccionTexto,
+      latitud: datosValidados.latitud,
+      longitud: datosValidados.longitud,
+      prioridad: datosValidados.prioridad,
+      contactoNombre: datosValidados.contactoNombre,
+      contactoTelefono: datosValidados.contactoTelefono,
+      contactoRut: datosValidados.contactoRut,
+      delegacionId: datosValidados.delegacionId,
+      incidenteId: datosValidados.incidenteId ?? null,
+      eventoAtpId: datosValidados.eventoAtpId ?? null,
+      creadoPorId: usuario.id,
+    };
+
+    // 5. Insertar en base de datos relacional con geometría PostGIS
+    const filaInsertada = await insertarEventoAsistenciaSocial(
+      datosParaInsertar,
+      trx
+    );
+
+    return mapearFilaEventoAsistenciaSocial(filaInsertada);
+  });
 
   // 6. Notificar en tiempo real al panel de eventos pendientes y salas operativas
   emitirAsistenciaSocialCreada(respuesta);

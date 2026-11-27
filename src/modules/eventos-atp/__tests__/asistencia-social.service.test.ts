@@ -54,6 +54,7 @@ describe("asistencia-social.service - Lógica de Negocio y RBAC (H28)", () => {
     delegacion_id: inputCrear.delegacionId,
     delegacion_nombre: "Delegación Municipal Costa",
     incidente_id: null,
+    evento_atp_id: null,
     asistente_social_id: null,
     asistente_social_nombre: null,
     creado_por_id: usuarioEncargado.id,

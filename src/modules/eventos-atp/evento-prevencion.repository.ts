@@ -1,4 +1,5 @@
 import { sql, type Transaction } from "kysely";
+import { db } from "@/lib/db";
 import type { Database, EstadoOperativo } from "@/lib/db/types";
 
 export type Trx = Transaction<Database>;
@@ -161,6 +162,7 @@ export interface InsertarEventoPrevencionData {
   delegacionId: string;
   latitud: number;
   longitud: number;
+  eventoAtpId?: string | null;
   creadoPorId: string;
 }
 
@@ -168,16 +170,17 @@ export async function insertarEventoPrevencion(trx: Trx, data: InsertarEventoPre
   const query = sql`
     INSERT INTO evento_prevencion (
       codigo, nombre, descripcion, prioridad, estado, sector, direccion_texto,
-      punto_critico_id, delegacion_id, latitud, longitud, ubicacion, creado_por_id
+      punto_critico_id, delegacion_id, latitud, longitud, ubicacion, evento_atp_id, creado_por_id
     ) VALUES (
       ${data.codigo}, ${data.nombre}, ${data.descripcion}, ${data.prioridad}, 'PLANIFICADA',
       ${data.sector ?? null}, ${data.direccionTexto ?? null}, ${data.puntoCriticoId ?? null},
       ${data.delegacionId}, ${data.latitud}, ${data.longitud},
       ST_SetSRID(ST_MakePoint(${data.longitud}, ${data.latitud}), 4326),
+      ${data.eventoAtpId ?? null},
       ${data.creadoPorId}
     )
     RETURNING id, codigo, nombre, descripcion, prioridad, estado, sector, direccion_texto,
-              punto_critico_id, delegacion_id, latitud, longitud, creado_por_id, creado_en, actualizado_en
+              punto_critico_id, delegacion_id, latitud, longitud, evento_atp_id, creado_por_id, creado_en, actualizado_en
   `;
 
   const result = await query.execute(trx);
@@ -194,6 +197,7 @@ export async function insertarEventoPrevencion(trx: Trx, data: InsertarEventoPre
     delegacion_id: string;
     latitud: number | string;
     longitud: number | string;
+    evento_atp_id: string | null;
     creado_por_id: string;
     creado_en: Date;
     actualizado_en: Date;
@@ -254,4 +258,61 @@ export async function insertarRecursosPrevencion(
       }))
     )
     .execute();
+}
+
+/* ==========================================================================
+   H60 - Listado de eventos de prevención
+   ========================================================================== */
+
+export interface FiltrosListarEventosPrevencion {
+  estado?: string;
+  delegacionId?: string;
+  eventoAtpId?: string;
+}
+
+export async function listarEventosPrevencionPaginados(
+  filtros: FiltrosListarEventosPrevencion,
+  paginacion: { pagina: number; limite: number }
+) {
+  const construirBase = () => {
+    let query = db.selectFrom("evento_prevencion");
+
+    if (filtros.estado) {
+      query = query.where("estado", "=", filtros.estado as never);
+    }
+
+    if (filtros.delegacionId) {
+      query = query.where("delegacion_id", "=", filtros.delegacionId);
+    }
+
+    if (filtros.eventoAtpId) {
+      query = query.where("evento_atp_id", "=", filtros.eventoAtpId);
+    }
+
+    return query;
+  };
+
+  const totalFila = await construirBase()
+    .select(sql<number>`count(*)::int`.as("total"))
+    .executeTakeFirst();
+
+  const filas = await construirBase()
+    .select([
+      "id",
+      "codigo",
+      "nombre",
+      "descripcion",
+      "sector",
+      "prioridad",
+      "estado",
+      "delegacion_id",
+      "evento_atp_id",
+      "creado_en",
+    ])
+    .orderBy("creado_en", "desc")
+    .limit(paginacion.limite)
+    .offset((paginacion.pagina - 1) * paginacion.limite)
+    .execute();
+
+  return { filas, total: Number(totalFila?.total ?? 0) };
 }

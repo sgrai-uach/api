@@ -211,6 +211,37 @@ describe("Endpoint GET /openapi.json", () => {
       spec.components.schemas.CrearEventoAtpInput.required ?? []
     ).not.toContain("codigo");
 
+    // Rutas de Eventos ATP - Vinculación (H60)
+    expect(spec.paths["/api/eventos-atp"].get).toBeDefined();
+    expect(spec.paths["/api/eventos-atp"].get.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(spec.paths["/api/eventos-atp/{id}"].get).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/{id}"].get.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(spec.paths["/api/eventos-atp/{id}/vinculos"].post).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/{id}/vinculos"].post.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(spec.paths["/api/eventos-atp/{id}/vinculos"].delete).toBeDefined();
+    expect(
+      spec.paths["/api/eventos-atp/{id}/vinculos"].delete.security
+    ).toEqual([{ BearerAuth: [] }]);
+    expect(spec.paths["/api/eventos-atp/prevencion"].get).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/prevencion"].get.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(
+      spec.paths["/api/eventos-atp/recuperacion"].get.parameters
+    ).toBeDefined();
+    expect(
+      spec.paths["/api/eventos-atp/asistencia-social"].post.responses["404"]
+    ).toBeDefined();
+    expect(
+      spec.paths["/api/eventos-atp/asistencia-social"].post.responses["409"]
+    ).toBeDefined();
+
     // Rutas de Misiones (HU-17 y HU-39)
     expect(spec.paths["/api/misiones/{id}"]).toBeDefined();
     expect(spec.paths["/api/misiones/{id}"].get).toBeDefined();

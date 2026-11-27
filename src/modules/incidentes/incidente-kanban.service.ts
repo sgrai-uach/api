@@ -48,6 +48,7 @@ export async function listarIncidentesKanbanService(
     informanteNombre: fila.informante_nombre,
     delegacionNombre: fila.delegacion_nombre,
     totalMisiones: Number(fila.total_misiones ?? 0),
+    eventoAtpId: fila.evento_atp_id ?? null,
     tieneMisionDespachada: Boolean(fila.tiene_mision_despachada),
     tieneMisionEnCurso: Boolean(fila.tiene_mision_en_curso),
     ...(fila.trazabilidad_notificacion
@@ -421,6 +422,7 @@ export async function obtenerDetalleIncidenteService(
       : null,
     misiones: misionesMapeadas,
     recursosAsociados,
+    eventoAtpId: incidente.evento_atp_id ?? null,
     reportesEvaluacionTerreno: reportesMapeados,
     verificado: esVerificado,
     reclasificadoEnTerreno: esVerificado,

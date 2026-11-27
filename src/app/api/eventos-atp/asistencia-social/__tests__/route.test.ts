@@ -47,6 +47,7 @@ describe("Route Handlers /api/eventos-atp/asistencia-social (H28)", () => {
     delegacionId: null,
     delegacionNombre: null,
     incidenteId: null,
+    eventoAtpId: null,
     asistenteSocialId: null,
     asistenteSocialNombre: null,
     creadoPor: {

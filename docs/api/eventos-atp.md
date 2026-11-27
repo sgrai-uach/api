@@ -54,6 +54,14 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
     - El evento se persiste en estado `ACTIVO` junto a sus delegaciones afectadas en la tabla puente `evento_atp_delegacion`, dentro de una sola transacción PostgreSQL. Un arreglo vacío de delegaciones representa **alcance comunal centralizado**.
     - El correlativo `ATP-AAAA-####` se genera de forma atómica mediante un advisory lock anual; también se admite un código manual único normalizado a mayúsculas.
     - La creación emite el evento WebSocket `evento_atp:creado` a las salas operativas y administrativas.
+14. **Vinculación y Desvinculación de Entidades (H60):**
+    - Incidentes, eventos de prevención, operativos de recuperación y casos de asistencia social pueden vincularse a un Evento ATP **ACTIVO**. La relación es opcional, reversible y se almacena en `evento_atp_id`.
+    - Una entidad puede reasignarse desde otro Evento ATP; la respuesta la informa en `reasignadas`.
+    - La desvinculación establece `evento_atp_id = NULL` y **nunca elimina** el registro. Solo afecta entidades que pertenecen al Evento ATP indicado; el resto se informa en `noDesvinculadas`.
+    - Los identificadores inexistentes se informan en `noEncontradas` con el tipo real del grupo solicitado (`INCIDENTE`, `EVENTO_PREVENCION`, `RECUPERACION`, `EVENTO_ASISTENCIA_SOCIAL`), sin abortar la operación.
+    - Las filas objetivo se bloquean con `FOR UPDATE` en orden determinista y `actualizado_en` se refresca en las cuatro tablas. La respuesta se construye desde los `UPDATE ... RETURNING` reales.
+    - Solo se emite `evento_atp:vinculado` cuando hubo filas modificadas, hacia las salas `encargado`, `sala:encargados`, `supervisor` y `mapa`.
+    - Estados válidos del Evento ATP: `ACTIVO`, `FINALIZADO`, `CANCELADO`. Solo `ACTIVO` admite nuevas vinculaciones; la desvinculación se permite también en eventos finalizados para corregir asociaciones históricas.
 
 ---
 
@@ -72,8 +80,20 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
 | `POST` | `/api/eventos-atp` | Registrar el marco oficial de un Evento de Alerta Temprana Preventiva con alcance territorial, estado `ACTIVO` y notificación Socket.io (H61). |
+| `GET` | `/api/eventos-atp` | Listar Eventos ATP con filtros por estado, delegación y búsqueda, incluyendo el total de entidades vinculadas (H60). |
+| `GET` | `/api/eventos-atp/{id}` | Obtener el detalle de un Evento ATP y sus entidades vinculadas agrupadas por tipo (H60). |
+| `POST` | `/api/eventos-atp/{id}/vinculos` | Vincular o reasignar entidades a un Evento ATP ACTIVO (H60). |
+| `DELETE` | `/api/eventos-atp/{id}/vinculos` | Desvincular entidades de un Evento ATP sin eliminar sus registros (H60). |
+| `GET` | `/api/eventos-atp/prevencion` | Listar eventos de prevención con filtro `eventoAtpId`, estado y delegación (H60). |
+| `GET` | `/api/eventos-atp/recuperacion` | Listar operativos de recuperación; admite filtros `eventoAtpId`, estado, delegación y `limite` (H60). |
 
 > Nota: Los contratos OpenAPI 3.0 se autogeneran a partir de los esquemas Zod y están expuestos públicamente en `GET /openapi.json`.
+
+### Permisos de consulta y vinculación (H60)
+
+- `POST` y `DELETE /api/eventos-atp/{id}/vinculos` requieren exclusivamente `eventos_atp:vincular`.
+- Los `GET` de Eventos ATP, prevención y recuperación aceptan `eventos_atp:vincular` o permisos de consulta del módulo (`misiones:leer`, `incidentes:kanban`, `asistencia_social:leer`, `prevencion:eventos:crear`, `recuperacion:crear`), de modo que perfiles como **SUPERVISOR** puedan consultar sin recibir `403`.
+- Cuando falta autorización, el mensaje cita explícitamente el permiso requerido (`eventos_atp:vincular`).
 
 ---
 
@@ -1399,3 +1419,99 @@ Permite al **Encargado de Operaciones** asignar una patrulla verificadora dispon
 }
 ```
 
+
+---
+
+## 12. Detalle de Endpoints de Vinculación (H60)
+
+### `POST /api/eventos-atp/{id}/vinculos`
+
+Vincula en lote una o más entidades al Evento ATP indicado. Si una entidad ya pertenecía a otro Evento ATP, se reasigna y se informa en `reasignadas`.
+
+**Permiso:** `eventos_atp:vincular`.
+
+**Cuerpo de la petición:**
+
+```json
+{
+  "incidenteIds": ["a0000000-0000-4000-8000-000000000001"],
+  "eventoPrevencionIds": [],
+  "recuperacionIds": [],
+  "eventoAsistenciaSocialIds": []
+}
+```
+
+Al menos uno de los cuatro arreglos debe contener identificadores. Cada arreglo admite hasta 200 UUIDs.
+
+**Respuesta `200 OK`:**
+
+```json
+{
+  "message": "Entidades vinculadas al Evento ATP exitosamente.",
+  "data": {
+    "eventoAtpId": "50000000-0000-4000-8000-000000000001",
+    "accion": "VINCULADO",
+    "entidades": {
+      "incidentes": [
+        {
+          "tipo": "INCIDENTE",
+          "id": "a0000000-0000-4000-8000-000000000001",
+          "codigo": "INC-2026-0001",
+          "nombre": "Inundación",
+          "eventoAtpIdAnterior": null
+        }
+      ],
+      "eventosPrevencion": [],
+      "recuperaciones": [],
+      "eventosAsistenciaSocial": []
+    },
+    "reasignadas": [],
+    "noEncontradas": [
+      {
+        "tipo": "EVENTO_PREVENCION",
+        "id": "99999999-9999-4999-8999-999999999991"
+      }
+    ],
+    "noDesvinculadas": [],
+    "vinculadoPorId": "00000000-0000-4000-8000-000000000003",
+    "ocurridoEn": "2026-11-26T12:00:00.000Z"
+  }
+}
+```
+
+**Errores esperados:**
+
+| Código | Causa |
+|---|---|
+| `400` | UUID inválido, cuerpo JSON inválido, sin entidades o más de 200 identificadores por grupo. La respuesta incluye `{ message, errors: [{ campo, mensaje }] }`. |
+| `401` | Sin autenticación. |
+| `403` | El usuario no posee `eventos_atp:vincular`; el mensaje cita el permiso. |
+| `404` | El Evento ATP indicado no existe. |
+| `409` | El Evento ATP está `FINALIZADO` o `CANCELADO` y no admite nuevas vinculaciones. |
+
+### `DELETE /api/eventos-atp/{id}/vinculos`
+
+Establece `evento_atp_id = NULL` en las entidades indicadas que pertenezcan al Evento ATP. Las entidades vinculadas a otro evento se informan en `noDesvinculadas` y no se modifican.
+
+**Permiso:** `eventos_atp:vincular`.
+
+La estructura del cuerpo y de la respuesta es la misma que en `POST`, con `accion: "DESVINCULADO"` y `reasignadas: []`. La desvinculación se permite incluso si el Evento ATP está `FINALIZADO`, para corregir asociaciones históricas.
+
+Solamente se emite `evento_atp:vinculado` cuando al menos una fila fue modificada.
+
+### `GET /api/eventos-atp` y `GET /api/eventos-atp/{id}`
+
+- El listado admite `estado`, `delegacionId`, `busqueda`, `page` y `limit`. Cada elemento incluye `totalVinculados`, calculado con una consulta agrupada por tabla para evitar N+1.
+- El detalle devuelve `vinculos` agrupados en `incidentes`, `eventosPrevencion`, `recuperaciones` y `eventosAsistenciaSocial`, además de `totalVinculados`.
+- Ambos endpoints aceptan `eventos_atp:vincular` o un permiso de consulta del módulo.
+
+---
+
+## 13. Filtros por Evento ATP en Prevención y Recuperación (H60)
+
+| Endpoint | Parámetros | Respuesta |
+|---|---|---|
+| `GET /api/eventos-atp/prevencion` | `eventoAtpId`, `estado`, `delegacionId`, `pagina`, `limite` | Listado paginado con `eventoAtpId` por fila. |
+| `GET /api/eventos-atp/recuperacion` | `eventoAtpId`, `estado`, `delegacionId`, `pagina`, `limite` | Listado de operativos con sus misiones, patrulla, recursos y `eventoAtpId`. |
+
+El filtro `eventoAtpId` se combina con el resto de criterios mediante `AND`. Si no se envía, se retornan todos los registros permitidos por el rol.

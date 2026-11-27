@@ -1,13 +1,30 @@
 import { seguridadService } from "@/modules/seguridad/service";
-import { PERMISO_CREAR_EVENTO_ATP } from "@/modules/seguridad/permisos.constants";
+import {
+  PERMISO_CREAR_EVENTO_ATP,
+  PERMISO_LEER_ASISTENCIA_SOCIAL,
+  PERMISO_LEER_MISION,
+  PERMISO_KANBAN_INCIDENTES,
+  PERMISO_VINCULAR_EVENTO_ATP,
+} from "@/modules/seguridad/permisos.constants";
+import { NotFoundError } from "@/modules/seguridad/errors";
 import { emitirEventoAtpCreado } from "@/lib/socket";
+import { buildPaginationMeta } from "@/lib/shared/pagination.schema";
 import {
   CrearEventoAtpInputSchema,
+  ListarEventosAtpQuerySchema,
   type CrearEventoAtpInput,
+  type EventoAtpDetalle,
   type EventoAtpResponse,
+  type EventoAtpResumen,
+  type ListarEventosAtpQuery,
+  type ListarEventosAtpResponse,
 } from "./evento-atp.schema";
 import {
+  contarVinculosPorEventoAtp,
   insertarEventoAtpConDelegaciones,
+  listarEventosAtpPaginadosRepo,
+  obtenerEventoAtpPorId,
+  obtenerVinculosEventoAtp,
   type DatosCrearEventoAtpRepo,
   type FilaEventoAtp,
   type FilaDelegacionEventoAtp,
@@ -106,4 +123,97 @@ export async function crearEventoAtpService(
   emitirEventoAtpCreado(respuesta);
 
   return respuesta;
+}
+
+/* ==========================================================================
+   H60 - Listado y detalle de Eventos ATP
+   ========================================================================== */
+
+/**
+ * Permisos que habilitan la consulta estratégica/operativa de Eventos ATP.
+ * `eventos_atp:vincular` es el permiso principal del módulo; los demás
+ * permiten que perfiles como SUPERVISOR, Encargado o Asistente Social
+ * consulten el catálogo sin recibir un 403 indebido.
+ */
+const PERMISOS_CONSULTA_EVENTO_ATP = [
+  PERMISO_VINCULAR_EVENTO_ATP,
+  PERMISO_LEER_MISION,
+  PERMISO_KANBAN_INCIDENTES,
+  PERMISO_LEER_ASISTENCIA_SOCIAL,
+  PERMISO_CREAR_EVENTO_ATP,
+];
+
+const MENSAJE_ACCESO_DENEGADO_CONSULTA_ATP =
+  "Acceso denegado. Se requiere el permiso 'eventos_atp:vincular' o un permiso de consulta del módulo Eventos ATP.";
+
+/**
+ * Lista Eventos ATP con filtros y paginación.
+ * El conteo de entidades vinculadas se obtiene con una consulta agrupada,
+ * evitando el patrón N+1.
+ */
+export async function listarEventosAtpService(
+  query: ListarEventosAtpQuery,
+  usuarioId: string
+): Promise<ListarEventosAtpResponse> {
+  await seguridadService.validarAccesoRoles(
+    usuarioId,
+    PERMISOS_CONSULTA_EVENTO_ATP,
+    MENSAJE_ACCESO_DENEGADO_CONSULTA_ATP
+  );
+
+  const filtros = ListarEventosAtpQuerySchema.parse(query);
+  const { page, limit, ...filtrosRepo } = filtros;
+
+  const { eventos, delegaciones, total } = await listarEventosAtpPaginadosRepo(
+    filtrosRepo,
+    { page, limit }
+  );
+
+  const conteos = await contarVinculosPorEventoAtp(
+    eventos.map((evento) => evento.id)
+  );
+
+  const data: EventoAtpResumen[] = eventos.map((evento) => ({
+    ...mapearEventoAtp(evento, delegaciones.get(evento.id) ?? []),
+    totalVinculados: conteos.get(evento.id) ?? 0,
+  }));
+
+  return {
+    message: "Listado de Eventos ATP obtenido exitosamente.",
+    data,
+    meta: buildPaginationMeta(total, page, limit),
+  };
+}
+
+/**
+ * Obtiene el detalle de un Evento ATP con sus entidades vinculadas.
+ */
+export async function obtenerEventoAtpDetalleService(
+  id: string,
+  usuarioId: string
+): Promise<EventoAtpDetalle> {
+  await seguridadService.validarAccesoRoles(
+    usuarioId,
+    PERMISOS_CONSULTA_EVENTO_ATP,
+    MENSAJE_ACCESO_DENEGADO_CONSULTA_ATP
+  );
+
+  const registro = await obtenerEventoAtpPorId(id);
+
+  if (!registro) {
+    throw new NotFoundError(`El Evento ATP '${id}' no existe en el sistema.`);
+  }
+
+  const vinculos = await obtenerVinculosEventoAtp(id);
+  const totalVinculados =
+    vinculos.incidentes.length +
+    vinculos.eventosPrevencion.length +
+    vinculos.recuperaciones.length +
+    vinculos.eventosAsistenciaSocial.length;
+
+  return {
+    ...mapearEventoAtp(registro.evento, registro.delegaciones),
+    vinculos,
+    totalVinculados,
+  };
 }

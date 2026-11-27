@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { POST } from "../route";
+import { GET, POST } from "../route";
 import * as eventoPrevencionService from "@/modules/eventos-atp/evento-prevencion.service";
 import * as authGuard from "@/modules/seguridad/auth.guard";
 import { seguridadService } from "@/modules/seguridad/service";
@@ -192,6 +192,7 @@ describe("Route Handlers /api/eventos-atp/prevencion (HU-30)", () => {
       direccionTexto: payloadValido.direccionTexto,
       prioridad: "MEDIA" as const,
       estado: "PLANIFICADA" as const,
+      eventoAtpId: null,
       latitud: payloadValido.latitud,
       longitud: payloadValido.longitud,
       puntoCritico: {
@@ -270,5 +271,70 @@ describe("Route Handlers /api/eventos-atp/prevencion (HU-30)", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.message).toContain("Error interno del servidor");
+  });
+});
+
+describe("Route GET /api/eventos-atp/prevencion (H60)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValue(
+      "00000000-0000-4000-8000-000000000010"
+    );
+  });
+
+  it("responde 200 con el listado filtrado por Evento ATP", async () => {
+    const respuesta = {
+      message: "Listado de eventos de prevención obtenido exitosamente.",
+      data: [
+        {
+          id: "70000000-0000-4000-8000-000000000001",
+          codigo: "PREV-2026-0001",
+          nombre: "Limpieza de cauce",
+          descripcion: "Trabajos preventivos",
+          sector: "Angachilla",
+          prioridad: "ALTA",
+          estado: "PLANIFICADA",
+          delegacionId: null,
+          eventoAtpId: "50000000-0000-4000-8000-000000000001",
+          creadoEn: "2026-05-01T10:00:00.000Z",
+        },
+      ],
+      total: 1,
+      pagina: 1,
+      limite: 10,
+      totalPaginas: 1,
+    };
+    vi.spyOn(
+      eventoPrevencionService,
+      "listarEventosPrevencionService"
+    ).mockResolvedValueOnce(respuesta as any);
+
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp/prevencion?eventoAtpId=50000000-0000-4000-8000-000000000001&pagina=1&limite=10"
+    );
+    const res = await GET(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.data).toHaveLength(1);
+    expect(
+      eventoPrevencionService.listarEventosPrevencionService
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventoAtpId: "50000000-0000-4000-8000-000000000001",
+      }),
+      "00000000-0000-4000-8000-000000000010"
+    );
+  });
+
+  it("responde 400 si los parámetros de consulta son inválidos", async () => {
+    const req = new NextRequest(
+      "http://localhost:3000/api/eventos-atp/prevencion?pagina=0"
+    );
+    const res = await GET(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.errors).toBeDefined();
   });
 });
