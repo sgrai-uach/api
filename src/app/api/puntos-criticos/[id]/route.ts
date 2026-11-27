@@ -26,7 +26,7 @@ async function obtenerUsuarioId(req: NextRequest): Promise<string | null> {
   if (authHeader) {
     return await extraerUsuarioIdGuard(req);
   }
-  return req.headers.get("x-user-id");
+  return process.env.NODE_ENV !== "production" ? req.headers.get("x-user-id") : null;
 }
 
 /**

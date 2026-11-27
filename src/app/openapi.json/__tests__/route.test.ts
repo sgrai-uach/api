@@ -72,8 +72,39 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/eventos-atp"].post.responses["409"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp"].post.responses["500"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp"].post.security).toEqual([
-      { bearerAuth: [] },
+      { BearerAuth: [] },
     ]);
+    expect(spec.paths["/api/misiones/{id}/rechazar"]?.post?.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+
+    // Validar que todo esquema de seguridad referenciado exista en components.securitySchemes
+    // y que ningún endpoint declare la cabecera heredada x-user-id como obligatoria
+    const esquemasDefinidos = new Set(Object.keys(spec.components.securitySchemes));
+    for (const methods of Object.values(spec.paths) as Array<
+      Record<
+        string,
+        {
+          security?: Array<Record<string, unknown>>;
+          parameters?: Array<{ in?: string; name?: string; required?: boolean }>;
+        }
+      >
+    >) {
+      for (const op of Object.values(methods)) {
+        if (op?.security) {
+          for (const secObj of op.security) {
+            for (const schemeName of Object.keys(secObj)) {
+              expect(esquemasDefinidos.has(schemeName)).toBe(true);
+            }
+          }
+        }
+        for (const param of op?.parameters ?? []) {
+          if (param.in === "header" && param.name?.toLowerCase() === "x-user-id") {
+            expect(param.required).not.toBe(true);
+          }
+        }
+      }
+    }
 
     // Rutas de Recursos y Personal
     expect(spec.paths["/api/cuadrillas"]).toBeDefined();
@@ -94,6 +125,19 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/misiones"]).toBeDefined();
     expect(spec.paths["/api/misiones"].get).toBeDefined();
     expect(spec.paths["/api/misiones"].post).toBeDefined();
+
+    // Ruta unificada de Rechazo de Misión (HU-41 Cuadrilla / HU-69 Patrulla)
+    const postRechazar = spec.paths["/api/misiones/{id}/rechazar"]?.post;
+    expect(postRechazar).toBeDefined();
+    expect(postRechazar.responses["200"]).toBeDefined();
+    expect(postRechazar.responses["400"]).toBeDefined();
+    expect(postRechazar.responses["401"]).toBeDefined();
+    expect(postRechazar.responses["403"]).toBeDefined();
+    expect(postRechazar.responses["404"]).toBeDefined();
+    expect(postRechazar.responses["409"]).toBeDefined();
+    expect(postRechazar.responses["500"]).toBeDefined();
+    expect(spec.components.schemas.RechazarMisionBody).toBeDefined();
+    expect(spec.components.schemas.RechazarMisionResponse).toBeDefined();
 
     // Rutas de Terreno - Notificaciones y ACKs (HU-35)
     expect(spec.paths["/api/terreno/notificaciones/{id}/estado"]).toBeDefined();
@@ -179,12 +223,36 @@ describe("Endpoint GET /openapi.json", () => {
       spec.components.schemas.CrearEventoAtpInput.required ?? []
     ).not.toContain("codigo");
 
-    // Rutas de Misiones (HU-17)
+    // Rutas de Misiones (HU-17 y HU-39)
     expect(spec.paths["/api/misiones/{id}"]).toBeDefined();
     expect(spec.paths["/api/misiones/{id}"].get).toBeDefined();
     expect(spec.paths["/api/misiones/{id}"].get.summary).toBe(
       "Consultar detalle completo de una misión operativa"
     );
+    expect(spec.paths["/api/misiones/{id}"].get.security).toEqual([{ BearerAuth: [] }]);
+    expect(spec.paths["/api/misiones/{id}"].get.responses["403"].description).toContain(
+      "misiones:terreno:verificar"
+    );
+    expect(spec.paths["/api/misiones/{id}"].get.responses["403"].description).toContain(
+      "misiones:terreno:ejecutar"
+    );
+    expect(spec.paths["/api/misiones/{id}"].get.responses["403"].description).toContain(
+      "reportes:crear"
+    );
+    expect(spec.paths["/api/misiones/{id}/reporte"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["201"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["400"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["401"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["403"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["404"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["409"]).toBeDefined();
+    expect(spec.paths["/api/misiones/{id}/reporte"].post.responses["500"]).toBeDefined();
+    expect(spec.components.schemas.CrearReporteVerificacionInput).toBeDefined();
+    expect(spec.components.schemas.EnviarReporteVerificacionResponse).toBeDefined();
 
     // Rutas de Personal (HU-12 y HU-13)
     expect(spec.paths["/api/personal"]).toBeDefined();

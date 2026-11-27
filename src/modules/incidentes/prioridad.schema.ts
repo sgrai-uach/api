@@ -44,8 +44,6 @@ export const FamiliaAfectadaInputSchema = z
     mascotas_afectadas: z.number().int().min(0).max(1000).optional(),
     nivelCompromisoVivienda: NivelCompromisoViviendaEnum.optional(),
     nivel_compromiso_vivienda: NivelCompromisoViviendaEnum.optional(),
-    requiereAsistenciaSocial: z.boolean().optional(),
-    requiere_asistencia_social: z.boolean().optional(),
   })
   .openapi("FamiliaAfectadaInput");
 
@@ -157,11 +155,6 @@ export const EvaluacionTerrenoInputSchema = z
       example: false,
     }),
     requiere_evacuacion: z.boolean().optional(),
-    requiereAsistenciaSocial: z.boolean().optional().openapi({
-      description: "Indica si el grupo familiar requiere derivación para levantamiento de ficha FIBE",
-      example: true,
-    }),
-    requiere_asistencia_social: z.boolean().optional(),
     requiereApoyoAdicional: z.boolean().optional().openapi({
       deprecated: true,
       description:
@@ -239,7 +232,6 @@ export const CalcularPrioridadResponseSchema = z
       prioridadSugerida: PrioridadCanonicaEnum,
       puntajeTotal: z.number(),
       factoresGatillantes: z.array(z.string()),
-      requiereAsistenciaSocialSugerido: z.boolean(),
       evaluacionNormalizada: z.object({
         familias: z
           .array(
@@ -253,7 +245,7 @@ export const CalcularPrioridadResponseSchema = z
               personasElectrodependientes: z.number(),
               mascotasAfectadas: z.number(),
               nivelCompromisoVivienda: NivelCompromisoViviendaEnum,
-              requiereAsistenciaSocial: z.boolean(),
+              requiereAsistenciaSocial: z.boolean().optional(),
             })
           )
           .optional(),
@@ -267,7 +259,6 @@ export const CalcularPrioridadResponseSchema = z
         viviendasAfectadas: z.number(),
         nivelCompromisoVivienda: NivelCompromisoViviendaEnum,
         requiereEvacuacion: z.boolean(),
-        requiereAsistenciaSocial: z.boolean(),
         requiereApoyoAdicional: z.boolean(),
         riesgosActivos: z.object({
           riesgoElectrico: z.boolean(),

@@ -139,7 +139,16 @@ export const MisionHitoTipologiaSchema = z
         tipoAnteriorId: z.string().uuid().nullable().optional(),
         tipoNuevo: z.string(),
         tipoNuevoId: z.string().uuid(),
+        esReclasificacion: z.boolean().optional(),
         justificacion: z.string(),
+        evaluador: z
+          .object({
+            id: z.string().uuid(),
+            nombre: z.string(),
+            email: z.string(),
+            rut: z.string().nullable().optional(),
+          })
+          .optional(),
       })
       .nullable()
       .optional()

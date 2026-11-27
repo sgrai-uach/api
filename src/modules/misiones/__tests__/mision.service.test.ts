@@ -275,6 +275,10 @@ describe("Mision Service - obtenerDetalleMisionService (HU-17)", () => {
       prioridadEvaluada: false,
       prioridadEvaluadaEn: null,
       versionReportePrioridad: null,
+      personasAfectadasPrevias: 0,
+      reporteVerificacionEnviado: false,
+      reporteVerificacionEnviadoEn: null,
+      dictamenVerificacion: null,
     });
     expect(hitoReclasificacion).toBeDefined();
     expect(hitoReclasificacion?.descripcion).toContain("Corte de agua potable");

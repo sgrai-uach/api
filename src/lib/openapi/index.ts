@@ -181,6 +181,9 @@ import {
   AceptarMisionResponseSchema,
   AsignarCuadrillaMisionInputSchema,
   AsignarCuadrillaMisionResponseSchema,
+  AdjuntoReporteInputSchema,
+  CrearReporteVerificacionInputSchema,
+  EnviarReporteVerificacionResponseSchema,
 } from "@/modules/misiones/mision.schema";
 
 import {
@@ -291,6 +294,9 @@ registry.register("ActualizarPrioridadIncidenteResponse", ActualizarPrioridadInc
 registry.register("ReporteEvaluacionTerrenoItem", ReporteEvaluacionTerrenoItemSchema);
 registry.register("IncidentePrioridadActualizadaResumen", IncidentePrioridadActualizadaResumenSchema);
 registry.register("MisionHitoPrioridad", MisionHitoPrioridadSchema);
+registry.register("AdjuntoReporteInput", AdjuntoReporteInputSchema);
+registry.register("CrearReporteVerificacionInput", CrearReporteVerificacionInputSchema);
+registry.register("EnviarReporteVerificacionResponse", EnviarReporteVerificacionResponseSchema);
 
 // Registrar esquemas de Eventos ATP (Puntos Críticos y Asistencia Social)
 registry.register("ListarPuntosCriticosResponse", ListarPuntosCriticosResponseSchema);
@@ -1291,14 +1297,9 @@ registry.registerPath({
   description:
     "Retorna la información completa pre-cargada de un recurso (cantidades, disponibilidad operativa, delegación territorial y auditoría) para alimentar el formulario de edición. Accesible por perfil de Administrador.",
   tags: ["Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: RecursoIdParamSchema,
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
   },
   responses: {
     200: {
@@ -1313,7 +1314,7 @@ registry.registerPath({
       description: "Identificador de recurso inválido",
     },
     401: {
-      description: "No autenticado / cabecera X-User-Id ausente",
+      description: "No autenticado / token Bearer ausente o inválido",
     },
     403: {
       description: "Acceso denegado. Se requiere perfil de Administrador",
@@ -1335,14 +1336,9 @@ registry.registerPath({
   description:
     "Modifica inventario físico, ubicación geográfica, detalles técnicos y estado operativo del recurso. Notifica en tiempo real vía WebSockets (Socket.io) a las salas de Encargado y Supervisor. Mantiene inmutable el tipo de recurso (esIndividual).",
   tags: ["Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: RecursoIdParamSchema,
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
     body: {
       content: {
         "application/json": {
@@ -1367,7 +1363,7 @@ registry.registerPath({
       description: "Datos de entrada inválidos o inventario menor a unidades en uso en terreno",
     },
     401: {
-      description: "No autenticado / cabecera X-User-Id ausente",
+      description: "No autenticado / token Bearer ausente o inválido",
     },
     403: {
       description: "Acceso denegado. Se requiere perfil de Administrador",
@@ -1482,15 +1478,9 @@ registry.registerPath({
   description:
     "Aplica un borrado lógico (soft delete) a un recurso existente registrando fecha, hora y usuario responsable. Impide la eliminación con código 409 Conflict si el recurso está actualmente en uso en terreno o asignado a una misión activa / cuadrilla. Emite evento WebSocket 'recurso:eliminado' a los clientes conectados.",
   tags: ["Recursos y Personal"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: RecursoIdParamSchema,
-    headers: z.object({
-      authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
   },
   responses: {
     200: {
@@ -1505,7 +1495,7 @@ registry.registerPath({
       description: "Identificador de recurso inválido",
     },
     401: {
-      description: "No autenticado / cabecera X-User-Id ausente",
+      description: "No autenticado / token Bearer ausente o inválido",
     },
     403: {
       description: "Acceso denegado. Se requiere perfil de Administrador",
@@ -1589,6 +1579,7 @@ registry.registerPath({
     "Obtiene la información exhaustiva de una misión operativa específica, incluyendo el incidente asociado o punto de prevención, la cuadrilla o patrulla asignada con sus recursos, la bitácora de tiempos y los reportes de terreno levantados con su evidencia multimedia.",
   summary: "Consultar detalle completo de una misión operativa",
   tags: ["Misiones"],
+  security: [{ BearerAuth: [] }],
   request: {
     headers: z.object({
       authorization: z.string().optional().describe("Token Bearer JWT de sesión"),
@@ -1612,8 +1603,11 @@ registry.registerPath({
       },
     },
     400: { description: "El identificador de la misión proporcionado no es un UUID válido" },
-    401: { description: "No autenticado / cabecera X-User-Id ausente o inválida" },
-    403: { description: "No cuenta con el permiso requerido: misiones:leer" },
+    401: { description: "No autenticado / cabecera Authorization ausente o inválida" },
+    403: {
+      description:
+        "No cuenta con ninguno de los permisos requeridos: misiones:leer, misiones:terreno:verificar, misiones:terreno:ejecutar o reportes:crear",
+    },
     404: { description: "Misión no encontrada" },
     500: { description: "Error interno del servidor" },
   },
@@ -1627,14 +1621,9 @@ registry.registerPath({
   description:
     "Retorna los contadores numéricos consolidados de incidentes agrupados por los 5 estados canónicos (REPORTADO, VERIFICANDO, EN_ATENCION, NO_ABORDABLE, RESUELTO) para el día indicado o la fecha actual en Valdivia/Chile (America/Santiago). Admite filtrado opcional por delegación territorial.",
   tags: ["Incidentes"],
+  security: [{ BearerAuth: [] }],
   request: {
     query: IncidentesKpisQuerySchema,
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario autenticado (Encargado o Admin)" }),
-    }),
   },
   responses: {
     200: {
@@ -1649,7 +1638,7 @@ registry.registerPath({
       description: "Parámetros de consulta inválidos",
     },
     401: {
-      description: "No autenticado / cabecera X-User-Id ausente",
+      description: "No autenticado / token Bearer ausente o inválido",
     },
     403: {
       description: "Acceso denegado. Permiso insuficiente",
@@ -1676,14 +1665,9 @@ registry.registerPath({
   description:
     "Retorna la colección paginada de puntos críticos y sectores vulnerables monitoreados en Valdivia. Admite filtros por delegación, prioridad, estado activo y búsqueda textual. Requiere rol Administrador.",
   tags: ["Eventos ATP"],
+  security: [{ BearerAuth: [] }],
   request: {
     query: ListarPuntosCriticosQuerySchema,
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
   },
   responses: {
     200: {
@@ -1717,13 +1701,8 @@ registry.registerPath({
   description:
     "Registra un nuevo punto crítico o sector vulnerable con coordenadas PostGIS (EPSG:4326), autogenera su código correlativo institucional y emite notificación en tiempo real vía Socket.io. Requiere rol Administrador con permiso puntos_criticos:crear.",
   tags: ["Eventos ATP"],
+  security: [{ BearerAuth: [] }],
   request: {
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
     body: {
       description: "Datos requeridos para la creación del punto crítico",
       content: {
@@ -1768,14 +1747,9 @@ registry.registerPath({
   description:
     "Retorna el detalle completo de un punto crítico específico con su delegación territorial y auditoría para precargar el formulario de edición. Requiere rol Administrador.",
   tags: ["Eventos ATP"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: PuntoCriticoIdParamSchema,
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
   },
   responses: {
     200: {
@@ -1812,14 +1786,9 @@ registry.registerPath({
   description:
     "Modifica los datos y la ubicación geográfica (PostGIS EPSG:4326) de un punto crítico comunal. El código institucional es inmutable. Permite actualizar la ubicación en cualquier momento y emite notificación reactiva vía Socket.io a la central, supervisores y cuadrillas/patrullas.",
   tags: ["Eventos ATP"],
+  security: [{ BearerAuth: [] }],
   request: {
     params: PuntoCriticoIdParamSchema,
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario administrador autenticado" }),
-    }),
     body: {
       description: "Campos actualizables del punto crítico",
       content: {
@@ -1964,13 +1933,8 @@ registry.registerPath({
   description:
     "Permite al Encargado de operaciones generar un nuevo evento territorial de recuperación, asignando una patrulla verificadora disponible y recursos de inventario para su entrega directa en terreno, sin requerir la existencia formal de un incidente previo.",
   tags: ["Eventos ATP / Recuperación"],
+  security: [{ BearerAuth: [] }],
   request: {
-    headers: z.object({
-      "x-user-id": z
-        .string()
-        .uuid()
-        .openapi({ description: "UUID del usuario autenticado (Encargado o Administrador)" }),
-    }),
     body: {
       description: "Datos del evento de recuperación, sector geográfico, patrulla y recursos solicitados",
       content: {
@@ -1993,7 +1957,7 @@ registry.registerPath({
       description: "Datos de entrada inválidos o faltantes en el payload",
     },
     401: {
-      description: "No autenticado / cabecera X-User-Id ausente o inválida",
+      description: "No autenticado / token Bearer ausente o inválido",
     },
     403: {
       description: "Acceso denegado. Se requiere permiso 'recuperacion:crear'",
@@ -2869,20 +2833,21 @@ registry.registerPath({
   },
 });
 
-// POST /api/misiones/{id}/rechazar (HU-69: Rechazo de misión por patrulla verificadora)
+// POST /api/misiones/{id}/rechazar (HU-41 Cuadrilla / HU-69 Patrulla)
 registry.registerPath({
   method: "post",
   path: "/api/misiones/{id}/rechazar",
-  summary: "Rechazar misión de verificación por patrulla en terreno (HU-69)",
+  summary: "Rechazar asignación de misión en terreno (HU-41 / HU-69)",
   description:
-    "Permite a una patrulla verificadora rechazar una misión asignada ingresando una justificación obligatoria (mínimo 5 caracteres según Regla Crítica §3.3). Ejecuta una transacción atómica que: (1) actualiza la misión a estado RECHAZADA y persiste la justificación, (2) transiciona la patrulla a DISPONIBLE, (3) revierte el incidente a REPORTADO para su inmediata reasignación, y (4) registra el hito en mision_hito. Emite la notificación WebSocket mision:rechazada hacia la sala encargado.",
+    "Permite al Delegado de cuadrilla (permiso 'misiones:terreno:ejecutar') o a una patrulla verificadora (permiso 'misiones:terreno:verificar') rechazar una misión asignada ingresando una justificación técnica obligatoria (mínimo 5 caracteres según Regla §3.3). Ejecuta una transacción atómica que: (1) actualiza mision.estado = 'RECHAZADA' y persiste justificacion_rechazo, (2) devuelve la cuadrilla/dotación o patrulla a DISPONIBLE, (3) retorna el incidente a VERIFICANDO o REPORTADO para reasignación, y (4) registra el hito 'RECHAZADA' en mision_hito. Emite la alerta WebSocket mision:rechazada hacia la sala encargado.",
   tags: ["Misiones"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     params: z.object({
       id: MisionIdParamSchema,
     }),
     body: {
+      required: true,
       content: {
         "application/json": {
           schema: RechazarMisionBodySchema,
@@ -2892,7 +2857,8 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Misión rechazada exitosamente y devuelta a estado REPORTADO para reasignación",
+      description:
+        "Misión rechazada exitosamente, unidad liberada e incidente retornado para reasignación",
       content: {
         "application/json": {
           schema: RechazarMisionResponseSchema,
@@ -2901,20 +2867,21 @@ registry.registerPath({
     },
     400: {
       description:
-        "Datos de entrada inválidos, justificación menor a 5 caracteres o coordenadas geográficas fuera de rango WGS84",
+        "Datos de entrada inválidos, justificación vacía o menor a 5 caracteres (Regla §3.3), o coordenadas WGS84 inválidas",
     },
     401: {
       description: "No autenticado, token ausente o usuario inactivo",
     },
     403: {
-      description: "Acceso denegado. Se requiere pertenecer a la patrulla asignada o rol Administrador",
+      description:
+        "Acceso denegado. Se requiere permiso 'misiones:terreno:ejecutar' (cuadrilla) o 'misiones:terreno:verificar' (patrulla) y pertenecer a la unidad asignada (o rol Administrador)",
     },
     404: {
       description: "Misión no encontrada",
     },
     409: {
       description:
-        "Conflicto: la misión ya fue rechazada, no se encuentra en estado DESPACHADA, o no es de tipo VERIFICACION / no tiene patrulla asignada",
+        "Conflicto: la misión ya fue rechazada, no está en estado DESPACHADA, o no tiene una unidad asignada compatible",
     },
     500: {
       description: "Error interno del servidor al procesar el rechazo de la misión",
@@ -2930,7 +2897,7 @@ registry.registerPath({
   description:
     "Registra el marco oficial de un Evento ATP, persiste su alcance territorial en evento_atp_delegacion dentro de una sola transacción PostgreSQL y emite el evento WebSocket evento_atp:creado a las salas administrativas, operativas y del mapa. Requiere rol Administrador o el permiso eventos_atp:crear.",
   tags: ["Eventos ATP"],
-  security: [{ bearerAuth: [] }],
+  security: [{ BearerAuth: [] }],
   request: {
     body: {
       description: "Datos requeridos para crear el Evento ATP",
@@ -3054,6 +3021,55 @@ registry.registerPath({
     409: {
       description:
         "Conflicto: la misión no ha sido aceptada por la patrulla (debe estar en estado EN_CURSO)",
+    },
+    500: { description: "Error interno del servidor" },
+  },
+});
+
+// POST /api/misiones/{id}/reporte (HU-39 / HU-86: Enviar informe técnico de verificación y cerrar misión)
+registry.registerPath({
+  method: "post",
+  path: "/api/misiones/{id}/reporte",
+  summary: "Enviar informe técnico de verificación en terreno y cerrar misión inicial de patrullaje (HU-39 / HU-86)",
+  description:
+    "Permite a la patrulla verificadora enviar el informe técnico consolidado de terreno con dictamen operativo ('REQUIERE_CUADRILLA' o 'NO_ABORDABLE'), resumen técnico (>= 10 caracteres), estado del terreno, estimación de personas damnificadas (rescatable desde el reporte previo de prioridad HU-38 y modificable), daños estimados, observaciones, indicador de Ficha FIBE (requiere_asistencia_social) y sección preparada para evidencia fotográfica (HU-43). Ejecuta una transacción atómica que: (1) persiste el reporte en reporte_terreno con evaluador_id = usuario.id, (2) cierra la misión (COMPLETADA con fecha_cierre), (3) libera la patrulla a DISPONIBLE, (4) si es NO_ABORDABLE (exige motivo_no_abordable >= 15 caracteres), transiciona el incidente a NO_ABORDABLE con fecha_cierre y motivo, o si solicita Ficha FIBE marca incidente.requiere_asistencia_social = true, y (5) registra el hito VERIFICACION_COMPLETADA en mision_hito. Emite eventos WebSocket 'mision:actualizada', 'incidente:actualizado' y 'patrulla:actualizada' / 'patrulla:liberada'. Requiere permiso RBAC 'reportes:crear'.",
+  tags: ["Misiones", "Incidentes"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    params: z.object({
+      id: MisionIdParamSchema,
+    }),
+    body: {
+      description: "Informe técnico de verificación en terreno y dictamen de cierre",
+      content: {
+        "application/json": {
+          schema: CrearReporteVerificacionInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Informe técnico registrado y misión de verificación cerrada exitosamente",
+      content: {
+        "application/json": {
+          schema: EnviarReporteVerificacionResponseSchema,
+        },
+      },
+    },
+    400: {
+      description:
+        "Datos de entrada inválidos (ej. resumen_tecnico < 10 caracteres o dictamen NO_ABORDABLE sin motivo_no_abordable >= 15 caracteres)",
+    },
+    401: { description: "No autenticado o token inválido" },
+    403: {
+      description:
+        "Sin permiso 'reportes:crear' o el usuario no pertenece a la patrulla asignada a la misión",
+    },
+    404: { description: "Misión no encontrada" },
+    409: {
+      description:
+        "Conflicto: la misión no es de tipo VERIFICACION con patrulla asignada, no está en estado EN_CURSO, la patrulla no está activa en EN_VERIFICACION, el incidente asociado no está en REPORTADO/VERIFICANDO o un adjunto ya pertenece a otro reporte",
     },
     500: { description: "Error interno del servidor" },
   },

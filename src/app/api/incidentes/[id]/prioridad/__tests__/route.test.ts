@@ -340,7 +340,6 @@ describe("Route Handlers de Prioridad de Incidente en Terreno (HU-38)", () => {
           prioridadSugerida: "ALTA",
           puntajeTotal: 45,
           factoresGatillantes: ["Núcleo familiar afectado: 4 personas (+12 pts)"],
-          requiereAsistenciaSocialSugerido: true,
           evaluacionNormalizada: {
             nucleoFamiliarTotal: 4,
             familiasAfectadas: 1,
@@ -352,7 +351,6 @@ describe("Route Handlers de Prioridad de Incidente en Terreno (HU-38)", () => {
             viviendasAfectadas: 1,
             nivelCompromisoVivienda: "MODERADO",
             requiereEvacuacion: false,
-            requiereAsistenciaSocial: true,
             requiereApoyoAdicional: true,
             riesgosActivos: {
               riesgoElectrico: false,

@@ -41,7 +41,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     // 1. Validar autenticación y permiso RBAC
     const tokenUserId = await extraerUsuarioId(request);
-    const headerUserId = request.headers.get("x-user-id");
+    const headerUserId =
+      process.env.NODE_ENV !== "production" ? request.headers.get("x-user-id") : null;
     const usuarioId = tokenUserId || headerUserId;
 
     const usuarioAutenticado = await verificarPermiso(

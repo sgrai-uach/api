@@ -208,7 +208,6 @@ export class PrioridadRepository {
       prioridadSugerida: calculo.prioridadSugerida,
       puntajeTotal: calculo.puntajeTotal,
       factoresGatillantes: calculo.factoresGatillantes,
-      requiereAsistenciaSocialSugerido: calculo.requiereAsistenciaSocialSugerido,
       evaluacionNormalizada: calculo.evaluacionNormalizada,
     };
   }
@@ -456,6 +455,7 @@ export class PrioridadRepository {
         .values({
           mision_id: misionSeleccionada.id,
           evaluador_id: usuarioId,
+          tipo_reporte: "EVALUACION_PRIORIDAD",
           version_reporte: versionReporte,
           es_rectificacion: esRectificacion,
           prioridad_sugerida: prioridadSugerida,
@@ -489,15 +489,11 @@ export class PrioridadRepository {
         creado_en: Date | string;
       };
 
-      // 8. Actualizar incidente atómicamente (prioridad, prioridad_sugerida, justificacion_prioridad, requiere_asistencia_social)
-      const requiereAsistenciaSocialFinal =
-        input.requiereAsistenciaSocial !== undefined ||
-        input.requiere_asistencia_social !== undefined
-          ? ev.requiereAsistenciaSocial
-          : Boolean(
-              incidenteExistente.requiere_asistencia_social ||
-                calculo.requiereAsistenciaSocialSugerido
-            );
+      // 8. Actualizar incidente atómicamente (prioridad, prioridad_sugerida, justificacion_prioridad)
+      // Nota: La derivación social (Ficha FIBE / requiere_asistencia_social) se gestiona en HU-39 al cerrar la verificación.
+      const requiereAsistenciaSocialActual = Boolean(
+        incidenteExistente.requiere_asistencia_social
+      );
 
       const incidenteActualizado = await trx
         .updateTable("incidente")
@@ -505,7 +501,6 @@ export class PrioridadRepository {
           prioridad: prioridadAsignada,
           prioridad_sugerida: prioridadSugerida,
           justificacion_prioridad: justificacionLimpia,
-          requiere_asistencia_social: requiereAsistenciaSocialFinal,
           estado: sql`CASE WHEN estado = 'REPORTADO' THEN 'VERIFICANDO' ELSE estado END`,
           actualizado_en: sql`CURRENT_TIMESTAMP`,
         })
@@ -576,7 +571,7 @@ export class PrioridadRepository {
               : justificacionLimpia,
           requiereAsistenciaSocial: Boolean(
             incidenteActualizado.requiere_asistencia_social ??
-              requiereAsistenciaSocialFinal
+              requiereAsistenciaSocialActual
           ),
           tipoIncidenteId: incidenteActualizado.tipo_incidente_id ?? null,
           tipoAfectacion: incidenteActualizado.tipo_afectacion ?? null,
@@ -635,5 +630,4 @@ export class PrioridadRepository {
 }
 
 export const prioridadRepository = new PrioridadRepository();
-
 

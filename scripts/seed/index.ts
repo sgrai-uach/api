@@ -6,6 +6,7 @@ import { sembrarPuntosCriticos } from "../seed-puntos-criticos";
 import { sembrarEventosRecuperacion } from "../seed-recuperacion";
 import { sembrarFixtureH21 } from "../seed-h21";
 import { sembrarFixtureH38 } from "./h38";
+import { sembrarFixtureH41 } from "./h41";
 
 interface SeedModule {
   id: string;
@@ -23,6 +24,7 @@ interface SeedModule {
  *   npm run seed
  *   npm run seed -- --only=h38
  *   npm run seed -- --only=h21,h38
+ *   npm run seed -- --only=h41
  *   npm run seed -- --skip=estados
  *   npm run seed -- --clean
  */
@@ -62,6 +64,11 @@ const MODULES: SeedModule[] = [
     descripcion: "Fixture QA HU-38: evaluar terreno y asignar/modificar prioridad",
     run: () => sembrarFixtureH38(),
   },
+  {
+    id: "h41",
+    descripcion: "Fixture QA HU-41: cuadrillas con dotación y rechazo de misión",
+    run: () => sembrarFixtureH41(),
+  },
 ];
 
 function imprimirAyuda(): void {
@@ -72,6 +79,7 @@ function imprimirAyuda(): void {
   console.log("  npm run seed                         Ejecuta todos los módulos");
   console.log("  npm run seed -- --only=h38           Ejecuta solo el módulo indicado");
   console.log("  npm run seed -- --only=h21,h38       Ejecuta varios módulos");
+  console.log("  npm run seed -- --only=h41           Fixture H41 (rechazo de cuadrilla)");
   console.log("  npm run seed -- --skip=estados       Omite módulos");
   console.log("  npm run seed -- --clean              Limpia fixtures QA y vuelve a sembrar");
   console.log("");

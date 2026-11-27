@@ -14,11 +14,6 @@ export interface TelemetriaAckResponse {
   data?: PosicionUnidadActivaDTO;
 }
 
-export interface RoomJoinAckResponse {
-  ok: boolean;
-  error?: string;
-}
-
 export interface ServerToClientEvents {
   "aviso:nuevo": (aviso: AvisoItemDTO | Record<string, unknown>) => void;
   "aviso:verificado": (payload: { avisoId: string; incidenteId: string; folio: string }) => void;
@@ -82,8 +77,6 @@ export interface ServerToClientEvents {
     prioridad?: string;
     asignadoEn: string;
   }) => void;
-  "telemetria:posicion": (payload: PosicionUnidadActivaDTO | TelemetriaPosicionDTO) => void;
-  "telemetria:inactiva": (payload: TelemetriaInactivaDTO) => void;
   "mision:rechazada": (payload: MisionRechazadaPayload) => void;
   "mision:actualizada": (payload: {
     misionId: string;
@@ -94,6 +87,7 @@ export interface ServerToClientEvents {
     cuadrillaId?: string | null;
     incidenteId?: string | null;
     fechaInicio: string | null;
+    fechaCierre?: string | null;
     hito: {
       id: string;
       hito: string;
@@ -101,6 +95,7 @@ export interface ServerToClientEvents {
       registradoPorId: string | null;
       creadoEn: string;
     };
+    reporteTerreno?: Record<string, unknown> | null;
     actualizadoEn: string;
   }) => void;
   "notificacion:trazabilidad_actualizada": (payload: {
@@ -115,6 +110,13 @@ export interface ServerToClientEvents {
     leidaAt?: string | null;
     actualizadoEn: string;
   }) => void;
+  "telemetria:posicion": (payload: PosicionUnidadActivaDTO | TelemetriaPosicionDTO) => void;
+  "telemetria:inactiva": (payload: TelemetriaInactivaDTO) => void;
+}
+
+export interface RoomJoinAckResponse {
+  ok: boolean;
+  error?: string;
 }
 
 export interface MisionRechazadaPayload {
@@ -123,7 +125,9 @@ export interface MisionRechazadaPayload {
   tipoMision: string;
   motivo: string;
   justificacionRechazo?: string;
-  patrullaId: string | null;
+  cuadrillaId?: string | null;
+  cuadrillaNombre?: string | null;
+  patrullaId?: string | null;
   patrullaNombre?: string | null;
   incidenteId: string | null;
   incidenteCodigo?: string | null;
