@@ -204,6 +204,14 @@ import {
   EventoAtpResponseSchema,
 } from "@/modules/eventos-atp/evento-atp.schema";
 
+import {
+  TelemetriaPosicionPayloadSchema,
+  PosicionUnidadActivaSchema,
+  PosicionesActivasResponseSchema,
+  ListarPosicionesQuerySchema,
+  TelemetriaInactivaPayloadSchema,
+} from "@/modules/geolocalizacion/telemetria.schema";
+
 extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
@@ -309,6 +317,13 @@ registry.register("CrearMisionVerificacionInput", CrearMisionVerificacionSchema)
 registry.register("CrearMisionResponse", CrearMisionResponseSchema);
 registry.register("AsignarCuadrillaMisionInput", AsignarCuadrillaMisionInputSchema);
 registry.register("AsignarCuadrillaMisionResponse", AsignarCuadrillaMisionResponseSchema);
+
+// Registrar esquemas de Geolocalización y Telemetría (HU-70)
+registry.register("TelemetriaPosicionPayload", TelemetriaPosicionPayloadSchema);
+registry.register("TelemetriaInactivaPayload", TelemetriaInactivaPayloadSchema);
+registry.register("ListarPosicionesQuery", ListarPosicionesQuerySchema);
+registry.register("PosicionUnidadActiva", PosicionUnidadActivaSchema);
+registry.register("PosicionesActivasResponse", PosicionesActivasResponseSchema);
 
 // ==========================================
 // RUTAS SISTEMA / SALUD
@@ -3060,13 +3075,49 @@ registry.registerPath({
   },
 });
 
+// GET /api/geolocalizacion/posiciones (HU-70: Consulta de posiciones activas de telemetría)
+registry.registerPath({
+  method: "get",
+  path: "/api/geolocalizacion/posiciones",
+  summary: "Obtener posiciones GPS activas de unidades en terreno (HU-70)",
+  description:
+    "Retorna la lista de últimas posiciones GPS conocidas de todas las unidades operativas (patrullas y cuadrillas) vigentes en la caché de telemetría de Redis (TTL 300s). Requiere permiso 'misiones:leer' o perfil Administrador. Permite hidratar de forma instantánea el mapa interactivo del Centro de Mando en sgrai-web.",
+  tags: ["Geolocalizacion"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    query: ListarPosicionesQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Posiciones activas obtenidas exitosamente",
+      content: {
+        "application/json": {
+          schema: PosicionesActivasResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta inválidos (tipoUnidad o unidadId)",
+    },
+    401: {
+      description: "No autenticado, token inválido/expirado o usuario inactivo",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'misiones:leer' o perfil Administrador.",
+    },
+    500: {
+      description: "Error interno del servidor al consultar posiciones activas",
+    },
+  },
+});
+
 export function generarOpenAPISpec() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      version: "0.12.0",
+      version: "0.13.0",
       title: "SGRAI API",
       description:
         "Documentación técnica de la API del Sistema de Gestión de Recursos para Atención de Incidentes (SGRAI).",

@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import type { Server as SocketIOServer } from "socket.io";
 import Redis from "ioredis";
 import type {
@@ -8,6 +9,10 @@ import type {
   RedisSocketMessage,
   MisionRechazadaPayload,
 } from "./types";
+import type {
+  PosicionUnidadActivaDTO,
+  TelemetriaInactivaDTO,
+} from "@/modules/geolocalizacion/telemetria.schema";
 
 export interface IncidenteNotificacionPayload {
   id: string;
@@ -60,9 +65,14 @@ let ioInstance: TypedSocketServer | SocketIOServer | null = null;
 let redisPublisher: Redis | null = null;
 
 export const REDIS_SOCKET_CHANNEL = "sgrai:socket-events";
+export const SOCKET_INSTANCE_ID = randomUUID();
 
-export function setSocketServer(server: TypedSocketServer | SocketIOServer): void {
+export function setSocketServer(server: TypedSocketServer | SocketIOServer | null): void {
   ioInstance = server;
+}
+
+export function setRedisPublisherForTesting(publisher: Redis | null): void {
+  redisPublisher = publisher;
 }
 
 export function getSocketServer(): TypedSocketServer | SocketIOServer | null {
@@ -1050,6 +1060,50 @@ export function notificarMisionRechazada(payload: MisionRechazadaPayload): void 
         .catch(() => {});
     }
   }
+}
+
+/**
+ * Emite un evento a una sala localmente y lo propaga vía Redis Pub/Sub con `originInstanceId`
+ * para soportar despliegues multi-instancia sin duplicar entregas en el nodo emisor.
+ */
+function emitirYPropagarPorRedis<E extends keyof ServerToClientEvents>(
+  room: string,
+  event: E,
+  payload: Parameters<ServerToClientEvents[E]>[0]
+): void {
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to(room) as any).emit(event, payload);
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    const message: RedisSocketMessage = {
+      room,
+      event,
+      payload,
+      originInstanceId: SOCKET_INSTANCE_ID,
+    };
+    publisher.publish(REDIS_SOCKET_CHANNEL, JSON.stringify(message)).catch((err) => {
+      console.warn("[Socket.io Redis Broker Warning]:", err);
+    });
+  }
+}
+
+/**
+ * Emite la posición de telemetría de una unidad hacia la sala 'mapa'
+ * (localmente y replicada vía Redis Pub/Sub para multi-instancia).
+ */
+export function notificarTelemetriaPosicion(posicion: PosicionUnidadActivaDTO): void {
+  emitirYPropagarPorRedis("mapa", "telemetria:posicion", posicion);
+}
+
+/**
+ * Notifica a la sala 'mapa' que una unidad pausó/finalizó su transmisión de telemetría
+ * o retornó a estado DISPONIBLE, permitiendo retirar su marcador activo en tiempo real.
+ */
+export function notificarTelemetriaInactiva(payload: TelemetriaInactivaDTO): void {
+  emitirYPropagarPorRedis("mapa", "telemetria:inactiva", payload);
 }
 
 export * from "./types";

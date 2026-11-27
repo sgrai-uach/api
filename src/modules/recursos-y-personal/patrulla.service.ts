@@ -17,6 +17,7 @@ import {
   notificarPatrullaDesactivada,
   emitirRecursoActualizado,
 } from "@/lib/socket";
+import { detenerTelemetriaUnidadService } from "@/modules/geolocalizacion/telemetria.service";
 import {
   listarPatrullasRepo,
   obtenerPatrullaPorIdRepo,
@@ -386,6 +387,12 @@ export async function actualizarEstadoPatrullaService(
     incidenteId: data.misionActiva?.incidenteId ?? null,
     actualizadoEn: data.actualizadoEn,
   });
+
+  if (data.estado === "DISPONIBLE" || data.estado === "NO_DISPONIBLE") {
+    await detenerTelemetriaUnidadService("PATRULLA", data.id, `ESTADO_${data.estado}`).catch(
+      () => {}
+    );
+  }
 
   return {
     message: "Estado operativo de patrulla verificadora actualizado exitosamente.",

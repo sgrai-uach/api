@@ -34,6 +34,7 @@ import {
   notificarMisionRechazada,
 } from "@/lib/socket";
 import { marcarNotificacionEnviadaRepo } from "./notificacion-mision.repository";
+import { detenerTelemetriaUnidadService } from "@/modules/geolocalizacion/telemetria.service";
 
 function formatearFechaIso(fecha: Date | string | null | undefined): string | null {
   if (!fecha) return null;
@@ -458,6 +459,12 @@ export async function asignarCuadrillaMisionService(
         incidenteId: null,
         actualizadoEn: new Date().toISOString(),
       });
+
+      await detenerTelemetriaUnidadService(
+        "PATRULLA",
+        resultado.patrullaLiberada.id,
+        "UNIDAD_DISPONIBLE"
+      ).catch(() => {});
     }
 
     // c) Notificar actualización de estado del incidente al Centro de Mando
@@ -855,6 +862,14 @@ export async function rechazarMisionService(
         incidenteId: null,
         actualizadoEn: resultado.mision.actualizadoEn,
       });
+
+      if (patrullaRes.estado === "DISPONIBLE") {
+        await detenerTelemetriaUnidadService(
+          "PATRULLA",
+          patrullaRes.id,
+          "MISION_RECHAZADA"
+        ).catch(() => {});
+      }
     }
   } catch (error) {
     console.error("Error al emitir eventos WebSocket tras rechazar misión:", error);

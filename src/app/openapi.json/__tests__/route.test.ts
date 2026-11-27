@@ -9,7 +9,7 @@ describe("Endpoint GET /openapi.json", () => {
     const spec = await res.json();
     expect(spec.openapi).toBe("3.0.0");
     expect(spec.info.title).toContain("SGRAI API");
-    expect(spec.info.version).toBe("0.12.0");
+    expect(spec.info.version).toBe("0.13.0");
 
     // Esquemas de seguridad (BearerAuth)
     expect(spec.components.securitySchemes).toBeDefined();
@@ -17,6 +17,18 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.components.securitySchemes.BearerAuth.type).toBe("http");
     expect(spec.components.securitySchemes.BearerAuth.scheme).toBe("bearer");
     expect(spec.components.securitySchemes.BearerAuth.bearerFormat).toBe("JWT");
+
+    // Rutas de Geolocalización y Telemetría (HU-70)
+    expect(spec.paths["/api/geolocalizacion/posiciones"]).toBeDefined();
+    expect(spec.paths["/api/geolocalizacion/posiciones"].get).toBeDefined();
+    expect(spec.paths["/api/geolocalizacion/posiciones"].get.security).toEqual([
+      { BearerAuth: [] },
+    ]);
+    expect(spec.paths["/api/geolocalizacion/posiciones"].get.responses["400"]).toBeDefined();
+    expect(spec.paths["/api/geolocalizacion/posiciones"].get.responses["403"]).toBeDefined();
+    expect(spec.components.schemas.TelemetriaPosicionPayload).toBeDefined();
+    expect(spec.components.schemas.PosicionUnidadActiva).toBeDefined();
+    expect(spec.components.schemas.PosicionesActivasResponse).toBeDefined();
 
     // Rutas de Patrullas Verificadoras (HU-16, HU-84, HU-85)
     expect(spec.paths["/api/patrullas"]).toBeDefined();

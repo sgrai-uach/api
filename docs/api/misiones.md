@@ -52,6 +52,7 @@ El módulo de **Misiones** articula las acciones tácticas en terreno ejecutadas
 | `POST` | `/api/misiones/{id}/rechazar` | `misiones:terreno:ejecutar` | Rechazar asignación de misión por Delegado de Cuadrilla con justificación técnica obligatoria (≥ 5 caracteres, Regla §3.3), devolviendo la cuadrilla a `DISPONIBLE` y el incidente a `VERIFICANDO` o `REPORTADO` (HU-41). |
 | `PATCH` | `/api/terreno/notificaciones/{id}/estado` | `misiones:terreno:verificar` | Confirmar de forma idempotente acuse de recibo técnico ('RECIBIDA') o lectura operativa ('LEIDA') desde terreno (HU-35). |
 | `GET` | `/api/terreno/misiones/pendientes` | `misiones:terreno:verificar` | Consultar misiones asignadas con notificaciones en PENDIENTE_ENVIO o ENVIADA para reconciliación offline (HU-35). |
+| `GET` | `/api/geolocalizacion/posiciones` | `misiones:leer` / Administrador | Consultar snapshot de últimas posiciones GPS activas de unidades en terreno desde caché Redis (HU-70). |
 
 ---
 
@@ -688,7 +689,49 @@ Permite al cliente móvil (`sgrai-pwa`) consultar las misiones asignadas cuyas n
 
 ---
 
-### 3.9. `POST /api/misiones/{id}/reporte` (HU-39 / HU-86: Enviar Informe Técnico de Verificación y Cerrar Misión)
+### 3.9. `GET /api/geolocalizacion/posiciones` (HU-70: Posiciones GPS Activas de Unidades en Terreno)
+
+Permite al Centro de Mando (`sgrai-web`) consultar de forma instantánea el snapshot de últimas posiciones GPS conocidas de todas las patrullas y cuadrillas operativas en misión activa (`EN_CURSO`) que se encuentren vigentes en la caché de Redis (TTL 300 segundos).
+
+- **Autenticación requerida:** `Authorization: Bearer <token_jwt>` (usuario activo en base de datos).
+- **Permiso RBAC requerido:** `misiones:leer` (perfiles `ENCARGADO`, `SUPERVISOR`) o perfil `ADMIN`.
+
+#### Parámetros de Consulta Opcionales (Query Params)
+
+| Parámetro | Tipo | Requerido | Descripción | Ejemplo |
+|---|---|---|---|---|
+| `tipoUnidad` | `PATRULLA` \| `CUADRILLA` | No | Filtra posiciones activas por tipo de unidad operativa. | `PATRULLA` |
+| `unidadId` | `UUID` | No | Filtra la posición vigente de una unidad específica. | `f1000000-0000-4000-8000-000000000001` |
+
+#### Códigos de Error Adicionales (`GET /api/geolocalizacion/posiciones`)
+- **`400 Bad Request`:** `tipoUnidad` distinto a `PATRULLA`/`CUADRILLA` o `unidadId` con formato no UUID.
+- **`401 Unauthorized`:** Token JWT ausente, inválido, expirado o usuario inactivo.
+- **`403 Forbidden`:** El rol del usuario autenticado carece del permiso `misiones:leer` y no es Administrador.
+
+#### Ejemplo de Respuesta Exitosa (`HTTP 200 OK`)
+
+```json
+{
+  "message": "Posiciones activas obtenidas exitosamente.",
+  "data": [
+    {
+      "unidadId": "f1000000-0000-4000-8000-000000000001",
+      "tipoUnidad": "PATRULLA",
+      "lat": -39.81422,
+      "lng": -73.24589,
+      "timestamp": "2026-11-24T15:00:00.000Z",
+      "rumbo": 180.5,
+      "precision": 10.5,
+      "velocidad": 4.2,
+      "recibidoEn": "2026-11-24T15:00:01.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### 3.10. `POST /api/misiones/{id}/reporte` (HU-39 / HU-86: Enviar Informe Técnico de Verificación y Cerrar Misión)
 
 Permite a la patrulla verificadora enviar el informe técnico consolidado de verificación en terreno y cerrar su misión inicial de patrullaje. Absorbe la declaración fundada de no abordabilidad (fusión H39/H86).
 
@@ -718,7 +761,7 @@ Permite a la patrulla verificadora enviar el informe técnico consolidado de ver
 
 ---
 
-### 3.10. `POST /api/misiones/{id}/rechazar` (HU-41 Cuadrilla / HU-69 Patrulla)
+### 3.11. `POST /api/misiones/{id}/rechazar` (HU-41 Cuadrilla / HU-69 Patrulla)
 
 Permite al **Delegado de Cuadrilla** (`misiones:terreno:ejecutar`) o a la **Patrulla Verificadora** (`misiones:terreno:verificar`) rechazar la solicitud de asignación a una misión en estado `DESPACHADA`, ingresando una justificación técnica obligatoria cuando existan motivos de fuerza mayor que impidan la atención.
 
@@ -827,9 +870,44 @@ Al confirmarse la asignación o rechazo de misiones operativas mediante `POST /a
    - **Propósito:** Notificar al Centro de Mando la aceptación en terreno de una misión (`DESPACHADA` → `EN_CURSO`, hito `MISION_ACEPTADA`, HU-36) o su cierre con informe técnico de verificación (`EN_CURSO` → `COMPLETADA`, `reporteTerreno`, HU-39).
 
 8. **`mision:rechazada` (HU-41 / HU-69)**:
-   - **Salas destino:** `encargado`, `sala:encargados`, `supervisor`, `cuadrilla:{cuadrillaId}` (si aplica) y `patrulla:{patrullaId}` (si aplica).
+   - **Salas destino:** `encargado`, `sala:encargados`, `supervisor`, `cuadrilla:{cuadrillaId}` (si aplica), `patrulla:{patrullaId}` (si aplica) y difusión global.
    - **Payload:** `{ misionId, codigo, tipoMision, motivo, justificacionRechazo, cuadrillaId, cuadrillaNombre, patrullaId, patrullaNombre, incidenteId, incidenteCodigo, rechazadoPorId, rechazadoEn }`.
    - **Propósito:** Emitir alerta prioritaria inmediata al Centro de Mando cuando una cuadrilla operativa o patrulla verificadora rechaza una asignación, habilitando la reasignación inmediata del incidente.
+9. **`telemetria:posicion` y `telemetria:inactiva` (HU-70: Transmisión y Retransmisión GPS en Terreno)**:
+   - **Autenticación y Control de Salas en Socket.io:** El handshake valida el JWT provisto en `auth.token` o cabecera `Authorization: Bearer <token>`. El ingreso a salas operativas restringidas (como `mapa`, `encargado`, `supervisor`, `patrulla:{id}`, `cuadrilla:{id}`) y la emisión de `telemetria:posicion` / `telemetria:detener` exigen socket autenticado.
+   - **Evento de Entrada (Client-to-Server) — `telemetria:posicion`:** Emitido periódicamente (cada 30 a 60 segundos) por la PWA móvil de patrullas y delegados de cuadrilla cuando se encuentran en misión activa (`EN_CURSO`). Admite callback opcional `{ ok, codigo?, error?, omitidaPorObsoleta?, data? }`.
+     - **Validaciones de Negocio en Backend (ICS):**
+       1. Valida estructura Zod estricta bajo estándar WGS84 (`lat` en `[-90, 90]`, `lng` en `[-180, 180]`), finitud numérica y validez cronológica del `timestamp` (sin fallos `RangeError`).
+       2. Verifica en PostgreSQL que el usuario autenticado esté activo y pertenezca a la unidad (`usuario_lider_id` / `patrulla_personal` o `usuario_delegado_id` / `cuadrilla_personal`, o perfil `ADMIN`).
+       3. Exige que la unidad no esté `DISPONIBLE` y mantenga una misión activa en estado `EN_CURSO`. Si la unidad ya retornó a `DISPONIBLE` o finalizó su misión, purga inmediatamente su clave en Redis, emite `telemetria:inactiva` a `mapa` y responde `codigo: "UNIDAD_DISPONIBLE" | "MISION_NO_EN_CURSO"` en el callback para pausar la transmisión.
+       4. Protección contra paquetes desordenados: tramas con `timestamp` anterior al último almacenado para la misma unidad se omiten sin sobrescribir ni retroceder el marcador.
+     - **Payload:**
+       ```json
+       {
+         "unidadId": "f1000000-0000-4000-8000-000000000001",
+         "tipoUnidad": "PATRULLA",
+         "lat": -39.81422,
+         "lng": -73.24589,
+         "timestamp": "2026-11-24T15:00:00.000Z",
+         "rumbo": 180.5,
+         "precision": 10.5,
+         "velocidad": 4.2
+       }
+       ```
+     - **Atributos:**
+       - `unidadId` (UUID): Identificador de la patrulla o cuadrilla.
+       - `tipoUnidad` (`PATRULLA` | `CUADRILLA`): Clasificación de la unidad operativa.
+       - `lat`, `lng` (número decimal finito WGS84): Coordenadas geográficas.
+       - `timestamp` (ISO 8601 o epoch ms válido): Marca temporal de captura.
+       - `rumbo` (opcional, grados 0-360): Orientación del desplazamiento para rotar el icono en el mapa.
+       - `precision` (opcional, metros >= 0): Radio de exactitud provisto por `GeolocationCoordinates.accuracy`.
+       - `velocidad` (opcional, m/s >= 0): Velocidad instantánea de desplazamiento.
+   - **Evento de Entrada (Client-to-Server) — `telemetria:detener`:** Permite a la PWA notificar pausa explícita `{ unidadId, tipoUnidad, motivo? }` al finalizar una misión; purga la clave de Redis y emite `telemetria:inactiva` a `mapa`. Adicionalmente, el backend purga automáticamente la telemetría cuando una patrulla se libera a `DISPONIBLE`.
+   - **Almacenamiento en Caché Redis y Broker Pub/Sub Multi-Instancia:** Cada posición válida se almacena bajo `telemetria:posicion:{tipoUnidad}:{unidadId}` con TTL de 300 segundos y se indexa en `telemetria:unidades_activas` (con degradación en memoria si Redis no está disponible). La retransmisión emite localmente a `io.to("mapa")` y publica simultáneamente en `sgrai:socket-events` con `originInstanceId` para replicación multi-instancia sin duplicados locales.
+   - **Eventos de Salida (Server-to-Client hacia sala `mapa`):**
+     - `telemetria:posicion`: Posición validada enriquecida con `recibidoEn`.
+     - `telemetria:inactiva`: `{ unidadId, tipoUnidad, motivo, detenidoEn }` indicando al mapa retirar el marcador activo.
+   - **Resiliencia ante Conectividad:** Si el dispositivo móvil pierde señal, la PWA reintenta de forma transparente sin alertas bloqueantes; el backend descarta tramas malformadas u obsoletas sin interrumpir la conexión del socket.
 
 ---
 
