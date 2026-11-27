@@ -67,14 +67,28 @@ describe("Endpoint GET /openapi.json", () => {
     ]);
 
     // Validar que todo esquema de seguridad referenciado exista en components.securitySchemes
+    // y que ningún endpoint declare la cabecera heredada x-user-id como obligatoria
     const esquemasDefinidos = new Set(Object.keys(spec.components.securitySchemes));
-    for (const methods of Object.values(spec.paths) as Array<Record<string, { security?: Array<Record<string, unknown>> }>>) {
+    for (const methods of Object.values(spec.paths) as Array<
+      Record<
+        string,
+        {
+          security?: Array<Record<string, unknown>>;
+          parameters?: Array<{ in?: string; name?: string; required?: boolean }>;
+        }
+      >
+    >) {
       for (const op of Object.values(methods)) {
         if (op?.security) {
           for (const secObj of op.security) {
             for (const schemeName of Object.keys(secObj)) {
               expect(esquemasDefinidos.has(schemeName)).toBe(true);
             }
+          }
+        }
+        for (const param of op?.parameters ?? []) {
+          if (param.in === "header" && param.name?.toLowerCase() === "x-user-id") {
+            expect(param.required).not.toBe(true);
           }
         }
       }
@@ -206,6 +220,9 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/misiones/{id}"].get.security).toEqual([{ BearerAuth: [] }]);
     expect(spec.paths["/api/misiones/{id}"].get.responses["403"].description).toContain(
       "misiones:terreno:verificar"
+    );
+    expect(spec.paths["/api/misiones/{id}"].get.responses["403"].description).toContain(
+      "misiones:terreno:ejecutar"
     );
     expect(spec.paths["/api/misiones/{id}"].get.responses["403"].description).toContain(
       "reportes:crear"
