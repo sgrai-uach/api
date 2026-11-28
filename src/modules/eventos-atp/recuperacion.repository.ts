@@ -305,7 +305,8 @@ export async function buscarRecuperacionPorId(
       "fecha_cierre",
       "observaciones_cierre",
     ])
-    .where("id", "=", recuperacionId);
+    .where("id", "=", recuperacionId)
+    .where("eliminado_en", "is", null);
 
   if (bloquear) {
     query = query.forUpdate();

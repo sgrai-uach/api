@@ -75,6 +75,40 @@ describe("Route Handler GET /api/eventos-atp/recuperacion/[id] (HU-32 / HU-73 - 
     expect(body.message).toContain("no encontrado");
   });
 
+  it("debe responder 404 si el operativo fue dado de baja lógica (BUG-H73-API-09)", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce(undefined);
+    vi.spyOn(recuperacionService, "obtenerDetalleRecuperacionService").mockRejectedValueOnce(
+      new NotFoundError(`El evento de recuperación con ID '${operativoValidoId}' no fue encontrado.`)
+    );
+
+    const req = new NextRequest(`http://localhost:3000/api/eventos-atp/recuperacion/${operativoValidoId}`, {
+      headers: { authorization: "Bearer token-valido" },
+    });
+    const res = await GET(req, contextValido);
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.message).toContain("no fue encontrado");
+  });
+
+  it("debe responder 404 si el operativo tiene baja lógica (eliminado_en no nulo) (BUG-H73-API-09)", async () => {
+    vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
+    vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce(undefined);
+    vi.spyOn(recuperacionService, "obtenerDetalleRecuperacionService").mockRejectedValueOnce(
+      new NotFoundError(`El evento de recuperación con ID '${operativoValidoId}' no fue encontrado.`)
+    );
+
+    const req = new NextRequest(`http://localhost:3000/api/eventos-atp/recuperacion/${operativoValidoId}`, {
+      headers: { authorization: "Bearer token-valido" },
+    });
+    const res = await GET(req, contextValido);
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.message).toContain("no fue encontrado");
+  });
+
   it("debe responder 200 y retornar el detalle completo para el drawer", async () => {
     vi.spyOn(authGuard, "extraerUsuarioId").mockResolvedValueOnce(usuarioEncargadoId);
     vi.spyOn(recuperacionService, "verificarAutorizacionLecturaRecuperacion").mockResolvedValueOnce(undefined);

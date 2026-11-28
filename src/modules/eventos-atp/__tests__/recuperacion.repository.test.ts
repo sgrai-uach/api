@@ -123,13 +123,14 @@ describe("Módulo Eventos ATP - recuperacion.repository (HU-73 / HU-32)", () => 
   });
 
   describe("buscarRecuperacionPorId y buscarPatrullaPorId", () => {
-    it("debe consultar recuperacion por ID", async () => {
+    it("debe consultar recuperacion por ID y filtrar bajas lógicas (BUG-H73-API-09)", async () => {
       const mockRec = { id: "rec-1", codigo: "REC-2026-0001" };
       dbMock.executeTakeFirst.mockResolvedValueOnce(mockRec);
 
       const res = await buscarRecuperacionPorId(dbMock, "rec-1");
       expect(res).toEqual(mockRec);
       expect(dbMock.where).toHaveBeenCalledWith("id", "=", "rec-1");
+      expect(dbMock.where).toHaveBeenCalledWith("eliminado_en", "is", null);
     });
 
     it("debe consultar patrulla por ID", async () => {

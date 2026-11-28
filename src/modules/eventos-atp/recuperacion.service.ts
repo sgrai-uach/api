@@ -643,8 +643,12 @@ export async function obtenerDetalleRecuperacionService(
     if (detalle) {
       return detalle;
     }
-  } catch {
-    // Si no está disponible en el repositorio de drawer, armar estructurado
+    throw new NotFoundError(`El evento de recuperación con ID '${id}' no fue encontrado.`);
+  } catch (err) {
+    if (err instanceof NotFoundError) {
+      throw err;
+    }
+    // Si no está disponible en el repositorio de drawer (ej. fallo o método no implementado en mock antiguo de HU-32), armar estructurado
   }
 
   let delegacionData = null;

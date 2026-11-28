@@ -603,5 +603,58 @@ describe("Módulo Eventos ATP - Creación de Eventos de Recuperación (HU-29)", 
         NotFoundError
       );
     });
+
+    it("debe lanzar NotFoundError si el operativo tiene baja lógica (eliminado_en no nulo) y no caer a fallback (BUG-H73-API-09)", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce({
+        id: usuarioId,
+        nombre: "Encargado de Operaciones",
+        rol: "ENCARGADO",
+      });
+
+      // buscarRecuperacionPorId retorna undefined por el filtro eliminado_en IS NULL
+      vi.spyOn(repo, "buscarRecuperacionPorId").mockResolvedValueOnce(undefined);
+      // obtenerRecuperacionDetallePorIdRepo también retorna null por el filtro eliminado_en IS NULL
+      vi.spyOn(repo, "obtenerRecuperacionDetallePorIdRepo").mockResolvedValueOnce(null);
+
+      await expect(
+        obtenerDetalleRecuperacionService("73100000-0000-4000-8000-000000000006", usuarioId)
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it("debe lanzar NotFoundError si obtenerRecuperacionDetallePorIdRepo retorna null sin caer al fallback (BUG-H73-API-09)", async () => {
+      vi.spyOn(authService, "verificarPermiso").mockResolvedValueOnce({
+        id: usuarioId,
+        nombre: "Encargado de Operaciones",
+        rol: "ENCARGADO",
+      });
+
+      // Si buscarRecuperacionPorId retornara un registro pero el drawer retorna null por soft delete
+      vi.spyOn(repo, "buscarRecuperacionPorId").mockResolvedValueOnce({
+        id: "73100000-0000-4000-8000-000000000006",
+        codigo: "REC-2026-0006",
+        nombre: "Operativo Eliminado",
+        descripcion: null,
+        sector: "Collico",
+        direccion_texto: null,
+        prioridad: "MEDIA",
+        contacto_nombre: null,
+        contacto_telefono: null,
+        latitud: -39.8142,
+        longitud: -73.2459,
+        estado: "PLANIFICADA",
+        familias_afectadas: 0,
+        delegacion_id: null,
+        creado_por_id: usuarioId,
+        creado_en: new Date(),
+        actualizado_en: new Date(),
+        fecha_cierre: null,
+        observaciones_cierre: null,
+      });
+      vi.spyOn(repo, "obtenerRecuperacionDetallePorIdRepo").mockResolvedValueOnce(null);
+
+      await expect(
+        obtenerDetalleRecuperacionService("73100000-0000-4000-8000-000000000006", usuarioId)
+      ).rejects.toThrow(NotFoundError);
+    });
   });
 });
