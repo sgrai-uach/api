@@ -6,7 +6,7 @@ import {
 } from "../recuperacion.schema";
 import {
   asignarRecursosRecuperacionService,
-  obtenerDetalleRecuperacionService,
+  obtenerDetalleRecuperacionEventoService,
   PatrullaNoDisponibleError,
   StockInsuficienteError,
   RecursoNoDisponibleError,
@@ -71,9 +71,9 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Recuperación (HU-32)"
 
     it("debe validar correctamente el esquema de parámetro UUID", () => {
       expect(
-        RecuperacionIdParamSchema.safeParse({ id: "70000000-0000-4000-8000-000000000001" }).success
+        RecuperacionIdParamSchema.safeParse("70000000-0000-4000-8000-000000000001").success
       ).toBe(true);
-      expect(RecuperacionIdParamSchema.safeParse({ id: "no-es-uuid" }).success).toBe(false);
+      expect(RecuperacionIdParamSchema.safeParse("no-es-uuid").success).toBe(false);
     });
   });
 
@@ -109,7 +109,14 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Recuperación (HU-32)"
       estado: "PLANIFICADA" as const,
       familias_afectadas: 4,
       delegacion_id: "30000000-0000-4000-8000-000000000001",
+      ubicacion: null,
+      evento_atp_id: null,
+      fecha_estimada_fin: null,
+      fecha_cierre: null,
+      observaciones_cierre: null,
+      eliminado_en: null,
       creado_por_id: usuarioId,
+      actualizado_por_id: null,
       creado_en: new Date("2026-10-04T12:00:00Z"),
       actualizado_en: new Date("2026-10-04T12:00:00Z"),
     };
@@ -448,7 +455,14 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Recuperación (HU-32)"
         estado: "PLANIFICADA",
         familias_afectadas: 5,
         delegacion_id: "30000000-0000-4000-8000-000000000001",
+        ubicacion: null,
+        evento_atp_id: null,
+        fecha_estimada_fin: null,
+        fecha_cierre: null,
+        observaciones_cierre: null,
+        eliminado_en: null,
         creado_por_id: "00000000-0000-4000-8000-000000000002",
+        actualizado_por_id: null,
         creado_en: new Date("2026-10-04T12:00:00Z"),
         actualizado_en: new Date("2026-10-04T12:00:00Z"),
       });
@@ -487,7 +501,7 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Recuperación (HU-32)"
         },
       ]);
 
-      const resultado = await obtenerDetalleRecuperacionService("70000000-0000-4000-8000-000000000001");
+      const resultado = await obtenerDetalleRecuperacionEventoService("70000000-0000-4000-8000-000000000001");
       expect(resultado.codigo).toBe("REC-2026-0001");
       expect(resultado.delegacion?.codigo).toBe("DEL-SUR");
       expect(resultado.misiones).toHaveLength(1);
@@ -498,7 +512,7 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Recuperación (HU-32)"
     it("debe lanzar NotFoundError si el evento no existe", async () => {
       vi.spyOn(repo, "buscarRecuperacionPorId").mockResolvedValueOnce(undefined);
       await expect(
-        obtenerDetalleRecuperacionService("70000000-0000-4000-8000-000000000001")
+        obtenerDetalleRecuperacionEventoService("70000000-0000-4000-8000-000000000001")
       ).rejects.toThrow(NotFoundError);
     });
   });

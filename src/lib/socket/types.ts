@@ -64,6 +64,13 @@ export interface ServerToClientEvents {
         asignadoEn: string;
     }) => void;
     "mision:rechazada": (payload: MisionRechazadaPayload) => void;
+    "mision:reasignada": (payload: {
+        recuperacionId: string;
+        misionId: string;
+        codigoMision: string;
+        patrullaAnteriorId: string;
+        patrullaNuevaId: string;
+    }) => void;
     "mision:actualizada": (payload: {
         misionId: string;
         codigo: string;

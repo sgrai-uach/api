@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     // 2. Extraer y validar parámetro de ruta UUID
     const { id } = await context.params;
-    const validacionId = RecuperacionIdParamSchema.safeParse({ id });
+    const validacionId = RecuperacionIdParamSchema.safeParse(id);
     if (!validacionId.success) {
       return NextResponse.json(
         {
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     // 4. Ejecutar servicio de negocio con control transaccional FOR UPDATE
     const asignacionRealizada = await asignarRecursosRecuperacionService(
-      validacionId.data.id,
+      validacionId.data,
       resultadoValidacion.data,
       usuarioAutenticado.id
     );

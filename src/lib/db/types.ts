@@ -265,7 +265,12 @@ export interface RecuperacionTable {
   familias_afectadas: ColumnType<number, number | undefined, number>;
   delegacion_id: string | null;
   evento_atp_id: string | null;
+  fecha_estimada_fin: Date | null;
+  fecha_cierre?: Date | null;
+  observaciones_cierre?: string | null;
+  eliminado_en?: Date | null;
   creado_por_id: string;
+  actualizado_por_id: string | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }

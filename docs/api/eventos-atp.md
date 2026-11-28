@@ -65,9 +65,10 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `POST` | `/api/puntos-criticos` | Registrar un nuevo punto crítico con coordenadas PostGIS, código autogenerado y emisión en tiempo real vía Socket.io (HU-58). |
 | `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
-| `GET` | `/api/eventos-atp/recuperacion` | Listar todos los eventos de recuperación territoriales registrados con sus misiones tácticas, patrulla asignada y recursos para el mapa operativo. |
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
-| `GET` | `/api/eventos-atp/recuperacion/{id}` | Obtener el detalle estructurado de un evento de recuperación comunal, sus misiones operativas e insumos asignados (HU-32). |
+| `GET` | `/api/eventos-atp/recuperacion` | Listar operativos de recuperación post-desastre con paginación H34, filtros territoriales/estado y desglose de insumos asignados (H73). |
+| `GET` | `/api/eventos-atp/recuperacion/{id}` | Obtener detalle consolidado de un operativo de recuperación con recursos, patrulla, misiones e historial (H32 / H73 / H74). |
+| `PATCH` | `/api/eventos-atp/recuperacion/{id}` | Modificar descripción de tareas, fecha estimada de término, dotación de insumos y/o patrulla asignada de un operativo de recuperación activo (HU-74). |
 | `POST` | `/api/eventos-atp/recuperacion/{id}/asignar` | Asignar patrulla verificadora y recursos de bodega a un evento de recuperación con bloqueo transaccional `FOR UPDATE` (§3.6) y RBAC `misiones:asignar` (HU-32). |
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
@@ -573,6 +574,227 @@ Permite al perfil **Encargado de Operaciones** (o Administrador) crear un evento
 
 ---
 
+## 8.1 Detalle de Endpoint: `GET /api/eventos-atp/recuperacion` (H73)
+
+Retorna una lista paginada y filtrable de todos los operativos de recuperación post-desastre registrados en el sistema, diseñada para dar seguimiento al avance de los despliegues en el Centro de Incidentes bajo el estándar de contratos **H34** (`page`, `limit`, `total`, `totalPages`). Incluye el desglose de insumos asignados (`cantidadInsumosAsignados`, `totalTiposInsumos` y `recursosResumen`).
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `Authorization` | `string` | No | Token Bearer JWT de sesión institucional (`Bearer <token>`). |
+| `X-User-Id` | `UUID` | No | Identificador del usuario con permiso `recuperacion:leer` (Encargado, Administrador o Supervisor). |
+
+*(Se exige al menos una de las dos cabeceras para validar autenticación y control de acceso RBAC).*
+
+### Parámetros de Consulta (Query Params)
+
+| Parámetro | Tipo | Requerido | Default | Descripción |
+|---|---|---|---|---|
+| `page` / `pagina` | `number` | No | `1` | Número de página actual (inicia en 1). |
+| `limit` / `limite` | `number` | No | `20` | Cantidad de elementos por página (máximo: 100). |
+| `delegacionId` | `UUID` | No | - | Filtra por identificador de la delegación territorial correspondiente. |
+| `estado` | `string` | No | - | Filtra por estado del ciclo de vida (`PLANIFICADA`, `EN_EJECUCION`, `COMPLETADA`, `CANCELADA`). |
+| `prioridad` | `string` | No | - | Filtra por nivel de urgencia (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
+| `busqueda` | `string` | No | - | Búsqueda textual insensible a mayúsculas por código (`REC-XXXX`), título descriptivo o sector. |
+| `fechaDesde` | `string` | No | - | Filtro temporal mínimo en formato ISO 8601. |
+| `fechaHasta` | `string` | No | - | Filtro temporal máximo en formato ISO 8601. |
+| `ordenarPor` | `string` | No | `creadoEn` | Campo de ordenamiento (`creadoEn`, `codigo`, `prioridad`, `familiasAfectadas`). |
+| `orden` | `string` | No | `desc` | Dirección del ordenamiento (`asc` o `desc`). |
+
+### Respuestas HTTP Esperadas
+
+#### `200 OK` — Listado obtenido exitosamente bajo estándar H34
+```json
+{
+  "message": "Listado de operativos de recuperación obtenido exitosamente",
+  "data": [
+    {
+      "id": "70000000-0000-4000-8000-000000000001",
+      "codigo": "REC-2026-0001",
+      "nombre": "Entrega de frazadas y techumbre en Sector Collico",
+      "descripcion": "Familias afectadas por temporal de viento",
+      "sector": "Collico",
+      "direccionTexto": "Calle Balmaceda 1245 con Las Palmeras",
+      "prioridad": "ALTA",
+      "estado": "PLANIFICADA",
+      "familiasAfectadas": 4,
+      "delegacion": {
+        "id": "30000000-0000-4000-8000-000000000001",
+        "codigo": "DEL-SUR",
+        "nombre": "Delegación Municipal Sur"
+      },
+      "cantidadInsumosAsignados": 15,
+      "totalTiposInsumos": 2,
+      "recursosResumen": [
+        {
+          "recursoId": "80000000-0000-4000-8000-000000000001",
+          "nombre": "Frazadas Térmicas",
+          "cantidadAsignada": 10
+        },
+        {
+          "recursoId": "80000000-0000-4000-8000-000000000002",
+          "nombre": "Sacos de Arena 25kg",
+          "cantidadAsignada": 5
+        }
+      ],
+      "creadoEn": "2026-11-01T10:00:00.000Z",
+      "actualizadoEn": "2026-11-01T10:00:00.000Z",
+      "fechaCierre": null
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "page": 1,
+    "limit": 20,
+    "totalPages": 1,
+    "hasNext": false,
+    "hasPrev": false
+  }
+}
+```
+
+#### `400 Bad Request` — Parámetros de consulta inválidos
+```json
+{
+  "message": "Parámetros de consulta de listado inválidos.",
+  "errors": [
+    {
+      "campo": "limit",
+      "mensaje": "Number must be less than or equal to 100"
+    }
+  ]
+}
+```
+
+#### `401 Unauthorized` — Sin autenticación
+```json
+{
+  "message": "Se requiere cabecera de autenticación Authorization: Bearer <token> o X-User-Id."
+}
+```
+
+#### `403 Forbidden` — Sin permiso de lectura
+```json
+{
+  "message": "No cuenta con el permiso requerido: recuperacion:leer"
+}
+```
+
+---
+
+## 8.2 Detalle de Endpoint: `GET /api/eventos-atp/recuperacion/{id}` (H73 - Drawer)
+
+Consulta la información exhaustiva de un operativo de recuperación específico para desplegar en el drawer lateral de `sgrai-web`, incluyendo insumos asignados, misión, patrulla y la línea de tiempo unificada de historial.
+
+### Parámetros de Ruta (Path Params)
+
+| Parámetro | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `id` | `UUID` | Sí | Identificador único del operativo de recuperación. |
+
+### Respuestas HTTP Esperadas
+
+#### `200 OK` — Detalle obtenido exitosamente
+```json
+{
+  "message": "Detalle de operativo de recuperación obtenido exitosamente.",
+  "data": {
+    "id": "70000000-0000-4000-8000-000000000001",
+    "codigo": "REC-2026-0001",
+    "nombre": "Entrega de frazadas y techumbre en Sector Collico",
+    "descripcion": "Familias afectadas por temporal de viento",
+    "sector": "Collico",
+    "direccionTexto": "Calle Balmaceda 1245 con Las Palmeras",
+    "prioridad": "ALTA",
+    "contactoNombre": "Don Pedro",
+    "contactoTelefono": "+56999887766",
+    "latitud": -39.8142,
+    "longitud": -73.2459,
+    "estado": "PLANIFICADA",
+    "familiasAfectadas": 4,
+    "delegacion": {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "codigo": "DEL-SUR",
+      "nombre": "Delegación Municipal Sur"
+    },
+    "creadoPor": {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "nombre": "Encargado de Operaciones"
+    },
+    "mision": {
+      "id": "60000000-0000-4000-8000-000000000001",
+      "codigo": "MIS-2026-0001",
+      "titulo": "Entrega de frazadas y techumbre en Sector Collico",
+      "estado": "DESPACHADA",
+      "tipoMision": "RECUPERACION"
+    },
+    "patrulla": {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "nombre": "Patrulla Verificadora Alfa",
+      "estado": "EN_RECUPERACION"
+    },
+    "recursos": [
+      {
+        "recursoId": "80000000-0000-4000-8000-000000000001",
+        "nombre": "Frazadas Térmicas",
+        "cantidadAsignada": 10
+      }
+    ],
+    "cantidadInsumosAsignados": 10,
+    "totalTiposInsumos": 1,
+    "historial": [
+      {
+        "id": "rec-creacion-70000000-0000-4000-8000-000000000001",
+        "tipo": "CREACION",
+        "titulo": "Operativo Planificado y Despachado",
+        "descripcion": "Familias afectadas por temporal de viento",
+        "registradoPor": {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "nombre": "Encargado de Operaciones"
+        },
+        "creadoEn": "2026-11-01T10:00:00.000Z"
+      }
+    ],
+    "creadoEn": "2026-11-01T10:00:00.000Z",
+    "actualizadoEn": "2026-11-01T10:00:00.000Z",
+    "fechaCierre": null,
+    "observacionesCierre": null
+  }
+}
+```
+
+#### `404 Not Found` — Operativo inexistente
+```json
+{
+  "message": "Operativo de recuperación con ID '70000000-0000-4000-8000-000000000099' no encontrado."
+}
+```
+
+---
+
+## 8.3 Detalle de Endpoint: `PATCH /api/eventos-atp/recuperacion/{id}` (HU-74)
+
+Permite al **Encargado de Operaciones** (o Administrador con permiso `recuperacion:editar`) modificar la planificación de un operativo de recuperación activo: descripción de tareas, fecha estimada de término (`fechaEstimadaFin`), dotación de insumos/recursos (`recursos`) y/o patrulla verificadora asignada (`patrullaId`).
+
+### Reglas de Negocio Aplicadas
+- **Bloqueo por estado culminado:** Si el operativo se encuentra en estado `COMPLETADA` o `CANCELADA`, la edición es rechazada con `409 Conflict`.
+- **Auditoría de edición:** Toda actualización persiste `actualizado_en` y `actualizado_por_id` con el UUID del usuario autenticado.
+- **Reasignación diferencial de recursos:** Si se envía `recursos`, se calcula la diferencia respecto a `recuperacion_recurso`: se devuelve al inventario lo reducido o removido y se descuenta lo agregado/incrementado previa validación de stock (`409 Conflict` si es insuficiente). Si `recursos` se omite, la dotación actual se mantiene intacta.
+- **Reasignación de patrulla verificadora (`patrullaId`):**
+  - Valida existencia (`404 Not Found`) y disponibilidad (`estado = DISPONIBLE`, `409 Conflict` si está ocupada).
+  - Libera la patrulla anterior a `DISPONIBLE` (y a su líder a `disponible`) siempre que no tenga otra misión activa.
+  - Asigna la nueva patrulla a la `mision` vinculada (pasándola a `EN_RECUPERACION` y a su líder a `en_mision`) y registra el hito `REASIGNACION_PATRULLA` en `mision_hito`.
+- **Sincronización operativa y tiempo real:** Si se modifica `descripcion`, se sincroniza `mision.descripcion`. Tras el commit, se emite `recuperacion:actualizada` (con el detalle actualizado de `patrulla` y `mision`), `mision:asignada` a la nueva patrulla y `mision:reasignada` a la patrulla liberada.
+- **Validación temporal:** Si se envía `fechaEstimadaFin` (ISO-8601), no puede ser anterior a `creado_en` (`400 Bad Request`).
+
+### Errores Esperables No Obvios
+- `403 Forbidden`: El usuario no posee el permiso `recuperacion:crear` ni `recuperacion:editar` (ni rol `Encargado` / `Administrador`).
+- `404 Not Found`: El operativo, la patrulla o alguno de los recursos no existe (o fue eliminado lógicamente).
+- `409 Conflict`: El operativo está en estado `COMPLETADA` o `CANCELADA`, la nueva patrulla no está `DISPONIBLE`, un recurso está en `EN_MANTENCION`/`NO_DISPONIBLE`, o no hay stock suficiente para incrementar un recurso solicitado.
+
+---
+
 ## 9. Detalle de Endpoint: `POST /api/eventos-atp/prevencion` (HU-30)
 
 Permite al **Encargado de Operaciones** (o Administrador) registrar un nuevo Evento de Prevención georreferenciado sobre un punto crítico o mediante coordenadas libres en una delegación de Valdivia, asignando recursos logísticos opcionales y despachando de manera atómica una misión a una patrulla verificadora disponible.
@@ -821,6 +1043,16 @@ Al completar exitosamente la transacción de creación del evento, el backend em
 * **Propósito en Frontend (`sgrai-web`):**
   - Actualizar inmediatamente el mapa interactivo (añadiendo el nuevo marcador del evento con sus coordenadas).
   - Actualizar la tabla de misiones en curso y la lista de patrullas disponibles/ocupadas sin requerir recargar la página.
+
+### Evento: `recuperacion:actualizada`
+
+Al editar exitosamente la planificación de un operativo de recuperación (`PATCH /api/eventos-atp/recuperacion/{id}`), el backend emite:
+
+* **Evento:** `recuperacion:actualizada`
+* **Salas:** `"sala:encargados"`, `"encargado"`, `"mapa"`
+* **Payload:** Objeto idéntico a la propiedad `data` de la respuesta `200 OK`.
+* **Propósito en Frontend (`sgrai-web` / `sgrai-pwa`):**
+  - Reflejar en vivo los cambios de descripción, fecha estimada de término y dotación de recursos asignados.
 
 ### Evento: `prevencion:creada`
 

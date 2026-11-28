@@ -433,8 +433,8 @@ export function emitirRecuperacionCreada(payload: unknown): void {
 }
 
 /**
- * Emite la notificación de evento de recuperación actualizado (asignación de patrullas/recursos)
- * a las vistas de Encargado y al mapa interactivo (HU-32).
+ * Emite la notificación de evento de recuperación actualizado (HU-32 / HU-74)
+ * a las vistas de Encargado y al mapa interactivo.
  */
 export function emitirRecuperacionActualizada(payload: unknown): void {
   if (ioInstance) {
@@ -463,6 +463,38 @@ export function emitirRecuperacionActualizada(payload: unknown): void {
         )
         .catch(() => {});
     }
+  }
+}
+
+/**
+ * Notifica a la patrulla liberada que su misión de recuperación fue reasignada a otra unidad (HU-74).
+ */
+export function emitirPatrullaLiberadaDeOperativo(payload: {
+  recuperacionId: string;
+  misionId: string;
+  codigoMision: string;
+  patrullaAnteriorId: string;
+  patrullaNuevaId: string;
+}): void {
+  const room = `patrulla:${payload.patrullaAnteriorId}`;
+  if (ioInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ioInstance.to(room) as any).emit("mision:reasignada", payload);
+    return;
+  }
+
+  const publisher = getRedisPublisher();
+  if (publisher) {
+    publisher
+      .publish(
+        REDIS_SOCKET_CHANNEL,
+        JSON.stringify({
+          room,
+          event: "mision:reasignada",
+          payload,
+        })
+      )
+      .catch(() => {});
   }
 }
 
