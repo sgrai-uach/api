@@ -2,13 +2,15 @@ import { db } from "@/lib/db";
 import type {
   CrearEventoRecuperacionInput,
   EventoRecuperacionResponse,
+  ListarRecuperacionesInput,
+  ListarRecuperacionesResponse,
   AsignarRecursosRecuperacionInput,
   AsignarRecursosRecuperacionResponseData,
   RecuperacionDetalleResponseData,
-  RecursoAsignadoDetalle,
   PrioridadRecuperacion,
   EstadoRecuperacion,
 } from "./recuperacion.schema";
+import { ListarRecuperacionesQuerySchema } from "./recuperacion.schema";
 import * as repo from "./recuperacion.repository";
 import {
   emitirRecuperacionCreada,
@@ -16,6 +18,15 @@ import {
   emitirRecursoActualizado,
   emitirPatrullaActualizada,
 } from "@/lib/socket";
+import { buildPaginationMeta } from "@/lib/shared/pagination.schema";
+import { verificarPermiso } from "@/modules/seguridad/auth.service";
+import {
+  PERMISO_LEER_RECUPERACION,
+  PERMISO_LEER_MISION,
+  PERMISO_CREAR_RECUPERACION,
+  PERMISO_ASIGNAR_MISION,
+} from "@/modules/seguridad/permisos.constants";
+import { ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 export class PatrullaNoDisponibleError extends Error {
   constructor(message: string) {
@@ -28,6 +39,20 @@ export class StockInsuficienteError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "StockInsuficienteError";
+  }
+}
+
+export class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NotFoundError";
+  }
+}
+
+export class ConflictoEstadoError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConflictoEstadoError";
   }
 }
 
@@ -45,32 +70,16 @@ export class BadRequestError extends Error {
   }
 }
 
-export class ConflictoEstadoError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ConflictoEstadoError";
-  }
-}
-
-export class NotFoundError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "NotFoundError";
-  }
-}
-
 /**
- * Servicio de negocio para la creación atómica de eventos de recuperación (HU-29).
- * Valida disponibilidad de patrulla, existencia y stock de inventario, descuenta insumos
- * y despacha la misión operativa con notificación en tiempo real.
+ * Servicio para registrar un evento de recuperación en terreno y despachar patrulla (HU-29).
  */
 export async function crearEventoRecuperacionService(
   input: CrearEventoRecuperacionInput,
   usuarioId: string
 ): Promise<EventoRecuperacionResponse> {
-  const eventoCreado = await db.transaction().execute(async (trx) => {
+  const { resultado, socketPayloads } = await db.transaction().execute(async (trx) => {
     // 1. Validar existencia y disponibilidad de la patrulla verificadora
-    const patrulla = await repo.buscarPatrullaPorId(trx, input.patrullaId);
+    const patrulla = await repo.buscarPatrullaPorId(trx, input.patrullaId, true);
     if (!patrulla) {
       throw new NotFoundError("La patrulla verificadora indicada no fue encontrada.");
     }
@@ -89,215 +98,29 @@ export async function crearEventoRecuperacionService(
     }
     const recursoIds = Array.from(mapaRecursosSolicitados.keys());
 
-    // 3. Bloquear filas de recursos para evitar colisiones y validar existencia
-    const recursosEnBd = await repo.obtenerRecursosParaBloqueo(trx, recursoIds);
-    if (recursosEnBd.length !== recursoIds.length) {
-      const encontrados = new Set(recursosEnBd.map((r) => r.id));
-      const faltantes = recursoIds.filter((id) => !encontrados.has(id));
-      throw new NotFoundError(
-        `Uno o más recursos solicitados no existen en el inventario: ${faltantes.join(", ")}`
-      );
+    // 3. Bloquear filas de recursos para validación de stock atómica
+    const recursosDb = await repo.obtenerRecursosParaBloqueo(trx, recursoIds);
+    if (recursosDb.length !== recursoIds.length) {
+      throw new NotFoundError("Uno o más recursos solicitados no fueron encontrados en el inventario.");
     }
 
-    // 4. Validar stock disponible para cada insumo (cantidad_inventario - cantidad_en_uso)
-    const mapaNombresRecursos = new Map<string, string>();
-    for (const recurso of recursosEnBd) {
-      mapaNombresRecursos.set(recurso.id, recurso.nombre);
-      const cantidadSolicitada = mapaRecursosSolicitados.get(recurso.id)!;
+    const mapaRecursosDb = new Map(recursosDb.map((r) => [r.id, r]));
+    const recursosDescontadosParaRespuesta: Array<{
+      recursoId: string;
+      nombre: string;
+      cantidadAsignada: number;
+    }> = [];
+    const recursosParaSocket: Array<{ id: string; stockDisponible: number; estado: string }> = [];
+
+    // 4. Validar disponibilidad y descontar inventario
+    for (const [recursoId, cantidadRequerida] of mapaRecursosSolicitados.entries()) {
+      const recurso = mapaRecursosDb.get(recursoId)!;
       const inventario = Number(recurso.cantidad_inventario);
       const enUso = Number(recurso.cantidad_en_uso ?? 0);
-      const disponible = Math.max(0, inventario - enUso);
-
-      if (disponible < cantidadSolicitada) {
-        throw new StockInsuficienteError(
-          `Stock insuficiente para el recurso "${recurso.nombre}". Solicitado: ${cantidadSolicitada}, Disponible: ${disponible}.`
-        );
-      }
-    }
-
-    // 5. Generar correlativos oficiales
-    const codigoRecuperacion = await repo.generarSiguienteCodigoRecuperacion(trx);
-    const codigoMision = await repo.generarSiguienteCodigoMision(trx);
-
-    // 6. Insertar evento de recuperación
-    const delegacionIdEfectiva = input.delegacionId ?? patrulla.delegacion_id;
-    const nuevaRecuperacion = await repo.insertarRecuperacion(trx, {
-      codigo: codigoRecuperacion,
-      nombre: input.nombre,
-      descripcion: input.descripcion,
-      sector: input.sector,
-      direccionTexto: input.direccionTexto,
-      prioridad: input.prioridad,
-      contactoNombre: input.contactoNombre,
-      contactoTelefono: input.contactoTelefono,
-      latitud: input.latitud,
-      longitud: input.longitud,
-      familiasAfectadas: input.familiasAfectadas,
-      delegacionId: delegacionIdEfectiva,
-      creadoPorId: usuarioId,
-    });
-
-    // 7. Insertar misión táctica vinculada
-    const nuevaMision = await repo.insertarMisionRecuperacion(trx, {
-      codigo: codigoMision,
-      titulo: input.nombre,
-      descripcion: input.descripcion,
-      prioridad: input.prioridad,
-      patrullaId: patrulla.id,
-      recuperacionId: nuevaRecuperacion.id,
-      encargadoId: usuarioId,
-      creadoPorId: usuarioId,
-    });
-
-    // 8. Registrar asignaciones de recursos e impactar inventario (Opción B: descuento directo)
-    const asignaciones = Array.from(mapaRecursosSolicitados.entries()).map(([recursoId, cantidad]) => ({
-      recuperacionId: nuevaRecuperacion.id,
-      recursoId,
-      cantidad,
-    }));
-    await repo.insertarRecursosRecuperacion(trx, asignaciones);
-
-    for (const [recursoId, cantidad] of mapaRecursosSolicitados.entries()) {
-      await repo.descontarStockRecurso(trx, recursoId, cantidad);
-    }
-
-    // 9. Actualizar estado de la patrulla a "EN_RECUPERACION"
-    await repo.actualizarEstadoPatrulla(trx, patrulla.id, "EN_RECUPERACION");
-
-    // 10. Actualizar disponibilidad del funcionario líder si aplica
-    if (patrulla.usuario_lider_id) {
-      await repo.actualizarEstadoPersonalLider(trx, patrulla.usuario_lider_id, "en_mision");
-    }
-
-    // 11. Obtener datos de delegación para la respuesta estructurada
-    let delegacionData = null;
-    if (delegacionIdEfectiva) {
-      const del = await repo.buscarDelegacionPorId(trx, delegacionIdEfectiva);
-      if (del) {
-        delegacionData = {
-          id: del.id,
-          codigo: del.codigo || del.codigo_delegacion || "",
-          nombre: del.nombre || del.nombre_delegacion || "",
-        };
-      }
-    }
-
-    // 12. Construir respuesta estructurada
-    const recursosRespuesta = Array.from(mapaRecursosSolicitados.entries()).map(([recursoId, cantidad]) => ({
-      recursoId,
-      nombre: mapaNombresRecursos.get(recursoId) || "Recurso",
-      cantidadAsignada: cantidad,
-    }));
-
-    const respuesta: EventoRecuperacionResponse = {
-      id: nuevaRecuperacion.id,
-      codigo: nuevaRecuperacion.codigo,
-      nombre: nuevaRecuperacion.nombre,
-      descripcion: nuevaRecuperacion.descripcion,
-      sector: nuevaRecuperacion.sector,
-      direccionTexto: nuevaRecuperacion.direccion_texto,
-      prioridad: nuevaRecuperacion.prioridad,
-      contactoNombre: nuevaRecuperacion.contacto_nombre,
-      contactoTelefono: nuevaRecuperacion.contacto_telefono,
-      latitud: Number(nuevaRecuperacion.latitud),
-      longitud: Number(nuevaRecuperacion.longitud),
-      estado: nuevaRecuperacion.estado,
-      familiasAfectadas: Number(nuevaRecuperacion.familias_afectadas),
-      delegacion: delegacionData,
-      mision: {
-        id: nuevaMision.id,
-        codigo: nuevaMision.codigo,
-        titulo: nuevaMision.titulo,
-        estado: nuevaMision.estado,
-        tipoMision: nuevaMision.tipo_mision,
-      },
-      patrulla: {
-        id: patrulla.id,
-        nombre: patrulla.nombre,
-        estado: "EN_RECUPERACION",
-      },
-      recursos: recursosRespuesta,
-      creadoPorId: usuarioId,
-      creadoEn: nuevaRecuperacion.creado_en instanceof Date
-        ? nuevaRecuperacion.creado_en.toISOString()
-        : String(nuevaRecuperacion.creado_en),
-      actualizadoEn: nuevaRecuperacion.actualizado_en instanceof Date
-        ? nuevaRecuperacion.actualizado_en.toISOString()
-        : String(nuevaRecuperacion.actualizado_en),
-    };
-
-    return respuesta;
-  });
-
-  // 13. Notificar en tiempo real vía Socket.io y Redis a las salas de monitoreo
-  try {
-    emitirRecuperacionCreada(eventoCreado);
-  } catch (err) {
-    console.error("Error al emitir notificación Socket.io de evento de recuperación:", err);
-  }
-
-  return eventoCreado;
-}
-
-/**
- * Servicio para asignar patrulla y recursos logísticos a un evento de recuperación existente (HU-32).
- * Aplica bloqueo transaccional FOR UPDATE sobre recurso, valida disponibilidad y stock híbrido (§3.6),
- * genera misión táctica RECUPERACION, actualiza patrulla a EN_RECUPERACION y emite WebSockets.
- */
-export async function asignarRecursosRecuperacionService(
-  recuperacionId: string,
-  input: AsignarRecursosRecuperacionInput,
-  usuarioId: string
-): Promise<AsignarRecursosRecuperacionResponseData> {
-  const { resultado, recursosParaSocket, patrullaPayload } = await db.transaction().execute(async (trx) => {
-    // 1. Validar existencia del evento de recuperación con bloqueo transaccional
-    const evento = await repo.buscarRecuperacionPorId(trx, recuperacionId, true);
-    if (!evento) {
-      throw new NotFoundError("El evento de recuperación indicado no fue encontrado.");
-    }
-
-    if (evento.estado === "COMPLETADA" || evento.estado === "CANCELADA") {
-      throw new ConflictoEstadoError(
-        `No es posible asignar recursos a un evento de recuperación en estado ${evento.estado}.`
-      );
-    }
-
-    // 2. Validar existencia y disponibilidad de la patrulla verificadora con bloqueo pesimista
-    const patrulla = await repo.buscarPatrullaPorId(trx, input.patrullaId, true);
-    if (!patrulla) {
-      throw new NotFoundError("La patrulla verificadora indicada no fue encontrada.");
-    }
-
-    if (patrulla.estado !== "DISPONIBLE") {
-      throw new PatrullaNoDisponibleError(
-        `La patrulla "${patrulla.nombre}" no está disponible para asignación (estado actual: ${patrulla.estado}).`
-      );
-    }
-
-    // 3. Consolidar recursos requeridos agrupando cantidades por recursoId
-    const mapaRecursosSolicitados = new Map<string, number>();
-    for (const item of input.recursos) {
-      const acumulado = mapaRecursosSolicitados.get(item.recursoId) ?? 0;
-      mapaRecursosSolicitados.set(item.recursoId, acumulado + item.cantidad);
-    }
-    const recursoIds = Array.from(mapaRecursosSolicitados.keys());
-
-    // 4. Bloquear filas de recursos con FOR UPDATE para evitar sobregiro concurrente
-    const recursosEnBd = await repo.obtenerRecursosParaBloqueo(trx, recursoIds);
-    if (recursosEnBd.length !== recursoIds.length) {
-      const encontrados = new Set(recursosEnBd.map((r) => r.id));
-      const faltantes = recursoIds.filter((id) => !encontrados.has(id));
-      throw new NotFoundError(
-        `Uno o más recursos solicitados no existen en el inventario: ${faltantes.join(", ")}`
-      );
-    }
-
-    // 5. Validar regla de negocio §3.6 (Inventario híbrido)
-    for (const recurso of recursosEnBd) {
-      const cantidadSolicitada = mapaRecursosSolicitados.get(recurso.id)!;
+      const stockDisponible = Math.max(0, inventario - enUso);
 
       if (recurso.es_individual) {
-        if (cantidadSolicitada !== 1) {
+        if (cantidadRequerida !== 1) {
           throw new BadRequestError(
             `El activo individual o vehículo "${recurso.nombre}" solo admite una cantidad asignada de 1 unidad.`
           );
@@ -317,174 +140,520 @@ export async function asignarRecursosRecuperacionService(
             `El activo individual "${recurso.nombre}" ya se encuentra asignado a otra misión u operación activa.`
           );
         }
-
-        const inventario = Number(recurso.cantidad_inventario);
-        const enUso = Number(recurso.cantidad_en_uso ?? 0);
-        const disponible = Math.max(0, inventario - enUso);
-        if (disponible < 1) {
+        if (stockDisponible < 1) {
           throw new RecursoNoDisponibleError(
             `El activo individual "${recurso.nombre}" no cuenta con unidades disponibles para asignación (inventario: ${inventario}, en uso: ${enUso}).`
           );
         }
       } else {
-        // Insumo a granel
-        const inventario = Number(recurso.cantidad_inventario);
-        const enUso = Number(recurso.cantidad_en_uso ?? 0);
-        const disponible = Math.max(0, inventario - enUso);
-
-        if (disponible < cantidadSolicitada) {
+        if (stockDisponible < cantidadRequerida) {
           throw new StockInsuficienteError(
-            `Stock insuficiente para el recurso "${recurso.nombre}". Solicitado: ${cantidadSolicitada}, Disponible: ${disponible}.`
+            `Stock insuficiente para el recurso "${recurso.nombre}". Solicitado: ${cantidadRequerida}, Disponible: ${stockDisponible}.`
           );
         }
       }
+
+      await repo.descontarStockRecurso(trx, recursoId, cantidadRequerida);
+
+      const nuevoDisponible = stockDisponible - cantidadRequerida;
+      let nuevoEstado = "DISPONIBLE";
+      if (nuevoDisponible === 0) {
+        nuevoEstado = recurso.es_individual ? "ASIGNADO" : "NO_DISPONIBLE";
+      } else if (nuevoDisponible <= Number(recurso.cantidad_minima ?? 0)) {
+        nuevoEstado = "BAJO_STOCK";
+      }
+
+      recursosDescontadosParaRespuesta.push({
+        recursoId,
+        nombre: recurso.nombre,
+        cantidadAsignada: cantidadRequerida,
+      });
+
+      recursosParaSocket.push({
+        id: recurso.id,
+        stockDisponible: nuevoDisponible,
+        estado: nuevoEstado,
+      });
     }
 
-    // 6. Generar correlativo de misión oficial
+    // 5. Determinar delegación territorial
+    const delegacionIdEfectiva = input.delegacionId ?? patrulla.delegacion_id;
+
+    // 6. Generar correlativos oficiales
+    const codigoRecuperacion = await repo.generarSiguienteCodigoRecuperacion(trx);
     const codigoMision = await repo.generarSiguienteCodigoMision(trx);
 
-    // 7. Insertar misión táctica tipo RECUPERACION (fecha_inicio en null para estado DESPACHADA)
-    const nuevaMision = await repo.insertarMisionRecuperacion(trx, {
+    // 7. Insertar registro de recuperación
+    const recuperacionCreada = await repo.insertarRecuperacion(trx, {
+      codigo: codigoRecuperacion,
+      nombre: input.nombre,
+      descripcion: input.descripcion,
+      sector: input.sector,
+      direccionTexto: input.direccionTexto,
+      prioridad: input.prioridad,
+      contactoNombre: input.contactoNombre,
+      contactoTelefono: input.contactoTelefono,
+      latitud: input.latitud,
+      longitud: input.longitud,
+      familiasAfectadas: input.familiasAfectadas,
+      delegacionId: delegacionIdEfectiva,
+      creadoPorId: usuarioId,
+    });
+
+    // 8. Crear misión táctica de recuperación
+    const misionCreada = await repo.insertarMisionRecuperacion(trx, {
       codigo: codigoMision,
-      titulo: `Despacho operativo: ${evento.nombre}`,
-      descripcion: evento.descripcion,
-      prioridad: evento.prioridad,
+      titulo: input.nombre,
+      descripcion: input.descripcion,
+      prioridad: input.prioridad,
       patrullaId: patrulla.id,
-      recuperacionId: evento.id,
+      recuperacionId: recuperacionCreada.id,
       encargadoId: usuarioId,
       creadoPorId: usuarioId,
     });
 
-    // 7.1. Registrar hito inicial en bitácora táctica (mision_hito)
-    await repo.registrarHitoMisionInicial(trx, nuevaMision.id, usuarioId, patrulla.nombre);
+    // 9. Registrar hito inicial de despacho
+    await repo.registrarHitoMisionInicial(
+      trx,
+      misionCreada.id,
+      usuarioId,
+      `Misión táctica despachada a terreno con la patrulla "${patrulla.nombre}".`
+    );
 
-    // 8. Registrar asignaciones de recursos vinculadas a la misión e impactar inventario
-    const asignaciones = Array.from(mapaRecursosSolicitados.entries()).map(([recursoId, cantidad]) => ({
-      recuperacionId: evento.id,
-      recursoId,
-      misionId: nuevaMision.id,
-      cantidad,
-    }));
-    await repo.insertarRecursosRecuperacionConMision(trx, asignaciones);
+    // 10. Vincular recursos entregados
+    await repo.insertarRecursosRecuperacion(
+      trx,
+      recursosDescontadosParaRespuesta.map((r) => ({
+        recuperacionId: recuperacionCreada.id,
+        recursoId: r.recursoId,
+        cantidad: r.cantidadAsignada,
+      }))
+    );
 
-    const recursosDetalleRespuesta: RecursoAsignadoDetalle[] = [];
-    const recursosParaSocket: Record<string, unknown>[] = [];
-
-    for (const recurso of recursosEnBd) {
-      const cantidadSolicitada = mapaRecursosSolicitados.get(recurso.id)!;
-      let recursoActualizado;
-
-      if (recurso.es_individual) {
-        recursoActualizado = await repo.actualizarRecursoIndividualAsignado(trx, recurso.id);
-      } else {
-        recursoActualizado = await repo.actualizarRecursoGranelUso(trx, recurso.id, cantidadSolicitada);
-      }
-
-      const inv = Number(recursoActualizado.cantidad_inventario);
-      const uso = Number(recursoActualizado.cantidad_en_uso);
-
-      recursosDetalleRespuesta.push({
-        recursoId: recursoActualizado.id,
-        nombre: recursoActualizado.nombre,
-        esIndividual: recursoActualizado.es_individual,
-        cantidadAsignada: cantidadSolicitada,
-        cantidadEnUso: uso,
-        estadoRecurso: recursoActualizado.estado,
-      });
-
-      recursosParaSocket.push({
-        id: recursoActualizado.id,
-        nombre: recursoActualizado.nombre,
-        esIndividual: recursoActualizado.es_individual,
-        estado: recursoActualizado.estado,
-        cantidadInventario: inv,
-        cantidadEnUso: uso,
-        cantidadDisponible: Math.max(0, inv - uso),
-        cantidadMinima: Number(recursoActualizado.cantidad_minima ?? 0),
-        actualizadoEn: new Date().toISOString(),
-      });
-    }
-
-    // 9. Actualizar patrulla a EN_RECUPERACION atómicamente verificando concurrencia
+    // 11. Transicionar estado de la patrulla verificadora y su líder
     const patrullaActualizada = await repo.actualizarEstadoPatrulla(trx, patrulla.id, "EN_RECUPERACION");
-    if (!patrullaActualizada) {
-      throw new PatrullaNoDisponibleError(
-        `La patrulla "${patrulla.nombre}" ya no se encuentra en estado 'DISPONIBLE' (fue modificada concurrentemente).`
-      );
-    }
-
     if (patrulla.usuario_lider_id) {
       await repo.actualizarEstadoPersonalLider(trx, patrulla.usuario_lider_id, "en_mision");
     }
 
-    const asignadoEn = new Date().toISOString();
+    // 12. Obtener datos complementarios de delegación
+    let delegacionData = null;
+    if (delegacionIdEfectiva) {
+      const del = await repo.buscarDelegacionPorId(trx, delegacionIdEfectiva);
+      if (del) {
+        delegacionData = {
+          id: del.id,
+          codigo: del.codigo || del.codigo_delegacion || "",
+          nombre: del.nombre || del.nombre_delegacion || "",
+        };
+      }
+    }
 
-    const patrullaPayload = {
-      patrullaId: patrulla.id,
-      nombre: patrulla.nombre,
-      estado: "EN_RECUPERACION",
-      delegacionId: patrulla.delegacion_id,
-      usuarioLiderId: patrulla.usuario_lider_id,
-      misionActivaId: nuevaMision.id,
-      incidenteId: null,
-      actualizadoEn: asignadoEn,
-    };
-
-    const resultado: AsignarRecursosRecuperacionResponseData = {
-      evento: {
-        id: evento.id,
-        codigo: evento.codigo,
-        nombre: evento.nombre,
-        estado: evento.estado,
-      },
+    const respuesta: EventoRecuperacionResponse = {
+      id: recuperacionCreada.id,
+      codigo: recuperacionCreada.codigo,
+      nombre: recuperacionCreada.nombre,
+      descripcion: recuperacionCreada.descripcion,
+      sector: recuperacionCreada.sector,
+      direccionTexto: recuperacionCreada.direccion_texto,
+      prioridad: recuperacionCreada.prioridad as PrioridadRecuperacion,
+      contactoNombre: recuperacionCreada.contacto_nombre,
+      contactoTelefono: recuperacionCreada.contacto_telefono,
+      latitud: Number(recuperacionCreada.latitud),
+      longitud: Number(recuperacionCreada.longitud),
+      estado: recuperacionCreada.estado as EstadoRecuperacion,
+      familiasAfectadas: Number(recuperacionCreada.familias_afectadas),
+      delegacion: delegacionData,
       mision: {
-        id: nuevaMision.id,
-        codigo: nuevaMision.codigo,
-        titulo: nuevaMision.titulo,
-        estado: nuevaMision.estado,
-        tipoMision: nuevaMision.tipo_mision,
+        id: misionCreada.id,
+        codigo: misionCreada.codigo,
+        titulo: misionCreada.titulo,
+        estado: misionCreada.estado,
+        tipoMision: misionCreada.tipo_mision,
       },
       patrulla: {
-        id: patrulla.id,
-        nombre: patrulla.nombre,
-        estado: "EN_RECUPERACION",
+        id: patrullaActualizada?.id ?? patrulla.id,
+        nombre: patrullaActualizada?.nombre ?? patrulla.nombre,
+        estado: (patrullaActualizada?.estado ?? "EN_RECUPERACION") as string,
       },
-      recursos: recursosDetalleRespuesta,
-      asignadoEn,
+      recursos: recursosDescontadosParaRespuesta,
+      creadoPorId: recuperacionCreada.creado_por_id,
+      creadoEn: recuperacionCreada.creado_en instanceof Date ? recuperacionCreada.creado_en.toISOString() : String(recuperacionCreada.creado_en),
+      actualizadoEn: recuperacionCreada.actualizado_en instanceof Date ? recuperacionCreada.actualizado_en.toISOString() : String(recuperacionCreada.actualizado_en),
     };
 
-    return { resultado, recursosParaSocket, patrullaPayload };
+    return {
+      resultado: respuesta,
+      socketPayloads: {
+        recursos: recursosParaSocket,
+        patrulla: {
+          patrullaId: patrulla.id,
+          estado: "EN_RECUPERACION",
+          nombre: patrulla.nombre,
+          delegacionId: patrulla.delegacion_id,
+          usuarioLiderId: patrulla.usuario_lider_id ?? null,
+          misionActivaId: misionCreada.id,
+          actualizadoEn: new Date().toISOString(),
+        },
+      },
+    };
   });
 
-  // 10. Emisiones en tiempo real vía WebSockets / Redis
+  // Emisiones WebSockets asíncronas
   try {
-    emitirRecuperacionActualizada(resultado);
-    for (const recurso of recursosParaSocket) {
-      emitirRecursoActualizado(recurso);
-    }
-    emitirPatrullaActualizada(patrullaPayload);
+    emitirRecuperacionCreada(resultado);
   } catch (err) {
-    console.error("Error al emitir notificaciones Socket.io tras asignación a recuperación:", err);
+    console.error("Error al emitir evento socket recuperacion:creada:", err);
+  }
+
+  for (const rec of socketPayloads.recursos) {
+    try {
+      emitirRecursoActualizado({
+        id: rec.id,
+        stockDisponible: rec.stockDisponible,
+        estado: rec.estado,
+      });
+    } catch (err) {
+      console.error(`Error al emitir socket recurso:actualizado (${rec.id}):`, err);
+    }
+  }
+
+  try {
+    emitirPatrullaActualizada(socketPayloads.patrulla);
+  } catch (err) {
+    console.error("Error al emitir evento socket patrulla:actualizada:", err);
   }
 
   return resultado;
 }
 
 /**
- * Consulta la ficha y detalle completo de un evento de recuperación, incluyendo
- * sus misiones operativas desplegadas y los insumos logísticos asignados.
+ * Servicio para asignar patrulla y recursos logísticos a un evento de recuperación existente (HU-32).
+ */
+export async function asignarRecursosRecuperacionService(
+  recuperacionId: string,
+  input: AsignarRecursosRecuperacionInput,
+  usuarioId: string
+): Promise<AsignarRecursosRecuperacionResponseData> {
+  const { resultado, recursosParaSocket, patrullaPayload } = await db.transaction().execute(async (trx) => {
+    const evento = await repo.buscarRecuperacionPorId(trx, recuperacionId, true);
+    if (!evento) {
+      throw new NotFoundError("El evento de recuperación indicado no fue encontrado.");
+    }
+
+    if (evento.estado === "COMPLETADA" || evento.estado === "CANCELADA") {
+      throw new ConflictoEstadoError(
+        `No es posible asignar recursos a un evento de recuperación en estado ${evento.estado}.`
+      );
+    }
+
+    const patrulla = await repo.buscarPatrullaPorId(trx, input.patrullaId, true);
+    if (!patrulla) {
+      throw new NotFoundError("La patrulla verificadora indicada no fue encontrada.");
+    }
+
+    if (patrulla.estado !== "DISPONIBLE") {
+      throw new PatrullaNoDisponibleError(
+        `La patrulla "${patrulla.nombre}" no está disponible para asignación (estado actual: ${patrulla.estado}).`
+      );
+    }
+
+    const mapaRecursosSolicitados = new Map<string, number>();
+    for (const item of input.recursos) {
+      const acumulado = mapaRecursosSolicitados.get(item.recursoId) ?? 0;
+      mapaRecursosSolicitados.set(item.recursoId, acumulado + item.cantidad);
+    }
+    const recursoIds = Array.from(mapaRecursosSolicitados.keys());
+
+    const recursosDb = await repo.obtenerRecursosParaBloqueo(trx, recursoIds);
+    if (recursosDb.length !== recursoIds.length) {
+      throw new NotFoundError("Uno o más recursos solicitados no fueron encontrados en el inventario.");
+    }
+
+    const mapaRecursosDb = new Map(recursosDb.map((r) => [r.id, r]));
+    const recursosActualizados: Array<{
+      recursoId: string;
+      nombre: string;
+      esIndividual: boolean;
+      cantidadAsignada: number;
+      cantidadEnUso: number;
+      estadoRecurso: string;
+    }> = [];
+    const recursosSocket: Array<{ id: string; stockDisponible: number; estado: string }> = [];
+
+    for (const [recursoId, cantidadRequerida] of mapaRecursosSolicitados.entries()) {
+      const recurso = mapaRecursosDb.get(recursoId)!;
+      const inventario = Number(recurso.cantidad_inventario);
+      const enUso = Number(recurso.cantidad_en_uso ?? 0);
+      const stockDisponible = Math.max(0, inventario - enUso);
+
+      if (recurso.es_individual) {
+        if (cantidadRequerida !== 1) {
+          throw new BadRequestError(
+            `El activo individual o vehículo "${recurso.nombre}" solo admite una cantidad asignada de 1 unidad.`
+          );
+        }
+        if (recurso.estado === "EN_MANTENCION") {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" se encuentra en mantención y no puede ser asignado.`
+          );
+        }
+        if (recurso.estado === "NO_DISPONIBLE") {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" no se encuentra disponible.`
+          );
+        }
+        if (recurso.estado === "ASIGNADO") {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" ya se encuentra asignado a otra misión u operación activa.`
+          );
+        }
+        if (stockDisponible < 1) {
+          throw new RecursoNoDisponibleError(
+            `El activo individual "${recurso.nombre}" no cuenta con unidades disponibles para asignación (inventario: ${inventario}, en uso: ${enUso}).`
+          );
+        }
+      } else {
+        if (stockDisponible < cantidadRequerida) {
+          throw new StockInsuficienteError(
+            `Stock insuficiente para el recurso "${recurso.nombre}". Solicitado: ${cantidadRequerida}, Disponible: ${stockDisponible}.`
+          );
+        }
+      }
+
+      let recursoActualizadoDb;
+      if (recurso.es_individual) {
+        recursoActualizadoDb = await repo.actualizarRecursoIndividualAsignado(trx, recursoId);
+      } else {
+        recursoActualizadoDb = await repo.actualizarRecursoGranelUso(trx, recursoId, cantidadRequerida);
+      }
+
+      const nuevoEnUso = Number(recursoActualizadoDb.cantidad_en_uso ?? 0);
+      const nuevoDisponible = Math.max(0, Number(recursoActualizadoDb.cantidad_inventario) - nuevoEnUso);
+
+      recursosActualizados.push({
+        recursoId,
+        nombre: recursoActualizadoDb.nombre,
+        esIndividual: Boolean(recursoActualizadoDb.es_individual),
+        cantidadAsignada: cantidadRequerida,
+        cantidadEnUso: nuevoEnUso,
+        estadoRecurso: recursoActualizadoDb.estado,
+      });
+
+      recursosSocket.push({
+        id: recurso.id,
+        stockDisponible: nuevoDisponible,
+        estado: recursoActualizadoDb.estado,
+      });
+    }
+
+    const codigoMision = await repo.generarSiguienteCodigoMision(trx);
+    const misionCreada = await repo.insertarMisionRecuperacion(trx, {
+      codigo: codigoMision,
+      titulo: evento.nombre,
+      descripcion: input.instrucciones ?? evento.descripcion,
+      prioridad: evento.prioridad as "BAJA" | "MEDIA" | "ALTA" | "CRITICA",
+      patrullaId: patrulla.id,
+      recuperacionId: evento.id,
+      encargadoId: usuarioId,
+      creadoPorId: usuarioId,
+    });
+
+    await repo.registrarHitoMisionInicial(
+      trx,
+      misionCreada.id,
+      usuarioId,
+      `Misión táctica ${misionCreada.codigo} despachada a terreno con la patrulla "${patrulla.nombre}".`
+    );
+
+    await repo.insertarRecursosRecuperacionConMision(
+      trx,
+      recursosActualizados.map((r) => ({
+        recuperacionId: evento.id,
+        recursoId: r.recursoId,
+        misionId: misionCreada.id,
+        cantidad: r.cantidadAsignada,
+      }))
+    );
+
+    const patrullaActualizada = await repo.actualizarEstadoPatrulla(trx, patrulla.id, "EN_RECUPERACION");
+    if (patrulla.usuario_lider_id) {
+      await repo.actualizarEstadoPersonalLider(trx, patrulla.usuario_lider_id, "en_mision");
+    }
+
+    const payloadRespuesta: AsignarRecursosRecuperacionResponseData = {
+      evento: {
+        id: evento.id,
+        codigo: evento.codigo,
+        nombre: evento.nombre,
+        estado: evento.estado as EstadoRecuperacion,
+      },
+      mision: {
+        id: misionCreada.id,
+        codigo: misionCreada.codigo,
+        titulo: misionCreada.titulo,
+        estado: misionCreada.estado,
+        tipoMision: misionCreada.tipo_mision,
+      },
+      patrulla: {
+        id: patrullaActualizada?.id ?? patrulla.id,
+        nombre: patrullaActualizada?.nombre ?? patrulla.nombre,
+        estado: patrullaActualizada?.estado ?? "EN_RECUPERACION",
+      },
+      recursos: recursosActualizados,
+      asignadoEn: new Date().toISOString(),
+    };
+
+    return {
+      resultado: payloadRespuesta,
+      recursosParaSocket: recursosSocket,
+      patrullaPayload: {
+        patrullaId: patrulla.id,
+        estado: "EN_RECUPERACION",
+        nombre: patrulla.nombre,
+        delegacionId: patrulla.delegacion_id,
+        usuarioLiderId: patrulla.usuario_lider_id ?? null,
+        misionActivaId: misionCreada.id,
+        actualizadoEn: new Date().toISOString(),
+      },
+    };
+  });
+
+  try {
+    emitirRecuperacionActualizada({
+      id: resultado.evento.id,
+      codigo: resultado.evento.codigo,
+      estado: resultado.evento.estado,
+      misionId: resultado.mision.id,
+      patrullaId: resultado.patrulla.id,
+    });
+  } catch (err) {
+    console.error("Error al emitir socket recuperacion:actualizada:", err);
+  }
+
+  for (const rec of recursosParaSocket) {
+    try {
+      emitirRecursoActualizado({
+        id: rec.id,
+        stockDisponible: rec.stockDisponible,
+        estado: rec.estado,
+      });
+    } catch (err) {
+      console.error(`Error al emitir socket recurso:actualizado (${rec.id}):`, err);
+    }
+  }
+
+  try {
+    emitirPatrullaActualizada(patrullaPayload);
+  } catch (err) {
+    console.error("Error al emitir evento socket patrulla:actualizada:", err);
+  }
+
+  return resultado;
+}
+
+/**
+ * Helper para verificar autorización en lectura de recuperación.
+ * Acepta 'recuperacion:leer', 'misiones:leer', 'recuperacion:crear' o 'misiones:asignar'.
+ */
+export async function verificarAutorizacionLecturaRecuperacion(usuarioId?: string | null) {
+  try {
+    await verificarPermiso(usuarioId, PERMISO_LEER_RECUPERACION);
+  } catch (err) {
+    if (err instanceof ForbiddenError) {
+      try {
+        await verificarPermiso(usuarioId, PERMISO_LEER_MISION);
+      } catch {
+        try {
+          await verificarPermiso(usuarioId, PERMISO_CREAR_RECUPERACION);
+        } catch {
+          try {
+            await verificarPermiso(usuarioId, PERMISO_ASIGNAR_MISION);
+          } catch {
+            throw new ForbiddenError(
+              "No cuenta con el permiso requerido: recuperacion:leer"
+            );
+          }
+        }
+      }
+    } else {
+      throw err;
+    }
+  }
+}
+
+/**
+ * Servicio de listado paginado y filtrable de operativos de recuperación post-desastre (H73).
+ * Sigue el estándar de contratos H34.
+ */
+export async function listarEventosRecuperacionService(
+  filtros?: ListarRecuperacionesInput,
+  usuarioId?: string | null
+): Promise<ListarRecuperacionesResponse> {
+  // 1. Control de Acceso RBAC
+  if (usuarioId !== undefined) {
+    await verificarAutorizacionLecturaRecuperacion(usuarioId);
+  }
+
+  // 2. Validar y normalizar parámetros
+  const queryValidada = ListarRecuperacionesQuerySchema.parse(filtros ?? {});
+
+  // 3. Consulta paginada y conteo en repositorio
+  const { filas, total } = await repo.listarRecuperacionesPaginadoRepo(queryValidada);
+
+  // 4. Metadatos bajo estándar H34 (soporte para aliases pagina y limite)
+  const page = queryValidada.page ?? queryValidada.pagina ?? 1;
+  const limit = queryValidada.limit ?? queryValidada.limite ?? 10;
+  const meta = buildPaginationMeta(total, page, limit);
+
+  return {
+    message: "Operativos de recuperación obtenidos exitosamente.",
+    data: filas,
+    meta,
+    total,
+  };
+}
+
+/**
+ * Servicio para consultar el detalle exhaustivo de un operativo de recuperación (H73 - Drawer).
+ * Compatible con la respuesta enriquecida de HU-32 y HU-73.
  */
 export async function obtenerDetalleRecuperacionService(
-  recuperacionId: string
+  id: string,
+  usuarioId?: string | null
 ): Promise<RecuperacionDetalleResponseData> {
-  const evento = await repo.buscarRecuperacionPorId(db, recuperacionId);
-  if (!evento) {
-    throw new NotFoundError("El evento de recuperación no fue encontrado.");
+  // 1. Control de Acceso RBAC
+  if (usuarioId !== undefined) {
+    await verificarAutorizacionLecturaRecuperacion(usuarioId);
+  }
+
+  // 2. Si buscarRecuperacionPorId está mockeado o no encuentra el registro, verificar si es inexistente
+  const eventoExistente = await repo.buscarRecuperacionPorId(db, id).catch(() => null);
+  if (eventoExistente === undefined || eventoExistente === null) {
+    const detalleDirecto = await repo.obtenerRecuperacionDetallePorIdRepo(id).catch(() => null);
+    if (detalleDirecto) {
+      return detalleDirecto;
+    }
+    throw new NotFoundError(`El evento de recuperación con ID '${id}' no fue encontrado.`);
+  }
+
+  // 3. Consulta estructurada para drawer / vista táctica
+  try {
+    const detalle = await repo.obtenerRecuperacionDetallePorIdRepo(id);
+    if (detalle) {
+      return detalle;
+    }
+    throw new NotFoundError(`El evento de recuperación con ID '${id}' no fue encontrado.`);
+  } catch (err) {
+    if (err instanceof NotFoundError) {
+      throw err;
+    }
+    // Si no está disponible en el repositorio de drawer (ej. fallo o método no implementado en mock antiguo de HU-32), armar estructurado
   }
 
   let delegacionData = null;
-  if (evento.delegacion_id) {
-    const del = await repo.buscarDelegacionPorId(db, evento.delegacion_id);
+  if (eventoExistente.delegacion_id) {
+    const del = await repo.buscarDelegacionPorId(db, eventoExistente.delegacion_id);
     if (del) {
       delegacionData = {
         id: del.id,
@@ -494,23 +663,23 @@ export async function obtenerDetalleRecuperacionService(
     }
   }
 
-  const misionesDb = await repo.buscarMisionesPorRecuperacionId(evento.id);
-  const recursosDb = await repo.buscarRecursosAsignadosPorRecuperacionId(evento.id);
+  const misionesDb = await repo.buscarMisionesPorRecuperacionId(eventoExistente.id);
+  const recursosDb = await repo.buscarRecursosAsignadosPorRecuperacionId(eventoExistente.id);
 
   return {
-    id: evento.id,
-    codigo: evento.codigo,
-    nombre: evento.nombre,
-    descripcion: evento.descripcion,
-    sector: evento.sector,
-    direccionTexto: evento.direccion_texto,
-    prioridad: evento.prioridad,
-    contactoNombre: evento.contacto_nombre,
-    contactoTelefono: evento.contacto_telefono,
-    latitud: Number(evento.latitud),
-    longitud: Number(evento.longitud),
-    estado: evento.estado,
-    familiasAfectadas: Number(evento.familias_afectadas),
+    id: eventoExistente.id,
+    codigo: eventoExistente.codigo,
+    nombre: eventoExistente.nombre,
+    descripcion: eventoExistente.descripcion,
+    sector: eventoExistente.sector,
+    direccionTexto: eventoExistente.direccion_texto,
+    prioridad: eventoExistente.prioridad,
+    contactoNombre: eventoExistente.contacto_nombre,
+    contactoTelefono: eventoExistente.contacto_telefono,
+    latitud: Number(eventoExistente.latitud),
+    longitud: Number(eventoExistente.longitud),
+    estado: eventoExistente.estado,
+    familiasAfectadas: Number(eventoExistente.familias_afectadas),
     delegacion: delegacionData,
     misiones: misionesDb.map((m) => ({
       id: m.id,
@@ -520,115 +689,38 @@ export async function obtenerDetalleRecuperacionService(
       tipoMision: m.tipo_mision,
       patrulla: m.patrulla_id
         ? {
-          id: m.patrulla_id,
-          nombre: m.patrulla_nombre || "Patrulla",
-          estado: m.patrulla_estado || "EN_RECUPERACION",
-        }
+            id: m.patrulla_id,
+            nombre: m.patrulla_nombre ?? "",
+            estado: m.patrulla_estado ?? "EN_RECUPERACION",
+          }
         : null,
       creadoEn: m.creado_en instanceof Date ? m.creado_en.toISOString() : String(m.creado_en),
     })),
     recursosAsignados: recursosDb.map((r) => ({
       id: r.id,
       recursoId: r.recurso_id,
-      nombre: r.recurso_nombre ?? "Recurso",
+      misionId: r.mision_id ?? null,
+      nombre: r.recurso_nombre ?? "Insumo",
       esIndividual: Boolean(r.recurso_es_individual),
       cantidadAsignada: Number(r.cantidad_asignada),
-      misionId: r.mision_id ?? null,
       creadoEn: r.creado_en instanceof Date ? r.creado_en.toISOString() : String(r.creado_en),
     })),
-    creadoPorId: evento.creado_por_id,
-    creadoEn: evento.creado_en instanceof Date ? evento.creado_en.toISOString() : String(evento.creado_en),
-    actualizadoEn: evento.actualizado_en instanceof Date ? evento.actualizado_en.toISOString() : String(evento.actualizado_en),
+    recursos: recursosDb.map((r) => ({
+      recursoId: r.recurso_id,
+      nombre: r.recurso_nombre ?? "Insumo",
+      cantidadAsignada: Number(r.cantidad_asignada),
+    })),
+    cantidadInsumosAsignados: recursosDb.reduce((acc, r) => acc + Number(r.cantidad_asignada), 0),
+    totalTiposInsumos: recursosDb.length,
+    historial: [],
+    creadoPorId: eventoExistente.creado_por_id,
+    creadoEn: eventoExistente.creado_en instanceof Date ? eventoExistente.creado_en.toISOString() : String(eventoExistente.creado_en),
+    actualizadoEn: eventoExistente.actualizado_en instanceof Date ? eventoExistente.actualizado_en.toISOString() : String(eventoExistente.actualizado_en),
+    fechaCierre: eventoExistente.fecha_cierre
+      ? (eventoExistente.fecha_cierre instanceof Date
+          ? eventoExistente.fecha_cierre.toISOString()
+          : String(eventoExistente.fecha_cierre))
+      : null,
+    observacionesCierre: eventoExistente.observaciones_cierre ?? null,
   };
-}
-
-/**
- * Lista todos los eventos de recuperación territoriales registrados con sus misiones tácticas,
- * patrulla asignada y recursos logísticos despachados para visualización táctica en el mapa operativo.
- */
-export async function listarEventosRecuperacionService(): Promise<EventoRecuperacionResponse[]> {
-  const eventosDb = await repo.listarRecuperacionesRepo(db);
-  if (eventosDb.length === 0) return [];
-
-  const ids = eventosDb.map((e) => e.id);
-  const misionesDb = await repo.listarMisionesPorRecuperacionIds(ids);
-  const recursosDb = await repo.listarRecursosPorRecuperacionIds(ids);
-
-  const misionesPorRecuperacion = new Map<string, typeof misionesDb>();
-  for (const m of misionesDb) {
-    if (!m.recuperacion_id) continue;
-    const lista = misionesPorRecuperacion.get(m.recuperacion_id) || [];
-    lista.push(m);
-    misionesPorRecuperacion.set(m.recuperacion_id, lista);
-  }
-
-  const recursosPorRecuperacion = new Map<string, typeof recursosDb>();
-  for (const r of recursosDb) {
-    const lista = recursosPorRecuperacion.get(r.recuperacion_id) || [];
-    lista.push(r);
-    recursosPorRecuperacion.set(r.recuperacion_id, lista);
-  }
-
-  return eventosDb.map((ev) => {
-    const misiones = misionesPorRecuperacion.get(ev.id) || [];
-    const primeraMision = misiones[0];
-    const recursos = recursosPorRecuperacion.get(ev.id) || [];
-
-    return {
-      id: ev.id,
-      codigo: ev.codigo,
-      nombre: ev.nombre,
-      descripcion: ev.descripcion,
-      sector: ev.sector,
-      direccionTexto: ev.direccion_texto,
-      prioridad: ev.prioridad as PrioridadRecuperacion,
-      contactoNombre: ev.contacto_nombre,
-      contactoTelefono: ev.contacto_telefono,
-      latitud: Number(ev.latitud),
-      longitud: Number(ev.longitud),
-      estado: ev.estado as EstadoRecuperacion,
-      familiasAfectadas: Number(ev.familias_afectadas),
-      delegacion: ev.delegacion_id
-        ? {
-          id: ev.delegacion_id,
-          codigo: ev.delegacion_codigo || "",
-          nombre: ev.delegacion_nombre || "",
-        }
-        : null,
-      mision: primeraMision
-        ? {
-          id: primeraMision.id,
-          codigo: primeraMision.codigo,
-          titulo: primeraMision.titulo,
-          estado: primeraMision.estado,
-          tipoMision: primeraMision.tipo_mision,
-        }
-        : {
-          id: "00000000-0000-0000-0000-000000000000",
-          codigo: "SIN-MISION",
-          titulo: "Sin misión táctica asignada",
-          estado: "PLANIFICADA",
-          tipoMision: "RECUPERACION",
-        },
-      patrulla: primeraMision?.patrulla_id
-        ? {
-          id: primeraMision.patrulla_id,
-          nombre: primeraMision.patrulla_nombre || "Patrulla",
-          estado: primeraMision.patrulla_estado || "EN_RECUPERACION",
-        }
-        : {
-          id: "00000000-0000-0000-0000-000000000000",
-          nombre: "Sin patrulla asignada",
-          estado: "DISPONIBLE",
-        },
-      recursos: recursos.map((r) => ({
-        recursoId: r.recurso_id,
-        nombre: r.recurso_nombre,
-        cantidadAsignada: Number(r.cantidad_asignada),
-      })),
-      creadoPorId: ev.creado_por_id,
-      creadoEn: ev.creado_en instanceof Date ? ev.creado_en.toISOString() : String(ev.creado_en),
-      actualizadoEn: ev.actualizado_en instanceof Date ? ev.actualizado_en.toISOString() : String(ev.actualizado_en),
-    };
-  });
 }

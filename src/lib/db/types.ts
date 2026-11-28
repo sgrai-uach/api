@@ -266,6 +266,9 @@ export interface RecuperacionTable {
   delegacion_id: string | null;
   evento_atp_id: string | null;
   creado_por_id: string;
+  fecha_cierre?: Date | null;
+  observaciones_cierre?: string | null;
+  eliminado_en?: Date | null;
   creado_en: Generated<Date>;
   actualizado_en: Generated<Date>;
 }

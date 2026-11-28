@@ -2,15 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { RecuperacionIdParamSchema } from "@/modules/eventos-atp/recuperacion.schema";
 import {
   obtenerDetalleRecuperacionService,
+  verificarAutorizacionLecturaRecuperacion,
   NotFoundError,
 } from "@/modules/eventos-atp/recuperacion.service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
-import { verificarPermiso } from "@/modules/seguridad/auth.service";
-import {
-  PERMISO_LEER_MISION,
-  PERMISO_CREAR_RECUPERACION,
-  PERMISO_ASIGNAR_MISION,
-} from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 interface RouteContext {
@@ -19,28 +14,13 @@ interface RouteContext {
 
 /**
  * GET /api/eventos-atp/recuperacion/[id]
- * Consulta el detalle integral de un evento de recuperación territorial,
- * incluyendo sus misiones operativas desplegadas y los insumos logísticos asignados.
+ * Consulta el detalle integral de un evento/operativo de recuperación territorial para el drawer lateral (HU-73)
+ * y para la visualización del mapa táctico (HU-32).
  */
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    // 1. Extraer usuario autenticado y verificar autorización RBAC
+    // 1. Extraer usuario autenticado mediante JWT Bearer obligatorio (BUG-H73-API-01: sin bypass)
     const usuarioId = await extraerUsuarioId(req);
-    
-    // Permitir lectura a usuarios con 'misiones:leer', 'recuperacion:crear' o 'misiones:asignar'
-    try {
-      await verificarPermiso(usuarioId, PERMISO_LEER_MISION);
-    } catch (err) {
-      if (err instanceof ForbiddenError) {
-        try {
-          await verificarPermiso(usuarioId, PERMISO_CREAR_RECUPERACION);
-        } catch {
-          await verificarPermiso(usuarioId, PERMISO_ASIGNAR_MISION);
-        }
-      } else {
-        throw err;
-      }
-    }
 
     // 2. Extraer y validar parámetro de ruta UUID
     const { id } = await context.params;
@@ -48,7 +28,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
     if (!validacionId.success) {
       return NextResponse.json(
         {
-          message: "Identificador de evento de recuperación inválido.",
+          message: "El identificador del operativo debe ser un UUID válido.",
           errors: validacionId.error.issues.map((issue) => ({
             campo: issue.path.join("."),
             mensaje: issue.message,
@@ -58,8 +38,11 @@ export async function GET(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // 3. Ejecutar servicio de detalle
-    const detalle = await obtenerDetalleRecuperacionService(validacionId.data.id);
+    // 3. Verificar autorización RBAC
+    await verificarAutorizacionLecturaRecuperacion(usuarioId);
+
+    // 4. Ejecutar servicio de detalle
+    const detalle = await obtenerDetalleRecuperacionService(validacionId.data.id, usuarioId);
 
     return NextResponse.json(
       {
@@ -77,8 +60,8 @@ export async function GET(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ message: error.message }, { status: 403 });
     }
 
-    if (error instanceof NotFoundError) {
-      return NextResponse.json({ message: error.message }, { status: 404 });
+    if (error instanceof NotFoundError || (error as { name?: string }).name === "NotFoundError") {
+      return NextResponse.json({ message: (error as Error).message }, { status: 404 });
     }
 
     console.error("Error al obtener detalle de evento de recuperación:", error);
@@ -88,4 +71,3 @@ export async function GET(req: NextRequest, context: RouteContext) {
     );
   }
 }
-

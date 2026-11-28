@@ -165,8 +165,10 @@ import {
 import {
   CrearEventoRecuperacionInputSchema,
   CrearEventoRecuperacionResponseSchema,
-  ListarEventosRecuperacionResponseSchema,
   EventoRecuperacionResponseSchema,
+  ListarRecuperacionesQuerySchema,
+  ListarRecuperacionesResponseSchema,
+  OperativoRecuperacionItemSchema,
   AsignarRecursosRecuperacionInputSchema,
   AsignarRecursosRecuperacionResponseSchema,
   RecuperacionDetalleResponseSchema,
@@ -1873,43 +1875,8 @@ registry.registerPath({
 registry.register("CrearEventoRecuperacionInput", CrearEventoRecuperacionInputSchema);
 registry.register("EventoRecuperacion", EventoRecuperacionResponseSchema);
 registry.register("CrearEventoRecuperacionResponse", CrearEventoRecuperacionResponseSchema);
-registry.register("ListarEventosRecuperacionResponse", ListarEventosRecuperacionResponseSchema);
-
-registry.registerPath({
-  method: "get",
-  path: "/api/eventos-atp/recuperacion",
-  summary: "Listar eventos de recuperación territorial para el mapa operativo",
-  description:
-    "Consulta todos los eventos de recuperación comunales registrados con sus misiones tácticas desplegadas, patrullas asignadas y recursos para su renderizado táctico georreferenciado en el mapa operativo.",
-  tags: ["Eventos ATP / Recuperación"],
-  request: {
-    headers: z.object({
-      authorization: z.string().openapi({
-        description: "Token JWT en formato 'Bearer <token>'",
-        example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-      }),
-    }),
-  },
-  responses: {
-    200: {
-      description: "Listado de eventos de recuperación obtenido exitosamente",
-      content: {
-        "application/json": {
-          schema: ListarEventosRecuperacionResponseSchema,
-        },
-      },
-    },
-    401: {
-      description: "No autenticado o token inválido",
-    },
-    403: {
-      description: "Acceso denegado. Se requiere permiso 'misiones:leer', 'recuperacion:crear' o 'misiones:asignar'",
-    },
-    500: {
-      description: "Error interno del servidor",
-    },
-  },
-});
+registry.register("OperativoRecuperacionItem", OperativoRecuperacionItemSchema);
+registry.register("ListarRecuperacionesResponse", ListarRecuperacionesResponseSchema);
 
 registry.registerPath({
   method: "post",
@@ -1959,15 +1926,51 @@ registry.registerPath({
   },
 });
 
-// 27. GET /api/eventos-atp/recuperacion/{id} (HU-32)
+// GET /api/eventos-atp/recuperacion (HU-73 / H34)
+registry.registerPath({
+  method: "get",
+  path: "/api/eventos-atp/recuperacion",
+  summary: "Listar operativos de recuperación post-desastre (H73 / H34)",
+  description:
+    "Retorna una lista paginada y filtrable de todos los operativos de recuperación registrados para seguimiento en el Centro de Incidentes bajo el estándar H34 (page, limit, total, totalPages), incluyendo desglose de insumos y recursos.",
+  tags: ["Eventos ATP / Recuperación"],
+  security: [{ BearerAuth: [] }],
+  request: {
+    query: ListarRecuperacionesQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado de operativos de recuperación obtenido exitosamente",
+      content: {
+        "application/json": {
+          schema: ListarRecuperacionesResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros de consulta o paginación inválidos",
+    },
+    401: {
+      description: "No autenticado o token JWT inválido",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere permiso 'recuperacion:leer', 'misiones:leer', 'recuperacion:crear' o 'misiones:asignar'",
+    },
+    500: {
+      description: "Error interno del servidor al procesar la consulta",
+    },
+  },
+});
+
+// 27. GET /api/eventos-atp/recuperacion/{id} (HU-32 / HU-73)
 registry.register("RecuperacionDetalleResponse", RecuperacionDetalleResponseSchema);
 
 registry.registerPath({
   method: "get",
   path: "/api/eventos-atp/recuperacion/{id}",
-  summary: "Obtener detalle completo de un evento de recuperación comunal (HU-32)",
+  summary: "Obtener detalle completo de un operativo de recuperación (HU-32 / HU-73)",
   description:
-    "Permite consultar la información integral de un evento de recuperación territorial, incluyendo su localización, misiones tácticas desplegadas y el listado de insumos y recursos asignados.",
+    "Permite consultar la información integral de un operativo de recuperación territorial para el drawer lateral y seguimiento operativo: localización, recursos asignados, misión táctica, patrulla y línea de tiempo del historial.",
   tags: ["Eventos ATP / Recuperación"],
   security: [{ BearerAuth: [] }],
   request: {
@@ -1975,18 +1978,18 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Detalle del evento de recuperación obtenido exitosamente",
+      description: "Detalle del operativo de recuperación obtenido exitosamente",
       content: {
         "application/json": {
           schema: RecuperacionDetalleResponseSchema,
         },
       },
     },
-    400: { description: "Identificador de evento inválido" },
-    401: { description: "No autenticado" },
-    403: { description: "Acceso denegado" },
-    404: { description: "Evento de recuperación no encontrado" },
-    500: { description: "Error interno del servidor" },
+    400: { description: "Identificador UUID de operativo inválido" },
+    401: { description: "No autenticado o token JWT inválido" },
+    403: { description: "Acceso denegado. Se requiere permiso de lectura de recuperación" },
+    404: { description: "Operativo de recuperación no encontrado" },
+    500: { description: "Error interno del servidor al consultar el operativo" },
   },
 });
 

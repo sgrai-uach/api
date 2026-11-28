@@ -42,11 +42,14 @@ describe("Endpoint GET /openapi.json", () => {
     expect(spec.paths["/api/puntos-criticos/{id}"]).toBeDefined();
     expect(spec.paths["/api/puntos-criticos/{id}"].delete).toBeDefined();
 
-    // Rutas de Recuperación (Eventos ATP - HU-29, HU-32)
+    // Rutas de Recuperación (Eventos ATP - HU-29, HU-32, HU-73)
     expect(spec.paths["/api/eventos-atp/recuperacion"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/recuperacion"].post).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/recuperacion"].get).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/recuperacion"].get.security).toEqual([{ BearerAuth: [] }]);
     expect(spec.paths["/api/eventos-atp/recuperacion/{id}"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/recuperacion/{id}"].get).toBeDefined();
+    expect(spec.paths["/api/eventos-atp/recuperacion/{id}"].get.security).toEqual([{ BearerAuth: [] }]);
     expect(spec.paths["/api/eventos-atp/recuperacion/{id}/asignar"]).toBeDefined();
     expect(spec.paths["/api/eventos-atp/recuperacion/{id}/asignar"].post).toBeDefined();
 

@@ -65,9 +65,9 @@ El módulo **Eventos ATP** gestiona los puntos críticos, sectores de alta vulne
 | `POST` | `/api/puntos-criticos` | Registrar un nuevo punto crítico con coordenadas PostGIS, código autogenerado y emisión en tiempo real vía Socket.io (HU-58). |
 | `GET` | `/api/puntos-criticos/{id}` | Obtener detalle de un punto crítico con delegación para precargar formulario de edición (HU-55). |
 | `PUT` | `/api/puntos-criticos/{id}` | Editar características, factores de riesgo y ubicación geográfica de un punto crítico con PostGIS y Socket.io (HU-55). |
-| `GET` | `/api/eventos-atp/recuperacion` | Listar todos los eventos de recuperación territoriales registrados con sus misiones tácticas, patrulla asignada y recursos para el mapa operativo. |
+| `GET` | `/api/eventos-atp/recuperacion` | Listar operativos de recuperación post-desastre con paginación H34, filtros territoriales/temporales y desglose de insumos asignados (HU-73). |
 | `POST` | `/api/eventos-atp/recuperacion` | Registrar un nuevo evento de recuperación, reservar/descontar stock de bodega y despachar una patrulla verificadora a terreno sin incidente previo (HU-29). |
-| `GET` | `/api/eventos-atp/recuperacion/{id}` | Obtener el detalle estructurado de un evento de recuperación comunal, sus misiones operativas e insumos asignados (HU-32). |
+| `GET` | `/api/eventos-atp/recuperacion/{id}` | Obtener detalle consolidado de un operativo de recuperación para drawer lateral y seguimiento táctico con recursos e historial unificado (HU-32 / HU-73). |
 | `POST` | `/api/eventos-atp/recuperacion/{id}/asignar` | Asignar patrulla verificadora y recursos de bodega a un evento de recuperación con bloqueo transaccional `FOR UPDATE` (§3.6) y RBAC `misiones:asignar` (HU-32). |
 | `GET` | `/api/eventos-atp/asistencia-social` | Listar eventos de asistencia social y casos pendientes de levantamiento FIBE con filtros territoriales y paginación (H28). |
 | `POST` | `/api/eventos-atp/asistencia-social` | Registrar un nuevo evento excepcional de asistencia social para levantamiento de FIBE sin vincular a un incidente formal (H28). |
@@ -568,6 +568,208 @@ Permite al perfil **Encargado de Operaciones** (o Administrador) crear un evento
 ```json
 {
   "message": "Stock insuficiente para el recurso \"Frazadas Térmicas\". Solicitado: 10, Disponible: 3."
+}
+```
+
+---
+
+## 8.1 Detalle de Endpoint: `GET /api/eventos-atp/recuperacion` (H73)
+
+Retorna una lista paginada y filtrable de todos los operativos de recuperación post-desastre registrados en el sistema, diseñada para dar seguimiento al avance de los despliegues en el Centro de Incidentes bajo el estándar de contratos **H34** (`page`, `limit`, `total`, `totalPages`). Incluye el desglose de insumos asignados (`cantidadInsumosAsignados`, `totalTiposInsumos` y `recursosResumen`).
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `Authorization` | `string` | Sí | Token Bearer JWT de sesión institucional (`Bearer <token>`). El usuario debe contar con el permiso `recuperacion:leer`, `misiones:leer`, `recuperacion:crear` o `misiones:asignar`. |
+
+### Parámetros de Consulta (Query Params)
+
+| Parámetro | Tipo | Requerido | Default | Descripción |
+|---|---|---|---|---|
+| `page` / `pagina` | `number` | No | `1` | Número de página actual (inicia en 1). |
+| `limit` / `limite` | `number` | No | `20` | Cantidad de elementos por página (máximo: 100). |
+| `delegacionId` | `UUID` | No | - | Filtra por identificador de la delegación territorial correspondiente. |
+| `estado` | `string` | No | - | Filtra por estado del ciclo de vida (`PLANIFICADA`, `EN_EJECUCION`, `COMPLETADA`, `CANCELADA`). |
+| `prioridad` | `string` | No | - | Filtra por nivel de urgencia (`BAJA`, `MEDIA`, `ALTA`, `CRITICA`). |
+| `busqueda` | `string` | No | - | Búsqueda textual insensible a mayúsculas por código (`REC-XXXX`), título descriptivo o sector. |
+| `fechaDesde` | `string` | No | - | Filtro temporal mínimo en formato ISO 8601. |
+| `fechaHasta` | `string` | No | - | Filtro temporal máximo en formato ISO 8601. |
+| `ordenarPor` | `string` | No | `creadoEn` | Campo de ordenamiento (`creadoEn`, `codigo`, `prioridad`, `familiasAfectadas`). |
+| `orden` | `string` | No | `desc` | Dirección del ordenamiento (`asc` o `desc`). |
+
+### Respuestas HTTP Esperadas
+
+#### `200 OK` — Listado obtenido exitosamente bajo estándar H34
+```json
+{
+  "message": "Listado de operativos de recuperación obtenido exitosamente",
+  "data": [
+    {
+      "id": "70000000-0000-4000-8000-000000000001",
+      "codigo": "REC-2026-0001",
+      "nombre": "Entrega de frazadas y techumbre en Sector Collico",
+      "descripcion": "Familias afectadas por temporal de viento",
+      "sector": "Collico",
+      "direccionTexto": "Calle Balmaceda 1245 con Las Palmeras",
+      "prioridad": "ALTA",
+      "estado": "PLANIFICADA",
+      "familiasAfectadas": 4,
+      "delegacion": {
+        "id": "30000000-0000-4000-8000-000000000001",
+        "codigo": "DEL-SUR",
+        "nombre": "Delegación Municipal Sur"
+      },
+      "cantidadInsumosAsignados": 15,
+      "totalTiposInsumos": 2,
+      "recursosResumen": [
+        {
+          "recursoId": "80000000-0000-4000-8000-000000000001",
+          "nombre": "Frazadas Térmicas",
+          "cantidadAsignada": 10
+        },
+        {
+          "recursoId": "80000000-0000-4000-8000-000000000002",
+          "nombre": "Sacos de Arena 25kg",
+          "cantidadAsignada": 5
+        }
+      ],
+      "creadoEn": "2026-11-01T10:00:00.000Z",
+      "actualizadoEn": "2026-11-01T10:00:00.000Z",
+      "fechaCierre": null
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "page": 1,
+    "limit": 20,
+    "totalPages": 1,
+    "hasNext": false,
+    "hasPrev": false
+  }
+}
+```
+
+#### `400 Bad Request` — Parámetros de consulta inválidos
+```json
+{
+  "message": "Parámetros de consulta de listado inválidos.",
+  "errors": [
+    {
+      "campo": "limit",
+      "mensaje": "Number must be less than or equal to 100"
+    }
+  ]
+}
+```
+
+#### `401 Unauthorized` — Sin autenticación
+```json
+{
+  "message": "Token de autenticación no proporcionado o inválido."
+}
+```
+
+#### `403 Forbidden` — Sin permiso de lectura
+```json
+{
+  "message": "No cuenta con el permiso requerido: recuperacion:leer"
+}
+```
+
+---
+
+## 8.2 Detalle de Endpoint: `GET /api/eventos-atp/recuperacion/{id}` (H73 - Drawer)
+
+Consulta la información exhaustiva de un operativo de recuperación específico para desplegar en el drawer lateral de `sgrai-web`, incluyendo insumos asignados, misión, patrulla y la línea de tiempo unificada de historial.
+
+### Cabeceras Requeridas
+
+| Cabecera | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `Authorization` | `string` | Sí | Token Bearer JWT de sesión institucional (`Bearer <token>`). El usuario debe contar con el permiso `recuperacion:leer`, `misiones:leer`, `recuperacion:crear` o `misiones:asignar`. |
+
+### Parámetros de Ruta (Path Params)
+
+| Parámetro | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `id` | `UUID` | Sí | Identificador único del operativo de recuperación. |
+
+### Respuestas HTTP Esperadas
+
+#### `200 OK` — Detalle obtenido exitosamente
+```json
+{
+  "message": "Detalle de operativo de recuperación obtenido exitosamente.",
+  "data": {
+    "id": "70000000-0000-4000-8000-000000000001",
+    "codigo": "REC-2026-0001",
+    "nombre": "Entrega de frazadas y techumbre en Sector Collico",
+    "descripcion": "Familias afectadas por temporal de viento",
+    "sector": "Collico",
+    "direccionTexto": "Calle Balmaceda 1245 con Las Palmeras",
+    "prioridad": "ALTA",
+    "contactoNombre": "Don Pedro",
+    "contactoTelefono": "+56999887766",
+    "latitud": -39.8142,
+    "longitud": -73.2459,
+    "estado": "PLANIFICADA",
+    "familiasAfectadas": 4,
+    "delegacion": {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "codigo": "DEL-SUR",
+      "nombre": "Delegación Municipal Sur"
+    },
+    "creadoPor": {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "nombre": "Encargado de Operaciones"
+    },
+    "mision": {
+      "id": "60000000-0000-4000-8000-000000000001",
+      "codigo": "MIS-2026-0001",
+      "titulo": "Entrega de frazadas y techumbre en Sector Collico",
+      "estado": "DESPACHADA",
+      "tipoMision": "RECUPERACION"
+    },
+    "patrulla": {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "nombre": "Patrulla Verificadora Alfa",
+      "estado": "EN_RECUPERACION"
+    },
+    "recursos": [
+      {
+        "recursoId": "80000000-0000-4000-8000-000000000001",
+        "nombre": "Frazadas Térmicas",
+        "cantidadAsignada": 10
+      }
+    ],
+    "cantidadInsumosAsignados": 10,
+    "totalTiposInsumos": 1,
+    "historial": [
+      {
+        "id": "rec-creacion-70000000-0000-4000-8000-000000000001",
+        "tipo": "CREACION",
+        "titulo": "Operativo Planificado y Despachado",
+        "descripcion": "Familias afectadas por temporal de viento",
+        "registradoPor": {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "nombre": "Encargado de Operaciones"
+        },
+        "creadoEn": "2026-11-01T10:00:00.000Z"
+      }
+    ],
+    "creadoEn": "2026-11-01T10:00:00.000Z",
+    "actualizadoEn": "2026-11-01T10:00:00.000Z",
+    "fechaCierre": null,
+    "observacionesCierre": null
+  }
+}
+```
+
+#### `404 Not Found` — Operativo inexistente
+```json
+{
+  "message": "Operativo de recuperación con ID '70000000-0000-4000-8000-000000000099' no encontrado."
 }
 ```
 

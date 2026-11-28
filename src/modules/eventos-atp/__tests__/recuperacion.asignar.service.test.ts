@@ -112,6 +112,8 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Recuperación (HU-32)"
       creado_por_id: usuarioId,
       creado_en: new Date("2026-10-04T12:00:00Z"),
       actualizado_en: new Date("2026-10-04T12:00:00Z"),
+      fecha_cierre: null,
+      observaciones_cierre: null,
     };
 
     const mockPatrulla = {
@@ -451,6 +453,8 @@ describe("Módulo Eventos ATP - Asignación de Recursos a Recuperación (HU-32)"
         creado_por_id: "00000000-0000-4000-8000-000000000002",
         creado_en: new Date("2026-10-04T12:00:00Z"),
         actualizado_en: new Date("2026-10-04T12:00:00Z"),
+        fecha_cierre: null,
+        observaciones_cierre: null,
       });
 
       vi.spyOn(repo, "buscarDelegacionPorId").mockResolvedValueOnce({

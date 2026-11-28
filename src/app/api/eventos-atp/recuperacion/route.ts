@@ -1,51 +1,63 @@
 import { NextRequest, NextResponse } from "next/server";
-import { CrearEventoRecuperacionInputSchema } from "@/modules/eventos-atp/recuperacion.schema";
+import {
+  CrearEventoRecuperacionInputSchema,
+  ListarRecuperacionesQuerySchema,
+} from "@/modules/eventos-atp/recuperacion.schema";
 import {
   crearEventoRecuperacionService,
   listarEventosRecuperacionService,
+  verificarAutorizacionLecturaRecuperacion,
   PatrullaNoDisponibleError,
   StockInsuficienteError,
   NotFoundError,
 } from "@/modules/eventos-atp/recuperacion.service";
 import { extraerUsuarioId } from "@/modules/seguridad/auth.guard";
 import { verificarPermiso } from "@/modules/seguridad/auth.service";
-import {
-  PERMISO_CREAR_RECUPERACION,
-  PERMISO_LEER_MISION,
-  PERMISO_ASIGNAR_MISION,
-} from "@/modules/seguridad/permisos.constants";
+import { PERMISO_CREAR_RECUPERACION } from "@/modules/seguridad/permisos.constants";
 import { UnauthorizedError, ForbiddenError } from "@/modules/seguridad/auth.errors";
 
 /**
  * GET /api/eventos-atp/recuperacion
- * Endpoint operativo para listar todos los eventos de recuperación territoriales
- * con sus misiones tácticas, patrulla asignada y recursos para el mapa operativo.
+ * Endpoint para listar operativos de recuperación territoriales con soporte de filtros y paginación H34 (HU-73).
  */
 export async function GET(req: NextRequest) {
   try {
+    // 1. Extraer usuario autenticado mediante JWT Bearer obligatorio (BUG-H73-API-01: sin bypass por cabecera libre)
     const usuarioId = await extraerUsuarioId(req);
 
-    try {
-      await verificarPermiso(usuarioId, PERMISO_LEER_MISION);
-    } catch (err) {
-      if (err instanceof ForbiddenError) {
-        try {
-          await verificarPermiso(usuarioId, PERMISO_CREAR_RECUPERACION);
-        } catch {
-          await verificarPermiso(usuarioId, PERMISO_ASIGNAR_MISION);
-        }
-      } else {
-        throw err;
-      }
+    // 2. Verificar autorización RBAC
+    await verificarAutorizacionLecturaRecuperacion(usuarioId);
+
+    // 3. Extraer y validar parámetros de consulta con Zod (BUG-H73-API-02 / BUG-H73-API-03)
+    const searchParams = req.nextUrl.searchParams;
+    const queryObj: Record<string, string> = {};
+    searchParams.forEach((val, key) => {
+      queryObj[key] = val;
+    });
+
+    const validacion = ListarRecuperacionesQuerySchema.safeParse(queryObj);
+    if (!validacion.success) {
+      return NextResponse.json(
+        {
+          message: "Parámetros de consulta inválidos para el listado de operativos de recuperación.",
+          errors: validacion.error.issues.map((issue) => ({
+            campo: issue.path.join("."),
+            mensaje: issue.message,
+          })),
+        },
+        { status: 400 }
+      );
     }
 
-    const eventos = await listarEventosRecuperacionService();
+    // 4. Ejecutar servicio de negocio
+    const resultado = await listarEventosRecuperacionService(validacion.data, usuarioId);
 
     return NextResponse.json(
       {
-        message: "Eventos de recuperación obtenidos exitosamente.",
-        total: eventos.length,
-        data: eventos,
+        message: resultado.message ?? "Operativos de recuperación obtenidos exitosamente.",
+        total: resultado.total,
+        data: resultado.data,
+        meta: resultado.meta,
       },
       { status: 200 }
     );
@@ -58,9 +70,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ message: error.message }, { status: 403 });
     }
 
-    console.error("Error al listar eventos de recuperación:", error);
+    console.error("Error al listar operativos de recuperación:", error);
     return NextResponse.json(
-      { message: "Error interno del servidor al consultar eventos de recuperación." },
+      { message: "Error interno del servidor al consultar operativos de recuperación." },
       { status: 500 }
     );
   }
