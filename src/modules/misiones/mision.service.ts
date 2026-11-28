@@ -95,7 +95,22 @@ export async function obtenerDetalleMisionService(
     return null;
   }
 
-  const { mision, recursosCuadrilla, reportesTerreno: reportesRaw, hitos = [] } = resultado;
+  const {
+    mision,
+    recursosCuadrilla,
+    reportesTerreno: reportesRaw,
+    hitos = [],
+    adjuntosIncidente = [],
+  } = resultado as typeof resultado & {
+    adjuntosIncidente?: Array<{
+      id: string;
+      nombre_archivo: string;
+      url: string;
+      tipo_mime: string;
+      tamano_bytes: number | string | bigint;
+      creado_en: Date | string;
+    }>;
+  };
 
   // 1. Bitácora de tiempos (incorporando hitos reales de mision_hito o fallback a timestamps)
   const bitacoraTiempos: MisionBitacoraHito[] = [];
@@ -356,6 +371,37 @@ export async function obtenerDetalleMisionService(
     .sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime());
   const reporteVerificacion = reportesCierre[0] ?? null;
 
+  // Consolidar adjuntos directos del incidente y adjuntos de reportes de terreno (deduplicados por id)
+  const normalizarUrlMisionAdjunto = (url: string): string =>
+    url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/")
+      ? url
+      : `/${url}`;
+
+  const mapaAdjuntosMision = new Map<string, AdjuntoEvidencia>();
+  for (const adj of adjuntosIncidente) {
+    mapaAdjuntosMision.set(adj.id, {
+      id: adj.id,
+      nombreArchivo: adj.nombre_archivo,
+      url: normalizarUrlMisionAdjunto(adj.url),
+      tipoMime: adj.tipo_mime,
+      tamanoBytes: Number(adj.tamano_bytes),
+      creadoEn: formatearFechaIso(adj.creado_en) || new Date().toISOString(),
+    });
+  }
+  for (const rep of reportesMapeados) {
+    for (const adj of rep.adjuntos) {
+      if (!mapaAdjuntosMision.has(adj.id)) {
+        mapaAdjuntosMision.set(adj.id, {
+          ...adj,
+          url: normalizarUrlMisionAdjunto(adj.url),
+        });
+      }
+    }
+  }
+  const adjuntosConsolidados = Array.from(mapaAdjuntosMision.values()).sort(
+    (a, b) => new Date(a.creadoEn).getTime() - new Date(b.creadoEn).getTime()
+  );
+
   return {
     id: mision.id,
     codigo: mision.codigo,
@@ -388,6 +434,7 @@ export async function obtenerDetalleMisionService(
     patrulla,
     bitacoraTiempos,
     reportesTerreno: reportesMapeados,
+    adjuntos: adjuntosConsolidados,
     evaluaciones: {
       tipologiaEvaluada: hitosTipologia.length > 0,
       tipologiaEvaluadaEn: ultimoHitoTipologia

@@ -24,6 +24,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+RUN apk add --no-cache ffmpeg
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
@@ -39,6 +41,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/next.config.ts ./
 # Dependencias de runtime para tsx y socket.io
 COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 
+# Directorio de almacenamiento persistente de evidencias multimedia
+RUN mkdir -p /app/uploads/evidencia
+
 # Asegurar permisos del directorio /app para el usuario no privilegiado
 RUN chown -R nextjs:nodejs /app
 
@@ -47,5 +52,6 @@ USER nextjs
 EXPOSE 4001
 ENV PORT=4001
 ENV HOSTNAME="0.0.0.0"
+ENV UPLOAD_DIR="/app/uploads"
 
 CMD ["npx", "tsx", "src/server.ts"]

@@ -7,6 +7,7 @@ import type {
   SocketData,
   RedisSocketMessage,
   MisionRechazadaPayload,
+  AdjuntoCreadoPayload,
 } from "./types";
 
 export interface IncidenteNotificacionPayload {
@@ -1049,6 +1050,17 @@ export function notificarMisionRechazada(payload: MisionRechazadaPayload): void 
         )
         .catch(() => {});
     }
+  }
+}
+
+/**
+ * Emite una notificación en tiempo real hacia el Centro de Mando
+ * cuando se adjunta nueva evidencia multimedia (HU-43).
+ */
+export function notificarAdjuntoCreado(payload: AdjuntoCreadoPayload): void {
+  const rooms = ["encargado", "sala:encargados", "supervisor"];
+  for (const room of rooms) {
+    emitirEvento(room, "adjunto:creado", payload);
   }
 }
 

@@ -100,6 +100,7 @@ export async function obtenerDetalleIncidenteService(
     misiones,
     recursosAsociados,
     reportesEvaluacionTerreno: reportesRaw = [],
+    adjuntosIncidente = [],
     justificacionReclasificacion,
     reclasificacionTipologiaRaw = null,
   } = resultado;
@@ -363,6 +364,52 @@ export async function obtenerDetalleIncidenteService(
     };
   }
 
+  const normalizarUrlAdjunto = (url: string): string =>
+    url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/")
+      ? url
+      : `/${url}`;
+
+  const mapaAdjuntosIncidente = new Map<
+    string,
+    {
+      id: string;
+      nombreArchivo: string;
+      url: string;
+      tipoMime: string;
+      tamanoBytes: number;
+      creadoEn: string;
+    }
+  >();
+
+  for (const adj of adjuntosIncidente || []) {
+    mapaAdjuntosIncidente.set(adj.id, {
+      id: adj.id,
+      nombreArchivo: adj.nombre_archivo,
+      url: normalizarUrlAdjunto(adj.url),
+      tipoMime: adj.tipo_mime,
+      tamanoBytes: Number(adj.tamano_bytes),
+      creadoEn:
+        typeof adj.creado_en === "string"
+          ? adj.creado_en
+          : new Date(adj.creado_en).toISOString(),
+    });
+  }
+
+  for (const rep of reportesMapeados) {
+    for (const adj of rep.adjuntos || []) {
+      if (!mapaAdjuntosIncidente.has(adj.id)) {
+        mapaAdjuntosIncidente.set(adj.id, {
+          ...adj,
+          url: normalizarUrlAdjunto(adj.url),
+        });
+      }
+    }
+  }
+
+  const adjuntosConsolidados = Array.from(mapaAdjuntosIncidente.values()).sort(
+    (a, b) => new Date(a.creadoEn).getTime() - new Date(b.creadoEn).getTime()
+  );
+
   return {
     id: incidente.id,
     codigo: incidente.codigo,
@@ -422,6 +469,7 @@ export async function obtenerDetalleIncidenteService(
     misiones: misionesMapeadas,
     recursosAsociados,
     reportesEvaluacionTerreno: reportesMapeados,
+    adjuntos: adjuntosConsolidados,
     verificado: esVerificado,
     reclasificadoEnTerreno: esVerificado,
     justificacionReclasificacion: justificacionReclasificacion ?? null,

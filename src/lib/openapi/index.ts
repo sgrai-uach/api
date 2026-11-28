@@ -6,6 +6,12 @@ import {
 import { z } from "zod";
 
 import {
+  AdjuntoCreadoResponseSchema,
+  ListarAdjuntosQuerySchema,
+  ListarAdjuntosResponseSchema,
+} from "@/modules/evidencia/evidencia.schema";
+
+import {
   AvisoDetalleResponseSchema,
   AvisosPaginadosResponseSchema,
   CrearAvisoInputSchema,
@@ -2874,6 +2880,107 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: "post",
+  path: "/api/evidencia/adjuntos",
+  tags: ["Evidencia"],
+  summary: "Subir evidencia multimedia (HU-43)",
+  description:
+    "Permite adjuntar fotografías (JPEG, PNG, WebP), videos (MP4, WebM, MOV) o documentos técnicos (PDF) de hasta 10 MB asociados a un incidente o reporte de terreno. Requiere permiso RBAC 'reportes:crear'.",
+  security: [{ BearerAuth: [] }],
+  request: {
+    body: {
+      required: true,
+      content: {
+        "multipart/form-data": {
+          schema: z.object({
+            file: z.string().openapi({ format: "binary", description: "Archivo multimedia o PDF (máx. 10 MB)" }),
+            incidente_id: z
+              .string()
+              .uuid()
+              .optional()
+              .openapi({ description: "UUID del incidente asociado (requerido si no se envía reporte_terreno_id)" }),
+            reporte_terreno_id: z
+              .string()
+              .uuid()
+              .optional()
+              .openapi({ description: "UUID del reporte de terreno asociado (requerido si no se envía incidente_id)" }),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Evidencia optimizada, almacenada y registrada exitosamente en la tabla adjunto",
+      content: {
+        "application/json": {
+          schema: AdjuntoCreadoResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Solicitud inválida: falta el archivo, archivo vacío o no se envió incidente_id ni reporte_terreno_id",
+    },
+    401: {
+      description: "No autenticado, token ausente o usuario inactivo",
+    },
+    403: {
+      description: "Acceso denegado. Se requiere el permiso 'reportes:crear'",
+    },
+    404: {
+      description: "El incidente_id o reporte_terreno_id especificado no existe",
+    },
+    409: {
+      description: "Conflicto relacional (reporte_terreno_id e incidente_id no coinciden) o incidente en estado cerrado (RESUELTO / NO_ABORDABLE)",
+    },
+    413: {
+      description: "El archivo supera el límite máximo permitido de 10 MB",
+    },
+    415: {
+      description: "Tipo MIME o firma binaria (magic bytes) no permitida",
+    },
+    500: {
+      description: "Error interno del servidor al almacenar la evidencia",
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/evidencia/adjuntos",
+  tags: ["Evidencia"],
+  summary: "Listar evidencia multimedia por incidente o reporte de terreno (HU-43)",
+  description:
+    "Retorna la lista cronológica de evidencias multimedia asociadas a un incidente o reporte de terreno.",
+  security: [{ BearerAuth: [] }],
+  request: {
+    query: ListarAdjuntosQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Listado de archivos adjuntos asociados",
+      content: {
+        "application/json": {
+          schema: ListarAdjuntosResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Parámetros inválidos o falta incidente_id y reporte_terreno_id",
+    },
+    401: {
+      description: "No autenticado o token JWT inválido",
+    },
+    403: {
+      description: "Sin permisos suficientes para consultar evidencias",
+    },
+    500: {
+      description: "Error interno del servidor al consultar evidencias",
+    },
+  },
+});
+
 // 28. POST /api/eventos-atp (H61)
 registry.registerPath({
   method: "post",
@@ -3017,7 +3124,7 @@ registry.registerPath({
   path: "/api/misiones/{id}/reporte",
   summary: "Enviar informe técnico de verificación en terreno y cerrar misión inicial de patrullaje (HU-39 / HU-86)",
   description:
-    "Permite a la patrulla verificadora enviar el informe técnico consolidado de terreno con dictamen operativo ('REQUIERE_CUADRILLA' o 'NO_ABORDABLE'), resumen técnico (>= 10 caracteres), estado del terreno, estimación de personas damnificadas (rescatable desde el reporte previo de prioridad HU-38 y modificable), daños estimados, observaciones, indicador de Ficha FIBE (requiere_asistencia_social) y sección preparada para evidencia fotográfica (HU-43). Ejecuta una transacción atómica que: (1) persiste el reporte en reporte_terreno con evaluador_id = usuario.id, (2) cierra la misión (COMPLETADA con fecha_cierre), (3) libera la patrulla a DISPONIBLE, (4) si es NO_ABORDABLE (exige motivo_no_abordable >= 15 caracteres), transiciona el incidente a NO_ABORDABLE con fecha_cierre y motivo, o si solicita Ficha FIBE marca incidente.requiere_asistencia_social = true, y (5) registra el hito VERIFICACION_COMPLETADA en mision_hito. Emite eventos WebSocket 'mision:actualizada', 'incidente:actualizado' y 'patrulla:actualizada' / 'patrulla:liberada'. Requiere permiso RBAC 'reportes:crear'.",
+    "Permite a la patrulla verificadora enviar el informe técnico consolidado de terreno con dictamen operativo ('REQUIERE_CUADRILLA' o 'NO_ABORDABLE'), resumen técnico (>= 10 caracteres), estado del terreno, estimación de personas damnificadas (rescatable desde el reporte previo de prioridad HU-38 y modificable), daños estimados, observaciones, indicador de Ficha FIBE (requiere_asistencia_social) y sección de evidencia multimedia (HU-43). Ejecuta una transacción atómica que: (1) persiste el reporte en reporte_terreno con evaluador_id = usuario.id, (2) cierra la misión (COMPLETADA con fecha_cierre), (3) libera la patrulla a DISPONIBLE, (4) si es NO_ABORDABLE (exige motivo_no_abordable >= 15 caracteres), transiciona el incidente a NO_ABORDABLE con fecha_cierre y motivo, o si solicita Ficha FIBE marca incidente.requiere_asistencia_social = true, y (5) registra el hito VERIFICACION_COMPLETADA en mision_hito. Emite eventos WebSocket 'mision:actualizada', 'incidente:actualizado' y 'patrulla:actualizada' / 'patrulla:liberada'. Requiere permiso RBAC 'reportes:crear'.",
   tags: ["Misiones", "Incidentes"],
   security: [{ BearerAuth: [] }],
   request: {

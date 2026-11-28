@@ -424,5 +424,79 @@ describe("Mision Service - asignarPatrullaVerificacionService (HU-20)", () => {
       })
     );
   });
+
+  it("debe proyectar adjuntos directos del incidente en obtenerDetalleMisionService cuando reportesTerreno está vacío (BUG-H43-API-01)", async () => {
+    vi.mocked(misionRepo.obtenerMisionDetallePorIdRepo).mockResolvedValueOnce({
+      mision: {
+        id: "60000000-0000-4000-8000-000000000002",
+        codigo: "MIS-2026-002",
+        titulo: "Atención cuadrilla",
+        descripcion: null,
+        tipo_mision: "ATENCION_CUADRILLA",
+        estado: "EN_CURSO",
+        prioridad: "ALTA",
+        justificacion_rechazo: null,
+        incidente_id: "a1000000-0000-4000-8000-000000000004",
+        prevencion_id: null,
+        cuadrilla_id: "50000000-0000-4000-8000-000000000001",
+        patrulla_id: null,
+        encargado_id: null,
+        creado_por_id: null,
+        fecha_inicio: null,
+        fecha_cierre: null,
+        creado_en: new Date("2026-11-10T10:00:00Z"),
+        actualizado_en: new Date("2026-11-10T10:00:00Z"),
+        incidente_codigo: "INC-2026-004",
+        incidente_codigo_seguimiento: "00000004",
+        incidente_tipo_afectacion: "Inundación",
+        incidente_descripcion: null,
+        incidente_direccion: "Valdivia",
+        incidente_latitud: "-39.82",
+        incidente_longitud: "-73.24",
+        incidente_estado: "EN_ATENCION",
+        incidente_prioridad: "ALTA",
+        incidente_requiere_asistencia_social: false,
+        incidente_delegacion_nombre: "Sur",
+        creador_id: null,
+        creador_nombre: null,
+        creador_email: null,
+        encargado_id_res: null,
+        encargado_nombre: null,
+        encargado_email: null,
+        cuadrilla_nombre: "Cuadrilla 1",
+        cuadrilla_estado: "EN_MISION",
+        cuadrilla_delegacion_nombre: "Sur",
+        delegado_id: null,
+        delegado_nombre: null,
+        delegado_email: null,
+      },
+      recursosCuadrilla: [],
+      reportesTerreno: [],
+      hitos: [],
+      adjuntosIncidente: [
+        {
+          id: "80000000-0000-4000-8000-000000000010",
+          nombre_archivo: "evidencia_cuadrilla.pdf",
+          url: "/uploads/evidencia/evidencia_cuadrilla.pdf",
+          tipo_mime: "application/pdf",
+          tamano_bytes: 5120,
+          creado_en: new Date("2026-11-10T12:00:00Z"),
+        },
+      ],
+    } as never);
+
+    const detalle = await obtenerDetalleMisionService("60000000-0000-4000-8000-000000000002");
+
+    expect(detalle?.adjuntos).toEqual([
+      {
+        id: "80000000-0000-4000-8000-000000000010",
+        nombreArchivo: "evidencia_cuadrilla.pdf",
+        url: "/uploads/evidencia/evidencia_cuadrilla.pdf",
+        tipoMime: "application/pdf",
+        tamanoBytes: 5120,
+        creadoEn: "2026-11-10T12:00:00.000Z",
+      },
+    ]);
+  });
 });
 

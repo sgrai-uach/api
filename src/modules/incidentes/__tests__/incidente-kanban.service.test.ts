@@ -366,5 +366,70 @@ describe("Servicio de Tablero Kanban e Incidentes", () => {
         evaluadorNombre: "Patrullero Jefe",
       });
     });
+
+    it("debe proyectar adjuntos directos por incidente_id sin reporte_terreno_id (BUG-H43-API-01)", async () => {
+      vi.mocked(repo.obtenerIncidenteDetallePorIdRepo).mockResolvedValueOnce({
+        incidente: {
+          id: "a0000000-0000-4000-8000-000000000004",
+          codigo: "INC-2026-0004",
+          codigo_seguimiento: "00000004",
+          tipo_afectacion: "Inundación",
+          descripcion: "Anegamiento",
+          direccion_texto: "Picarte 2000",
+          latitud: -39.82,
+          longitud: -73.24,
+          estado: "EN_ATENCION",
+          prioridad: "ALTA",
+          requiere_asistencia_social: false,
+          fuente_origen: "WEB",
+          asterisk_call_id: null,
+          asterisk_caller_phone: null,
+          creado_en: new Date("2026-11-10T10:00:00Z"),
+          actualizado_en: new Date("2026-11-10T10:00:00Z"),
+          informante_id: null,
+          informante_rut: null,
+          informante_nombre: null,
+          informante_telefono: null,
+          delegacion_id: null,
+          delegacion_nombre: null,
+          delegacion_descripcion: null,
+          creador_id: null,
+          creador_nombre: null,
+          creador_email: null,
+          encargado_id: null,
+          encargado_nombre: null,
+          encargado_email: null,
+        },
+        misiones: [],
+        recursosAsociados: [],
+        reportesEvaluacionTerreno: [],
+        adjuntosIncidente: [
+          {
+            id: "80000000-0000-4000-8000-000000000009",
+            nombre_archivo: "cuadrilla_foto.jpg",
+            url: "uploads/evidencia/cuadrilla_foto.webp",
+            tipo_mime: "image/webp",
+            tamano_bytes: 4096,
+            creado_en: new Date("2026-11-10T11:00:00Z"),
+          },
+        ],
+        justificacionReclasificacion: null,
+      } as never);
+
+      const detalle = await obtenerDetalleIncidenteService(
+        "a0000000-0000-4000-8000-000000000004"
+      );
+
+      expect(detalle?.adjuntos).toEqual([
+        {
+          id: "80000000-0000-4000-8000-000000000009",
+          nombreArchivo: "cuadrilla_foto.jpg",
+          url: "/uploads/evidencia/cuadrilla_foto.webp",
+          tipoMime: "image/webp",
+          tamanoBytes: 4096,
+          creadoEn: "2026-11-10T11:00:00.000Z",
+        },
+      ]);
+    });
   });
 });

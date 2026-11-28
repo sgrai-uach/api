@@ -96,6 +96,19 @@ export interface ServerToClientEvents {
         leidaAt?: string | null;
         actualizadoEn: string;
     }) => void;
+    "adjunto:creado": (payload: AdjuntoCreadoPayload) => void;
+}
+
+export interface AdjuntoCreadoPayload {
+    id: string;
+    nombreArchivo: string;
+    url: string;
+    tipoMime: string;
+    tamanoBytes: number;
+    incidenteId: string | null;
+    reporteTerrenoId: string | null;
+    misionId?: string | null;
+    creadoEn: string;
 }
 
 export interface MisionRechazadaPayload {

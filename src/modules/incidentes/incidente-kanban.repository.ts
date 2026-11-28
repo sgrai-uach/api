@@ -580,11 +580,39 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     // Si la tabla o columnas no están presentes en mocks de pruebas aisladas, retornar vacío
   }
 
+  let adjuntosIncidente: Array<{
+    id: string;
+    nombre_archivo: string;
+    url: string;
+    tipo_mime: string;
+    tamano_bytes: number | string | bigint;
+    creado_en: Date | string;
+  }> = [];
+
+  try {
+    adjuntosIncidente = await db
+      .selectFrom("adjunto")
+      .select([
+        "id",
+        "nombre_archivo",
+        "url",
+        "tipo_mime",
+        "tamano_bytes",
+        "creado_en",
+      ])
+      .where("incidente_id", "=", id)
+      .orderBy("creado_en", "asc")
+      .execute();
+  } catch {
+    adjuntosIncidente = [];
+  }
+
   return {
     incidente,
     misiones,
     recursosAsociados,
     reportesEvaluacionTerreno,
+    adjuntosIncidente,
     justificacionReclasificacion: hitoReclasificacion?.descripcion ?? null,
     reclasificacionTipologiaRaw,
   } as {
@@ -600,6 +628,7 @@ export async function obtenerIncidenteDetallePorIdRepo(id: string) {
     misiones: typeof misiones;
     recursosAsociados: typeof recursosAsociados;
     reportesEvaluacionTerreno?: typeof reportesEvaluacionTerreno;
+    adjuntosIncidente?: typeof adjuntosIncidente;
     justificacionReclasificacion: string | null;
     reclasificacionTipologiaRaw?: typeof reclasificacionTipologiaRaw;
   };
